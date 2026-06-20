@@ -6,7 +6,6 @@ import {
   ClientMessage,
   projectMotion,
   ServerMessage,
-  STARTING_ZONE,
   type Player,
   type ZoneState,
 } from "@trogg/shared";
@@ -36,9 +35,19 @@ export function mountWorld(app: Application, room: Room<ZoneState>) {
   const stage = new Container();
   app.stage.addChild(stage);
 
-  stage.addChild(drawGrid());
-  centre(app, stage);
-  app.renderer.on("resize", () => centre(app, stage));
+  const grid = new Graphics();
+  stage.addChild(grid);
+
+  // Zone dimensions ride the room state and arrive in the first patch just after
+  // join (not at join itself), so draw the grid and centre the stage once they
+  // are known — and again on resize.
+  const layout = () => {
+    drawGrid(grid, room.state.width, room.state.height);
+    centre(app, stage, room.state.width, room.state.height);
+  };
+  app.renderer.on("resize", layout);
+  if (room.state.width > 0) layout();
+  else room.onStateChange.once(layout);
 
   const tracked = new Map<string, Tracked>();
   const $ = getStateCallbacks(room);
@@ -63,8 +72,9 @@ export function mountWorld(app: Application, room: Room<ZoneState>) {
 
   app.ticker.add(() => {
     const now = performance.now();
+    const bounds = { width: room.state.width, height: room.state.height };
     for (const { marker, player, baseMs } of tracked.values()) {
-      const { x, y } = projectMotion(player, now - baseMs, STARTING_ZONE);
+      const { x, y } = projectMotion(player, now - baseMs, bounds);
       place(marker, x, y);
     }
   });
@@ -132,16 +142,15 @@ function makeBubble(text: string): Container {
   return bubble;
 }
 
-function drawGrid() {
-  const g = new Graphics();
-  for (let x = 0; x <= STARTING_ZONE.width; x++) {
-    g.moveTo(x * TILE, 0).lineTo(x * TILE, STARTING_ZONE.height * TILE);
+function drawGrid(g: Graphics, width: number, height: number) {
+  g.clear();
+  for (let x = 0; x <= width; x++) {
+    g.moveTo(x * TILE, 0).lineTo(x * TILE, height * TILE);
   }
-  for (let y = 0; y <= STARTING_ZONE.height; y++) {
-    g.moveTo(0, y * TILE).lineTo(STARTING_ZONE.width * TILE, y * TILE);
+  for (let y = 0; y <= height; y++) {
+    g.moveTo(0, y * TILE).lineTo(width * TILE, y * TILE);
   }
   g.stroke({ width: 1, color: 0x2a2118 });
-  return g;
 }
 
 function makeMarker(name: string, self: boolean) {
@@ -163,9 +172,9 @@ function place(marker: Container, x: number, y: number) {
   marker.position.set(x * TILE, y * TILE);
 }
 
-function centre(app: Application, stage: Container) {
+function centre(app: Application, stage: Container, width: number, height: number) {
   stage.position.set(
-    (app.renderer.width - STARTING_ZONE.width * TILE) / 2,
-    (app.renderer.height - STARTING_ZONE.height * TILE) / 2,
+    (app.renderer.width - width * TILE) / 2,
+    (app.renderer.height - height * TILE) / 2,
   );
 }
