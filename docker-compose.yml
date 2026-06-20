@@ -1,6 +1,7 @@
-# Local Postgres + Redis, mirroring the prod backend so the server persists the
-# same way it does in production. Matches the defaults in server/.env.example.
-#   docker compose up -d
+# Local Postgres + Valkey, mirroring the prod backend so the server persists the
+# same way it does in production. Valkey speaks the Redis protocol, so the server
+# still connects with REDIS_URL / a redis:// URL. Matches server/.env.example.
+#   docker compose up -d --wait
 services:
   postgres:
     image: postgres:17-alpine
@@ -18,13 +19,18 @@ services:
       timeout: 5s
       retries: 5
 
-  redis:
-    image: redis:7-alpine
+  valkey:
+    image: valkey/valkey:8-alpine
     ports:
       - "6379:6379"
     volumes:
-      - redis-data:/data
+      - valkey-data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
 volumes:
   postgres-data:
-  redis-data:
+  valkey-data:
