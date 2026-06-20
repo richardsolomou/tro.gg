@@ -146,7 +146,9 @@ New node types are added by extending this table — keep it the registry.
 
 ## Data model
 
-Two layers. **Postgres** is the durable store (tables below). The **live room state** synced to clients is a `@colyseus/schema` projection of it — one room per zone holds the players in that zone (motion fields + equipment), its nodes (type, state, `respawnAt`), and recent chat; Colyseus syncs that schema to everyone in the room automatically. A room loads its state from Postgres on creation and writes durable changes back; an empty zone has no room (`autoDispose`) and rehydrates on the next join. Indexes noted where the access pattern demands them.
+Two layers. **Postgres** is the durable store (tables below); **Redis** is a write-through cache in front of it. The **live room state** synced to clients is a `@colyseus/schema` projection of it — one room per zone holds the players in that zone (motion fields + equipment), its nodes (type, state, `respawnAt`), and recent chat; Colyseus syncs that schema to everyone in the room automatically. A room hydrates each player on join (Redis cache → Postgres → new) and writes durable changes back — to Redis on every change, flushed through to Postgres on leave, dispose, and a periodic checkpoint. An empty zone has no room (`autoDispose`) and rehydrates on the next join. Only settled position persists; transient motion intents (direction, path, `movedAt`) are not durable. Indexes noted where the access pattern demands them.
+
+Both backends are optional in dev: without `DATABASE_URL` / `REDIS_URL` the missing layer is skipped and state is in-memory only. `docker compose up` provides local Postgres + Redis matching prod.
 
 ```text
 players        userId, name, isGuest, zoneId, x, y, dirX, dirY, path, movedAt, hubUnlocked, equipment
@@ -176,6 +178,7 @@ projects       slug, zoneId, status, requirements, contributed     (M3)
 - **Fixed cost, watched in metrics.** The VPS is a flat monthly bill, not a usage meter, so the concern is CPU, memory, and bandwidth per node — watched via server metrics and PostHog, not an egress invoice. At the realistic scale (tens of concurrent) a single process on a small Hetzner box is ample.
 - **Capacity cap before launch.** Room and connection limits are set so a viral night sheds or queues load instead of toppling the box; vertical scale (a bigger VPS) is the first lever, horizontal (more processes) the second.
 - **The answer key, only when a graph demands it:** raise the room's patch-rate budget, area-of-interest filtering via schema views (`@filter`), crowd aggregation above a density threshold, multiple processes sharing a Redis presence/driver, and — break-glass — moving the live position feed to a Redis pub/sub channel while the room keeps all authoritative state. None of these are built in advance.
+- **Redis is already wired single-node** as the Colyseus presence/driver (and the player cache), so the prod backend is mirrored from M0. This is parity plumbing, not scale-out: still one process, rooms not distributed. Actually *running* multiple processes — and everything else in the answer key — stays deferred under invariant 10.
 - **Swappable position feed:** the client consumes positions through one interface (`subscribeToPositions(area)`) and writes through one path. This is code hygiene, not optimization — it's what makes every option above a one-module swap.
 
 ## Invariants (non-negotiable)
@@ -204,6 +207,8 @@ Current milestone: **M0**. Don't build ahead without being asked.
 | M4 | not started | The Great Delving | Community stress-test event: everyone piles in at once | Load behavior; live analytics at peak; the load graph's big night |
 | M5 | not started | Talking Hogs | LLM-driven Hog NPCs | Actions calling LLMs; AI observability |
 | M6 | not started | Defense events (optional) | PvE waves; protect the Hogs | Event-based combat within invariant 7 |
+
+Durable persistence (Postgres + Redis cache + Colyseus presence/driver) landed in M0, ahead of the tracker, at maintainer direction — players now resume their trogg across reconnects and restarts. It rides a minimal browser-stored guest id (a `localStorage` UUID sent on join); M1 still owns the full identity story (signed credential validated in `onAuth`, cross-device sign-in, names).
 
 ## Open design threads
 

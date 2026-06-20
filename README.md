@@ -19,7 +19,7 @@ You're a trogg in a shared world. Gather, craft better gear, and push into harde
 
 ## Status
 
-Pre-M0 — engine scaffold in place (Colyseus client/server wired, empty zone room with presence), no gameplay yet.
+M0 in progress — Colyseus client/server wired, one zone room with presence and WASD movement, persisted to Postgres with a Redis cache (players resume across reconnects and restarts).
 
 ## Development
 
@@ -34,13 +34,16 @@ A pnpm workspace with three packages:
 ```sh
 pnpm install
 cp client/.env.example client/.env   # set VITE_COLYSEUS_URL, PostHog key
-cp server/.env.example server/.env
+cp server/.env.example server/.env   # set DATABASE_URL, REDIS_URL
+docker compose up -d                 # local Postgres + Redis (mirrors prod)
 pnpm dev                             # client on :5173, server on :2567
 ```
+
+Persistence is optional in dev: with no `DATABASE_URL` / `REDIS_URL` the server runs in-memory only, so `docker compose` is skippable for a quick UI loop.
 
 `pnpm build` builds all three; `pnpm typecheck` checks them.
 
 ### Deploy
 
 - **Client → Cloudflare Pages.** Build command `pnpm build:client`, output directory `client/dist`. Set `VITE_COLYSEUS_URL` (the server's `wss://` URL) and the PostHog vars as Pages environment variables.
-- **Server → Hetzner VPS.** `pnpm --filter @tro/server build && pnpm --filter @tro/server start`. Set `PORT` and `CLIENT_ORIGIN` (the Pages origin) in the environment. Postgres and Redis land with the mechanics that need them.
+- **Server → Hetzner VPS.** `pnpm --filter @tro/server build && pnpm --filter @tro/server start`. Set `PORT`, `CLIENT_ORIGIN` (the Pages origin), `DATABASE_URL` (Postgres), and `REDIS_URL` (cache + Colyseus presence/driver) in the environment.
