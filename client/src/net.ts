@@ -1,5 +1,5 @@
-import { Client, type Room } from "colyseus.js";
-import type { ZoneState } from "@tro/shared";
+import { Client, type Room } from "@colyseus/sdk";
+import type { ZoneState } from "@trogg/shared";
 import { COLYSEUS_URL } from "./env.js";
 import { getOrCreateGuestId } from "./identity.js";
 

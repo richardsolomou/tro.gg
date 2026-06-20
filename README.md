@@ -27,7 +27,7 @@ A pnpm workspace with three packages:
 
 | Package | What it is | Runs on |
 | ------- | ---------- | ------- |
-| `client` | PixiJS + Vite game client (`colyseus.js`, `posthog-js`) | Cloudflare Pages |
+| `client` | PixiJS + Vite game client (`@colyseus/sdk`, `posthog-js`) | Cloudflare Pages |
 | `server` | Colyseus game server — one room per zone | Self-hosted (Hetzner VPS) |
 | `shared` | Room-state schema, message types, and GDD constants, imported by both | — |
 
@@ -46,4 +46,4 @@ Persistence is optional in dev: with no `DATABASE_URL` / `REDIS_URL` the server 
 ### Deploy
 
 - **Client → Cloudflare Pages.** Build command `pnpm build:client`, output directory `client/dist`. Set `VITE_COLYSEUS_URL` (the server's `wss://` URL) and the PostHog vars as Pages environment variables.
-- **Server → Hetzner VPS.** `pnpm --filter @tro/server build && pnpm --filter @tro/server start`. Set `PORT`, `CLIENT_ORIGIN` (the Pages origin), `DATABASE_URL` (Postgres), and `REDIS_URL` (cache + Colyseus presence/driver) in the environment.
+- **Server → Hetzner VPS.** `pnpm --filter @trogg/server build && pnpm --filter @trogg/server start`. Set `PORT`, `CLIENT_ORIGIN` (the Pages origin), `DATABASE_URL` (Postgres), and `REDIS_URL` (cache + Colyseus presence/driver) in the environment.

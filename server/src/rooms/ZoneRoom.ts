@@ -1,5 +1,5 @@
 import { Room, type Client } from "colyseus";
-import { ClientMessage, type MovePayload, Player, projectMotion, STARTING_ZONE, ZoneState } from "@tro/shared";
+import { ClientMessage, type MovePayload, Player, projectMotion, STARTING_ZONE, ZoneState } from "@trogg/shared";
 import { getPlayerStore, type PlayerRecord, type PlayerStore } from "../persistence/playerStore.js";
 
 /** How often dirty players are flushed from the Redis cache to durable Postgres. */
@@ -14,7 +14,7 @@ const PERSIST_FLUSH_MS = 15_000;
  * from the stored intent, never advanced on a timer — the flush below only
  * persists, it never mutates room state.
  */
-export class ZoneRoom extends Room<ZoneState> {
+export class ZoneRoom extends Room<{ state: ZoneState }> {
   private store!: PlayerStore;
   /** sessionId → durable user id, kept server-side (not synced to clients). */
   private readonly userIds = new Map<string, string>();
