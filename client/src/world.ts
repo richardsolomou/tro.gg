@@ -1,5 +1,5 @@
 import { Application, Container, Graphics, Text } from "pixi.js";
-import { getStateCallbacks, type Room } from "colyseus.js";
+import { getStateCallbacks, type Room } from "@colyseus/sdk";
 import {
   CHAT_BUBBLE_MS,
   type ChatBubblePayload,
@@ -9,7 +9,7 @@ import {
   STARTING_ZONE,
   type Player,
   type ZoneState,
-} from "@tro/shared";
+} from "@trogg/shared";
 import { attachKeyboard } from "./input.js";
 import { mountChat } from "./chat.js";
 import { captureEvent, isFeatureEnabled } from "./analytics.js";

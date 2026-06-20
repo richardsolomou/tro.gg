@@ -12,7 +12,7 @@ import {
   ServerMessage,
   STARTING_ZONE,
   ZoneState,
-} from "@tro/shared";
+} from "@trogg/shared";
 import { getGameStore, type GameStore, type PlayerRecord } from "../persistence/gameStore.js";
 
 /** How often dirty players are flushed from the Redis cache to durable Postgres. */
@@ -28,7 +28,7 @@ const PERSIST_FLUSH_MS = 15_000;
  * stored intent, never advanced on a timer — the flush below only persists, it
  * never mutates room state.
  */
-export class ZoneRoom extends Room<ZoneState> {
+export class ZoneRoom extends Room<{ state: ZoneState }> {
   private store!: GameStore;
   /** sessionId → durable user id, kept server-side (not synced to clients). */
   private readonly userIds = new Map<string, string>();

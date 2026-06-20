@@ -1,5 +1,5 @@
-import { ClientMessage, type MovePayload, type ZoneState } from "@tro/shared";
-import type { Room } from "colyseus.js";
+import { ClientMessage, type MovePayload, type ZoneState } from "@trogg/shared";
+import type { Room } from "@colyseus/sdk";
 
 /** Keys → axis contribution. WASD and arrows both drive the same intent. */
 const KEY_VECTORS: Record<string, MovePayload> = {
