@@ -4,8 +4,8 @@ import { Schema, MapSchema, type } from "@colyseus/schema";
  * Live room-state projection synced to clients (see GDD "Data model"). One room
  * per zone; this is the in-memory state Colyseus diffs to everyone in it. The
  * durable Postgres tables are the source of truth — a room hydrates from them
- * and writes durable changes back. Persistence lands with the mechanics that
- * need it; M0 is in-memory presence only.
+ * (via a Redis cache) on join and writes durable changes back. Only the settled
+ * position is persisted; the motion intent below is transient.
  *
  * Motion is intent-based (invariants 1 & 2): position over time is derived from
  * an origin (x, y) + movedAt and either a direction (WASD) or a path
