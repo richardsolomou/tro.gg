@@ -11,6 +11,8 @@ export const MOVE_SPEED_TILES_PER_SEC = 4;
 export const CHAT_MAX_CHARS = 200;
 export const CHAT_BUBBLE_MS = 5_000;
 export const CHAT_RATE_LIMIT_MS = 1_000;
+/** Recent messages kept in zone state for the side-panel history. (initial) */
+export const CHAT_HISTORY_MAX = 50;
 
 /** M0 ships a single shared zone. (working slug, initial dims) */
 export const STARTING_ZONE = {

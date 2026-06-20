@@ -1,7 +1,18 @@
 import { Application, Container, Graphics, Text } from "pixi.js";
 import { getStateCallbacks, type Room } from "@colyseus/sdk";
-import { projectMotion, STARTING_ZONE, type Player, type ZoneState } from "@trogg/shared";
+import {
+  CHAT_BUBBLE_MS,
+  type ChatBubblePayload,
+  ClientMessage,
+  projectMotion,
+  ServerMessage,
+  STARTING_ZONE,
+  type Player,
+  type ZoneState,
+} from "@trogg/shared";
 import { attachKeyboard } from "./input.js";
+import { mountChat } from "./chat.js";
+import { captureEvent, isFeatureEnabled } from "./analytics.js";
 
 const TILE = 28;
 
@@ -10,6 +21,8 @@ interface Tracked {
   marker: Container;
   player: Player;
   baseMs: number;
+  bubble?: Container;
+  bubbleTimer?: ReturnType<typeof setTimeout>;
 }
 
 /**
@@ -42,7 +55,9 @@ export function mountWorld(app: Application, room: Room<ZoneState>) {
   });
 
   $(room.state).players.onRemove((_player, sessionId) => {
-    tracked.get(sessionId)?.marker.destroy({ children: true });
+    const entry = tracked.get(sessionId);
+    if (entry?.bubbleTimer) clearTimeout(entry.bubbleTimer);
+    entry?.marker.destroy({ children: true });
     tracked.delete(sessionId);
   });
 
@@ -56,6 +71,65 @@ export function mountWorld(app: Application, room: Room<ZoneState>) {
 
   const detachKeyboard = attachKeyboard(room);
   room.onLeave(() => detachKeyboard());
+
+  if (isFeatureEnabled("chat-enabled")) setupChat(room, tracked, $);
+}
+
+/**
+ * Wires zone chat: the synced history feeds the side panel (replayed on join),
+ * while live bubbles arrive as broadcasts so they pop only for present players,
+ * not for the backlog. Own confirmed messages emit `chat_sent` — never content
+ * (invariant 4 / docs/analytics.md).
+ */
+function setupChat(room: Room<ZoneState>, tracked: Map<string, Tracked>, $: ReturnType<typeof getStateCallbacks>) {
+  const chat = mountChat((text) => room.send(ClientMessage.Chat, { text }));
+
+  $(room.state).chat.onAdd((message) => chat.addMessage(message.name, message.text));
+
+  room.onMessage(ServerMessage.ChatBubble, ({ sessionId, text }: ChatBubblePayload) => {
+    showBubble(tracked, sessionId, text);
+    if (sessionId === room.sessionId) captureEvent("chat_sent", { zone: room.state.slug });
+  });
+
+  room.onLeave(() => chat.destroy());
+}
+
+/** Pop a speech bubble over a trogg's head, replacing any current one. */
+function showBubble(tracked: Map<string, Tracked>, sessionId: string, text: string) {
+  const entry = tracked.get(sessionId);
+  if (!entry) return;
+
+  if (entry.bubbleTimer) clearTimeout(entry.bubbleTimer);
+  entry.bubble?.destroy({ children: true });
+
+  const bubble = makeBubble(text);
+  entry.marker.addChild(bubble);
+  entry.bubble = bubble;
+  entry.bubbleTimer = setTimeout(() => {
+    bubble.destroy({ children: true });
+    if (entry.bubble === bubble) {
+      entry.bubble = undefined;
+      entry.bubbleTimer = undefined;
+    }
+  }, CHAT_BUBBLE_MS);
+}
+
+function makeBubble(text: string): Container {
+  const bubble = new Container();
+  const label = new Text({
+    text,
+    style: { fontFamily: "monospace", fontSize: 11, fill: 0x0a0806, align: "center", wordWrap: true, wordWrapWidth: 150 },
+  });
+  label.anchor.set(0.5, 1);
+  const padX = 5;
+  const padY = 3;
+  const bg = new Graphics()
+    .roundRect(-label.width / 2 - padX, -label.height - padY, label.width + padX * 2, label.height + padY * 2, 4)
+    .fill(0xe8dcc4);
+  label.position.set(0, padY);
+  bubble.addChild(bg, label);
+  bubble.position.set(TILE / 2, -16);
+  return bubble;
 }
 
 function drawGrid() {

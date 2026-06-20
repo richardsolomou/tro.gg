@@ -1,35 +1,56 @@
 import { Room, type Client } from "colyseus";
-import { ClientMessage, type MovePayload, Player, projectMotion, STARTING_ZONE, ZoneState } from "@trogg/shared";
-import { getPlayerStore, type PlayerRecord, type PlayerStore } from "../persistence/playerStore.js";
+import {
+  CHAT_HISTORY_MAX,
+  CHAT_MAX_CHARS,
+  CHAT_RATE_LIMIT_MS,
+  ChatMessage,
+  type ChatPayload,
+  ClientMessage,
+  type MovePayload,
+  Player,
+  projectMotion,
+  ServerMessage,
+  STARTING_ZONE,
+  ZoneState,
+} from "@trogg/shared";
+import { getGameStore, type GameStore, type PlayerRecord } from "../persistence/gameStore.js";
 
 /** How often dirty players are flushed from the Redis cache to durable Postgres. */
 const PERSIST_FLUSH_MS = 15_000;
 
 /**
- * One room per zone (GDD "Multiplayer scaling stance"). Presence plus WASD
- * movement, persisted: a player hydrates from the store on join (Redis cache →
- * Postgres → new trogg) and writes back on move, leave, and a periodic flush.
- * Motion intents settle into authoritative position; Colyseus diffs the state
- * to everyone in the room. No simulation loop (invariant 1): position is derived
- * from the stored intent, never advanced on a timer — the flush below only
- * persists, it never mutates room state.
+ * One room per zone (GDD "Multiplayer scaling stance"). Presence, WASD movement,
+ * and zone-scoped chat, all persisted: a player hydrates from the store on join
+ * (Redis cache → Postgres → new trogg) and writes back on move, leave, and a
+ * periodic flush; chat replays its recent history on create. Motion intents
+ * settle into authoritative position; Colyseus diffs the state to everyone in
+ * the room. No simulation loop (invariant 1): position is derived from the
+ * stored intent, never advanced on a timer — the flush below only persists, it
+ * never mutates room state.
  */
 export class ZoneRoom extends Room<{ state: ZoneState }> {
-  private store!: PlayerStore;
+  private store!: GameStore;
   /** sessionId → durable user id, kept server-side (not synced to clients). */
   private readonly userIds = new Map<string, string>();
   /** Sessions changed since the last durable flush. */
   private readonly dirty = new Set<string>();
+  /** sessionId → last chat time (room clock ms), for the per-player rate limit. */
+  private readonly lastChatAt = new Map<string, number>();
 
-  onCreate() {
+  async onCreate() {
     this.state = new ZoneState();
     this.state.slug = STARTING_ZONE.slug;
-    this.store = getPlayerStore();
+    this.store = getGameStore();
 
     this.onMessage(ClientMessage.Move, (client, message: MovePayload) => this.onMove(client, message));
+    this.onMessage(ClientMessage.Chat, (client, message: ChatPayload) => this.onChat(client, message));
 
     if (this.store.persistent) {
       this.clock.setInterval(() => void this.flush(), PERSIST_FLUSH_MS);
+    }
+
+    for (const line of await this.store.recentChat(STARTING_ZONE.slug, CHAT_HISTORY_MAX)) {
+      this.state.chat.push(pushChat(line.name, line.text));
     }
   }
 
@@ -59,6 +80,32 @@ export class ZoneRoom extends Room<{ state: ZoneState }> {
     if (record) void this.store.cache(record);
   }
 
+  /**
+   * A zone-scoped chat line. Validate length, enforce a per-player rate limit
+   * (invariant 3 — never trust the client), append to the synced history (capped),
+   * persist it, and broadcast a live bubble. Content never goes to analytics
+   * (invariant 4). The text is rendered as a DOM text node client-side, so no
+   * markup escaping is needed here.
+   */
+  private onChat(client: Client, message: ChatPayload) {
+    const player = this.state.players.get(client.sessionId);
+    const userId = this.userIds.get(client.sessionId);
+    if (!player || !userId) return;
+
+    const text = String(message?.text ?? "").trim().slice(0, CHAT_MAX_CHARS);
+    if (!text) return;
+
+    const now = this.clock.currentTime;
+    if (now - (this.lastChatAt.get(client.sessionId) ?? -Infinity) < CHAT_RATE_LIMIT_MS) return;
+    this.lastChatAt.set(client.sessionId, now);
+
+    this.state.chat.push(pushChat(player.name, text));
+    while (this.state.chat.length > CHAT_HISTORY_MAX) this.state.chat.shift();
+
+    void this.store.appendChat(STARTING_ZONE.slug, userId, text);
+    this.broadcast(ServerMessage.ChatBubble, { sessionId: client.sessionId, text });
+  }
+
   async onJoin(client: Client, options?: { userId?: unknown }) {
     // The client supplies its browser-stored guest id so a returning visitor
     // resumes the same trogg. Unsigned for M0; M1 swaps this for a signed
@@ -79,6 +126,7 @@ export class ZoneRoom extends Room<{ state: ZoneState }> {
 
     this.dirty.delete(client.sessionId);
     this.userIds.delete(client.sessionId);
+    this.lastChatAt.delete(client.sessionId);
     this.state.players.delete(client.sessionId);
   }
 
@@ -128,6 +176,14 @@ function freshPlayer(userId: string): Player {
   player.x = Math.floor(STARTING_ZONE.width / 2);
   player.y = Math.floor(STARTING_ZONE.height / 2);
   return player;
+}
+
+/** A ChatMessage schema node for the synced history. */
+function pushChat(name: string, text: string): ChatMessage {
+  const message = new ChatMessage();
+  message.name = name;
+  message.text = text;
+  return message;
 }
 
 /** Coerce an untrusted axis input to -1, 0, or 1. */

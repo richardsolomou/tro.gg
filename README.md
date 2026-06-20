@@ -19,7 +19,7 @@ You're a trogg in a shared world. Gather, craft better gear, and push into harde
 
 ## Status
 
-M0 in progress — Colyseus client/server wired, one zone room with presence and WASD movement, persisted to Postgres with a Redis cache (players resume across reconnects and restarts).
+M0 in progress — Colyseus client/server wired, one zone room with presence, WASD movement, and zone chat (speech bubbles + history panel), persisted to Postgres with a Redis cache (players and chat resume across reconnects and restarts).
 
 ## Development
 

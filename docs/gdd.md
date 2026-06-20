@@ -210,6 +210,8 @@ Current milestone: **M0**. Don't build ahead without being asked.
 
 Durable persistence (Postgres + Redis cache + Colyseus presence/driver) landed in M0, ahead of the tracker, at maintainer direction — players now resume their trogg across reconnects and restarts. It rides a minimal browser-stored guest id (a `localStorage` UUID sent on join); M1 still owns the full identity story (signed credential validated in `onAuth`, cross-device sign-in, names).
 
+Zone chat (M0 scope) ships on top of it: speech bubbles over heads plus a history side panel, behind the `chat-enabled` flag. Recent lines persist to Postgres and replay when a zone's room respawns. Server-side validation enforces the 200-char cap and 1 msg/sec rate limit; the flag currently gates the client mount (server-side enforcement lands with posthog-node).
+
 ## Open design threads
 
 - Mascot integration: the trogg concept art as the avatar spritesheet base.

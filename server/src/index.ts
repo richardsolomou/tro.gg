@@ -5,7 +5,7 @@ import { WebSocketTransport } from "@colyseus/ws-transport";
 import { RedisPresence } from "@colyseus/redis-presence";
 import { RedisDriver } from "@colyseus/redis-driver";
 import { ZoneRoom } from "./rooms/ZoneRoom.js";
-import { getPlayerStore } from "./persistence/playerStore.js";
+import { getGameStore } from "./persistence/gameStore.js";
 
 const port = Number(process.env.PORT ?? 2567);
 const redisUrl = process.env.REDIS_URL;
@@ -34,7 +34,7 @@ const gameServer = new Server({
 gameServer.define("zone", ZoneRoom);
 
 async function main() {
-  const store = getPlayerStore();
+  const store = getGameStore();
   await store.init();
   if (!store.persistent) {
     console.warn("No DATABASE_URL or REDIS_URL set — running with in-memory state only.");
