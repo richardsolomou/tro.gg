@@ -12,7 +12,7 @@ The PostHog plan: every product gets a real job, introduced one milestone at a t
 | Funnels / retention | Onboarding funnel, XP progression, return cohorts |
 | Feature flags | Every mechanic ships behind one; balance knobs; gradual rollouts |
 | Experiments | A/B on tuning values (gather times, respawns), announced to players |
-| Error tracking | Client + Convex errors |
+| Error tracking | Client + server errors |
 | Surveys | In-game feedback prompts |
 | AI observability | M5 talking Hogs — traces, cost, quality |
 
@@ -35,7 +35,7 @@ snake_case. Low-volume by design — anything that could fire more than ~once/se
 | `project_completed` | `project` | M3 |
 | `shop_purchase` | `item, qty, price` | M3 |
 
-Client events via posthog-js (plus autocapture + session replay). Server events via the PostHog Convex component — gameplay-authoritative events (`resource_gathered`, `xp_gained`, `level_up`, crafting, projects, purchases) fire server-side, not client-side.
+Client events via posthog-js (plus autocapture + session replay). Server events via posthog-node in the game server — gameplay-authoritative events (`resource_gathered`, `xp_gained`, `level_up`, crafting, projects, purchases) fire server-side, not client-side.
 
 ## Feature flags
 

@@ -1,8 +1,8 @@
 # tro.gg
 
-A tiny multiplayer world in your browser, built incrementally in public as a challenge: **how much of a real multiplayer game can [PostHog](https://posthog.com)'s products power?** The plan is for everything that can be PostHog to be PostHog — flags, experiments, replays, error tracking, surveys — each doing a real job in the game. The one thing PostHog doesn't offer is a backend; that comes from [Convex](https://convex.dev).
+A tiny multiplayer world in your browser, built incrementally in public as a challenge: **how much of a real multiplayer game can [PostHog](https://posthog.com)'s products power?** The plan is for everything that can be PostHog to be PostHog — analytics, feature flags, error tracking, AI observability, and more — each doing a real job in the game. The one thing PostHog doesn't offer is a backend — so that's the one piece we run ourselves: a [Colyseus](https://colyseus.io) game server self-hosted on a Hetzner VPS, with Postgres and Redis behind it.
 
-You're a trogg in a shared world. Gather, craft, and build with the tribe — alongside the Hogs, a town of friendly hedgehogs — as the world grows, one piece at a time.
+You're a trogg in a shared world. Gather, craft better gear, and push into harder ground — alongside the Hogs, a town of friendly hedgehogs — as the world grows, one piece at a time.
 
 ## Play
 

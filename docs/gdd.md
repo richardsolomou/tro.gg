@@ -23,7 +23,7 @@ The buildable spec for tro.gg. If you are an agent working on this codebase: thi
 | recipe | A crafting definition: inputs → output, skill requirement. |
 | project | A communal construction: the tribe pools resources to build it; completing it unlocks something. |
 | Hog | A friendly hedgehog NPC (merchant, townsfolk, protectee). See [world.md](world.md). |
-| guest | An anonymous player (Convex Auth anonymous session). Has a generated name until upgrade. |
+| guest | An anonymous player (self-issued anonymous session). Has a generated name until upgrade. |
 
 ## Design pillars
 
@@ -58,8 +58,8 @@ Both are **input-driven, not per-frame.** The client writes a movement intent on
 
 - Move speed: 4 tiles/sec *(initial)*, shared by both modes. A click overrides held keys and vice versa.
 - **Obstacles:** tiles carry a walkability flag; nodes and scenery (trees, rocks, walls) sit on unwalkable tiles. WASD clamps at the first unwalkable tile or the zone edge; click-to-move routes around them.
-- **Pathfinding:** the server runs grid `A*` over the zone's walkable tiles on each click, stores the resulting `path` on the player, and clients animate along that synced path — no client-side recompute, so no determinism mismatch to manage. An obstacle-free zone degenerates to a straight line. The algorithm runs inside a Convex mutation, so it must be pure JS — a small hand-rolled grid `A*` or a battle-tested pure-JS lib (PathFinding.js, easystarjs).
-- **No teleport-by-quit.** The stored `(x, y)` is the *origin* of the current move, never the destination. Position is only advanced by elapsed real time × speed along `path`, so clicking far away and quitting skips nothing — on return you're wherever the clock puts you (arrived only if enough time actually passed). A scheduled mutation may settle `(x, y)` to the path's end at `movedAt + traveltime`, but never before it.
+- **Pathfinding:** the server runs grid `A*` over the zone's walkable tiles on each click, stores the resulting `path` on the player, and clients animate along that synced path — no client-side recompute, so no determinism mismatch to manage. An obstacle-free zone degenerates to a straight line. The algorithm runs server-side in the room on each click — a small hand-rolled grid `A*` or a battle-tested JS lib (PathFinding.js, easystarjs).
+- **No teleport-by-quit.** The stored `(x, y)` is the *origin* of the current move, never the destination. Position is only advanced by elapsed real time × speed along `path`, so clicking far away and quitting skips nothing — on return you're wherever the clock puts you (arrived only if enough time actually passed). A scheduled task may settle `(x, y)` to the path's end at `movedAt + traveltime`, but never before it.
 - **Prediction (display only):** because clients sync *intents*, not positions, every client derives the same motion locally and animates other troggs continuously from their last known intent — no waiting on a server round-trip to see movement. The server stays authoritative (invariant 3); a client snaps to server truth on any mismatch. Continuous extrapolation is inherent to the intent model; rollback-style reconciliation for your own avatar is optional polish, added only if it's needed.
 
 ### Camera and rendering
@@ -90,7 +90,7 @@ Both are **input-driven, not per-frame.** The client writes a movement intent on
 
 ### Identity
 
-- Anonymous-first via Convex Auth. Guests get a generated name: `trogg-####` and exist within seconds, no signup.
+- Anonymous-first: on first load the server issues an anonymous credential (a signed token the browser stores) and Colyseus validates it in `onAuth`. Guests get a generated name: `trogg-####` and exist within seconds, no signup.
 - **Guest persistence:** the browser securely stores the guest's auth credential — not game state, which stays server-authoritative (invariant 3) — so a returning visitor resumes the same trogg with their progress intact. Clearing the browser or switching devices makes a guest a new trogg.
 - **Signing in** upgrades a guest to an account: pick a real name (fires `player_named` and `posthog.identify()`, merging the guest's history) and play cross-browser/device, since the account — not the browser — now anchors the synced state.
 - Names: unique, 3–20 chars, alphanumeric + hyphen.
@@ -104,7 +104,7 @@ Both are **input-driven, not per-frame.** The client writes a movement intent on
 
 ### Gathering (nodes and actions)
 
-- Clicking a node routes the trogg to the nearest reachable tile adjacent to it (nodes are unwalkable). On arrival the action starts: the server validates (adjacent, node available, no action in progress), writes the action with an end time, and schedules an internal mutation at completion.
+- Clicking a node routes the trogg to the nearest reachable tile adjacent to it (nodes are unwalkable). On arrival the action starts: the server validates (adjacent, node available, no action in progress), writes the action with an end time, and schedules its completion server-side (`endsAt` persisted so it survives a restart).
 - Completion grants the item + XP, flips the node to `depleted`, schedules its respawn. If the player walked away mid-action, the action cancels.
 - One action at a time per player. Starting a new one cancels the old.
 
@@ -146,13 +146,13 @@ New node types are added by extending this table — keep it the registry.
 
 ## Data model
 
-Convex tables. Indexes noted where the access pattern demands them.
+Two layers. **Postgres** is the durable store (tables below). The **live room state** synced to clients is a `@colyseus/schema` projection of it — one room per zone holds the players in that zone (motion fields + equipment), its nodes (type, state, `respawnAt`), and recent chat; Colyseus syncs that schema to everyone in the room automatically. A room loads its state from Postgres on creation and writes durable changes back; an empty zone has no room (`autoDispose`) and rehydrates on the next join. Indexes noted where the access pattern demands them.
 
 ```text
 players        userId, name, isGuest, zoneId, x, y, dirX, dirY, path, movedAt, hubUnlocked, equipment
                motion derived from origin (x,y) + movedAt: WASD uses dirX/dirY (0,0 = idle);
                click-to-move walks `path` (waypoint tiles, empty otherwise). hubUnlocked: M1 checkpoint gate.
-               equipment: slot → item map, multiple slots at once (e.g. { mainHand: "sword", offHand: "shield" }; armor slots later) — rides by_zone sync so others see it
+               equipment: slot → item map, multiple slots at once (e.g. { mainHand: "sword", offHand: "shield" }; armor slots later) — rides the room's zone sync so others see it
                index: by_zone (zoneId)
 zones          slug, name, width, height, tilemap (per-tile walkability + scenery), checkpoint (unlock tile, null if none)
                index: by_slug (slug)
@@ -172,16 +172,17 @@ projects       slug, zoneId, status, requirements, contributed     (M3)
 
 ## Multiplayer scaling stance
 
-- **Build naive, watch the graphs.** Whole-zone reactive queries, full player list per subscriber, no interest management, no instancing. At the realistic scale (tens of concurrent players) this costs single-digit dollars; the egress dashboard is watched openly as usage grows.
-- **Spend cap before launch.** A Convex usage spending limit is set so a viral night degrades service instead of running an open tab.
-- **The answer key, only when a graph demands it:** positions-as-presence (`@convex-dev/presence`), chunked area-of-interest subscriptions, crowd aggregation above a density threshold, and — break-glass — moving the live position feed to a dumb pub/sub channel while Convex keeps all authoritative state. None of these are built in advance.
+- **One room per zone, naive within it.** A zone maps to a Colyseus room; clients join the room for their current zone and Colyseus syncs its state to everyone in it. Within a room there's no interest management and no instancing — everyone sees every player.
+- **Fixed cost, watched in metrics.** The VPS is a flat monthly bill, not a usage meter, so the concern is CPU, memory, and bandwidth per node — watched via server metrics and PostHog, not an egress invoice. At the realistic scale (tens of concurrent) a single process on a small Hetzner box is ample.
+- **Capacity cap before launch.** Room and connection limits are set so a viral night sheds or queues load instead of toppling the box; vertical scale (a bigger VPS) is the first lever, horizontal (more processes) the second.
+- **The answer key, only when a graph demands it:** raise the room's patch-rate budget, area-of-interest filtering via schema views (`@filter`), crowd aggregation above a density threshold, multiple processes sharing a Redis presence/driver, and — break-glass — moving the live position feed to a Redis pub/sub channel while the room keeps all authoritative state. None of these are built in advance.
 - **Swappable position feed:** the client consumes positions through one interface (`subscribeToPositions(area)`) and writes through one path. This is code hygiene, not optimization — it's what makes every option above a one-module swap.
 
 ## Invariants (non-negotiable)
 
-1. No global tick loop. Actions schedule their own completions; the world computes only when occupied.
-2. No per-frame or per-tile server sync. Convex syncs movement intents (click→path, key down/up, direction change); clients derive and predict motion locally. Player rows change on input, never on a timer or every frame.
-3. All authoritative state lives in Convex. Never trust the client.
+1. No simulation tick. We never run a server simulation loop (no `setSimulationInterval`); state changes only on player input or scheduled completions (`clock.setTimeout`). Colyseus's patch loop merely *broadcasts* state diffs — an unchanged room produces none — and a zone with no players has no room (`autoDispose`), so an empty world computes nothing.
+2. No per-frame or per-tile server sync. The server syncs movement intents (click→path, key down/up, direction change) via room messages; clients derive and predict motion locally. Synced player state changes on input, never on a timer or every frame.
+3. All authoritative state lives on the server — the Colyseus room in memory, durably persisted to Postgres. Never trust the client.
 4. Analytics events are low-volume and never contain chat content or PII beyond the player name (full rules in [analytics.md](analytics.md)).
 5. Every new mechanic ships behind a feature flag.
 6. The game is playable at the end of every session. No half-wired states on `main`.
@@ -196,11 +197,11 @@ Current milestone: **M0**. Don't build ahead without being asked.
 
 | # | Status | Name | Scope | Demos |
 | - | ------ | ---- | ----- | ----- |
-| M0 | not started | Tiny shared world | Avatars, click-to-move + WASD, chat bubbles, one zone | Reactive queries, presence; autocapture, first session replays |
-| M1 | not started | Identity & onboarding | Browser-persisted guests + cross-device sign-in, names; starting cave → checkpoint → hub gate; obstacles + A* pathfinding | Convex Auth; `identify`, person profiles, unified front/back journeys |
-| M2 | not started | Gathering loop | Stone + glowcap nodes, mining/foraging XP, leaderboard | Scheduled functions, respawns; funnels, retention |
-| M3 | not started | Crafting & the tribe builds | Recipes, tools, first communal project, Hog merchants | Transactional mutations; flags as balance knobs, first A/B experiment |
-| M4 | not started | The Great Delving | Community stress-test event: everyone piles in at once | Load behavior; live analytics at peak; the egress graph's big night |
+| M0 | not started | Tiny shared world | Avatars, click-to-move + WASD, chat bubbles, one zone | Colyseus room state sync, presence; autocapture, first session replays |
+| M1 | not started | Identity & onboarding | Browser-persisted guests + cross-device sign-in, names; starting cave → checkpoint → hub gate; obstacles + A* pathfinding | Anonymous-first auth (self-issued tokens); `identify`, person profiles, unified front/back journeys |
+| M2 | not started | Gathering loop | Stone + glowcap nodes, mining/foraging XP, leaderboard | Room timers + timestamp-derived respawns; funnels, retention |
+| M3 | not started | Crafting & the tribe builds | Recipes, tools, first communal project, Hog merchants | Atomic Postgres transactions; flags as balance knobs, first A/B experiment |
+| M4 | not started | The Great Delving | Community stress-test event: everyone piles in at once | Load behavior; live analytics at peak; the load graph's big night |
 | M5 | not started | Talking Hogs | LLM-driven Hog NPCs | Actions calling LLMs; AI observability |
 | M6 | not started | Defense events (optional) | PvE waves; protect the Hogs | Event-based combat within invariant 7 |
 
