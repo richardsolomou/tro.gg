@@ -1,4 +1,4 @@
-import { CHAT_HISTORY_MAX, CHAT_MAX_CHARS } from "@tro/shared";
+import { CHAT_HISTORY_MAX, CHAT_MAX_CHARS } from "@trogg/shared";
 
 export interface ChatUI {
   /** Append a line to the side-panel history. */
