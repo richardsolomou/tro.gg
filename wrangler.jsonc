@@ -2,8 +2,11 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "tro-gg",
   "compatibility_date": "2026-06-01",
+  "main": "worker.ts",
   "assets": {
     "directory": "./client/dist",
-    "not_found_handling": "single-page-application"
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": true
   }
 }
