@@ -16,6 +16,9 @@ export class Player extends Schema {
   @type("string") name = "";
   @type("boolean") isGuest = true;
 
+  /** Stable marker tint, a projection of the durable id (GDD "Avatars"). */
+  @type("uint32") color = 0;
+
   /** Origin of the current move, in integer tile coords — never the destination. */
   @type("number") x = 0;
   @type("number") y = 0;
@@ -36,6 +39,8 @@ export class Player extends Schema {
 export class ChatMessage extends Schema {
   @type("string") name = "";
   @type("string") text = "";
+  /** The speaker's marker colour, denormalised so names render tinted on replay. */
+  @type("uint32") color = 0;
 }
 
 export class ZoneState extends Schema {

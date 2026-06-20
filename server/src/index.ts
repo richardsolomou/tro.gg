@@ -1,10 +1,12 @@
 import "dotenv/config";
+import { randomUUID } from "node:crypto";
 import cors from "cors";
 import { Server } from "colyseus";
 import { WebSocketTransport } from "@colyseus/ws-transport";
 import { RedisPresence } from "@colyseus/redis-presence";
 import { RedisDriver } from "@colyseus/redis-driver";
 import { ZoneRoom } from "./rooms/ZoneRoom.js";
+import { mintGuestToken } from "./auth/guestToken.js";
 import { getGameStore } from "./persistence/gameStore.js";
 
 const port = Number(process.env.PORT ?? 2567);
@@ -27,6 +29,12 @@ const gameServer = new Server({
     app.use(cors({ origin: process.env.CLIENT_ORIGIN ?? true, credentials: true }));
     app.get("/health", (_req, res) => {
       res.json({ ok: true });
+    });
+    // Mint a fresh anonymous guest credential (GDD "Identity"). A new browser
+    // calls this once, stores the token, and presents it on join; the server is
+    // the sole issuer of identity (invariant 3).
+    app.post("/auth/guest", (_req, res) => {
+      res.json({ token: mintGuestToken(randomUUID()) });
     });
   },
 });
