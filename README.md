@@ -34,16 +34,16 @@ A pnpm workspace with three packages:
 ```sh
 pnpm install
 cp client/.env.example client/.env   # set VITE_COLYSEUS_URL, PostHog key
-cp server/.env.example server/.env   # set DATABASE_URL, REDIS_URL
+cp server/.env.example server/.env   # set DATABASE_URL, REDIS_URL, AUTH_SECRET
 docker compose up -d                 # local Postgres + Redis (mirrors prod)
 pnpm dev                             # client on :5173, server on :2567
 ```
 
-Persistence is optional in dev: with no `DATABASE_URL` / `REDIS_URL` the server runs in-memory only, so `docker compose` is skippable for a quick UI loop.
+Persistence is optional in dev: with no `DATABASE_URL` / `REDIS_URL` the server runs in-memory only, so `docker compose` is skippable for a quick UI loop. `AUTH_SECRET` signs guest credentials; unset, the server uses an ephemeral key, so tokens (and the troggs behind them) don't survive a restart.
 
-`pnpm build` builds all three; `pnpm typecheck` checks them.
+`pnpm build` builds all three; `pnpm typecheck` checks them; `pnpm --filter @trogg/server test` runs the server unit tests.
 
 ### Deploy
 
 - **Client → Cloudflare Pages.** Build command `pnpm build:client`, output directory `client/dist`. Set `VITE_COLYSEUS_URL` (the server's `wss://` URL) and the PostHog vars as Pages environment variables.
-- **Server → Hetzner VPS.** `pnpm --filter @trogg/server build && pnpm --filter @trogg/server start`. Set `PORT`, `CLIENT_ORIGIN` (the Pages origin), `DATABASE_URL` (Postgres), and `REDIS_URL` (cache + Colyseus presence/driver) in the environment.
+- **Server → Dokploy (VPS).** Built from [`server/Dockerfile`](server/Dockerfile) (multi-stage; build context is the repo root so `shared/` is in scope). In Dokploy: create an Application from this repo with build type Dockerfile, provision Postgres and Redis as services, and add a domain on container port `2567` with HTTPS — Traefik proxies the WebSocket transport without extra config. Set `PORT`, `CLIENT_ORIGIN` (the Pages origin), `DATABASE_URL` (Postgres), `REDIS_URL` (cache + Colyseus presence/driver), and `AUTH_SECRET` (a stable random string signing guest credentials) as environment variables, using the stores' internal connection URLs.

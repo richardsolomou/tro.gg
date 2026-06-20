@@ -73,6 +73,7 @@ Both are **input-driven, not per-frame.** The client writes a movement intent on
 - **Held items** (torch, pick, axe, sword, shield) render as per-hand layers — a **main hand** and an **off hand**, so combinations like sword + shield work. Each hand has its own anchor point and z-order per direction/frame (e.g. the off-hand arm and its item sit behind the body when facing up, in front when facing down). A new holdable is a new item sprite, not a new character.
 - **Armor (later)** layers the same way over body slots (head, torso). The rig reserves the layer order now; armor sprites are added with the mechanic.
 - What's equipped rides the zone's player sync, so others see what you're holding. First held-item rendering lands with tools (M2); the model is built extensible from the first sprite.
+- **Placeholder rendering (until sprites land):** a trogg draws as a solid marker tinted by a stable colour, a deterministic projection of its durable id (derived, never stored — like a level from XP), so the same trogg is the same colour for everyone, every session. Your own marker keeps its colour and adds an outline so you can pick it out.
 
 ### Zones
 
@@ -210,7 +211,7 @@ Current milestone: **M0**. Don't build ahead without being asked.
 | M5 | not started | Talking Hogs | LLM-driven Hog NPCs | Actions calling LLMs; AI observability |
 | M6 | not started | Defense events (optional) | PvE waves; protect the Hogs | Event-based combat within invariant 7 |
 
-Durable persistence (Postgres + Redis cache + Colyseus presence/driver) landed in M0, ahead of the tracker, at maintainer direction — players now resume their trogg across reconnects and restarts. It rides a minimal browser-stored guest id (a `localStorage` UUID sent on join); M1 still owns the full identity story (signed credential validated in `onAuth`, cross-device sign-in, names).
+Durable persistence (Postgres + Redis cache + Colyseus presence/driver) landed in M0, ahead of the tracker, at maintainer direction — players now resume their trogg across reconnects and restarts. Signed anonymous guest credentials landed alongside it, also ahead of the tracker: the server mints a token (`POST /auth/guest`, HMAC-signed with `AUTH_SECRET`), the browser stores it, and `ZoneRoom.onAuth` verifies it before a join — identity is server-issued, never client-asserted (invariant 3). What remains of M1 identity is the account upgrade: cross-device sign-in via a recovery passphrase, and choosing a real name (`player_named` + `posthog.identify()`).
 
 Zones are now a first-class concept (M0 foundation): a static `ZONES` registry in `shared`, a `ZoneRoom` parameterized by slug (joined via `filterBy(["zone"])`), and dimensions synced on the room state so the client renders any zone without a hardcoded constant. M0 still runs one zone (`hog-town`); the registry and per-zone room routing make M1's starting cave, hub gate, and transitions a config-and-content change, not a refactor.
 

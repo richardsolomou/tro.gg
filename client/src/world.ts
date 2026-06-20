@@ -53,7 +53,7 @@ export function mountWorld(app: Application, room: Room<ZoneState>) {
   const $ = getStateCallbacks(room);
 
   $(room.state).players.onAdd((player, sessionId) => {
-    const marker = makeMarker(player.name, sessionId === room.sessionId);
+    const marker = makeMarker(player.name, player.color, sessionId === room.sessionId);
     const entry: Tracked = { marker, player, baseMs: performance.now() };
     place(marker, player.x, player.y);
     tracked.set(sessionId, entry);
@@ -94,7 +94,7 @@ export function mountWorld(app: Application, room: Room<ZoneState>) {
 function setupChat(room: Room<ZoneState>, tracked: Map<string, Tracked>, $: ReturnType<typeof getStateCallbacks>) {
   const chat = mountChat((text) => room.send(ClientMessage.Chat, { text }));
 
-  $(room.state).chat.onAdd((message) => chat.addMessage(message.name, message.text));
+  $(room.state).chat.onAdd((message) => chat.addMessage(message.name, message.text, message.color));
 
   room.onMessage(ServerMessage.ChatBubble, ({ sessionId, text }: ChatBubblePayload) => {
     showBubble(tracked, sessionId, text);
@@ -153,11 +153,11 @@ function drawGrid(g: Graphics, width: number, height: number) {
   g.stroke({ width: 1, color: 0x2a2118 });
 }
 
-function makeMarker(name: string, self: boolean) {
+function makeMarker(name: string, color: number, self: boolean) {
   const marker = new Container();
-  const body = new Graphics()
-    .rect(2, 2, TILE - 4, TILE - 4)
-    .fill(self ? 0x6fdc9c : 0xff8c2e);
+  const body = new Graphics().rect(2, 2, TILE - 4, TILE - 4).fill(color);
+  // Your own trogg keeps its colour but gets an outline so you can pick it out.
+  if (self) body.rect(2, 2, TILE - 4, TILE - 4).stroke({ width: 2, color: 0xe8dcc4 });
   const label = new Text({
     text: name,
     style: { fontFamily: "monospace", fontSize: 11, fill: 0xe8dcc4 },

@@ -1,4 +1,4 @@
-import { Room, type Client } from "colyseus";
+import { ErrorCode, Room, ServerError, type Client } from "colyseus";
 import {
   CHAT_HISTORY_MAX,
   CHAT_MAX_CHARS,
@@ -13,9 +13,16 @@ import {
   ServerMessage,
   STARTING_ZONE_SLUG,
   type Zone,
+  troggColor,
   ZoneState,
 } from "@trogg/shared";
+import { verifyGuestToken } from "../auth/guestToken.js";
 import { getGameStore, type GameStore, type PlayerRecord } from "../persistence/gameStore.js";
+
+/** What `onAuth` resolves and `onJoin` reads — the server-verified durable id. */
+interface GuestAuth {
+  userId: string;
+}
 
 /** How often dirty players are flushed from the Redis cache to durable Postgres. */
 const PERSIST_FLUSH_MS = 15_000;
@@ -41,6 +48,18 @@ export class ZoneRoom extends Room<{ state: ZoneState }> {
   /** sessionId → last chat time (room clock ms), for the per-player rate limit. */
   private readonly lastChatAt = new Map<string, number>();
 
+  /**
+   * Verify the guest credential at matchmaking time (GDD "Identity"), before a
+   * seat is reserved. The signed token is the only source of identity — never a
+   * client-supplied id (invariant 3). Runs as a static method so a rejection
+   * fails the matchmake request itself; the returned id becomes `client.auth`.
+   */
+  static async onAuth(token: string): Promise<GuestAuth> {
+    const userId = verifyGuestToken(token);
+    if (!userId) throw new ServerError(ErrorCode.AUTH_FAILED, "invalid or missing guest credential");
+    return { userId };
+  }
+
   async onCreate(options?: { zone?: unknown }) {
     const slug = typeof options?.zone === "string" ? options.zone : STARTING_ZONE_SLUG;
     this.zone = getZone(slug) ?? getZone(STARTING_ZONE_SLUG)!;
@@ -59,7 +78,7 @@ export class ZoneRoom extends Room<{ state: ZoneState }> {
     }
 
     for (const line of await this.store.recentChat(this.zone.slug, CHAT_HISTORY_MAX)) {
-      this.state.chat.push(pushChat(line.name, line.text));
+      this.state.chat.push(pushChat(line.name, line.text, troggColor(line.playerId)));
     }
   }
 
@@ -108,23 +127,22 @@ export class ZoneRoom extends Room<{ state: ZoneState }> {
     if (now - (this.lastChatAt.get(client.sessionId) ?? -Infinity) < CHAT_RATE_LIMIT_MS) return;
     this.lastChatAt.set(client.sessionId, now);
 
-    this.state.chat.push(pushChat(player.name, text));
+    this.state.chat.push(pushChat(player.name, text, player.color));
     while (this.state.chat.length > CHAT_HISTORY_MAX) this.state.chat.shift();
 
     void this.store.appendChat(this.zone.slug, userId, text);
     this.broadcast(ServerMessage.ChatBubble, { sessionId: client.sessionId, text });
   }
 
-  async onJoin(client: Client, options?: { userId?: unknown }) {
-    // The client supplies its browser-stored guest id so a returning visitor
-    // resumes the same trogg. Unsigned for M0; M1 swaps this for a signed
-    // credential validated in onAuth (invariant 3). Falls back to the session
-    // id, which simply won't persist across reconnects.
-    const userId = typeof options?.userId === "string" ? options.userId : client.sessionId;
+  async onJoin(client: Client) {
+    // Identity comes from the credential onAuth verified, so a returning visitor
+    // resumes the same trogg without the client ever asserting who it is.
+    const { userId } = client.auth as GuestAuth;
     this.userIds.set(client.sessionId, userId);
 
     const record = await this.store.load(userId);
     const player = record ? hydrate(record) : freshPlayer(userId, this.zone);
+    player.color = troggColor(userId);
     player.movedAt = this.clock.currentTime;
     this.state.players.set(client.sessionId, player);
   }
@@ -188,10 +206,11 @@ function freshPlayer(userId: string, zone: Zone): Player {
 }
 
 /** A ChatMessage schema node for the synced history. */
-function pushChat(name: string, text: string): ChatMessage {
+function pushChat(name: string, text: string, color: number): ChatMessage {
   const message = new ChatMessage();
   message.name = name;
   message.text = text;
+  message.color = color;
   return message;
 }
 
