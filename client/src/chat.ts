@@ -34,7 +34,7 @@ export function mountChat(send: (text: string) => void): ChatUI {
     background: "rgba(10, 8, 6, 0.55)",
     borderRadius: "4px",
     whiteSpace: "pre-wrap",
-    wordBreak: "break-word",
+    wordBreak: "break-all",
   } satisfies Partial<CSSStyleDeclaration>);
 
   const input = document.createElement("input");
