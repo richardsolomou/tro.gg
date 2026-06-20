@@ -39,7 +39,11 @@ const gameServer = new Server({
   },
 });
 
-gameServer.define("zone", ZoneRoom);
+// One room per zone: filtering by the `zone` option means a join request for a
+// given slug only matches a room hosting that zone, so each zone gets its own
+// room (GDD "Multiplayer scaling stance"). M0 has one zone; the routing is ready
+// for more.
+gameServer.define("zone", ZoneRoom).filterBy(["zone"]);
 
 async function main() {
   const store = getGameStore();

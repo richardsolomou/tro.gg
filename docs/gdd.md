@@ -78,6 +78,7 @@ Both are **input-driven, not per-frame.** The client writes a movement intent on
 ### Zones
 
 - A zone has a slug, display name, integer width/height in tiles, and a tilemap: per-tile walkability plus scenery. Nodes and obstacles sit on unwalkable tiles.
+- **Zone definitions are a static code registry** (`ZONES` in `shared`, keyed by slug) — static design data like the item and node registries, not the durable `zones` table the data model lists. The table is deferred until tilemaps need editable storage; until then a zone is a registry entry. One room hosts one zone (joined by slug, `filterBy(["zone"])`); its dimensions ride the room state so the client renders from server truth, not a constant.
 - **Spawn and the hub gate (M1):** new players spawn in a shared **starting zone** (working name: the cave) and must reach a checkpoint to unlock the hub, `hog-town`. The hub isn't available until the checkpoint is crossed — a per-player progression gate, not an instance; the starting zone is shared like any other.
 - M0 ships a single shared zone to prove the loop *(working slug `hog-town`, 24×16 (initial))*; the starting zone and gate land with M1.
 - Clients subscribe to players/nodes/chat **in their current zone only**. Within a zone, sync is deliberately naive (whole-zone queries) — see invariant 10.
@@ -159,6 +160,7 @@ players        userId, name, isGuest, zoneId, x, y, dirX, dirY, path, movedAt, h
                index: by_zone (zoneId)
 zones          slug, name, width, height, tilemap (per-tile walkability + scenery), checkpoint (unlock tile, null if none)
                index: by_slug (slug)
+               deferred — zone definitions currently live in a static code registry (ZONES in shared); this table lands when tilemaps need editable storage
 nodes          type, zoneId, x, y, state ("available" | "depleted"), respawnAt
                index: by_zone (zoneId)
 actions        playerId, nodeId, kind, startedAt, endsAt
@@ -210,6 +212,8 @@ Current milestone: **M0**. Don't build ahead without being asked.
 | M6 | not started | Defense events (optional) | PvE waves; protect the Hogs | Event-based combat within invariant 7 |
 
 Durable persistence (Postgres + Redis cache + Colyseus presence/driver) landed in M0, ahead of the tracker, at maintainer direction — players now resume their trogg across reconnects and restarts. Signed anonymous guest credentials landed alongside it, also ahead of the tracker: the server mints a token (`POST /auth/guest`, HMAC-signed with `AUTH_SECRET`), the browser stores it, and `ZoneRoom.onAuth` verifies it before a join — identity is server-issued, never client-asserted (invariant 3). What remains of M1 identity is the account upgrade: cross-device sign-in via a recovery passphrase, and choosing a real name (`player_named` + `posthog.identify()`).
+
+Zones are now a first-class concept (M0 foundation): a static `ZONES` registry in `shared`, a `ZoneRoom` parameterized by slug (joined via `filterBy(["zone"])`), and dimensions synced on the room state so the client renders any zone without a hardcoded constant. M0 still runs one zone (`hog-town`); the registry and per-zone room routing make M1's starting cave, hub gate, and transitions a config-and-content change, not a refactor.
 
 Zone chat (M0 scope) ships on top of it: speech bubbles over heads plus a history side panel, behind the `chat-enabled` flag. Recent lines persist to Postgres and replay when a zone's room respawns. Server-side validation enforces the 200-char cap and 1 msg/sec rate limit; the flag currently gates the client mount (server-side enforcement lands with posthog-node).
 

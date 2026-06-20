@@ -45,6 +45,10 @@ export class ChatMessage extends Schema {
 
 export class ZoneState extends Schema {
   @type("string") slug = "";
+  /** Zone dimensions in tiles, synced so the client renders from server truth
+   * (invariant 3) rather than a hardcoded constant — the grid follows the room. */
+  @type("number") width = 0;
+  @type("number") height = 0;
   @type({ map: Player }) players = new MapSchema<Player>();
   /** Recent messages, oldest first; capped at CHAT_HISTORY_MAX. */
   @type([ChatMessage]) chat = new ArraySchema<ChatMessage>();

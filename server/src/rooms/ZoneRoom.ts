@@ -6,11 +6,13 @@ import {
   ChatMessage,
   type ChatPayload,
   ClientMessage,
+  getZone,
   type MovePayload,
   Player,
   projectMotion,
   ServerMessage,
-  STARTING_ZONE,
+  STARTING_ZONE_SLUG,
+  type Zone,
   troggColor,
   ZoneState,
 } from "@trogg/shared";
@@ -37,6 +39,8 @@ const PERSIST_FLUSH_MS = 15_000;
  */
 export class ZoneRoom extends Room<{ state: ZoneState }> {
   private store!: GameStore;
+  /** The zone this room hosts, resolved from the join options (see index.ts). */
+  private zone!: Zone;
   /** sessionId → durable user id, kept server-side (not synced to clients). */
   private readonly userIds = new Map<string, string>();
   /** Sessions changed since the last durable flush. */
@@ -56,9 +60,14 @@ export class ZoneRoom extends Room<{ state: ZoneState }> {
     return { userId };
   }
 
-  async onCreate() {
+  async onCreate(options?: { zone?: unknown }) {
+    const slug = typeof options?.zone === "string" ? options.zone : STARTING_ZONE_SLUG;
+    this.zone = getZone(slug) ?? getZone(STARTING_ZONE_SLUG)!;
+
     this.state = new ZoneState();
-    this.state.slug = STARTING_ZONE.slug;
+    this.state.slug = this.zone.slug;
+    this.state.width = this.zone.width;
+    this.state.height = this.zone.height;
     this.store = getGameStore();
 
     this.onMessage(ClientMessage.Move, (client, message: MovePayload) => this.onMove(client, message));
@@ -68,7 +77,7 @@ export class ZoneRoom extends Room<{ state: ZoneState }> {
       this.clock.setInterval(() => void this.flush(), PERSIST_FLUSH_MS);
     }
 
-    for (const line of await this.store.recentChat(STARTING_ZONE.slug, CHAT_HISTORY_MAX)) {
+    for (const line of await this.store.recentChat(this.zone.slug, CHAT_HISTORY_MAX)) {
       this.state.chat.push(pushChat(line.name, line.text, troggColor(line.playerId)));
     }
   }
@@ -87,7 +96,7 @@ export class ZoneRoom extends Room<{ state: ZoneState }> {
     const dirY = unitStep(message?.dirY);
 
     const now = this.clock.currentTime;
-    const settled = projectMotion(player, now - player.movedAt, STARTING_ZONE);
+    const settled = projectMotion(player, now - player.movedAt, this.zone);
     player.x = settled.x;
     player.y = settled.y;
     player.dirX = dirX;
@@ -121,7 +130,7 @@ export class ZoneRoom extends Room<{ state: ZoneState }> {
     this.state.chat.push(pushChat(player.name, text, player.color));
     while (this.state.chat.length > CHAT_HISTORY_MAX) this.state.chat.shift();
 
-    void this.store.appendChat(STARTING_ZONE.slug, userId, text);
+    void this.store.appendChat(this.zone.slug, userId, text);
     this.broadcast(ServerMessage.ChatBubble, { sessionId: client.sessionId, text });
   }
 
@@ -132,7 +141,7 @@ export class ZoneRoom extends Room<{ state: ZoneState }> {
     this.userIds.set(client.sessionId, userId);
 
     const record = await this.store.load(userId);
-    const player = record ? hydrate(record) : freshPlayer(userId);
+    const player = record ? hydrate(record) : freshPlayer(userId, this.zone);
     player.color = troggColor(userId);
     player.movedAt = this.clock.currentTime;
     this.state.players.set(client.sessionId, player);
@@ -165,12 +174,12 @@ export class ZoneRoom extends Room<{ state: ZoneState }> {
     const userId = this.userIds.get(sessionId);
     if (!player || !userId) return null;
 
-    const settled = projectMotion(player, this.clock.currentTime - player.movedAt, STARTING_ZONE);
+    const settled = projectMotion(player, this.clock.currentTime - player.movedAt, this.zone);
     return {
       userId,
       name: player.name,
       isGuest: player.isGuest,
-      zoneId: STARTING_ZONE.slug,
+      zoneId: this.zone.slug,
       x: settled.x,
       y: settled.y,
     };
@@ -188,11 +197,11 @@ function hydrate(record: PlayerRecord): Player {
 }
 
 /** A brand-new trogg: a stable name from its user id, spawned at zone centre. */
-function freshPlayer(userId: string): Player {
+function freshPlayer(userId: string, zone: Zone): Player {
   const player = new Player();
   player.name = `trogg-${userId.slice(0, 4)}`;
-  player.x = Math.floor(STARTING_ZONE.width / 2);
-  player.y = Math.floor(STARTING_ZONE.height / 2);
+  player.x = Math.floor(zone.width / 2);
+  player.y = Math.floor(zone.height / 2);
   return player;
 }
 
