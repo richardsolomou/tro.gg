@@ -19,4 +19,28 @@ You're a trogg in a shared world. Gather, craft better gear, and push into harde
 
 ## Status
 
-Pre-M0 — nothing built yet.
+Pre-M0 — engine scaffold in place (Colyseus client/server wired, empty zone room with presence), no gameplay yet.
+
+## Development
+
+A pnpm workspace with three packages:
+
+| Package | What it is | Runs on |
+| ------- | ---------- | ------- |
+| `client` | PixiJS + Vite game client (`colyseus.js`, `posthog-js`) | Cloudflare Pages |
+| `server` | Colyseus game server — one room per zone | Self-hosted (Hetzner VPS) |
+| `shared` | Room-state schema, message types, and GDD constants, imported by both | — |
+
+```sh
+pnpm install
+cp client/.env.example client/.env   # set VITE_COLYSEUS_URL, PostHog key
+cp server/.env.example server/.env
+pnpm dev                             # client on :5173, server on :2567
+```
+
+`pnpm build` builds all three; `pnpm typecheck` checks them.
+
+### Deploy
+
+- **Client → Cloudflare Pages.** Build command `pnpm build:client`, output directory `client/dist`. Set `VITE_COLYSEUS_URL` (the server's `wss://` URL) and the PostHog vars as Pages environment variables.
+- **Server → Hetzner VPS.** `pnpm --filter @tro/server build && pnpm --filter @tro/server start`. Set `PORT` and `CLIENT_ORIGIN` (the Pages origin) in the environment. Postgres and Redis land with the mechanics that need them.

@@ -1,0 +1,22 @@
+{
+  "name": "@tro/client",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p tsconfig.json && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@tro/shared": "workspace:*",
+    "colyseus.js": "^0.16.0",
+    "pixi.js": "^8.6.0",
+    "posthog-js": "^1.200.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0"
+  }
+}

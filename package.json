@@ -1,0 +1,16 @@
+{
+  "name": "tro.gg",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @tro/shared build && pnpm --parallel --filter @tro/shared --filter @tro/client --filter @tro/server dev",
+    "dev:client": "pnpm --filter @tro/client dev",
+    "dev:server": "pnpm --filter @tro/server dev",
+    "build": "pnpm --filter @tro/shared build && pnpm --filter @tro/client build && pnpm --filter @tro/server build",
+    "build:client": "pnpm --filter @tro/shared build && pnpm --filter @tro/client build",
+    "typecheck": "pnpm -r typecheck"
+  }
+}
