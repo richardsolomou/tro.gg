@@ -1,6 +1,6 @@
 import { Application, Container, Graphics, Text } from "pixi.js";
-import { getStateCallbacks, type Room } from "colyseus.js";
-import { projectMotion, STARTING_ZONE, type Player, type ZoneState } from "@tro/shared";
+import { getStateCallbacks, type Room } from "@colyseus/sdk";
+import { projectMotion, STARTING_ZONE, type Player, type ZoneState } from "@trogg/shared";
 import { attachKeyboard } from "./input.js";
 
 const TILE = 28;

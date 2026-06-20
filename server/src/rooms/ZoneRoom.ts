@@ -1,5 +1,5 @@
 import { Room, type Client } from "colyseus";
-import { ClientMessage, type MovePayload, Player, projectMotion, STARTING_ZONE, ZoneState } from "@tro/shared";
+import { ClientMessage, type MovePayload, Player, projectMotion, STARTING_ZONE, ZoneState } from "@trogg/shared";
 
 /**
  * One room per zone (GDD "Multiplayer scaling stance"). Skeleton scope: presence
@@ -9,7 +9,7 @@ import { ClientMessage, type MovePayload, Player, projectMotion, STARTING_ZONE, 
  * position is derived from the stored intent, never advanced on a timer. Chat,
  * nodes, click-to-move, and Postgres hydration land with their mechanics.
  */
-export class ZoneRoom extends Room<ZoneState> {
+export class ZoneRoom extends Room<{ state: ZoneState }> {
   onCreate() {
     this.state = new ZoneState();
     this.state.slug = STARTING_ZONE.slug;
