@@ -47,7 +47,7 @@ async function main() {
   if (!store.persistent) {
     console.warn(
       "No DATABASE_URL or REDIS_URL set — running with in-memory state only; nothing persists across a reload. " +
-        "Run `pnpm db:up` and copy server/.env.example to server/.env for the prod-parity Postgres + Valkey backend.",
+        "Run `just db-up` and copy server/.env.example to server/.env for the prod-parity Postgres + Valkey backend.",
     );
   }
 

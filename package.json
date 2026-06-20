@@ -7,12 +7,9 @@
     "node": ">=24"
   },
   "scripts": {
-    "predev": "docker compose up -d --wait",
     "dev": "pnpm --filter @trogg/shared build && pnpm --parallel --filter @trogg/shared --filter @trogg/client --filter @trogg/server dev",
     "dev:client": "pnpm --filter @trogg/client dev",
     "dev:server": "pnpm --filter @trogg/server dev",
-    "db:up": "docker compose up -d --wait",
-    "db:down": "docker compose down",
     "build": "pnpm --filter @trogg/shared build && pnpm --filter @trogg/client build && pnpm --filter @trogg/server build",
     "build:client": "pnpm --filter @trogg/shared build && pnpm --filter @trogg/client build",
     "typecheck": "pnpm -r typecheck"

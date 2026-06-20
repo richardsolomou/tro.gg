@@ -31,18 +31,20 @@ A pnpm workspace with three packages:
 | `server` | Colyseus game server — one room per zone | Self-hosted (Hetzner VPS) |
 | `shared` | Room-state schema, message types, and GDD constants, imported by both | — |
 
+Tasks run through [`just`](https://github.com/casey/just) — run `just` to list recipes.
+
 ```sh
 pnpm install
 cp client/.env.example client/.env   # VITE_COLYSEUS_URL, PostHog key
 cp server/.env.example server/.env   # DATABASE_URL, REDIS_URL, AUTH_SECRET — defaults match docker compose
-pnpm dev                             # brings up Postgres + Valkey, then client on :5173, server on :2567
+just dev                             # Postgres + Valkey, then client on :5173, server on :2567
 ```
 
-Dev mirrors prod: `pnpm dev` starts local Postgres + Valkey (via `docker compose`, a `predev` hook) so the server always persists the same way it does in production — players and chat resume across reloads. The `.env.example` defaults point at those containers, so a fresh `cp` works as-is. (`pnpm db:up` / `pnpm db:down` manage the containers on their own; Docker must be running.) Valkey speaks the Redis protocol, so the connection is still `REDIS_URL` / a `redis://` URL.
+Dev mirrors prod: `just dev` brings up local Postgres + Valkey (via `docker compose`) so the server always persists the same way it does in production — players and chat resume across reloads — and stops the containers again when you exit dev (their data stays in the volumes). The `.env.example` defaults point at those containers, so a fresh `cp` works as-is. (`just db-up` / `just db-down` manage the containers independently; Docker must be running.) Valkey speaks the Redis protocol, so the connection is still `REDIS_URL` / a `redis://` URL.
 
 `AUTH_SECRET` signs guest credentials; unset, the server uses an ephemeral key, so tokens (and the troggs behind them) don't survive a restart — the example sets a stable dev value.
 
-`pnpm build` builds all three; `pnpm typecheck` checks them; `pnpm --filter @trogg/server test` runs the server unit tests.
+`just build` builds all three; `just typecheck` checks them; `just test` runs the server unit tests.
 
 ### Deploy
 
