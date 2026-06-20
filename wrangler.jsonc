@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "tro-gg",
+  "name": "trogg",
   "compatibility_date": "2026-06-01",
   "main": "worker.ts",
   "assets": {
