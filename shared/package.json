@@ -1,5 +1,5 @@
 {
-  "name": "@tro/shared",
+  "name": "@trogg/shared",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -17,9 +17,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@colyseus/schema": "^3.0.0"
+    "@colyseus/schema": "^4.0.26"
   },
   "devDependencies": {
-    "typescript": "^5.7.0"
+    "typescript": "^6.0.3"
   }
 }
