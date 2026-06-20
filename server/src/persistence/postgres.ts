@@ -29,6 +29,18 @@ export class PostgresStore {
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
       )
     `);
+    await this.pool.query(`
+      CREATE TABLE IF NOT EXISTS chat_messages (
+        id         BIGSERIAL PRIMARY KEY,
+        zone_id    TEXT NOT NULL,
+        player_id  TEXT NOT NULL,
+        text       TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `);
+    await this.pool.query(
+      `CREATE INDEX IF NOT EXISTS chat_by_zone_recent ON chat_messages (zone_id, created_at DESC)`,
+    );
   }
 
   async load(userId: string): Promise<PlayerRecord | null> {
@@ -63,7 +75,34 @@ export class PostgresStore {
     );
   }
 
+  async saveChat(zoneId: string, playerId: string, text: string): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO chat_messages (zone_id, player_id, text) VALUES ($1, $2, $3)`,
+      [zoneId, playerId, text],
+    );
+  }
+
+  /** The newest `limit` lines for a zone, returned oldest-first for replay. */
+  async recentChat(zoneId: string, limit: number): Promise<ChatLine[]> {
+    const { rows } = await this.pool.query(
+      `SELECT c.text, p.name
+         FROM chat_messages c
+         JOIN players p ON p.user_id = c.player_id
+        WHERE c.zone_id = $1
+        ORDER BY c.created_at DESC
+        LIMIT $2`,
+      [zoneId, limit],
+    );
+    return rows.reverse().map((row) => ({ name: row.name, text: row.text }));
+  }
+
   async close(): Promise<void> {
     await this.pool.end();
   }
+}
+
+/** A chat line as rendered: the speaker's generated name and the text. */
+export interface ChatLine {
+  name: string;
+  text: string;
 }

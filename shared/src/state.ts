@@ -1,4 +1,4 @@
-import { Schema, MapSchema, type } from "@colyseus/schema";
+import { ArraySchema, MapSchema, Schema, type } from "@colyseus/schema";
 
 /**
  * Live room-state projection synced to clients (see GDD "Data model"). One room
@@ -28,7 +28,19 @@ export class Player extends Schema {
   @type("number") movedAt = 0;
 }
 
+/**
+ * One zone-scoped chat line, kept in the room's recent history (GDD "Chat").
+ * The generated `name` is denormalised so late joiners render history without a
+ * lookup. Content never leaves the game for analytics (invariant 4).
+ */
+export class ChatMessage extends Schema {
+  @type("string") name = "";
+  @type("string") text = "";
+}
+
 export class ZoneState extends Schema {
   @type("string") slug = "";
   @type({ map: Player }) players = new MapSchema<Player>();
+  /** Recent messages, oldest first; capped at CHAT_HISTORY_MAX. */
+  @type([ChatMessage]) chat = new ArraySchema<ChatMessage>();
 }
