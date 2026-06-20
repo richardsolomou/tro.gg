@@ -1,0 +1,97 @@
+import { Application, Container, Graphics, Text } from "pixi.js";
+import { getStateCallbacks, type Room } from "colyseus.js";
+import { projectMotion, STARTING_ZONE, type Player, type ZoneState } from "@tro/shared";
+import { attachKeyboard } from "./input.js";
+
+const TILE = 28;
+
+/** A player's marker plus the client-clock instant its current intent arrived. */
+interface Tracked {
+  marker: Container;
+  player: Player;
+  baseMs: number;
+}
+
+/**
+ * Renders the zone: a tile grid plus a marker per player. Movement is intent-
+ * based (GDD "Movement") — the room syncs each trogg's origin, direction, and
+ * start time, and every client extrapolates position locally each frame so motion
+ * is smooth without per-frame server sync (invariant 2). PixiJS is the renderer
+ * per the GDD "Camera and rendering" section.
+ */
+export function mountWorld(app: Application, room: Room<ZoneState>) {
+  const stage = new Container();
+  app.stage.addChild(stage);
+
+  stage.addChild(drawGrid());
+  centre(app, stage);
+  app.renderer.on("resize", () => centre(app, stage));
+
+  const tracked = new Map<string, Tracked>();
+  const $ = getStateCallbacks(room);
+
+  $(room.state).players.onAdd((player, sessionId) => {
+    const marker = makeMarker(player.name, sessionId === room.sessionId);
+    const entry: Tracked = { marker, player, baseMs: performance.now() };
+    place(marker, player.x, player.y);
+    tracked.set(sessionId, entry);
+    stage.addChild(marker);
+    // Rebase extrapolation on every new intent so elapsed is measured in client
+    // time — no server-clock sync needed, and each diff reconciles drift.
+    $(player).onChange(() => (entry.baseMs = performance.now()));
+  });
+
+  $(room.state).players.onRemove((_player, sessionId) => {
+    tracked.get(sessionId)?.marker.destroy({ children: true });
+    tracked.delete(sessionId);
+  });
+
+  app.ticker.add(() => {
+    const now = performance.now();
+    for (const { marker, player, baseMs } of tracked.values()) {
+      const { x, y } = projectMotion(player, now - baseMs, STARTING_ZONE);
+      place(marker, x, y);
+    }
+  });
+
+  const detachKeyboard = attachKeyboard(room);
+  room.onLeave(() => detachKeyboard());
+}
+
+function drawGrid() {
+  const g = new Graphics();
+  for (let x = 0; x <= STARTING_ZONE.width; x++) {
+    g.moveTo(x * TILE, 0).lineTo(x * TILE, STARTING_ZONE.height * TILE);
+  }
+  for (let y = 0; y <= STARTING_ZONE.height; y++) {
+    g.moveTo(0, y * TILE).lineTo(STARTING_ZONE.width * TILE, y * TILE);
+  }
+  g.stroke({ width: 1, color: 0x2a2118 });
+  return g;
+}
+
+function makeMarker(name: string, self: boolean) {
+  const marker = new Container();
+  const body = new Graphics()
+    .rect(2, 2, TILE - 4, TILE - 4)
+    .fill(self ? 0x6fdc9c : 0xff8c2e);
+  const label = new Text({
+    text: name,
+    style: { fontFamily: "monospace", fontSize: 11, fill: 0xe8dcc4 },
+  });
+  label.anchor.set(0.5, 1);
+  label.position.set(TILE / 2, -2);
+  marker.addChild(body, label);
+  return marker;
+}
+
+function place(marker: Container, x: number, y: number) {
+  marker.position.set(x * TILE, y * TILE);
+}
+
+function centre(app: Application, stage: Container) {
+  stage.position.set(
+    (app.renderer.width - STARTING_ZONE.width * TILE) / 2,
+    (app.renderer.height - STARTING_ZONE.height * TILE) / 2,
+  );
+}

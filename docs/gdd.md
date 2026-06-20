@@ -65,7 +65,7 @@ Both are **input-driven, not per-frame.** The client writes a movement intent on
 ### Camera and rendering
 
 - 3/4 top-down (RuneScape-2004 / Stardew view), pixel art tiles and sprites.
-- DOM rendering with CSS transforms; PixiJS only if sprite counts outgrow it (a later effort, not a prerequisite).
+- Rendered with **PixiJS** (WebGL/WebGPU canvas) on a Vite + TypeScript client, nearest-neighbour scaled for crisp pixels. The client consumes Colyseus room state and draws it; all authority stays server-side (invariant 3).
 
 ### Avatars and equipment
 
@@ -197,7 +197,7 @@ Current milestone: **M0**. Don't build ahead without being asked.
 
 | # | Status | Name | Scope | Demos |
 | - | ------ | ---- | ----- | ----- |
-| M0 | not started | Tiny shared world | Avatars, click-to-move + WASD, chat bubbles, one zone | Colyseus room state sync, presence; autocapture, first session replays |
+| M0 | in progress | Tiny shared world | Avatars, click-to-move + WASD, chat bubbles, one zone | Colyseus room state sync, presence; autocapture, first session replays |
 | M1 | not started | Identity & onboarding | Browser-persisted guests + cross-device sign-in, names; starting cave → checkpoint → hub gate; obstacles + A* pathfinding | Anonymous-first auth (self-issued tokens); `identify`, person profiles, unified front/back journeys |
 | M2 | not started | Gathering loop | Stone + glowcap nodes, mining/foraging XP, leaderboard | Room timers + timestamp-derived respawns; funnels, retention |
 | M3 | not started | Crafting & the tribe builds | Recipes, tools, first communal project, Hog merchants | Atomic Postgres transactions; flags as balance knobs, first A/B experiment |

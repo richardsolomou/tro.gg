@@ -1,0 +1,34 @@
+import { Schema, MapSchema, type } from "@colyseus/schema";
+
+/**
+ * Live room-state projection synced to clients (see GDD "Data model"). One room
+ * per zone; this is the in-memory state Colyseus diffs to everyone in it. The
+ * durable Postgres tables are the source of truth — a room hydrates from them
+ * and writes durable changes back. Persistence lands with the mechanics that
+ * need it; M0 is in-memory presence only.
+ *
+ * Motion is intent-based (invariants 1 & 2): position over time is derived from
+ * an origin (x, y) + movedAt and either a direction (WASD) or a path
+ * (click-to-move). Clients extrapolate locally between diffs. `path` and
+ * `equipment` from the data model are added with their mechanics (M1/M2).
+ */
+export class Player extends Schema {
+  @type("string") name = "";
+  @type("boolean") isGuest = true;
+
+  /** Origin of the current move, in integer tile coords — never the destination. */
+  @type("number") x = 0;
+  @type("number") y = 0;
+
+  /** WASD direction; (0, 0) = idle. */
+  @type("number") dirX = 0;
+  @type("number") dirY = 0;
+
+  /** Server clock ms at which the current motion began. */
+  @type("number") movedAt = 0;
+}
+
+export class ZoneState extends Schema {
+  @type("string") slug = "";
+  @type({ map: Player }) players = new MapSchema<Player>();
+}
