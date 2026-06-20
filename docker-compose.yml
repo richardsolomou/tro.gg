@@ -1,9 +1,10 @@
-# Local Postgres + Redis, mirroring the prod backend so the server persists the
-# same way it does in production. Matches the defaults in server/.env.example.
-#   docker compose up -d
+# Local Postgres + Valkey, mirroring the prod backend so the server persists the
+# same way it does in production. Valkey speaks the Redis protocol, so the server
+# still connects with REDIS_URL / a redis:// URL. Matches server/.env.example.
+#   docker compose up -d --wait
 services:
   postgres:
-    image: postgres:17-alpine
+    image: postgres:18-alpine
     environment:
       POSTGRES_USER: trogg
       POSTGRES_PASSWORD: trogg
@@ -11,20 +12,27 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      # Postgres 18+ stores data in a version-specific subdir, so the mount sits
+      # at /var/lib/postgresql, not /var/lib/postgresql/data.
+      - postgres-data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U trogg"]
       interval: 5s
       timeout: 5s
       retries: 5
 
-  redis:
-    image: redis:7-alpine
+  valkey:
+    image: valkey/valkey:9-alpine
     ports:
       - "6379:6379"
     volumes:
-      - redis-data:/data
+      - valkey-data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
 volumes:
   postgres-data:
-  redis-data:
+  valkey-data:

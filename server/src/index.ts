@@ -49,7 +49,10 @@ async function main() {
   const store = getGameStore();
   await store.init();
   if (!store.persistent) {
-    console.warn("No DATABASE_URL or REDIS_URL set — running with in-memory state only.");
+    console.warn(
+      "No DATABASE_URL or REDIS_URL set — running with in-memory state only; nothing persists across a reload. " +
+        "Run `just db-up` and copy server/.env.example to server/.env for the prod-parity Postgres + Valkey backend.",
+    );
   }
 
   await gameServer.listen(port);
