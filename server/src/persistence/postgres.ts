@@ -85,7 +85,7 @@ export class PostgresStore {
   /** The newest `limit` lines for a zone, returned oldest-first for replay. */
   async recentChat(zoneId: string, limit: number): Promise<ChatLine[]> {
     const { rows } = await this.pool.query(
-      `SELECT c.text, p.name
+      `SELECT c.player_id, c.text, p.name
          FROM chat_messages c
          JOIN players p ON p.user_id = c.player_id
         WHERE c.zone_id = $1
@@ -93,7 +93,7 @@ export class PostgresStore {
         LIMIT $2`,
       [zoneId, limit],
     );
-    return rows.reverse().map((row) => ({ name: row.name, text: row.text }));
+    return rows.reverse().map((row) => ({ playerId: row.player_id, name: row.name, text: row.text }));
   }
 
   async close(): Promise<void> {
@@ -101,8 +101,9 @@ export class PostgresStore {
   }
 }
 
-/** A chat line as rendered: the speaker's generated name and the text. */
+/** A chat line as rendered: the speaker's id (for their colour), name, and text. */
 export interface ChatLine {
+  playerId: string;
   name: string;
   text: string;
 }

@@ -1,8 +1,8 @@
 import { CHAT_HISTORY_MAX, CHAT_MAX_CHARS } from "@trogg/shared";
 
 export interface ChatUI {
-  /** Append a line to the side-panel history. */
-  addMessage(name: string, text: string): void;
+  /** Append a line to the side-panel history, the name tinted by `color` (0xRRGGBB). */
+  addMessage(name: string, text: string, color: number): void;
   destroy(): void;
 }
 
@@ -74,11 +74,11 @@ export function mountChat(send: (text: string) => void): ChatUI {
   window.addEventListener("keydown", onKeyDown);
 
   return {
-    addMessage(name, text) {
+    addMessage(name, text, color) {
       const line = document.createElement("div");
       const who = document.createElement("span");
       who.textContent = `${name}: `;
-      who.style.color = "#ff8c2e";
+      who.style.color = `#${color.toString(16).padStart(6, "0")}`;
       line.append(who, document.createTextNode(text));
       log.appendChild(line);
       while (log.childElementCount > CHAT_HISTORY_MAX) log.firstElementChild!.remove();
