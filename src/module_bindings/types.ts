@@ -38,8 +38,8 @@ export type ClaimCode = __Infer<typeof ClaimCode>;
 export const Hog = __t.object("Hog", {
   id: __t.u64(),
   zoneId: __t.string(),
-  x: __t.f64(),
-  y: __t.f64(),
+  x: __t.i32(),
+  y: __t.i32(),
   dirX: __t.i32(),
   dirY: __t.i32(),
   movedAt: __t.timestamp(),
