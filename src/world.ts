@@ -236,7 +236,6 @@ export function mountWorld(app: Application, conn: DbConnection) {
   conn.db.hog.onDelete((_ctx, h) => removeHog(h));
 
   const pushEnabled = isFeatureEnabled("boulder-pushing");
-  let pushing = false;
 
   // My-trogg movement is grid-locked (GDD "Movement", Pokémon/Zelda style): the
   // `move` reducer fires only when the trogg sits on a tile centre, so a step always
@@ -262,6 +261,17 @@ export function mountWorld(app: Application, conn: DbConnection) {
     if (!isIdle(sent) && !reachedCentre(sent, prevX, prevY, x, y)) return;
     sent = desired;
     conn.reducers.move(desired);
+
+    // Pushing (GDD "Pushing", behind its flag — invariant 5) is driven by this
+    // deliberate move *into* a boulder, not by arriving next to one: walking up to a
+    // boulder stops you flush against it like a wall, and you shove it only by
+    // pressing into it from there. So fire `push` when the intent we just sent faces
+    // a boulder we're already squarely on a centre against; the server re-validates
+    // and re-bases motion (invariant 3), one tile per press.
+    if (pushEnabled && !isIdle(desired)) {
+      const ahead = facingTile(x, y, desired.dirX, desired.dirY);
+      if (ahead && boulderTiles.has(tileKey(ahead.x, ahead.y))) conn.reducers.push({});
+    }
   };
 
   app.ticker.add(() => {
@@ -272,18 +282,6 @@ export function mountWorld(app: Application, conn: DbConnection) {
       animate(entry, now);
 
       if (entry.player.identity.toHexString() !== myId) continue;
-
-      // Pushing is gated behind its flag (invariant 5); off → boulders are immovable
-      // rocks, on → a trogg shoves the one it walks squarely into. We fire `push`
-      // only on the transition into "facing a boulder", never per frame (invariant
-      // 2); the server validates and re-bases motion, so the boulder slides at most
-      // one tile per tile walked (GDD "Pushing").
-      if (pushEnabled) {
-        const ahead = facingTile(x, y, entry.player.dirX, entry.player.dirY);
-        const facingBoulder = ahead != null && boulderTiles.has(tileKey(ahead.x, ahead.y));
-        if (facingBoulder && !pushing) conn.reducers.push({});
-        pushing = facingBoulder;
-      }
 
       flushMove(x, y);
       prevX = x;
