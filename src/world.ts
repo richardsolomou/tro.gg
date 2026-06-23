@@ -6,6 +6,7 @@ import { attachKeyboard } from "./input.js";
 import { mountChat } from "./chat.js";
 import { createTerrain } from "./terrain.js";
 import { captureEvent, isFeatureEnabled } from "./analytics.js";
+import { Avatar, type AvatarSheets, loadAvatarSheets } from "./avatars.js";
 
 /** Art pixels per tile — terrain tiles are drawn at this and scaled up crisply. */
 const ART = 16;
@@ -17,6 +18,7 @@ let TILE = 28;
 /** A player's marker plus the client-clock instant its current intent arrived. */
 interface Tracked {
   marker: Container;
+  avatar?: Avatar;
   player: Player;
   baseMs: number;
   bubble?: Container;
@@ -31,11 +33,22 @@ interface Tracked {
  * dimensions come from the static `ZONES` registry (shared by client and module).
  * PixiJS is the renderer per the GDD "Camera and rendering" section.
  */
-export function mountWorld(app: Application, conn: DbConnection) {
+export async function mountWorld(app: Application, conn: DbConnection) {
   const slug = STARTING_ZONE_SLUG;
   const zone = getZone(slug)!;
   const bounds = { width: zone.width, height: zone.height };
   const myId = conn.identity?.toHexString();
+
+  // Sprite avatars ship behind a flag (invariant 5); if the flag is on but the
+  // sheets fail to load, fall back to the placeholder marker rather than nothing.
+  let sheets: AvatarSheets | undefined;
+  if (isFeatureEnabled("avatar-sprites")) {
+    try {
+      sheets = await loadAvatarSheets();
+    } catch (err) {
+      console.warn("Avatar sprites failed to load; using placeholder markers.", err);
+    }
+  }
 
   const terrain = createTerrain(bounds.width, bounds.height);
   const stage = new Container();
@@ -59,7 +72,11 @@ export function mountWorld(app: Application, conn: DbConnection) {
   const rebuildMarker = (id: string, entry: Tracked) => {
     if (entry.bubbleTimer) clearTimeout(entry.bubbleTimer);
     entry.marker.destroy({ children: true });
-    entry.marker = makeMarker(entry.player.name, troggColor(id), id === myId);
+    // Markers (and their sprite avatars) bake the current TILE into their size,
+    // so a resize rebuilds both — re-point entry.avatar at the fresh one.
+    const { marker, avatar } = makeMarker(entry.player.name, troggColor(id), id === myId, sheets);
+    entry.marker = marker;
+    entry.avatar = avatar;
     entry.bubble = undefined;
     entry.bubbleTimer = undefined;
     stage.addChild(entry.marker);
@@ -71,8 +88,8 @@ export function mountWorld(app: Application, conn: DbConnection) {
   const addPlayer = (p: Player) => {
     const id = p.identity.toHexString();
     if (tracked.has(id)) return;
-    const marker = makeMarker(p.name, troggColor(id), id === myId);
-    const entry: Tracked = { marker, player: p, baseMs: performance.now() };
+    const { marker, avatar } = makeMarker(p.name, troggColor(id), id === myId, sheets);
+    const entry: Tracked = { marker, avatar, player: p, baseMs: performance.now() };
     place(marker, p.x, p.y);
     tracked.set(id, entry);
     stage.addChild(marker);
@@ -101,6 +118,8 @@ export function mountWorld(app: Application, conn: DbConnection) {
     for (const entry of tracked.values()) {
       const { x, y } = projectMotion(entry.player, now - entry.baseMs, bounds);
       place(entry.marker, x, y);
+      // Face travel direction and walk while moving (cheap; only re-rigs on change).
+      entry.avatar?.setMotion(entry.player.dirX, entry.player.dirY);
     }
   });
 
@@ -189,19 +208,30 @@ function makeBubble(text: string): Container {
   return bubble;
 }
 
-function makeMarker(name: string, color: number, self: boolean) {
+function makeMarker(name: string, color: number, self: boolean, sheets?: AvatarSheets) {
   const marker = new Container();
-  const body = new Graphics().rect(2, 2, TILE - 4, TILE - 4).fill(color);
-  // Your own trogg keeps its colour but gets an outline so you can pick it out.
-  if (self) body.rect(2, 2, TILE - 4, TILE - 4).stroke({ width: 2, color: 0xe8dcc4 });
+
+  // Sprite avatar when the sheets loaded; otherwise the placeholder colour
+  // marker (GDD "Placeholder rendering"). Players are troggs; Hogs are NPCs.
+  let avatar: Avatar | undefined;
+  if (sheets) {
+    avatar = new Avatar(sheets.trogg, color, self, TILE);
+    marker.addChild(avatar.view);
+  } else {
+    const body = new Graphics().rect(2, 2, TILE - 4, TILE - 4).fill(color);
+    // Your own trogg keeps its colour but gets an outline so you can pick it out.
+    if (self) body.rect(2, 2, TILE - 4, TILE - 4).stroke({ width: 2, color: 0xe8dcc4 });
+    marker.addChild(body);
+  }
+
   const label = new Text({
     text: name,
     style: { fontFamily: "monospace", fontSize: 11, fill: 0xe8dcc4 },
   });
   label.anchor.set(0.5, 1);
   label.position.set(TILE / 2, -2);
-  marker.addChild(body, label);
-  return marker;
+  marker.addChild(label);
+  return { marker, avatar };
 }
 
 function place(marker: Container, x: number, y: number) {

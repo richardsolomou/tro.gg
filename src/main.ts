@@ -21,7 +21,7 @@ async function main() {
     // Server-authoritative events can't be emitted from inside reducers
     // (network-isolated), so session events fire client-side (docs/analytics.md).
     captureEvent("player_joined", { zone: STARTING_ZONE_SLUG, is_guest: true });
-    mountWorld(app, conn);
+    await mountWorld(app, conn);
   } catch (err) {
     console.error("Failed to connect to SpacetimeDB:", err);
   }
