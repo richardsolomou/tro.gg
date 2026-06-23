@@ -1,0 +1,156 @@
+{
+  "image": "troggs-and-hogs.png",
+  "frameWidth": 16,
+  "frameHeight": 24,
+  "anchor": {
+    "x": 8,
+    "y": 22
+  },
+  "note": "Avatar base bodies, generated from shared/sprites.ts — run `pnpm sprites` to regenerate.",
+  "frames": {
+    "trogg_down_idle": {
+      "x": 0,
+      "y": 0,
+      "w": 16,
+      "h": 24
+    },
+    "trogg_down_walk_a": {
+      "x": 16,
+      "y": 0,
+      "w": 16,
+      "h": 24
+    },
+    "trogg_down_walk_b": {
+      "x": 32,
+      "y": 0,
+      "w": 16,
+      "h": 24
+    },
+    "trogg_up_idle": {
+      "x": 0,
+      "y": 24,
+      "w": 16,
+      "h": 24
+    },
+    "trogg_up_walk_a": {
+      "x": 16,
+      "y": 24,
+      "w": 16,
+      "h": 24
+    },
+    "trogg_up_walk_b": {
+      "x": 32,
+      "y": 24,
+      "w": 16,
+      "h": 24
+    },
+    "trogg_left_idle": {
+      "x": 0,
+      "y": 48,
+      "w": 16,
+      "h": 24
+    },
+    "trogg_left_walk_a": {
+      "x": 16,
+      "y": 48,
+      "w": 16,
+      "h": 24
+    },
+    "trogg_left_walk_b": {
+      "x": 32,
+      "y": 48,
+      "w": 16,
+      "h": 24
+    },
+    "trogg_right_idle": {
+      "x": 0,
+      "y": 72,
+      "w": 16,
+      "h": 24
+    },
+    "trogg_right_walk_a": {
+      "x": 16,
+      "y": 72,
+      "w": 16,
+      "h": 24
+    },
+    "trogg_right_walk_b": {
+      "x": 32,
+      "y": 72,
+      "w": 16,
+      "h": 24
+    },
+    "hog_down_idle": {
+      "x": 0,
+      "y": 96,
+      "w": 16,
+      "h": 24
+    },
+    "hog_down_walk_a": {
+      "x": 16,
+      "y": 96,
+      "w": 16,
+      "h": 24
+    },
+    "hog_down_walk_b": {
+      "x": 32,
+      "y": 96,
+      "w": 16,
+      "h": 24
+    },
+    "hog_up_idle": {
+      "x": 0,
+      "y": 120,
+      "w": 16,
+      "h": 24
+    },
+    "hog_up_walk_a": {
+      "x": 16,
+      "y": 120,
+      "w": 16,
+      "h": 24
+    },
+    "hog_up_walk_b": {
+      "x": 32,
+      "y": 120,
+      "w": 16,
+      "h": 24
+    },
+    "hog_left_idle": {
+      "x": 0,
+      "y": 144,
+      "w": 16,
+      "h": 24
+    },
+    "hog_left_walk_a": {
+      "x": 16,
+      "y": 144,
+      "w": 16,
+      "h": 24
+    },
+    "hog_left_walk_b": {
+      "x": 32,
+      "y": 144,
+      "w": 16,
+      "h": 24
+    },
+    "hog_right_idle": {
+      "x": 0,
+      "y": 168,
+      "w": 16,
+      "h": 24
+    },
+    "hog_right_walk_a": {
+      "x": 16,
+      "y": 168,
+      "w": 16,
+      "h": 24
+    },
+    "hog_right_walk_b": {
+      "x": 32,
+      "y": 168,
+      "w": 16,
+      "h": 24
+    }
+  }
+}

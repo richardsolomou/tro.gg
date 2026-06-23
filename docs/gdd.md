@@ -73,7 +73,8 @@ Both are **input-driven, not per-frame.** The client writes a movement intent on
 - **Held items** (torch, pick, axe, sword, shield) render as per-hand layers — a **main hand** and an **off hand**, so combinations like sword + shield work. Each hand has its own anchor point and z-order per direction/frame (e.g. the off-hand arm and its item sit behind the body when facing up, in front when facing down). A new holdable is a new item sprite, not a new character.
 - **Armor (later)** layers the same way over body slots (head, torso). The rig reserves the layer order now; armor sprites are added with the mechanic.
 - What's equipped rides the zone's player sync, so others see what you're holding. First held-item rendering lands with tools (M2); the model is built extensible from the first sprite.
-- **Placeholder rendering (until sprites land):** a trogg draws as a solid marker tinted by a stable colour, a deterministic projection of its durable id (derived, never stored — like a level from XP), so the same trogg is the same colour for everyone, every session. Your own marker keeps its colour and adds an outline so you can pick it out.
+- **Sprite avatars (behind `avatar-sprites`):** a trogg renders as the layered avatar sprite — programmer pixel art generated from `shared/sprites.ts` (4 facings × idle/walk, troggs and Hogs sharing one rig), feet anchored on the tile. The stable per-trogg colour now rides as a sprite **tint** (a deterministic projection of its durable id — derived, never stored, like a level from XP), so the same trogg is the same colour for everyone, every session; your own trogg gets a ground ring so you can pick it out. The committed sprite sheet asset (`assets/sprites/`) is the reviewable export; the client paints the same art into a texture at runtime.
+- **Placeholder marker (kill-switch fallback):** with `avatar-sprites` off, a trogg draws as a solid tile-filling marker in its stable colour (own trogg outlined) — the original placeholder, kept as the flag's fallback.
 
 ### Zones
 
@@ -223,7 +224,7 @@ Zone chat (M0 scope) ships on top of it: speech bubbles over heads plus a histor
 
 ## Open design threads
 
-- Mascot integration: the trogg concept art as the avatar spritesheet base.
+- Mascot integration: a first programmer-pixel-art trogg/Hog sprite sheet has landed (`shared/sprites.ts` → `assets/sprites/`, rendered for troggs behind `avatar-sprites`); replacing it with finished concept-art-based sprites is the remaining work.
 - Tilemap and pixel asset direction once the colored grid stops being charming.
 - Light/darkness as a mechanic: torch radius, communal beacons, dark-gated zones — how literal to make it (M2–M3 decision).
 - Own-avatar prediction polish: rollback/reconciliation, only if intent-extrapolation alone feels laggy.
