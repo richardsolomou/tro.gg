@@ -1,0 +1,60 @@
+name: CI
+
+# Gates every PR (and main) on the checks a deploy depends on, so a change that
+# can't deploy fails review instead of failing after merge. The bindings check
+# mirrors deploy-module's: `spacetime generate` builds the module and emits the
+# client bindings, so a broken module build or stale committed bindings both fail
+# here. No secrets are used — generate is fully local, so this runs on fork PRs.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type-check module
+        run: pnpm typecheck:module
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build client
+        run: pnpm build
+
+      - name: Install SpacetimeDB CLI
+        run: |
+          curl -sSf https://install.spacetimedb.com | sh -s -- --yes
+          echo "$HOME/.local/share/spacetime/bin/current" >> "$GITHUB_PATH"
+
+      - name: Pin CLI version
+        run: |
+          spacetime version install 2.6.0 || true
+          spacetime version use 2.6.0
+
+      - name: Verify committed bindings match the module schema
+        run: |
+          spacetime generate --lang typescript --out-dir src/module_bindings --module-path spacetimedb -y
+          if ! git diff --exit-code src/module_bindings; then
+            echo "::error::src/module_bindings is stale — run 'just generate' and commit the result."
+            exit 1
+          fi
