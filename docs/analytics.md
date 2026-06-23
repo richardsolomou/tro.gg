@@ -30,6 +30,7 @@ snake_case. Low-volume by design — anything that could fire more than ~once/se
 | `xp_gained` | `skill, amount, level` | XP granted (batch if volume demands) |
 | `level_up` | `skill, level` | Derived level increases |
 | `chat_sent` | `zone` | Message sent — **no content** |
+| `boulders_reset` | `zone` | Player runs the in-chat `/reset` command |
 | `item_crafted` | `recipe, qty` | M3 |
 | `project_contributed` | `project, item, qty` | M3 |
 | `project_completed` | `project` | M3 |
@@ -47,6 +48,7 @@ kebab-case. Every new mechanic ships behind a flag. Registry:
 | `avatar-sprites` | Trogg sprite avatars vs the placeholder colour marker (render gate; kill-switch) |
 | `boulder-pushing` | M0 boulder pushing (off → boulders are immovable obstacles) |
 | `spawn-command` | `/spawn` debug command (drops a boulder or Hog at your tile; default on in local dev, off in prod) |
+| `boulder-reset` | M0 in-chat `/reset` command (off → `/reset` is an ordinary chat line) |
 | `auth-enabled` | M1 account sign-in + rename (account UI mount gate; kill-switch) |
 | `gathering-enabled` | M2 gathering system |
 | `node-respawn-seconds` | Respawn tuning (multivariate / payload) |

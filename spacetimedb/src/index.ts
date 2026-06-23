@@ -292,6 +292,22 @@ export const spawn = spacetimedb.reducer({ kind: t.string() }, (ctx, { kind }) =
 });
 
 /**
+ * Reset the caller's zone boulders to their `ZONES` registry positions (GDD
+ * "Pushing"). Clears the zone's boulders and reseeds from the registry — the single
+ * source of truth — so a layout shoved out of shape snaps back. Fired by the in-chat
+ * `/reset` command; open like every reducer, with the `boulder-reset` flag gating
+ * the client command (invariant 5).
+ */
+export const resetBoulders = spacetimedb.reducer((ctx) => {
+  const p = ctx.db.player.identity.find(ctx.sender);
+  if (!p) return;
+  const zone = getZone(p.zoneId);
+  if (!zone) return;
+  for (const b of [...ctx.db.boulder.zoneId.filter(zone.slug)]) ctx.db.boulder.id.delete(b.id);
+  seedBoulders(ctx, zone);
+});
+
+/**
  * A zone-scoped chat line. Validate length, enforce the per-player rate limit
  * (invariant 3 — never trust the client), append the row, and trim the zone's
  * history to its cap.

@@ -39,6 +39,7 @@ import MoveReducer from "./move_reducer";
 import PushReducer from "./push_reducer";
 import RedeemClaimReducer from "./redeem_claim_reducer";
 import RenameReducer from "./rename_reducer";
+import ResetBouldersReducer from "./reset_boulders_reducer";
 import SpawnReducer from "./spawn_reducer";
 import StartClaimReducer from "./start_claim_reducer";
 
@@ -119,6 +120,7 @@ const reducersSchema = __reducers(
   __reducerSchema("push", PushReducer),
   __reducerSchema("redeem_claim", RedeemClaimReducer),
   __reducerSchema("rename", RenameReducer),
+  __reducerSchema("reset_boulders", ResetBouldersReducer),
   __reducerSchema("spawn", SpawnReducer),
   __reducerSchema("start_claim", StartClaimReducer),
 );

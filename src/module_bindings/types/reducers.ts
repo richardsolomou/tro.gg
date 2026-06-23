@@ -11,6 +11,7 @@ import MoveReducer from "../move_reducer";
 import PushReducer from "../push_reducer";
 import RedeemClaimReducer from "../redeem_claim_reducer";
 import RenameReducer from "../rename_reducer";
+import ResetBouldersReducer from "../reset_boulders_reducer";
 import SpawnReducer from "../spawn_reducer";
 import StartClaimReducer from "../start_claim_reducer";
 
@@ -19,6 +20,7 @@ export type MoveParams = __Infer<typeof MoveReducer>;
 export type PushParams = __Infer<typeof PushReducer>;
 export type RedeemClaimParams = __Infer<typeof RedeemClaimReducer>;
 export type RenameParams = __Infer<typeof RenameReducer>;
+export type ResetBouldersParams = __Infer<typeof ResetBouldersReducer>;
 export type SpawnParams = __Infer<typeof SpawnReducer>;
 export type StartClaimParams = __Infer<typeof StartClaimReducer>;
 
