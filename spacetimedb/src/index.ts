@@ -54,7 +54,8 @@ const player = table(
 /**
  * One zone-scoped chat line (GDD "Chat"). Clients subscribe to recent rows in
  * their zone, and a freshly inserted row *is* the live bubble. `name` is
- * denormalised so late joiners render history without a lookup. Content never
+ * denormalised so late joiners render history without a lookup; `rename` rewrites
+ * it across the sender's rows so history tracks their current name. Content never
  * leaves the game for analytics (invariant 4).
  */
 const chatMessage = table(
@@ -281,16 +282,21 @@ export const chat = spacetimedb.reducer({ text: t.string() }, (ctx, { text }) =>
  * alphanumeric + hyphen). This is how a player swaps the generated `trogg-####`
  * for one they choose. Validation and the uniqueness scan run server-side
  * (invariant 3); an invalid or taken name is a silent no-op, like a rejected chat
- * line, and the client sees its name simply not change.
+ * line, and the client sees its name simply not change. The denormalised name on
+ * the player's past chat lines is rewritten too, so history shows their current
+ * name rather than whatever they were called when each line was sent.
  */
 export const rename = spacetimedb.reducer({ name: t.string() }, (ctx, { name }) => {
   const p = ctx.db.player.identity.find(ctx.sender);
   if (!p) return;
 
   const trimmed = name.trim();
-  if (!isValidName(trimmed) || nameTaken(ctx, trimmed, ctx.sender)) return;
+  if (trimmed === p.name || !isValidName(trimmed) || nameTaken(ctx, trimmed, ctx.sender)) return;
 
   ctx.db.player.identity.update({ ...p, name: trimmed });
+  for (const line of ctx.db.chatMessage.iter()) {
+    if (line.sender.isEqual(ctx.sender)) ctx.db.chatMessage.id.update({ ...line, name: trimmed });
+  }
 });
 
 /**
