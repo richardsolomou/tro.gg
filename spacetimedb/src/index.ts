@@ -14,6 +14,7 @@ import {
   isWalkable,
   projectMotion,
   SPACETIMEAUTH_ISSUER,
+  spawnTile,
   STARTING_ZONE_SLUG,
   walkableCardinals,
   type Zone,
@@ -59,7 +60,8 @@ const player = table(
 /**
  * One zone-scoped chat line (GDD "Chat"). Clients subscribe to recent rows in
  * their zone, and a freshly inserted row *is* the live bubble. `name` is
- * denormalised so late joiners render history without a lookup. Content never
+ * denormalised so late joiners render history without a lookup; `rename` rewrites
+ * it across the sender's rows so history tracks their current name. Content never
  * leaves the game for analytics (invariant 4).
  */
 const chatMessage = table(
@@ -115,7 +117,8 @@ const boulder = table(
  * cardinal direction, and `movedAt` — so clients derive its position with
  * `projectMotion` and there's no per-frame sync (invariant 2). Hogs are
  * server-owned (no identity): seeded per zone from the `ZONES` registry on first
- * connect, then moved only by the scheduled `wanderHogs` reducer.
+ * connect, dropped by the `/spawn` debug command, then moved only by the scheduled
+ * `wanderHogs` reducer. The merchant/dialogue Hog roles land with M3/M5.
  */
 const hog = table(
   { name: "hog", public: true },
@@ -331,6 +334,53 @@ export const wanderHogs = spacetimedb.reducer({ timer: hogWander.rowType }, (ctx
 });
 
 /**
+ * Spawn a boulder or Hog at the caller's location — the `/spawn` debug command
+ * (behind the `spawn-command` flag, gated client-side). The server re-derives the
+ * trogg's tile authoritatively (invariant 3) and places the entity on the tile it
+ * faces, falling back to a free neighbour, so nothing lands inside a wall or on
+ * another boulder. An unknown kind or a boxed-in trogg is a silent no-op.
+ */
+export const spawn = spacetimedb.reducer({ kind: t.string() }, (ctx, { kind }) => {
+  if (kind !== "boulder" && kind !== "hog") return;
+
+  const p = ctx.db.player.identity.find(ctx.sender);
+  if (!p) return;
+  const zone = getZone(p.zoneId);
+  if (!zone) return;
+
+  // Boulders are the only collision obstacles; Hogs are non-colliding, so both
+  // avoid spawning into a wall or onto an existing boulder, never onto a Hog.
+  const occupied = boulderTiles(ctx, p.zoneId);
+  const pos = settle(ctx, p, ctx.timestamp);
+  const tile = spawnTile(zone, (x, y) => occupied.has(tileKey(x, y)), pos.x, pos.y, p.dirX, p.dirY);
+  if (!tile) return;
+
+  if (kind === "boulder") {
+    ctx.db.boulder.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y });
+  } else {
+    // A spawned Hog starts at rest and joins the roamers — the next wander tick
+    // gives it a heading like any other.
+    ctx.db.hog.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp });
+  }
+});
+
+/**
+ * Reset the caller's zone boulders to their `ZONES` registry positions (GDD
+ * "Pushing"). Clears the zone's boulders and reseeds from the registry — the single
+ * source of truth — so a layout shoved out of shape snaps back. Fired by the in-chat
+ * `/reset` command; open like every reducer, with the `boulder-reset` flag gating
+ * the client command (invariant 5).
+ */
+export const resetBoulders = spacetimedb.reducer((ctx) => {
+  const p = ctx.db.player.identity.find(ctx.sender);
+  if (!p) return;
+  const zone = getZone(p.zoneId);
+  if (!zone) return;
+  for (const b of [...ctx.db.boulder.zoneId.filter(zone.slug)]) ctx.db.boulder.id.delete(b.id);
+  seedBoulders(ctx, zone);
+});
+
+/**
  * A zone-scoped chat line. Validate length, enforce the per-player rate limit
  * (invariant 3 — never trust the client), append the row, and trim the zone's
  * history to its cap.
@@ -367,16 +417,21 @@ export const chat = spacetimedb.reducer({ text: t.string() }, (ctx, { text }) =>
  * alphanumeric + hyphen). This is how a player swaps the generated `trogg-####`
  * for one they choose. Validation and the uniqueness scan run server-side
  * (invariant 3); an invalid or taken name is a silent no-op, like a rejected chat
- * line, and the client sees its name simply not change.
+ * line, and the client sees its name simply not change. The denormalised name on
+ * the player's past chat lines is rewritten too, so history shows their current
+ * name rather than whatever they were called when each line was sent.
  */
 export const rename = spacetimedb.reducer({ name: t.string() }, (ctx, { name }) => {
   const p = ctx.db.player.identity.find(ctx.sender);
   if (!p) return;
 
   const trimmed = name.trim();
-  if (!isValidName(trimmed) || nameTaken(ctx, trimmed, ctx.sender)) return;
+  if (trimmed === p.name || !isValidName(trimmed) || nameTaken(ctx, trimmed, ctx.sender)) return;
 
   ctx.db.player.identity.update({ ...p, name: trimmed });
+  for (const line of ctx.db.chatMessage.iter()) {
+    if (line.sender.isEqual(ctx.sender)) ctx.db.chatMessage.id.update({ ...line, name: trimmed });
+  }
 });
 
 /**

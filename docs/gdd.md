@@ -117,7 +117,7 @@ Ambient **Hog** NPCs (the glossary's friendly hedgehogs) roam the zone on their 
 - **Guest persistence:** the browser securely stores the SpacetimeDB connection token — not game state, which stays server-authoritative (invariant 3) — so a returning visitor reconnects with the same Identity and resumes the same trogg row with their progress intact. Clearing the browser or switching devices makes a guest a new trogg.
 - **Signing in** upgrades a guest to an account via **SpacetimeAuth** (SpacetimeDB's managed OIDC provider; Discord is the enabled login). SpacetimeDB derives a *stable* Identity from the OIDC token's `iss`+`sub`, so the account — not the browser — now anchors the synced state and the trogg resumes on any device. The browser runs the OIDC Authorization-Code-**+-PKCE** flow (a public client: no client secret in the bundle, invariant 8); the module trusts only the SpacetimeAuth issuer as an account provider (invariant 3). Account creation and the upgrade fire `player_named` alongside `posthog.identify()`, merging the guest's history.
 - **Claiming** (folding a guest's trogg into the account, since the two are different Identities): the guest's browser mints a one-time nonce, registers it under the guest Identity via `startClaim`, then signs in and redeems it as the account via `redeemClaim` — both sides proven, never a client-asserted identity (invariant 3). The guest's chosen name carries over (a generated `trogg-####` never overwrites a name the account already chose); the guest row is then absorbed. A fresh device with no guest just signs in and resumes the account directly. Nonces expire after `CLAIM_CODE_TTL_MS`.
-- **Changing your name:** the `rename` reducer swaps the generated `trogg-####` for a chosen one, validated server-side. Names: unique, 3–20 chars, alphanumeric + hyphen.
+- **Changing your name:** the `rename` reducer swaps the generated `trogg-####` for a chosen one, validated server-side. Names: unique, 3–20 chars, alphanumeric + hyphen. The new name takes effect everywhere it's shown — the nameplate over the trogg and the denormalised `name` on the player's past `chat_message` rows are both rewritten, so nothing keeps showing the old name.
 
 ### Skills and XP
 
@@ -195,7 +195,8 @@ boulder        id (PK, auto-inc), zoneId, x, y     (tile coords)
 hog            id (PK, auto-inc), zoneId, x, y, dirX, dirY, movedAt
                an ambient roaming Hog NPC (see "Hogs"). Intent-based motion like a player (position
                derived with projectMotion); server-owned, no identity. Seeded from the ZONES registry
-               on first connect, moved only by the scheduled `wanderHogs`. index: by_zone (zoneId)
+               on first connect, dropped by the `/spawn` debug command, moved only by the scheduled
+               `wanderHogs`. index: by_zone (zoneId)
 hog_wander     scheduledId (PK, auto-inc), scheduledAt     (scheduled table)
                the Hog wander timer — SpacetimeDB's deterministic scheduler (invariant 1). Fires
                `wanderHogs`, which re-arms it only while a player is online. Private (no client reads it).
@@ -203,7 +204,8 @@ actions        playerId, nodeId, kind, startedAt, endsAt
                index: by_player (playerId)
 chat_message   id (PK, auto-inc), zoneId, sender (Identity), name (denormalised), text, createdAt
                a new row is the live bubble; clients subscribe to recent rows per zone, capped at
-               CHAT_HISTORY_MAX (trimmed in the chat reducer). index: by_zone (zoneId)
+               CHAT_HISTORY_MAX (trimmed in the chat reducer). `rename` rewrites `name` across the
+               sender's rows so history tracks the current name. index: by_zone (zoneId)
 claim_code     code (PK), guest (Identity), createdAt
                a pending guest → account claim (see "Identity"). Private (not public): the nonce lives
                only in the browser that minted it; no client reads this table. startClaim writes it under
@@ -265,6 +267,8 @@ Boulder pushing landed in M0 too, also at maintainer direction (see [Pushing](#p
 Roaming Hogs landed in M0 too, also at maintainer direction (see [Hogs (roaming)](#hogs-roaming)) — ambient hedgehog NPCs that wander the zone behind the `roaming-hogs` flag. This is decorative presence only: the Hog merchant (M3) and LLM-driven Hog (M5) roles are untouched. It reuses the intent motion model and walkability collision, and introduces the first **scheduled reducer** (`wanderHogs`), exercising SpacetimeDB's deterministic timer — the same primitive M2's respawns and action completions will use — while staying within invariant 1 (it re-arms only while a player is online, so an empty zone does no work).
 
 Zone chat (M0 scope) ships on top of it: speech bubbles over heads plus a history side panel, behind the `chat-enabled` flag. Recent lines live in the `chat_message` table and replay when a client subscribes. The `chat` reducer enforces the 200-char cap and 1 msg/sec rate limit server-side (invariant 3); the flag gates the client mount.
+
+A `/spawn` debug command landed alongside chat, behind the `spawn-command` flag (default on in local dev, off in a production build): typing `/spawn boulder` or `/spawn hedgehog` in the chat box drops that entity at the caller's tile (the tile it faces, else a free neighbour). The placement and the `spawn` reducer are server-authoritative (invariant 3). A spawned Hog starts at rest and joins the roamers — the next `wanderHogs` tick gives it a heading like any other (see [Hogs (roaming)](#hogs-roaming)). There's no role system in M0, so the flag is the only gate; default it off in production.
 
 ## Open design threads
 

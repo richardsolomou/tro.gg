@@ -47,6 +47,7 @@ kebab-case. Every new mechanic ships behind a flag. Registry:
 | `avatar-sprites` | Trogg sprite avatars vs the placeholder colour marker (render gate; kill-switch) |
 | `boulder-pushing` | M0 boulder pushing (off → boulders are immovable obstacles) |
 | `roaming-hogs` | M0 ambient roaming Hog NPCs (client render gate; kill-switch) |
+| `spawn-command` | `/spawn` debug command (drops a boulder or Hog at your tile; default on in local dev, off in prod) |
 | `auth-enabled` | M1 account sign-in + rename (account UI mount gate; kill-switch) |
 | `gathering-enabled` | M2 gathering system |
 | `node-respawn-seconds` | Respawn tuning (multivariate / payload) |

@@ -87,6 +87,36 @@ export function walkableCardinals(zone: ZoneBounds, x: number, y: number): { dir
   });
 }
 
+/**
+ * Pick a tile to drop a spawned entity on (the debug `/spawn` command): the tile
+ * the player faces if it's free, else the nearest free orthogonal neighbour, else
+ * the player's own tile — or null if every candidate is blocked. "Free" is a
+ * walkable floor tile the `occupied` predicate doesn't claim (so a boulder never
+ * spawns inside a wall or on another boulder). Idle players (no direction) skip
+ * the facing tile and take a neighbour, so the entity lands beside them rather
+ * than underfoot. Server-authoritative (invariant 3); position is rounded to the
+ * player's current tile first.
+ */
+export function spawnTile(
+  zone: Zone,
+  occupied: (tileX: number, tileY: number) => boolean,
+  x: number,
+  y: number,
+  dirX: number,
+  dirY: number,
+): Coord | null {
+  const px = Math.round(x);
+  const py = Math.round(y);
+  const free = (tx: number, ty: number) => isWalkable(zone, tx, ty) && !occupied(tx, ty);
+
+  const candidates: Coord[] = [];
+  if (dirX !== 0 || dirY !== 0) candidates.push({ x: px + Math.sign(dirX), y: py + Math.sign(dirY) });
+  candidates.push({ x: px + 1, y: py }, { x: px - 1, y: py }, { x: px, y: py + 1 }, { x: px, y: py - 1 }, { x: px, y: py });
+
+  for (const c of candidates) if (free(c.x, c.y)) return c;
+  return null;
+}
+
 /** Slack to keep tile-boundary floats off the edge when deriving a footprint. */
 const EPS = 1e-6;
 
