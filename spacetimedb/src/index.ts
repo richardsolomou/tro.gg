@@ -1,5 +1,5 @@
 import { schema, table, t, type InferSchema, type ReducerCtx } from "spacetimedb/server";
-import { ScheduleAt } from "spacetimedb";
+import { ScheduleAt, Timestamp } from "spacetimedb";
 import {
   CHAT_HISTORY_MAX,
   CHAT_MAX_CHARS,
@@ -119,17 +119,23 @@ const boulder = table(
  * server-owned (no identity): seeded per zone from the `ZONES` registry on first
  * connect, dropped by the `/spawn` debug command, then moved only by the scheduled
  * `wanderHogs` reducer. The merchant/dialogue Hog roles land with M3/M5.
+ *
+ * Unlike a trogg, a Hog's origin is an integer tile (`i32`): it re-bases at a whole
+ * tile each wander tick (clients still glide between via `projectMotion`), and it
+ * never pushes, so it needs no sub-tile precision. The motion columns carry
+ * defaults so adding them to the already-published `hog` table is an in-place
+ * migration, not a breaking one. dirX/dirY/movedAt default to idle-at-epoch.
  */
 const hog = table(
   { name: "hog", public: true },
   {
     id: t.u64().primaryKey().autoInc(),
     zoneId: t.string().index("btree"),
-    x: t.f64(),
-    y: t.f64(),
-    dirX: t.i32(),
-    dirY: t.i32(),
-    movedAt: t.timestamp(),
+    x: t.i32(),
+    y: t.i32(),
+    dirX: t.i32().default(0),
+    dirY: t.i32().default(0),
+    movedAt: t.timestamp().default(Timestamp.UNIX_EPOCH),
   },
 );
 
@@ -323,8 +329,13 @@ export const wanderHogs = spacetimedb.reducer({ timer: hogWander.rowType }, (ctx
     }
     const bounds = zoneBounds(zone, (x, y) => occupied!.has(tileKey(x, y)));
     const pos = projectMotion(h, elapsedMs(h.movedAt, ctx.timestamp), bounds);
-    const dir = online ? pickWanderDir(ctx, bounds, pos) : { dirX: 0, dirY: 0 };
-    ctx.db.hog.id.update({ ...h, x: pos.x, y: pos.y, dirX: dir.dirX, dirY: dir.dirY, movedAt: ctx.timestamp });
+    // Re-base at a whole tile: the perpendicular axis is already integer, and
+    // projectMotion stops flush at walls, so rounding the moving axis stays on
+    // walkable floor (the `hog` origin is i32 — see the table definition).
+    const x = Math.round(pos.x);
+    const y = Math.round(pos.y);
+    const dir = online ? pickWanderDir(ctx, bounds, { x, y }) : { dirX: 0, dirY: 0 };
+    ctx.db.hog.id.update({ ...h, x, y, dirX: dir.dirX, dirY: dir.dirY, movedAt: ctx.timestamp });
   }
 
   // Clear first so exactly one timer is pending regardless of whether the firing
