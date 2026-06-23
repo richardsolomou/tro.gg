@@ -1,10 +1,11 @@
-import { Application, Container, Graphics, Text } from "pixi.js";
-import { CHAT_BUBBLE_MS, getZone, projectMotion, STARTING_ZONE_SLUG, troggColor } from "@trogg/shared";
+import { Application, Container, Graphics, Sprite, Text } from "pixi.js";
+import { CHAT_BUBBLE_MS, FRAME_H, getZone, projectMotion, STARTING_ZONE_SLUG, troggColor, type Facing } from "@trogg/shared";
 import type { DbConnection } from "./module_bindings";
 import type { Player } from "./module_bindings/types";
 import { attachKeyboard } from "./input.js";
 import { mountChat } from "./chat.js";
 import { createTerrain } from "./terrain.js";
+import { avatarFrame, avatarTexture, facingFromDir } from "./avatars.js";
 import { captureEvent, isFeatureEnabled } from "./analytics.js";
 
 /** Art pixels per tile — terrain tiles are drawn at this and scaled up crisply. */
@@ -14,13 +15,24 @@ const ZONE_FILL = 0.92;
 /** Screen pixels per tile, sized to the viewport in `layout`. */
 let TILE = 28;
 
-/** A player's marker plus the client-clock instant its current intent arrived. */
+/** A player's sprite plus the client-clock instant its current intent arrived. */
 interface Tracked {
   marker: Container;
+  /** The trogg sprite, or undefined when the `avatar-sprites` flag is off. */
+  sprite?: Sprite;
   player: Player;
   baseMs: number;
+  /** Last facing, kept so an idle trogg holds its heading rather than snapping. */
+  facing: Facing;
+  /** The frame key currently on the sprite, so the ticker only swaps on change. */
+  frameKey: string;
   bubble?: Container;
   bubbleTimer?: ReturnType<typeof setTimeout>;
+}
+
+/** Screen-space y of the top of a trogg's head, for placing labels and bubbles. */
+function headTopY(): number {
+  return TILE - FRAME_H * (TILE / ART);
 }
 
 /**
@@ -36,6 +48,9 @@ export function mountWorld(app: Application, conn: DbConnection) {
   const zone = getZone(slug)!;
   const bounds = { width: zone.width, height: zone.height };
   const myId = conn.identity?.toHexString();
+  // Sprite avatars replace the placeholder marker behind a flag (invariant 5);
+  // the kill-switch falls back to the colour marker, like `chat-enabled`.
+  const useSprites = isFeatureEnabled("avatar-sprites");
 
   const terrain = createTerrain(bounds.width, bounds.height);
   const stage = new Container();
@@ -59,7 +74,10 @@ export function mountWorld(app: Application, conn: DbConnection) {
   const rebuildMarker = (id: string, entry: Tracked) => {
     if (entry.bubbleTimer) clearTimeout(entry.bubbleTimer);
     entry.marker.destroy({ children: true });
-    entry.marker = makeMarker(entry.player.name, troggColor(id), id === myId);
+    const built = makeMarker(entry.player.name, troggColor(id), id === myId, entry.facing, useSprites);
+    entry.marker = built.marker;
+    entry.sprite = built.sprite;
+    entry.frameKey = built.frameKey;
     entry.bubble = undefined;
     entry.bubbleTimer = undefined;
     stage.addChild(entry.marker);
@@ -71,8 +89,9 @@ export function mountWorld(app: Application, conn: DbConnection) {
   const addPlayer = (p: Player) => {
     const id = p.identity.toHexString();
     if (tracked.has(id)) return;
-    const marker = makeMarker(p.name, troggColor(id), id === myId);
-    const entry: Tracked = { marker, player: p, baseMs: performance.now() };
+    const facing = facingFromDir(p.dirX, p.dirY, "down");
+    const { marker, sprite, frameKey } = makeMarker(p.name, troggColor(id), id === myId, facing, useSprites);
+    const entry: Tracked = { marker, sprite, player: p, baseMs: performance.now(), facing, frameKey };
     place(marker, p.x, p.y);
     tracked.set(id, entry);
     stage.addChild(marker);
@@ -101,6 +120,7 @@ export function mountWorld(app: Application, conn: DbConnection) {
     for (const entry of tracked.values()) {
       const { x, y } = projectMotion(entry.player, now - entry.baseMs, bounds);
       place(entry.marker, x, y);
+      animate(entry, now);
     }
   });
 
@@ -159,7 +179,7 @@ function showBubble(tracked: Map<string, Tracked>, id: string, text: string) {
   if (entry.bubbleTimer) clearTimeout(entry.bubbleTimer);
   entry.bubble?.destroy({ children: true });
 
-  const bubble = makeBubble(text);
+  const bubble = makeBubble(text, entry.sprite ? headTopY() : 0);
   entry.marker.addChild(bubble);
   entry.bubble = bubble;
   entry.bubbleTimer = setTimeout(() => {
@@ -171,7 +191,7 @@ function showBubble(tracked: Map<string, Tracked>, id: string, text: string) {
   }, CHAT_BUBBLE_MS);
 }
 
-function makeBubble(text: string): Container {
+function makeBubble(text: string, topY: number): Container {
   const bubble = new Container();
   const label = new Text({
     text,
@@ -185,23 +205,70 @@ function makeBubble(text: string): Container {
     .fill(0xe8dcc4);
   label.position.set(0, padY);
   bubble.addChild(bg, label);
-  bubble.position.set(TILE / 2, -16);
+  // Float just above the head (the head top in sprite mode, the cell top for the
+  // placeholder marker).
+  bubble.position.set(TILE / 2, topY - 16);
   return bubble;
 }
 
-function makeMarker(name: string, color: number, self: boolean) {
+/**
+ * A trogg. With the `avatar-sprites` flag on, it's the layered avatar sprite
+ * (GDD "Avatars and equipment") tinted by the player's stable colour, feet at
+ * the bottom-centre of the tile cell and head extending up out of it — so the
+ * per-player colour, formerly the whole marker, now rides as a tint, keeping
+ * "the same trogg is the same colour for everyone". With the flag off it's the
+ * placeholder colour marker (a tile-filling rect). Both carry a name label.
+ */
+function makeMarker(name: string, color: number, self: boolean, facing: Facing, sprites: boolean) {
   const marker = new Container();
-  const body = new Graphics().rect(2, 2, TILE - 4, TILE - 4).fill(color);
-  // Your own trogg keeps its colour but gets an outline so you can pick it out.
-  if (self) body.rect(2, 2, TILE - 4, TILE - 4).stroke({ width: 2, color: 0xe8dcc4 });
+  let sprite: Sprite | undefined;
+  let frameKey = "";
+
+  if (sprites) {
+    const frame = avatarFrame(false, 0);
+    // Self gets a bright ground ring under the feet so you can pick yourself out.
+    if (self) {
+      const ring = new Graphics()
+        .ellipse(TILE / 2, TILE - 1, TILE * 0.34, TILE * 0.16)
+        .stroke({ width: 2, color: 0xe8dcc4 });
+      marker.addChild(ring);
+    }
+    sprite = new Sprite(avatarTexture("trogg", facing, frame));
+    sprite.anchor.set(0.5, 1);
+    sprite.scale.set(TILE / ART);
+    sprite.position.set(TILE / 2, TILE);
+    sprite.tint = color;
+    marker.addChild(sprite);
+    frameKey = `${facing}_${frame}`;
+  } else {
+    const body = new Graphics().rect(2, 2, TILE - 4, TILE - 4).fill(color);
+    // Your own trogg keeps its colour but gets an outline so you can pick it out.
+    if (self) body.rect(2, 2, TILE - 4, TILE - 4).stroke({ width: 2, color: 0xe8dcc4 });
+    marker.addChild(body);
+  }
+
   const label = new Text({
     text: name,
     style: { fontFamily: "monospace", fontSize: 11, fill: 0xe8dcc4 },
   });
   label.anchor.set(0.5, 1);
-  label.position.set(TILE / 2, -2);
-  marker.addChild(body, label);
-  return marker;
+  label.position.set(TILE / 2, sprites ? headTopY() - 2 : -2);
+  marker.addChild(label);
+
+  return { marker, sprite, frameKey };
+}
+
+/** Drive a trogg's facing and walk cycle from its synced motion intent. No-op
+ *  for the placeholder marker (no sprite to swap). */
+function animate(entry: Tracked, now: number) {
+  if (!entry.sprite) return;
+  const moving = entry.player.dirX !== 0 || entry.player.dirY !== 0;
+  entry.facing = facingFromDir(entry.player.dirX, entry.player.dirY, entry.facing);
+  const frame = avatarFrame(moving, now);
+  const key = `${entry.facing}_${frame}`;
+  if (key === entry.frameKey) return; // only touch the GPU on an actual change
+  entry.sprite.texture = avatarTexture("trogg", entry.facing, frame);
+  entry.frameKey = key;
 }
 
 function place(marker: Container, x: number, y: number) {
