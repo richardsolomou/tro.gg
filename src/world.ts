@@ -233,8 +233,8 @@ export function mountWorld(app: Application, conn: DbConnection) {
 
   attachKeyboard(conn);
 
-  // Cosmetic join easter egg (invariant 5). Each join has a chance of a haunt.
-  if (isFeatureEnabled("ghost-trogg") && Math.random() < GHOST_CHANCE) hauntGhost(stage, bounds);
+  // Cosmetic join easter egg (invariant 5). Each launch has a chance of a haunt.
+  if (isFeatureEnabled("ghost-trogg") && Math.random() < GHOST_CHANCE) hauntGhost(stage);
 
   // Live once the initial rows have been delivered: backlog chat fills the
   // history panel silently, while later inserts also pop a bubble.
@@ -469,20 +469,18 @@ function makeHog(): Container {
   return sprite;
 }
 
-/** Odds a given join is haunted by the ghost trogg. */
-const GHOST_CHANCE = 1 / 3;
-/** How long each apparition holds before it vanishes, and the dark beat between. */
+/** Odds a given launch is haunted by the ghost trogg. */
+const GHOST_CHANCE = 1 / 20;
+/** How long the apparition holds before it fades. */
 const GHOST_FLICKER_MS = 500;
-/** Random spots the ghost blinks to after the origin. */
-const GHOST_BLINKS = 6;
 
 /**
- * Cosmetic easter egg (behind `ghost-trogg`): a pale trogg materialises at the
- * origin tile, then blinks to random tiles around the zone, a heartbeat each,
- * before it fades for good. Purely a client render — it touches no table and no
- * reducer (invariant 3), so it's never seen by anyone but the haunted player.
+ * Cosmetic easter egg (behind `ghost-trogg`): on launch, a pale trogg sometimes
+ * materialises at the origin tile for a heartbeat, then fades. Purely a client
+ * render — it touches no table and no reducer (invariant 3), so it's never seen
+ * by anyone but the haunted player.
  */
-function hauntGhost(stage: Container, bounds: { width: number; height: number }) {
+function hauntGhost(stage: Container) {
   const ghost = new Container();
   const sprite = new Sprite(ghostTexture("down", "idle"));
   sprite.anchor.set(0.5, 1);
@@ -490,30 +488,10 @@ function hauntGhost(stage: Container, bounds: { width: number; height: number })
   sprite.position.set(TILE / 2, TILE);
   sprite.alpha = 0.5;
   ghost.addChild(sprite);
-  ghost.visible = false;
+  place(ghost, 0, 0);
   stage.addChild(ghost);
 
-  // The origin first, then random tiles within the zone.
-  const spots = [{ x: 0, y: 0 }];
-  for (let i = 0; i < GHOST_BLINKS; i++) {
-    spots.push({
-      x: Math.floor(Math.random() * bounds.width),
-      y: Math.floor(Math.random() * bounds.height),
-    });
-  }
-
-  let i = 0;
-  const blink = () => {
-    const spot = spots[i++];
-    if (!spot) return ghost.destroy({ children: true });
-    place(ghost, spot.x, spot.y);
-    ghost.visible = true;
-    setTimeout(() => {
-      ghost.visible = false;
-      setTimeout(blink, GHOST_FLICKER_MS / 2);
-    }, GHOST_FLICKER_MS);
-  };
-  blink();
+  setTimeout(() => ghost.destroy({ children: true }), GHOST_FLICKER_MS);
 }
 
 function place(marker: Container, x: number, y: number) {
