@@ -44,6 +44,7 @@ kebab-case. Every new mechanic ships behind a flag. Registry:
 | Flag | Controls |
 | ---- | -------- |
 | `chat-enabled` | M0 zone chat (client mount gate; kill-switch) |
+| `avatar-sprites` | Sprite-sheet avatars vs. the placeholder colour marker (client render gate) |
 | `gathering-enabled` | M2 gathering system |
 | `node-respawn-seconds` | Respawn tuning (multivariate / payload) |
 | `crafting-enabled` | M3 crafting |
