@@ -39,6 +39,7 @@ import MoveReducer from "./move_reducer";
 import PushReducer from "./push_reducer";
 import RedeemClaimReducer from "./redeem_claim_reducer";
 import RenameReducer from "./rename_reducer";
+import SpawnReducer from "./spawn_reducer";
 import StartClaimReducer from "./start_claim_reducer";
 
 // Import all procedure arg schemas
@@ -46,6 +47,7 @@ import StartClaimReducer from "./start_claim_reducer";
 // Import all table schema definitions
 import BoulderRow from "./boulder_table";
 import ChatMessageRow from "./chat_message_table";
+import HogRow from "./hog_table";
 import PlayerRow from "./player_table";
 
 /** Type-only namespace exports for generated type groups. */
@@ -80,6 +82,20 @@ const tablesSchema = __schema({
       { name: 'chat_message_id_key', constraint: 'unique', columns: ['id'] },
     ],
   }, ChatMessageRow),
+  hog: __table({
+    name: 'hog',
+    indexes: [
+      { accessor: 'id', name: 'hog_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+      { accessor: 'zoneId', name: 'hog_zone_id_idx_btree', algorithm: 'btree', columns: [
+        'zoneId',
+      ] },
+    ],
+    constraints: [
+      { name: 'hog_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, HogRow),
   player: __table({
     name: 'player',
     indexes: [
@@ -103,6 +119,7 @@ const reducersSchema = __reducers(
   __reducerSchema("push", PushReducer),
   __reducerSchema("redeem_claim", RedeemClaimReducer),
   __reducerSchema("rename", RenameReducer),
+  __reducerSchema("spawn", SpawnReducer),
   __reducerSchema("start_claim", StartClaimReducer),
 );
 
