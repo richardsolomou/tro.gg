@@ -45,6 +45,7 @@ kebab-case. Every new mechanic ships behind a flag. Registry:
 | ---- | -------- |
 | `chat-enabled` | M0 zone chat (client mount gate; kill-switch) |
 | `avatar-sprites` | Trogg sprite avatars vs the placeholder colour marker (render gate; kill-switch) |
+| `ghost-trogg` | Cosmetic join easter egg — a pale trogg flickers around the zone and beyond (client render; kill-switch) |
 | `boulder-pushing` | M0 boulder pushing (off → boulders are immovable obstacles) |
 | `auth-enabled` | M1 account sign-in + rename (account UI mount gate; kill-switch) |
 | `gathering-enabled` | M2 gathering system |

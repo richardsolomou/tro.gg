@@ -246,6 +246,8 @@ Per-tile walkability landed in M0, ahead of the tracker, at maintainer direction
 
 Boulder pushing landed in M0 too, also at maintainer direction (see [Pushing](#pushing)) — pushable boulders as dynamic obstacles, shoved one tile at a time, behind the `boulder-pushing` flag. It reuses the walkability collision (a boulder is just an occupied tile) and the intent model (the push re-bases motion; cadence is walk speed, no tick), so it's an extension of movement rather than new infrastructure.
 
+A cosmetic easter egg rides on M0 too: on join, a pale "ghost trogg" sometimes flickers in at the origin tile, then blinks around the zone and past its edges for a heartbeat each before fading, behind the `ghost-trogg` flag (invariant 5). It's a client-only render — no table, no reducer (invariant 3) — pure flavor seen only by the haunted player, not a mechanic with rules or data.
+
 Zone chat (M0 scope) ships on top of it: speech bubbles over heads plus a history side panel, behind the `chat-enabled` flag. Recent lines live in the `chat_message` table and replay when a client subscribes. The `chat` reducer enforces the 200-char cap and 1 msg/sec rate limit server-side (invariant 3); the flag gates the client mount.
 
 ## Open design threads

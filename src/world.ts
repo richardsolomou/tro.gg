@@ -5,7 +5,7 @@ import type { Boulder, Player } from "./module_bindings/types";
 import { attachKeyboard } from "./input.js";
 import { mountChat } from "./chat.js";
 import { createTerrain } from "./terrain.js";
-import { avatarFrame, avatarTexture, facingFromDir } from "./avatars.js";
+import { avatarFrame, avatarTexture, facingFromDir, ghostTexture } from "./avatars.js";
 import { captureEvent, isFeatureEnabled } from "./analytics.js";
 
 /** Art pixels per tile — terrain tiles are drawn at this and scaled up crisply. */
@@ -195,6 +195,9 @@ export function mountWorld(app: Application, conn: DbConnection) {
 
   attachKeyboard(conn);
 
+  // Cosmetic join easter egg (invariant 5). Each join has a chance of a haunt.
+  if (isFeatureEnabled("ghost-trogg") && Math.random() < GHOST_CHANCE) hauntGhost(stage, bounds);
+
   // Live once the initial rows have been delivered: backlog chat fills the
   // history panel silently, while later inserts also pop a bubble.
   const sub = { live: false };
@@ -362,6 +365,55 @@ function makeBoulder() {
   body.roundRect(inset + px, inset + px, size * 0.4, size * 0.4, radius * 0.6).fill(0x8a7257);
   sprite.addChild(body);
   return sprite;
+}
+
+/** Odds a given join is haunted by the ghost trogg. */
+const GHOST_CHANCE = 1 / 3;
+/** How long each apparition holds before it vanishes, and the dark beat between. */
+const GHOST_FLICKER_MS = 500;
+/** Random spots the ghost blinks to after the origin. */
+const GHOST_BLINKS = 6;
+/** Tiles the ghost may stray beyond the zone edge, so it haunts off-map too. */
+const GHOST_STRAY = 6;
+
+/**
+ * Cosmetic easter egg (behind `ghost-trogg`): a pale trogg materialises at the
+ * origin tile, then blinks around the zone and past its edges, a heartbeat each,
+ * before it fades for good. Purely a client render — it touches no table and no
+ * reducer (invariant 3), so it's never seen by anyone but the haunted player.
+ */
+function hauntGhost(stage: Container, bounds: { width: number; height: number }) {
+  const ghost = new Container();
+  const sprite = new Sprite(ghostTexture("down", "idle"));
+  sprite.anchor.set(0.5, 1);
+  sprite.scale.set(TILE / ART);
+  sprite.position.set(TILE / 2, TILE);
+  sprite.alpha = 0.5;
+  ghost.addChild(sprite);
+  ghost.visible = false;
+  stage.addChild(ghost);
+
+  // The origin first, then wandering spots that may fall outside the zone.
+  const spots = [{ x: 0, y: 0 }];
+  for (let i = 0; i < GHOST_BLINKS; i++) {
+    spots.push({
+      x: Math.floor(Math.random() * (bounds.width + GHOST_STRAY * 2)) - GHOST_STRAY,
+      y: Math.floor(Math.random() * (bounds.height + GHOST_STRAY * 2)) - GHOST_STRAY,
+    });
+  }
+
+  let i = 0;
+  const blink = () => {
+    const spot = spots[i++];
+    if (!spot) return ghost.destroy({ children: true });
+    place(ghost, spot.x, spot.y);
+    ghost.visible = true;
+    setTimeout(() => {
+      ghost.visible = false;
+      setTimeout(blink, GHOST_FLICKER_MS / 2);
+    }, GHOST_FLICKER_MS);
+  };
+  blink();
 }
 
 function place(marker: Container, x: number, y: number) {
