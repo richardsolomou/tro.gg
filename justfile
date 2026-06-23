@@ -40,3 +40,7 @@ typecheck:
 # Run the shared pure-logic unit tests.
 test:
     pnpm test
+
+# Regenerate the trogg + Hog sprite sheets into public/sprites/.
+sprites:
+    pnpm sprites

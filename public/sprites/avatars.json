@@ -1,0 +1,302 @@
+{
+  "meta": {
+    "app": "tools/gen-sprites.ts",
+    "note": "Shared trogg/Hog rig (GDD 'Avatars and equipment'). Anchor is bottom-centre (16,30).",
+    "frameSize": 32,
+    "anchor": {
+      "x": 16,
+      "y": 30
+    },
+    "facings": [
+      "down",
+      "up",
+      "left",
+      "right"
+    ],
+    "frames": [
+      "idle",
+      "walk-a",
+      "walk-b"
+    ]
+  },
+  "sheets": {
+    "troggs": {
+      "image": "troggs.png",
+      "frames": {
+        "down-idle": {
+          "frame": {
+            "x": 0,
+            "y": 0,
+            "w": 32,
+            "h": 32
+          }
+        },
+        "down-walk-a": {
+          "frame": {
+            "x": 32,
+            "y": 0,
+            "w": 32,
+            "h": 32
+          }
+        },
+        "down-walk-b": {
+          "frame": {
+            "x": 64,
+            "y": 0,
+            "w": 32,
+            "h": 32
+          }
+        },
+        "up-idle": {
+          "frame": {
+            "x": 0,
+            "y": 32,
+            "w": 32,
+            "h": 32
+          }
+        },
+        "up-walk-a": {
+          "frame": {
+            "x": 32,
+            "y": 32,
+            "w": 32,
+            "h": 32
+          }
+        },
+        "up-walk-b": {
+          "frame": {
+            "x": 64,
+            "y": 32,
+            "w": 32,
+            "h": 32
+          }
+        },
+        "left-idle": {
+          "frame": {
+            "x": 0,
+            "y": 64,
+            "w": 32,
+            "h": 32
+          }
+        },
+        "left-walk-a": {
+          "frame": {
+            "x": 32,
+            "y": 64,
+            "w": 32,
+            "h": 32
+          }
+        },
+        "left-walk-b": {
+          "frame": {
+            "x": 64,
+            "y": 64,
+            "w": 32,
+            "h": 32
+          }
+        },
+        "right-idle": {
+          "frame": {
+            "x": 0,
+            "y": 96,
+            "w": 32,
+            "h": 32
+          }
+        },
+        "right-walk-a": {
+          "frame": {
+            "x": 32,
+            "y": 96,
+            "w": 32,
+            "h": 32
+          }
+        },
+        "right-walk-b": {
+          "frame": {
+            "x": 64,
+            "y": 96,
+            "w": 32,
+            "h": 32
+          }
+        }
+      },
+      "animations": {
+        "walk-down": [
+          "down-idle",
+          "down-walk-a",
+          "down-idle",
+          "down-walk-b"
+        ],
+        "idle-down": [
+          "down-idle"
+        ],
+        "walk-up": [
+          "up-idle",
+          "up-walk-a",
+          "up-idle",
+          "up-walk-b"
+        ],
+        "idle-up": [
+          "up-idle"
+        ],
+        "walk-left": [
+          "left-idle",
+          "left-walk-a",
+          "left-idle",
+          "left-walk-b"
+        ],
+        "idle-left": [
+          "left-idle"
+        ],
+        "walk-right": [
+          "right-idle",
+          "right-walk-a",
+          "right-idle",
+          "right-walk-b"
+        ],
+        "idle-right": [
+          "right-idle"
+        ]
+      }
+    },
+    "hogs": {
+      "image": "hogs.png",
+      "frames": {
+        "down-idle": {
+          "frame": {
+            "x": 0,
+            "y": 0,
+            "w": 32,
+            "h": 32
+          }
+        },
+        "down-walk-a": {
+          "frame": {
+            "x": 32,
+            "y": 0,
+            "w": 32,
+            "h": 32
+          }
+        },
+        "down-walk-b": {
+          "frame": {
+            "x": 64,
+            "y": 0,
+            "w": 32,
+            "h": 32
+          }
+        },
+        "up-idle": {
+          "frame": {
+            "x": 0,
+            "y": 32,
+            "w": 32,
+            "h": 32
+          }
+        },
+        "up-walk-a": {
+          "frame": {
+            "x": 32,
+            "y": 32,
+            "w": 32,
+            "h": 32
+          }
+        },
+        "up-walk-b": {
+          "frame": {
+            "x": 64,
+            "y": 32,
+            "w": 32,
+            "h": 32
+          }
+        },
+        "left-idle": {
+          "frame": {
+            "x": 0,
+            "y": 64,
+            "w": 32,
+            "h": 32
+          }
+        },
+        "left-walk-a": {
+          "frame": {
+            "x": 32,
+            "y": 64,
+            "w": 32,
+            "h": 32
+          }
+        },
+        "left-walk-b": {
+          "frame": {
+            "x": 64,
+            "y": 64,
+            "w": 32,
+            "h": 32
+          }
+        },
+        "right-idle": {
+          "frame": {
+            "x": 0,
+            "y": 96,
+            "w": 32,
+            "h": 32
+          }
+        },
+        "right-walk-a": {
+          "frame": {
+            "x": 32,
+            "y": 96,
+            "w": 32,
+            "h": 32
+          }
+        },
+        "right-walk-b": {
+          "frame": {
+            "x": 64,
+            "y": 96,
+            "w": 32,
+            "h": 32
+          }
+        }
+      },
+      "animations": {
+        "walk-down": [
+          "down-idle",
+          "down-walk-a",
+          "down-idle",
+          "down-walk-b"
+        ],
+        "idle-down": [
+          "down-idle"
+        ],
+        "walk-up": [
+          "up-idle",
+          "up-walk-a",
+          "up-idle",
+          "up-walk-b"
+        ],
+        "idle-up": [
+          "up-idle"
+        ],
+        "walk-left": [
+          "left-idle",
+          "left-walk-a",
+          "left-idle",
+          "left-walk-b"
+        ],
+        "idle-left": [
+          "left-idle"
+        ],
+        "walk-right": [
+          "right-idle",
+          "right-walk-a",
+          "right-idle",
+          "right-walk-b"
+        ],
+        "idle-right": [
+          "right-idle"
+        ]
+      }
+    }
+  }
+}
