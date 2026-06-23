@@ -72,6 +72,7 @@ Boulders are pushable rocks — dynamic obstacles, the same block-pushing gramma
 - **No tick** (invariant 1) and **server-authoritative** (invariant 3). The client detects, from its own prediction, the moment its avatar lines up against a boulder (a motion transition — never per frame, invariant 2) and calls the `push` reducer. The server re-derives the trogg's position from its stored intent, validates alignment + a clear destination, moves the boulder one tile, and re-bases the trogg's motion to the flush tile.
 - **Cadence falls out of walk speed.** Re-basing leaves the boulder one tile ahead of the trogg, so it isn't faced again until the trogg physically catches up — the boulder advances at most one tile per tile walked, and spamming `push` can't make it move faster.
 - Boulders start from the zone's `boulders` registry entry, seeded into the `boulder` table on first connect, then moved only by `push`. Behind the `boulder-pushing` flag (invariant 5): off → immovable rocks; on → pushable. Playable either way (invariant 6).
+- **Resetting:** the in-chat `/reset` command snaps the player's current zone back to its registry boulder layout (the `resetBoulders` reducer clears and reseeds the zone). Behind the `boulder-reset` flag — off, `/reset` is just an ordinary chat line.
 
 ### Camera and rendering
 
@@ -108,7 +109,7 @@ Boulders are pushable rocks — dynamic obstacles, the same block-pushing gramma
 - **Guest persistence:** the browser securely stores the SpacetimeDB connection token — not game state, which stays server-authoritative (invariant 3) — so a returning visitor reconnects with the same Identity and resumes the same trogg row with their progress intact. Clearing the browser or switching devices makes a guest a new trogg.
 - **Signing in** upgrades a guest to an account via **SpacetimeAuth** (SpacetimeDB's managed OIDC provider; Discord is the enabled login). SpacetimeDB derives a *stable* Identity from the OIDC token's `iss`+`sub`, so the account — not the browser — now anchors the synced state and the trogg resumes on any device. The browser runs the OIDC Authorization-Code-**+-PKCE** flow (a public client: no client secret in the bundle, invariant 8); the module trusts only the SpacetimeAuth issuer as an account provider (invariant 3). Account creation and the upgrade fire `player_named` alongside `posthog.identify()`, merging the guest's history.
 - **Claiming** (folding a guest's trogg into the account, since the two are different Identities): the guest's browser mints a one-time nonce, registers it under the guest Identity via `startClaim`, then signs in and redeems it as the account via `redeemClaim` — both sides proven, never a client-asserted identity (invariant 3). The guest's chosen name carries over (a generated `trogg-####` never overwrites a name the account already chose); the guest row is then absorbed. A fresh device with no guest just signs in and resumes the account directly. Nonces expire after `CLAIM_CODE_TTL_MS`.
-- **Changing your name:** the `rename` reducer swaps the generated `trogg-####` for a chosen one, validated server-side. Names: unique, 3–20 chars, alphanumeric + hyphen.
+- **Changing your name:** the `rename` reducer swaps the generated `trogg-####` for a chosen one, validated server-side. Names: unique, 3–20 chars, alphanumeric + hyphen. The new name takes effect everywhere it's shown — the nameplate over the trogg and the denormalised `name` on the player's past `chat_message` rows are both rewritten, so nothing keeps showing the old name.
 
 ### Skills and XP
 
@@ -181,13 +182,19 @@ nodes          type, zoneId, x, y, state ("available" | "depleted"), respawnAt
                index: by_zone (zoneId)
 boulder        id (PK, auto-inc), zoneId, x, y     (tile coords)
                a pushable rock on an unwalkable tile; clients subscribe per zone and treat it as a
-               dynamic obstacle. Seeded from the ZONES registry on first connect, moved only by `push`.
+               dynamic obstacle. Seeded from the ZONES registry on first connect, moved only by `push`
+               (or reset to the registry by the `resetBoulders` reducer, fired by the in-chat `/reset` command).
+               index: by_zone (zoneId)
+hog            id (PK, auto-inc), zoneId, x, y     (tile coords)
+               a static Hog NPC (GDD glossary). A debug affordance ahead of its M3 home: dropped by the
+               `/spawn` command so the existing Hog sprite renders. Non-colliding, no movement or AI yet.
                index: by_zone (zoneId)
 actions        playerId, nodeId, kind, startedAt, endsAt
                index: by_player (playerId)
 chat_message   id (PK, auto-inc), zoneId, sender (Identity), name (denormalised), text, createdAt
                a new row is the live bubble; clients subscribe to recent rows per zone, capped at
-               CHAT_HISTORY_MAX (trimmed in the chat reducer). index: by_zone (zoneId)
+               CHAT_HISTORY_MAX (trimmed in the chat reducer). `rename` rewrites `name` across the
+               sender's rows so history tracks the current name. index: by_zone (zoneId)
 claim_code     code (PK), guest (Identity), createdAt
                a pending guest → account claim (see "Identity"). Private (not public): the nonce lives
                only in the browser that minted it; no client reads this table. startClaim writes it under
@@ -247,6 +254,8 @@ Per-tile walkability landed in M0, ahead of the tracker, at maintainer direction
 Boulder pushing landed in M0 too, also at maintainer direction (see [Pushing](#pushing)) — pushable boulders as dynamic obstacles, shoved one tile at a time, behind the `boulder-pushing` flag. It reuses the walkability collision (a boulder is just an occupied tile) and the intent model (the push re-bases motion; cadence is walk speed, no tick), so it's an extension of movement rather than new infrastructure.
 
 Zone chat (M0 scope) ships on top of it: speech bubbles over heads plus a history side panel, behind the `chat-enabled` flag. Recent lines live in the `chat_message` table and replay when a client subscribes. The `chat` reducer enforces the 200-char cap and 1 msg/sec rate limit server-side (invariant 3); the flag gates the client mount.
+
+A `/spawn` debug command landed alongside chat, behind the `spawn-command` flag (default on in local dev, off in a production build): typing `/spawn boulder` or `/spawn hedgehog` in the chat box drops that entity at the caller's tile (the tile it faces, else a free neighbour). The placement and the `spawn` reducer are server-authoritative (invariant 3). This introduced the static `hog` table ahead of its M3 home so the existing Hog sprite has something to render — a non-colliding placeholder NPC, no movement or AI. There's no role system in M0, so the flag is the only gate; default it off in production.
 
 ## Open design threads
 
