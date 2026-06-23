@@ -260,22 +260,26 @@ export function mountWorld(app: Application, conn: DbConnection) {
   // walking if the key is still held past this beat — so a tap turns, a hold walks
   // (Pokémon-style). Gates that one hold; pressing the faced direction walks at once.
   let walkAfter = Number.POSITIVE_INFINITY;
+  // Whether we were flush against a pushable boulder last frame, so `push` fires once
+  // per tile (on the rising edge), not every frame.
+  let pushBlocked = false;
 
-  // Fire `push` (GDD "Pushing", behind its flag — invariant 5) when the move `dir`
-  // we just sent faces a boulder the trogg is squarely on a centre against. Pushing
-  // is thus a deliberate move *into* a boulder, not arriving beside one: you walk up
-  // and stop flush like a wall, and shove it only by pressing in. The server
-  // re-validates and re-bases motion (invariant 3), one tile per press.
-  const maybePush = (x: number, y: number, dir: MoveIntent) => {
-    if (!pushEnabled || isIdle(dir)) return;
-    const ahead = facingTile(x, y, dir.dirX, dir.dirY);
-    if (ahead && boulderTiles.has(tileKey(ahead.x, ahead.y))) conn.reducers.push({});
-  };
-
-  const startWalk = (x: number, y: number) => {
+  const startWalk = () => {
     sent = desired;
     conn.reducers.move(desired);
-    maybePush(x, y, desired);
+  };
+
+  // Push (GDD "Pushing", behind its flag — invariant 5) fires while the trogg is
+  // *walking into* a boulder: a committed direction (`sent`, not the raw key, so a
+  // tap-to-turn never shoves) facing a boulder it's squarely on a centre against.
+  // Edge-triggered, so holding into a boulder shoves it one tile per tile as the
+  // trogg catches up (cadence falls out of walk speed); releasing at it stops you
+  // flush with no shove. The server re-validates and re-bases motion (invariant 3).
+  const pushStep = (x: number, y: number) => {
+    const ahead = pushEnabled && !isIdle(sent) ? facingTile(x, y, sent.dirX, sent.dirY) : null;
+    const intoBoulder = ahead != null && boulderTiles.has(tileKey(ahead.x, ahead.y));
+    if (intoBoulder && !pushBlocked) conn.reducers.push({});
+    pushBlocked = intoBoulder;
   };
 
   const turn = (entry: Tracked, now: number) => {
@@ -296,7 +300,6 @@ export function mountWorld(app: Application, conn: DbConnection) {
       sent = desired;
       conn.reducers.move(desired);
       if (!isIdle(desired)) facing = desired;
-      maybePush(x, y, desired);
       return;
     }
 
@@ -307,14 +310,14 @@ export function mountWorld(app: Application, conn: DbConnection) {
     }
     if (fresh) {
       // Press the way we already face → walk at once; a new direction → turn in place.
-      if (sameIntent(desired, facing)) startWalk(x, y);
+      if (sameIntent(desired, facing)) startWalk();
       else turn(entry, now);
       return;
     }
     // Holding the faced direction past the turn beat → start walking.
     if (sameIntent(desired, facing) && now >= walkAfter) {
       walkAfter = Number.POSITIVE_INFINITY;
-      startWalk(x, y);
+      startWalk();
     }
   };
 
@@ -328,6 +331,7 @@ export function mountWorld(app: Application, conn: DbConnection) {
       if (entry.player.identity.toHexString() !== myId) continue;
 
       driveSelf(entry, x, y, now);
+      pushStep(x, y);
       prevX = x;
       prevY = y;
     }
