@@ -46,7 +46,7 @@ kebab-case. Every new mechanic ships behind a flag. Registry:
 | ---- | -------- |
 | `chat-enabled` | M0 zone chat (client mount gate; kill-switch) |
 | `avatar-sprites` | Trogg sprite avatars vs the placeholder colour marker (render gate; kill-switch) |
-| `ghost-trogg` | Cosmetic join easter egg — a pale trogg flickers around the zone and beyond (client render; kill-switch) |
+| `ghost-trogg` | Cosmetic join easter egg — a pale trogg flickers around the zone (client render; kill-switch) |
 | `boulder-pushing` | M0 boulder pushing (off → boulders are immovable obstacles) |
 | `spawn-command` | `/spawn` debug command (drops a boulder or Hog at your tile; default on in local dev, off in prod) |
 | `boulder-reset` | M0 in-chat `/reset` command (off → `/reset` is an ordinary chat line) |

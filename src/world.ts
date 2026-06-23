@@ -475,12 +475,10 @@ const GHOST_CHANCE = 1 / 3;
 const GHOST_FLICKER_MS = 500;
 /** Random spots the ghost blinks to after the origin. */
 const GHOST_BLINKS = 6;
-/** Tiles the ghost may stray beyond the zone edge, so it haunts off-map too. */
-const GHOST_STRAY = 6;
 
 /**
  * Cosmetic easter egg (behind `ghost-trogg`): a pale trogg materialises at the
- * origin tile, then blinks around the zone and past its edges, a heartbeat each,
+ * origin tile, then blinks to random tiles around the zone, a heartbeat each,
  * before it fades for good. Purely a client render — it touches no table and no
  * reducer (invariant 3), so it's never seen by anyone but the haunted player.
  */
@@ -495,12 +493,12 @@ function hauntGhost(stage: Container, bounds: { width: number; height: number })
   ghost.visible = false;
   stage.addChild(ghost);
 
-  // The origin first, then wandering spots that may fall outside the zone.
+  // The origin first, then random tiles within the zone.
   const spots = [{ x: 0, y: 0 }];
   for (let i = 0; i < GHOST_BLINKS; i++) {
     spots.push({
-      x: Math.floor(Math.random() * (bounds.width + GHOST_STRAY * 2)) - GHOST_STRAY,
-      y: Math.floor(Math.random() * (bounds.height + GHOST_STRAY * 2)) - GHOST_STRAY,
+      x: Math.floor(Math.random() * bounds.width),
+      y: Math.floor(Math.random() * bounds.height),
     });
   }
 
