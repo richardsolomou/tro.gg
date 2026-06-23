@@ -5,10 +5,12 @@ import {
   CHAT_MAX_CHARS,
   CHAT_RATE_LIMIT_MS,
   CLAIM_CODE_TTL_MS,
+  COLOR_UNSET,
   facingTile,
   getZone,
   HOG_IDLE_CHANCE,
   HOG_WANDER_INTERVAL_MS,
+  isColorIndex,
   isGeneratedName,
   isValidName,
   isWalkable,
@@ -36,9 +38,11 @@ import {
  * visitor who reconnects with the same stored token resumes the same trogg.
  * Motion is intent-based (invariants 1 & 2): the row holds an origin (x, y), a
  * WASD direction, and `movedAt`; position over time is derived, and settled back
- * into (x, y) on the next input or on disconnect. `color` is derived client-side
- * from the identity, never stored (GDD "Avatars"). `hubUnlocked`/`equipment` land
- * with M1/M2.
+ * into (x, y) on the next input or on disconnect. `color` is the chosen avatar
+ * palette index (GDD "Avatars"), set by `recolor`; it defaults to `COLOR_UNSET`
+ * (-1) so an unchosen trogg falls back to its id-derived colour, and that default
+ * lets the column be added to the already-published `player` table in place rather
+ * than as a breaking migration. `hubUnlocked`/`equipment` land with M1/M2.
  */
 const player = table(
   { name: "player", public: true },
@@ -54,6 +58,7 @@ const player = table(
     movedAt: t.timestamp(),
     online: t.bool(),
     lastChatAt: t.option(t.timestamp()),
+    color: t.i32().default(COLOR_UNSET),
   },
 );
 
@@ -214,6 +219,7 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
     movedAt: ctx.timestamp,
     online: true,
     lastChatAt: undefined,
+    color: COLOR_UNSET,
   });
 });
 
@@ -443,6 +449,21 @@ export const rename = spacetimedb.reducer({ name: t.string() }, (ctx, { name }) 
   for (const line of ctx.db.chatMessage.iter()) {
     if (line.sender.isEqual(ctx.sender)) ctx.db.chatMessage.id.update({ ...line, name: trimmed });
   }
+});
+
+/**
+ * Recolour the caller's trogg (GDD "Avatars and equipment"): store a chosen index
+ * into the shared `TROGG_COLORS` palette, replacing the id-derived default. The
+ * index is validated server-side (invariant 3); an out-of-range index or one
+ * already set is a silent no-op, like `rename`. The colour rides the zone player
+ * sync, so the tint updates for everyone; chat name colour is derived from the
+ * same row, so no denormalised copy needs rewriting.
+ */
+export const recolor = spacetimedb.reducer({ color: t.i32() }, (ctx, { color }) => {
+  const p = ctx.db.player.identity.find(ctx.sender);
+  if (!p) return;
+  if (color === p.color || !isColorIndex(color)) return;
+  ctx.db.player.identity.update({ ...p, color });
 });
 
 /**

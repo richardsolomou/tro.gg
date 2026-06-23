@@ -1,5 +1,5 @@
 import { Application, Container, Graphics, Sprite, Text } from "pixi.js";
-import { CHAT_BUBBLE_MS, facingTile, FRAME_H, getZone, projectMotion, STARTING_ZONE_SLUG, troggColor, zoneBounds, type Facing, type Kind } from "@trogg/shared";
+import { CHAT_BUBBLE_MS, COLOR_UNSET, facingTile, FRAME_H, getZone, projectMotion, STARTING_ZONE_SLUG, troggColorFor, zoneBounds, type Facing, type Kind } from "@trogg/shared";
 import type { DbConnection } from "./module_bindings";
 import type { Boulder, Hog, Player } from "./module_bindings/types";
 import { attachKeyboard } from "./input.js";
@@ -121,7 +121,7 @@ export function mountWorld(app: Application, conn: DbConnection) {
   const rebuildMarker = (id: string, entry: Tracked) => {
     if (entry.bubbleTimer) clearTimeout(entry.bubbleTimer);
     entry.marker.destroy({ children: true });
-    const built = makeMarker(entry.player.name, troggColor(id), id === myId, entry.facing, useSprites);
+    const built = makeMarker(entry.player.name, troggColorFor(entry.player.color, id), id === myId, entry.facing, useSprites);
     entry.marker = built.marker;
     entry.sprite = built.sprite;
     entry.frameKey = built.frameKey;
@@ -139,7 +139,7 @@ export function mountWorld(app: Application, conn: DbConnection) {
     const id = p.identity.toHexString();
     if (tracked.has(id)) return;
     const facing = facingFromDir(p.dirX, p.dirY, "down");
-    const { marker, sprite, frameKey } = makeMarker(p.name, troggColor(id), id === myId, facing, useSprites);
+    const { marker, sprite, frameKey } = makeMarker(p.name, troggColorFor(p.color, id), id === myId, facing, useSprites);
     const entry: Tracked = { marker, sprite, player: p, baseMs: performance.now(), facing, frameKey };
     place(marker, p.x, p.y);
     tracked.set(id, entry);
@@ -162,9 +162,9 @@ export function mountWorld(app: Application, conn: DbConnection) {
     // time — no server-clock sync needed, and each update reconciles drift.
     entry.player = p;
     entry.baseMs = performance.now();
-    // The nameplate is baked into the marker's label at build time, so a rename
-    // only shows once the marker is rebuilt from the updated row.
-    if (_old.name !== p.name) rebuildMarker(id, entry);
+    // The nameplate and tint are baked into the marker at build time, so a rename
+    // or recolour only shows once the marker is rebuilt from the updated row.
+    if (_old.name !== p.name || _old.color !== p.color) rebuildMarker(id, entry);
   });
   conn.db.player.onDelete((_ctx, p) => removePlayer(p.identity.toHexString()));
 
@@ -302,9 +302,12 @@ function setupChat(
     conn.reducers.chat({ text });
   });
 
+  const senderColor = (sender: Player["identity"]) =>
+    troggColorFor(conn.db.player.identity.find(sender)?.color ?? COLOR_UNSET, sender.toHexString());
+
   conn.db.chatMessage.onInsert((_ctx, message) => {
     const senderId = message.sender.toHexString();
-    chat.addMessage(senderId, message.name, message.text, troggColor(senderId));
+    chat.addMessage(senderId, message.name, message.text, senderColor(message.sender));
     // Bubble only for fresh lines: a reconnect replays the zone's recent history,
     // and those rows can arrive after the subscription goes live — without this an
     // old message would pop a stale bubble over its sender on every refresh.
@@ -318,6 +321,13 @@ function setupChat(
   // in the history panel so it doesn't show their old name until a reload.
   conn.db.chatMessage.onUpdate((_ctx, _old, message) => {
     chat.renameSender(message.sender.toHexString(), message.name);
+  });
+
+  // Colour isn't denormalised onto chat rows (it's derived from the live player
+  // row), so a recolour surfaces as a player-row update — retint the sender's
+  // history lines so they match the avatar without a reload.
+  conn.db.player.onUpdate((_ctx, _old, p) => {
+    if (_old.color !== p.color) chat.recolorSender(p.identity.toHexString(), troggColorFor(p.color, p.identity.toHexString()));
   });
 }
 

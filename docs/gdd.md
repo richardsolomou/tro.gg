@@ -94,8 +94,9 @@ Ambient **Hog** NPCs (the glossary's friendly hedgehogs) roam the zone on their 
 - **Held items** (torch, pick, axe, sword, shield) render as per-hand layers — a **main hand** and an **off hand**, so combinations like sword + shield work. Each hand has its own anchor point and z-order per direction/frame (e.g. the off-hand arm and its item sit behind the body when facing up, in front when facing down). A new holdable is a new item sprite, not a new character.
 - **Armor (later)** layers the same way over body slots (head, torso). The rig reserves the layer order now; armor sprites are added with the mechanic.
 - What's equipped rides the zone's player sync, so others see what you're holding. First held-item rendering lands with tools (M2); the model is built extensible from the first sprite.
-- **Sprite avatars (behind `avatar-sprites`):** a trogg renders as the layered avatar sprite — programmer pixel art generated from `shared/sprites.ts` (4 facings × idle/walk, troggs and Hogs sharing one rig), feet anchored on the tile. The stable per-trogg colour now rides as a sprite **tint** (a deterministic projection of its durable id — derived, never stored, like a level from XP), so the same trogg is the same colour for everyone, every session; your own trogg gets a ground ring so you can pick it out. The committed sprite sheet asset (`assets/sprites/`) is the reviewable export; the client paints the same art into a texture at runtime.
-- **Placeholder marker (kill-switch fallback):** with `avatar-sprites` off, a trogg draws as a solid tile-filling marker in its stable colour (own trogg outlined) — the original placeholder, kept as the flag's fallback.
+- **Sprite avatars (behind `avatar-sprites`):** a trogg renders as the layered avatar sprite — programmer pixel art generated from `shared/sprites.ts` (4 facings × idle/walk, troggs and Hogs sharing one rig), feet anchored on the tile. The per-trogg colour rides as a sprite **tint**, so the same trogg is the same colour for everyone, every session; your own trogg gets a ground ring so you can pick it out. The committed sprite sheet asset (`assets/sprites/`) is the reviewable export; the client paints the same art into a texture at runtime.
+- **Placeholder marker (kill-switch fallback):** with `avatar-sprites` off, a trogg draws as a solid tile-filling marker in its colour (own trogg outlined) — the original placeholder, kept as the flag's fallback.
+- **Trogg colour (behind `trogg-recolor`):** the tint comes from a fixed palette (`TROGG_COLORS` in `shared`). A trogg picks one via the `recolor` reducer, which stores its chosen palette index on the `player` row (validated server-side, invariant 3); until it chooses, the colour falls back to a stable default derived from its durable id (a deterministic projection, like a level from XP — `COLOR_UNSET` is the unchosen sentinel). The chosen colour rides the zone player sync, so the tint and the trogg's chat-name colour update everywhere it's shown. The palette swatches live in the account panel beside rename, behind the `trogg-recolor` flag.
 
 ### Zones
 
@@ -176,11 +177,13 @@ One layer. **SpacetimeDB** is the durable store *and* the live feed: the tables 
 Dev mirrors prod: a local `spacetime start` instance runs the very module production runs — `just dev` publishes to it and regenerates the client bindings — so persistence is exercised the same way it runs in production. No Docker, no separate database to provision.
 
 ```text
-player         identity (PK), name, isGuest, zoneId, x, y, dirX, dirY, movedAt, online, lastChatAt, hubUnlocked, equipment
+player         identity (PK), name, isGuest, zoneId, x, y, dirX, dirY, movedAt, online, lastChatAt, color, hubUnlocked, equipment
                keyed by the connection's Identity. motion derived from origin (x,y) + movedAt: WASD uses
                dirX/dirY (0,0 = idle); click-to-move adds `path` (waypoint tiles) at M1. online: in-zone
                presence — clients subscribe to online players, so a disconnect settles the row and drops it
-               from view without losing progress. lastChatAt: per-player chat rate limit. hubUnlocked: M1
+               from view without losing progress. lastChatAt: per-player chat rate limit. color: chosen
+               TROGG_COLORS palette index (COLOR_UNSET = -1 → colour derived from id; see "Avatars").
+               hubUnlocked: M1
                checkpoint gate. equipment: slot → item map, multiple slots at once (e.g. { mainHand: "sword",
                offHand: "shield" }; armor slots later) — rides the zone subscription so others see it
                index: by_zone (zoneId)
@@ -269,6 +272,8 @@ Boulder pushing landed in M0 too, also at maintainer direction (see [Pushing](#p
 Roaming Hogs landed in M0 too, also at maintainer direction (see [Hogs (roaming)](#hogs-roaming)) — ambient hedgehog NPCs that wander the zone behind the `roaming-hogs` flag. This is decorative presence only: the Hog merchant (M3) and LLM-driven Hog (M5) roles are untouched. It reuses the intent motion model and walkability collision, and introduces the first **scheduled reducer** (`wanderHogs`), exercising SpacetimeDB's deterministic timer — the same primitive M2's respawns and action completions will use — while staying within invariant 1 (it re-arms only while a player is online, so an empty zone does no work).
 
 Zone chat (M0 scope) ships on top of it: speech bubbles over heads plus a history side panel, behind the `chat-enabled` flag. Recent lines live in the `chat_message` table and replay when a client subscribes. The `chat` reducer enforces the 200-char cap and 1 msg/sec rate limit server-side (invariant 3); the flag gates the client mount.
+
+Trogg recolouring landed in M0 too, at maintainer direction (see [Avatars and equipment](#avatars-and-equipment)) — a player picks an avatar colour from the fixed `TROGG_COLORS` palette via the `recolor` reducer, which stores the chosen index on the `player` row; an unchosen trogg still falls back to the id-derived default (`COLOR_UNSET`), so the column is an additive-with-default migration and existing troggs are visually unchanged. Behind the `trogg-recolor` flag (invariant 5), with the swatches in the account panel beside rename; recolouring fires `trogg_recolored`.
 
 A `/spawn` debug command landed alongside chat, behind the `spawn-command` flag (default on in local dev, off in a production build): typing `/spawn boulder` or `/spawn hedgehog` in the chat box drops that entity at the caller's tile (the tile it faces, else a free neighbour). The placement and the `spawn` reducer are server-authoritative (invariant 3). A spawned Hog starts at rest and joins the roamers — the next `wanderHogs` tick gives it a heading like any other (see [Hogs (roaming)](#hogs-roaming)). There's no role system in M0, so the flag is the only gate; default it off in production.
 
