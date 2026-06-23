@@ -182,6 +182,10 @@ boulder        id (PK, auto-inc), zoneId, x, y     (tile coords)
                a pushable rock on an unwalkable tile; clients subscribe per zone and treat it as a
                dynamic obstacle. Seeded from the ZONES registry on first connect, moved only by `push`.
                index: by_zone (zoneId)
+hog            id (PK, auto-inc), zoneId, x, y     (tile coords)
+               a static Hog NPC (GDD glossary). A debug affordance ahead of its M3 home: dropped by the
+               `/spawn` command so the existing Hog sprite renders. Non-colliding, no movement or AI yet.
+               index: by_zone (zoneId)
 actions        playerId, nodeId, kind, startedAt, endsAt
                index: by_player (playerId)
 chat_message   id (PK, auto-inc), zoneId, sender (Identity), name (denormalised), text, createdAt
@@ -247,6 +251,8 @@ Per-tile walkability landed in M0, ahead of the tracker, at maintainer direction
 Boulder pushing landed in M0 too, also at maintainer direction (see [Pushing](#pushing)) — pushable boulders as dynamic obstacles, shoved one tile at a time, behind the `boulder-pushing` flag. It reuses the walkability collision (a boulder is just an occupied tile) and the intent model (the push re-bases motion; cadence is walk speed, no tick), so it's an extension of movement rather than new infrastructure.
 
 Zone chat (M0 scope) ships on top of it: speech bubbles over heads plus a history side panel, behind the `chat-enabled` flag. Recent lines live in the `chat_message` table and replay when a client subscribes. The `chat` reducer enforces the 200-char cap and 1 msg/sec rate limit server-side (invariant 3); the flag gates the client mount.
+
+A `/spawn` debug command landed alongside chat, behind the `spawn-command` flag (default on in local dev, off in a production build): typing `/spawn boulder` or `/spawn hedgehog` in the chat box drops that entity at the caller's tile (the tile it faces, else a free neighbour). The placement and the `spawn` reducer are server-authoritative (invariant 3). This introduced the static `hog` table ahead of its M3 home so the existing Hog sprite has something to render — a non-colliding placeholder NPC, no movement or AI. There's no role system in M0, so the flag is the only gate; default it off in production.
 
 ## Open design threads
 

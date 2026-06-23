@@ -11,6 +11,7 @@ import {
   isWalkable,
   projectMotion,
   SPACETIMEAUTH_ISSUER,
+  spawnTile,
   STARTING_ZONE_SLUG,
   type Zone,
   zoneBounds,
@@ -105,7 +106,23 @@ const boulder = table(
   },
 );
 
-const spacetimedb = schema({ player, chatMessage, claimCode, boulder });
+/**
+ * A Hog — a friendly hedgehog NPC (GDD glossary). A debug affordance ahead of its
+ * M3 home: the `/spawn` command drops a static, non-colliding Hog at a tile so the
+ * existing Hog sprite has something to render. No movement or AI yet; full Hog NPCs
+ * (merchants, dialogue) land with M3/M5. Clients subscribe per zone like boulders.
+ */
+const hog = table(
+  { name: "hog", public: true },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    zoneId: t.string().index("btree"),
+    x: t.i32(),
+    y: t.i32(),
+  },
+);
+
+const spacetimedb = schema({ player, chatMessage, claimCode, boulder, hog });
 export default spacetimedb;
 
 /** The reducer context, typed against this module's schema (db view + sender). */
@@ -243,6 +260,35 @@ export const push = spacetimedb.reducer((ctx) => {
 
   ctx.db.boulder.id.update({ ...b, x: dest.x, y: dest.y });
   ctx.db.player.identity.update({ ...p, x: pos.x, y: pos.y, movedAt: ctx.timestamp });
+});
+
+/**
+ * Spawn a boulder or Hog at the caller's location — the `/spawn` debug command
+ * (behind the `spawn-command` flag, gated client-side). The server re-derives the
+ * trogg's tile authoritatively (invariant 3) and places the entity on the tile it
+ * faces, falling back to a free neighbour, so nothing lands inside a wall or on
+ * another boulder. An unknown kind or a boxed-in trogg is a silent no-op.
+ */
+export const spawn = spacetimedb.reducer({ kind: t.string() }, (ctx, { kind }) => {
+  if (kind !== "boulder" && kind !== "hog") return;
+
+  const p = ctx.db.player.identity.find(ctx.sender);
+  if (!p) return;
+  const zone = getZone(p.zoneId);
+  if (!zone) return;
+
+  // Boulders are the only collision obstacles; Hogs are non-colliding, so both
+  // avoid spawning into a wall or onto an existing boulder, never onto a Hog.
+  const occupied = boulderTiles(ctx, p.zoneId);
+  const pos = settle(ctx, p, ctx.timestamp);
+  const tile = spawnTile(zone, (x, y) => occupied.has(tileKey(x, y)), pos.x, pos.y, p.dirX, p.dirY);
+  if (!tile) return;
+
+  if (kind === "boulder") {
+    ctx.db.boulder.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y });
+  } else {
+    ctx.db.hog.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y });
+  }
 });
 
 /**
