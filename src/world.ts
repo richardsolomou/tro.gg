@@ -4,9 +4,15 @@ import type { DbConnection } from "./module_bindings";
 import type { Player } from "./module_bindings/types";
 import { attachKeyboard } from "./input.js";
 import { mountChat } from "./chat.js";
+import { createTerrain } from "./terrain.js";
 import { captureEvent, isFeatureEnabled } from "./analytics.js";
 
-const TILE = 28;
+/** Art pixels per tile — terrain tiles are drawn at this and scaled up crisply. */
+const ART = 16;
+/** Fraction of the viewport the zone fills, leaving a rim of cave around it. */
+const ZONE_FILL = 0.92;
+/** Screen pixels per tile, sized to the viewport in `layout`. */
+let TILE = 28;
 
 /** A player's marker plus the client-clock instant its current intent arrived. */
 interface Tracked {
@@ -31,19 +37,36 @@ export function mountWorld(app: Application, conn: DbConnection) {
   const bounds = { width: zone.width, height: zone.height };
   const myId = conn.identity?.toHexString();
 
+  const terrain = createTerrain(bounds.width, bounds.height);
   const stage = new Container();
-  app.stage.addChild(stage);
-  const grid = new Graphics();
-  stage.addChild(grid);
-
-  const layout = () => {
-    drawGrid(grid, bounds.width, bounds.height);
-    centre(app, stage, bounds.width, bounds.height);
-  };
-  app.renderer.on("resize", layout);
-  layout();
+  // Background rock fills the screen behind the zone; the stage carries the
+  // floor + walls + markers and is centred; the vignette darkens the edges on top.
+  app.stage.addChild(terrain.background, stage, terrain.vignette);
+  stage.addChild(terrain.ground);
 
   const tracked = new Map<string, Tracked>();
+
+  const layout = () => {
+    const { width: vw, height: vh } = app.renderer;
+    const fit = Math.min((vw * ZONE_FILL) / bounds.width, (vh * ZONE_FILL) / bounds.height);
+    TILE = Math.max(ART, Math.floor(fit));
+    terrain.layout(TILE, vw, vh);
+    centre(app, stage, bounds.width, bounds.height);
+    // Markers bake TILE into their size at creation, so resize redraws them.
+    for (const [id, entry] of tracked) rebuildMarker(id, entry);
+  };
+
+  const rebuildMarker = (id: string, entry: Tracked) => {
+    if (entry.bubbleTimer) clearTimeout(entry.bubbleTimer);
+    entry.marker.destroy({ children: true });
+    entry.marker = makeMarker(entry.player.name, troggColor(id), id === myId);
+    entry.bubble = undefined;
+    entry.bubbleTimer = undefined;
+    stage.addChild(entry.marker);
+  };
+
+  app.renderer.on("resize", layout);
+  layout();
 
   const addPlayer = (p: Player) => {
     const id = p.identity.toHexString();
@@ -164,17 +187,6 @@ function makeBubble(text: string): Container {
   bubble.addChild(bg, label);
   bubble.position.set(TILE / 2, -16);
   return bubble;
-}
-
-function drawGrid(g: Graphics, width: number, height: number) {
-  g.clear();
-  for (let x = 0; x <= width; x++) {
-    g.moveTo(x * TILE, 0).lineTo(x * TILE, height * TILE);
-  }
-  for (let y = 0; y <= height; y++) {
-    g.moveTo(0, y * TILE).lineTo(width * TILE, y * TILE);
-  }
-  g.stroke({ width: 1, color: 0x2a2118 });
 }
 
 function makeMarker(name: string, color: number, self: boolean) {
