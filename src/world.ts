@@ -305,7 +305,7 @@ function handleSpawnCommand(conn: DbConnection, chat: ChatUI, text: string): boo
   const m = /^\/spawn(?:\s+(\S+))?\s*$/i.exec(text);
   if (!m) return false;
 
-  const hint = (msg: string) => chat.addMessage("spawn", msg, 0x9a8c70);
+  const hint = (msg: string) => chat.addMessage("spawn", "spawn", msg, 0x9a8c70);
   const arg = m[1]?.toLowerCase();
   if (!arg) {
     hint("usage: /spawn boulder | hedgehog");
