@@ -5,7 +5,7 @@ import type { Boulder, Hog, Player } from "./module_bindings/types";
 import { attachKeyboard } from "./input.js";
 import { mountChat, type ChatUI } from "./chat.js";
 import { createTerrain } from "./terrain.js";
-import { avatarFrame, avatarTexture, facingFromDir } from "./avatars.js";
+import { avatarFrame, avatarTexture, facingFromDir, ghostTexture } from "./avatars.js";
 import { captureEvent, isFeatureEnabled } from "./analytics.js";
 
 /** Art pixels per tile — terrain tiles are drawn at this and scaled up crisply. */
@@ -260,6 +260,9 @@ export function mountWorld(app: Application, conn: DbConnection) {
   });
 
   attachKeyboard(conn, canRun);
+
+  // Cosmetic join easter egg (invariant 5). Each launch has a chance of a haunt.
+  if (isFeatureEnabled("ghost-trogg") && Math.random() < GHOST_CHANCE) hauntGhost(stage);
 
   // Live once the initial rows have been delivered: backlog chat fills the
   // history panel silently, while later inserts also pop a bubble.
@@ -520,6 +523,31 @@ function makeHog(facing: Facing): { marker: Container; sprite: Sprite; frameKey:
   sprite.position.set(TILE / 2, TILE);
   marker.addChild(sprite);
   return { marker, sprite, frameKey: `${facing}_${frame}` };
+}
+
+/** Odds a given launch is haunted by the ghost trogg. */
+const GHOST_CHANCE = 1 / 20;
+/** How long the apparition holds before it fades. */
+const GHOST_FLICKER_MS = 500;
+
+/**
+ * Cosmetic easter egg (behind `ghost-trogg`): on launch, a pale trogg sometimes
+ * materialises at the origin tile for a heartbeat, then fades. Purely a client
+ * render — it touches no table and no reducer (invariant 3), so it's never seen
+ * by anyone but the haunted player.
+ */
+function hauntGhost(stage: Container) {
+  const ghost = new Container();
+  const sprite = new Sprite(ghostTexture("down", "idle"));
+  sprite.anchor.set(0.5, 1);
+  sprite.scale.set(TILE / ART);
+  sprite.position.set(TILE / 2, TILE);
+  sprite.alpha = 0.5;
+  ghost.addChild(sprite);
+  place(ghost, 0, 0);
+  stage.addChild(ghost);
+
+  setTimeout(() => ghost.destroy({ children: true }), GHOST_FLICKER_MS);
 }
 
 function place(marker: Container, x: number, y: number) {

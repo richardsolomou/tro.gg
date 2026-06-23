@@ -47,6 +47,7 @@ kebab-case. Every new mechanic ships behind a flag. Registry:
 | ---- | -------- |
 | `chat-enabled` | M0 zone chat (client mount gate; kill-switch) |
 | `avatar-sprites` | Trogg sprite avatars vs the placeholder colour marker (render gate; kill-switch) |
+| `ghost-trogg` | Cosmetic launch easter egg — a pale trogg rarely flickers in at the origin (client render; kill-switch) |
 | `boulder-pushing` | M0 boulder pushing (off → boulders are immovable obstacles) |
 | `roaming-hogs` | M0 ambient roaming Hog NPCs (client render gate; kill-switch) |
 | `running` | M0 hold-shift-to-run (off → shift is ignored, movement stays at walk speed) |
