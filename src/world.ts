@@ -30,9 +30,18 @@ interface Tracked {
   bubbleTimer?: ReturnType<typeof setTimeout>;
 }
 
+/**
+ * Screen-space y of a trogg's feet within its tile cell, relative to the cell's
+ * top-left (where `place` anchors the marker). The feet sit at the cell's vertical
+ * centre so the trogg stands in the middle of its tile, not on the bottom-edge seam.
+ */
+function feetY(): number {
+  return TILE / 2;
+}
+
 /** Screen-space y of the top of a trogg's head, for placing labels and bubbles. */
 function headTopY(): number {
-  return TILE - FRAME_H * (TILE / ART);
+  return feetY() - FRAME_H * (TILE / ART);
 }
 
 /** A boulder's live row plus its sprite. */
@@ -340,7 +349,7 @@ function makeBubble(text: string, topY: number): Container {
 /**
  * A trogg. With the `avatar-sprites` flag on, it's the layered avatar sprite
  * (GDD "Avatars and equipment") tinted by the player's stable colour, feet at
- * the bottom-centre of the tile cell and head extending up out of it — so the
+ * the centre of the tile cell and head extending up out of it — so the
  * per-player colour, formerly the whole marker, now rides as a tint, keeping
  * "the same trogg is the same colour for everyone". With the flag off it's the
  * placeholder colour marker (a tile-filling rect). Both carry a name label.
@@ -355,14 +364,14 @@ function makeMarker(name: string, color: number, self: boolean, facing: Facing, 
     // Self gets a bright ground ring under the feet so you can pick yourself out.
     if (self) {
       const ring = new Graphics()
-        .ellipse(TILE / 2, TILE - 1, TILE * 0.34, TILE * 0.16)
+        .ellipse(TILE / 2, feetY(), TILE * 0.34, TILE * 0.16)
         .stroke({ width: 2, color: 0xe8dcc4 });
       marker.addChild(ring);
     }
     sprite = new Sprite(avatarTexture("trogg", facing, frame));
     sprite.anchor.set(0.5, 1);
     sprite.scale.set(TILE / ART);
-    sprite.position.set(TILE / 2, TILE);
+    sprite.position.set(TILE / 2, feetY());
     sprite.tint = color;
     marker.addChild(sprite);
     frameKey = `${facing}_${frame}`;
