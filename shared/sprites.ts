@@ -9,7 +9,8 @@
  * design data — like the `ZONES` registry — not client- or server-specific code.
  *
  * The rig follows the GDD: troggs and Hogs share one frame layout, drawn per
- * facing (down/up/left/right) and per animation frame (idle + a two-step walk).
+ * facing (down/up/left/right) and per animation frame (idle, a two-step walk,
+ * and a two-step hunched run for the shift-to-run mechanic — GDD "Movement").
  * The atlas is laid out as columns = frames, rows grouped by kind then facing, so
  * `frameRect` maps a `(kind, facing, frame)` to its cell. Frames are anchored at
  * the feet (`ANCHOR`) so a sprite drops onto a tile by its base, head room up.
@@ -22,7 +23,7 @@
 
 export type Kind = "trogg" | "hog";
 export type Facing = "down" | "up" | "left" | "right";
-export type FrameName = "idle" | "walk_a" | "walk_b";
+export type FrameName = "idle" | "walk_a" | "walk_b" | "run_a" | "run_b";
 
 /** Art pixels per frame. 16 wide matches the tile (`ART` in terrain.ts); the
  *  extra height is 3/4-view head room above the feet anchor. */
@@ -34,7 +35,7 @@ export const ANCHOR = { x: 8, y: 22 } as const;
 
 export const KINDS: readonly Kind[] = ["trogg", "hog"] as const;
 export const FACINGS: readonly Facing[] = ["down", "up", "left", "right"] as const;
-export const FRAMES: readonly FrameName[] = ["idle", "walk_a", "walk_b"] as const;
+export const FRAMES: readonly FrameName[] = ["idle", "walk_a", "walk_b", "run_a", "run_b"] as const;
 
 /** Sheet dimensions: columns = frames, rows = kind × facing. */
 export const SHEET_COLS = FRAMES.length;
@@ -190,17 +191,39 @@ function blob(p: PixelSink, cx: number, cy: number, rx: number, ry: number, fill
 
 // ── animation ────────────────────────────────────────────────────────────────
 
-/** Vertical foot offset for a walk frame; left/right feet alternate lifting. */
-function footLift(frame: FrameName, left: boolean): number {
-  if (frame === "walk_a") return left ? -1 : 0;
-  if (frame === "walk_b") return left ? 0 : -1;
+/** Whether a frame is part of the run cycle (vs walk or idle). */
+function isRun(frame: FrameName): boolean {
+  return frame === "run_a" || frame === "run_b";
+}
+
+/** Which foot leads this stride frame: +1 on the `_a` frames, -1 on `_b`, 0 idle.
+ *  Shared by walk and run so limbs swing the same way, just further when running. */
+function stride(frame: FrameName): number {
+  if (frame === "walk_a" || frame === "run_a") return 1;
+  if (frame === "walk_b" || frame === "run_b") return -1;
   return 0;
 }
 
-/** A 1px body bob on the walk frames, so the whole avatar lifts as it strides. */
-function bodyBob(frame: FrameName): number {
-  return frame === "idle" ? 0 : -1;
+/** Vertical foot offset for a stride frame; left/right feet alternate lifting,
+ *  higher on a run than a walk. */
+function footLift(frame: FrameName, left: boolean): number {
+  const lift = isRun(frame) ? -2 : -1;
+  const s = stride(frame);
+  if (s > 0) return left ? lift : 0;
+  if (s < 0) return left ? 0 : lift;
+  return 0;
 }
+
+/** Body bob as the avatar strides — 1px on a walk, 2px on a run's harder push-off. */
+function bodyBob(frame: FrameName): number {
+  if (frame === "idle") return 0;
+  return isRun(frame) ? -2 : -1;
+}
+
+/** Forward hunch when running: the side profile pitches into the run, head and
+ *  torso shifting toward the facing direction (right, pre-mirror). Walk and idle
+ *  stand upright. Front/back views can't show a lean, so they only crouch. */
+const RUN_LEAN = 2;
 
 // ── frame dispatch ───────────────────────────────────────────────────────────
 
@@ -233,52 +256,59 @@ function feet(p: PixelSink, frame: FrameName, colour: number, out: number, y: nu
 const troggDraw: Draw = (p, view, frame) => {
   const c = TROGG;
   const b = bodyBob(frame);
+  const run = isRun(frame);
+  // Running hunch: the head dips toward the body (crouch) on every facing, and the
+  // side profile also pitches forward into the run (lean, mirrored with the sprite).
+  const crouch = run ? 1 : 0;
+  const hb = b + crouch; // head bob — head region only, so it ducks below the torso
+  const lean = view === "side" && run ? RUN_LEAN : 0;
   groundShadow(p);
-  feet(p, frame, c.shade, c.out, 20, 5.5, 9.5);
+  // Stance widens a touch when running.
+  feet(p, frame, c.shade, c.out, 20, run ? 5 : 5.5, run ? 10 : 9.5);
 
   // torso
   blob(p, 7.5, 15 + b, 4, 3.6, c.body, c.out);
   disc(p, 7.5, 16 + b, 2.4, 2.6, c.belly);
 
   if (view === "side") {
-    // arm swings forward (to the right) on alternating walk frames
-    const swing = frame === "walk_a" ? 1 : frame === "walk_b" ? -1 : 0;
-    blob(p, 10, 14 + b + swing, 1.4, 2, c.shade, c.out);
-    // head, nudged toward the facing direction
-    blob(p, 8.5, 8 + b, 5, 4.4, c.body, c.out);
-    disc(p, 6, 6 + b, 2.6, 2.6, c.light); // lit crown
-    blob(p, 2.5, 7 + b, 1.3, 2, c.body, c.out); // trailing ear
+    // arm swings forward (to the right), further on a run than a walk
+    const swing = stride(frame) * (run ? 2 : 1);
+    blob(p, 10 + lean, 14 + b + swing, 1.4, 2, c.shade, c.out);
+    // head, nudged toward the facing direction (and forward when running)
+    blob(p, 8.5 + lean, 8 + hb, 5, 4.4, c.body, c.out);
+    disc(p, 6 + lean, 6 + hb, 2.6, 2.6, c.light); // lit crown
+    blob(p, 2.5 + lean, 7 + hb, 1.3, 2, c.body, c.out); // trailing ear
     // brow + single eye looking right
-    dot(p, 11, 8 + b, c.eye); dot(p, 12, 8 + b, c.eye); dot(p, 11, 9 + b, c.eye);
-    dot(p, 12, 8 + b, c.pupil);
-    rect(p, 12, 11 + b, 2, 1, c.mouth); // snout/mouth tip
+    dot(p, 11 + lean, 8 + hb, c.eye); dot(p, 12 + lean, 8 + hb, c.eye); dot(p, 11 + lean, 9 + hb, c.eye);
+    dot(p, 12 + lean, 8 + hb, c.pupil);
+    rect(p, 12 + lean, 11 + hb, 2, 1, c.mouth); // snout/mouth tip
     return;
   }
 
   if (view === "up") {
     // back of the head: no face, lit crown, two ear nubs, a little spine tuft
-    blob(p, 7.5, 8 + b, 5.4, 4.6, c.body, c.out);
-    disc(p, 7.5, 6 + b, 3.4, 2.4, c.light);
-    blob(p, 2.6, 7 + b, 1.3, 2, c.body, c.out);
-    blob(p, 12.4, 7 + b, 1.3, 2, c.body, c.out);
-    rect(p, 7, 11 + b, 1, 3, c.shade); // nape/spine
+    blob(p, 7.5, 8 + hb, 5.4, 4.6, c.body, c.out);
+    disc(p, 7.5, 6 + hb, 3.4, 2.4, c.light);
+    blob(p, 2.6, 7 + hb, 1.3, 2, c.body, c.out);
+    blob(p, 12.4, 7 + hb, 1.3, 2, c.body, c.out);
+    rect(p, 7, 11 + hb, 1, 3, c.shade); // nape/spine
     return;
   }
 
   // down: face the camera, big amber eyes
-  blob(p, 7.5, 8 + b, 5.6, 4.8, c.body, c.out);
-  blob(p, 2.6, 7 + b, 1.3, 2, c.body, c.out); // ears
-  blob(p, 12.4, 7 + b, 1.3, 2, c.body, c.out);
-  disc(p, 7.5, 5.5 + b, 3.4, 1.8, c.light); // lit brow
+  blob(p, 7.5, 8 + hb, 5.6, 4.8, c.body, c.out);
+  blob(p, 2.6, 7 + hb, 1.3, 2, c.body, c.out); // ears
+  blob(p, 12.4, 7 + hb, 1.3, 2, c.body, c.out);
+  disc(p, 7.5, 5.5 + hb, 3.4, 1.8, c.light); // lit brow
   // eyes
   for (const ex of [5, 10]) {
-    disc(p, ex, 8 + b, 1.7, 1.9, c.eye);
-    dot(p, ex + (ex === 5 ? 0.3 : -0.3), 8 + b, c.pupil);
-    dot(p, ex, 8.6 + b, c.pupil);
+    disc(p, ex, 8 + hb, 1.7, 1.9, c.eye);
+    dot(p, ex + (ex === 5 ? 0.3 : -0.3), 8 + hb, c.pupil);
+    dot(p, ex, 8.6 + hb, c.pupil);
   }
   // nostrils + mouth
-  dot(p, 7, 10.5 + b, c.mouth); dot(p, 8, 10.5 + b, c.mouth);
-  rect(p, 6, 12 + b, 4, 1, c.mouth);
+  dot(p, 7, 10.5 + hb, c.mouth); dot(p, 8, 10.5 + hb, c.mouth);
+  rect(p, 6, 12 + hb, 4, 1, c.mouth);
 };
 
 // ── hog ──────────────────────────────────────────────────────────────────────

@@ -13,4 +13,5 @@ import {
 export default {
   dirX: __t.i32(),
   dirY: __t.i32(),
+  running: __t.bool(),
 };
