@@ -7,6 +7,23 @@
 /** Movement speed shared by click-to-move and WASD. (initial) */
 export const MOVE_SPEED_TILES_PER_SEC = 4;
 
+/**
+ * Running speed (GDD "Movement"): holding shift while moving runs instead of
+ * walks. It rides the synced motion intent (`player.running`), so every client
+ * derives the same faster position with `projectMotion` — no per-frame sync and
+ * no determinism mismatch (invariants 2 & 3). Behind the `running` flag. (initial)
+ */
+export const RUN_SPEED_TILES_PER_SEC = 7;
+
+/**
+ * Roaming Hogs (GDD "Hogs"). Ambient hedgehog NPCs wander on their own: a
+ * scheduled reducer repicks each Hog's heading every `HOG_WANDER_INTERVAL_MS`,
+ * with a `HOG_IDLE_CHANCE` of pausing instead so they don't march nonstop. They
+ * ride the same intent-based motion as troggs, so there's no per-frame sync. (initial)
+ */
+export const HOG_WANDER_INTERVAL_MS = 1_500;
+export const HOG_IDLE_CHANCE = 0.25;
+
 /** Chat. (initial) */
 export const CHAT_MAX_CHARS = 200;
 export const CHAT_BUBBLE_MS = 5_000;
@@ -71,6 +88,10 @@ export function isGeneratedName(name: string): boolean {
  * obstacles seeded into the `boulder` table on first connect, then mutated only
  * by the `push` reducer. They must start on walkable floor; `assertZones` checks
  * that too.
+ *
+ * `hogs` lists the starting tiles of the zone's ambient roaming Hogs (GDD
+ * "Hogs"), seeded into the `hog` table on first connect and then moved only by the
+ * scheduled `wanderHogs` reducer. They must start on walkable floor too.
  */
 export interface Zone {
   slug: string;
@@ -79,6 +100,7 @@ export interface Zone {
   height: number;
   tiles: readonly string[];
   boulders: readonly Coord[];
+  hogs: readonly Coord[];
 }
 
 /**
@@ -89,7 +111,8 @@ export interface Zone {
  * pillars inside, so the playable floor is a real non-rectangular shape. Edit
  * `tiles` to carve new layouts — walkability and rendering both read from it.
  * Two boulders flank the spawn (zone centre, 12×8) so a fresh trogg can push one
- * left and one right straight away.
+ * left and one right straight away. A handful of Hogs are scattered around the
+ * floor and roam on their own (GDD "Hogs").
  */
 export const ZONES: Record<string, Zone> = {
   "hog-town": {
@@ -118,6 +141,14 @@ export const ZONES: Record<string, Zone> = {
     boulders: [
       { x: 10, y: 8 },
       { x: 14, y: 8 },
+    ],
+    hogs: [
+      { x: 3, y: 3 },
+      { x: 20, y: 3 },
+      { x: 12, y: 2 },
+      { x: 3, y: 12 },
+      { x: 20, y: 12 },
+      { x: 8, y: 13 },
     ],
   },
 };
@@ -160,6 +191,11 @@ export function assertZones(): void {
     for (const b of zone.boulders) {
       if (!isWalkable(zone, b.x, b.y)) {
         throw new Error(`zone ${zone.slug}: boulder at (${b.x}, ${b.y}) is not on walkable floor`);
+      }
+    }
+    for (const h of zone.hogs) {
+      if (!isWalkable(zone, h.x, h.y)) {
+        throw new Error(`zone ${zone.slug}: hog at (${h.x}, ${h.y}) is not on walkable floor`);
       }
     }
   }

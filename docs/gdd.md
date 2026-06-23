@@ -60,6 +60,7 @@ Two input modes, both supported:
 Both are **input-driven, not per-frame.** The client writes a movement intent only on input transitions — a click (which sets a path), a key down/up, or a direction change — never on a timer or every frame. For grid-lock, the client holds a turn or stop until its predicted avatar reaches the next tile centre, then sends the intent (it detects the centre from its own prediction — a motion transition, not a per-frame sync; the same pattern `push` uses). The server stores each player's motion as an origin `(x, y)`, a direction or a path, and `movedAt`; position over time is derived from these, and clients render it locally between updates.
 
 - Move speed: 4 tiles/sec *(initial)*, shared by both modes. A click overrides held keys and vice versa.
+- **Running:** holding **shift** while moving runs at `RUN_SPEED_TILES_PER_SEC` (7 tiles/sec *(initial)*) instead of walking, behind the `running` flag (invariant 5; off → shift is ignored, movement stays at walk speed). Run state rides the synced motion intent (`player.running`), so `projectMotion` derives the same faster position on every client — no per-frame sync, no determinism mismatch (invariants 2 & 3). Releasing shift, stopping, or a change of direction re-bases the origin at the current speed (the `move` reducer settles before storing the new intent). Troggs show a faster, hunched run animation (`run_a`/`run_b` in `shared/sprites.ts`); Hogs always walk.
 - **Obstacles:** tiles carry a walkability flag; nodes and scenery (trees, rocks, walls) sit on unwalkable tiles. WASD clamps at the first unwalkable tile or the zone edge; click-to-move routes around them.
 - **Pathfinding:** the server runs grid `A*` over the zone's walkable tiles on each click, stores the resulting `path` on the player, and clients animate along that synced path — no client-side recompute, so no determinism mismatch to manage. An obstacle-free zone degenerates to a straight line. The algorithm runs server-side in the room on each click — a small hand-rolled grid `A*` or a battle-tested JS lib (PathFinding.js, easystarjs).
 - **No teleport-by-quit.** The stored `(x, y)` is the *origin* of the current move, never the destination. Position is only advanced by elapsed real time × speed along `path`, so clicking far away and quitting skips nothing — on return you're wherever the clock puts you (arrived only if enough time actually passed). A scheduled task may settle `(x, y)` to the path's end at `movedAt + traveltime`, but never before it.
@@ -75,6 +76,16 @@ Boulders are pushable rocks — dynamic obstacles, the same block-pushing gramma
 - Boulders start from the zone's `boulders` registry entry, seeded into the `boulder` table on first connect, then moved only by `push`. Behind the `boulder-pushing` flag (invariant 5): off → immovable rocks; on → pushable. Playable either way (invariant 6).
 - **Resetting:** the in-chat `/reset` command snaps the player's current zone back to its registry boulder layout (the `resetBoulders` reducer clears and reseeds the zone). Behind the `boulder-reset` flag — off, `/reset` is just an ordinary chat line.
 
+### Hogs (roaming)
+
+Ambient **Hog** NPCs (the glossary's friendly hedgehogs) roam the zone on their own — decorative life in the world, behind the `roaming-hogs` flag (invariant 5; off → no Hogs). This is presence and movement only: no dialogue, trade, or interaction. The merchant, townsfolk, and protectee roles stay deferred (Hog merchants at M3, LLM-driven Hogs at M5).
+
+- **Same motion model as troggs.** A Hog carries an intent — origin `(x, y)`, a cardinal direction, `movedAt` — and clients derive its position with `projectMotion`, so it's never per-frame synced (invariant 2) and it collides against the same walls and boulders.
+- **Driven by a scheduled reducer, not a tick.** A Hog changes heading only inside the scheduled `wanderHogs` reducer (SpacetimeDB's deterministic timer — the sanctioned exception in invariant 1, like respawns). Each tick re-derives every Hog's position and picks a fresh heading: a random walkable cardinal, or idle with chance `HOG_IDLE_CHANCE` so they pause. Randomness is the context RNG (seeded from the tick timestamp), so the schedule replays deterministically (invariant 3).
+- **Empty zone, no work.** The timer re-arms only while a player is online; when the last player leaves, the next tick settles every Hog to rest and stops, so an empty world produces no diffs and no work (invariant 1).
+- **Server-owned, seeded from the registry.** Hogs have no identity. Their starting tiles come from the zone's `hogs` registry entry (`ZONES` in `shared`), seeded into the `hog` table on first connect (idempotent, like boulders), then moved only by `wanderHogs`.
+- Wander cadence: a new heading every `HOG_WANDER_INTERVAL_MS` *(initial)*, at the shared move speed.
+
 ### Camera and rendering
 
 - 3/4 top-down (RuneScape-2004 / Stardew view), pixel art tiles and sprites.
@@ -86,8 +97,9 @@ Boulders are pushable rocks — dynamic obstacles, the same block-pushing gramma
 - **Held items** (torch, pick, axe, sword, shield) render as per-hand layers — a **main hand** and an **off hand**, so combinations like sword + shield work. Each hand has its own anchor point and z-order per direction/frame (e.g. the off-hand arm and its item sit behind the body when facing up, in front when facing down). A new holdable is a new item sprite, not a new character.
 - **Armor (later)** layers the same way over body slots (head, torso). The rig reserves the layer order now; armor sprites are added with the mechanic.
 - What's equipped rides the zone's player sync, so others see what you're holding. First held-item rendering lands with tools (M2); the model is built extensible from the first sprite.
-- **Sprite avatars (behind `avatar-sprites`):** a trogg renders as the layered avatar sprite — programmer pixel art generated from `shared/sprites.ts` (4 facings × idle/walk, troggs and Hogs sharing one rig), feet anchored at the centre of the tile (not its bottom edge, so a grid-locked trogg stands in the middle of its tile). The stable per-trogg colour now rides as a sprite **tint** (a deterministic projection of its durable id — derived, never stored, like a level from XP), so the same trogg is the same colour for everyone, every session; your own trogg gets a ground ring so you can pick it out. The committed sprite sheet asset (`assets/sprites/`) is the reviewable export; the client paints the same art into a texture at runtime.
-- **Placeholder marker (kill-switch fallback):** with `avatar-sprites` off, a trogg draws as a solid tile-filling marker in its stable colour (own trogg outlined) — the original placeholder, kept as the flag's fallback.
+- **Sprite avatars (behind `avatar-sprites`):** a trogg renders as the layered avatar sprite — programmer pixel art generated from `shared/sprites.ts` (4 facings × idle/walk/run, troggs and Hogs sharing one rig), feet anchored at the centre of the tile (not its bottom edge, so a grid-locked trogg stands in the middle of its tile). The per-trogg colour rides as a sprite **tint**, so the same trogg is the same colour for everyone, every session; your own trogg gets a ground ring so you can pick it out. The committed sprite sheet asset (`assets/sprites/`) is the reviewable export; the client paints the same art into a texture at runtime.
+- **Placeholder marker (kill-switch fallback):** with `avatar-sprites` off, a trogg draws as a solid tile-filling marker in its colour (own trogg outlined) — the original placeholder, kept as the flag's fallback.
+- **Trogg colour (behind `trogg-recolor`):** the tint comes from a fixed palette (`TROGG_COLORS` in `shared`). A trogg picks one via the `recolor` reducer, which stores its chosen palette index on the `player` row (validated server-side, invariant 3); until it chooses, the colour falls back to a stable default derived from its durable id (a deterministic projection, like a level from XP — `COLOR_UNSET` is the unchosen sentinel). The chosen colour rides the zone player sync, so the tint and the trogg's chat-name colour update everywhere it's shown. The palette swatches live in the account panel beside rename, behind the `trogg-recolor` flag.
 
 ### Zones
 
@@ -168,11 +180,14 @@ One layer. **SpacetimeDB** is the durable store *and* the live feed: the tables 
 Dev mirrors prod: a local `spacetime start` instance runs the very module production runs — `just dev` publishes to it and regenerates the client bindings — so persistence is exercised the same way it runs in production. No Docker, no separate database to provision.
 
 ```text
-player         identity (PK), name, isGuest, zoneId, x, y, dirX, dirY, movedAt, online, lastChatAt, hubUnlocked, equipment
+player         identity (PK), name, isGuest, zoneId, x, y, dirX, dirY, running, movedAt, online, lastChatAt, color, hubUnlocked, equipment
                keyed by the connection's Identity. motion derived from origin (x,y) + movedAt: WASD uses
-               dirX/dirY (0,0 = idle); click-to-move adds `path` (waypoint tiles) at M1. online: in-zone
+               dirX/dirY (0,0 = idle); running (shift held) picks run speed over walk speed in projectMotion,
+               so it rides the intent like direction; click-to-move adds `path` (waypoint tiles) at M1. online: in-zone
                presence — clients subscribe to online players, so a disconnect settles the row and drops it
-               from view without losing progress. lastChatAt: per-player chat rate limit. hubUnlocked: M1
+               from view without losing progress. lastChatAt: per-player chat rate limit. color: chosen
+               TROGG_COLORS palette index (COLOR_UNSET = -1 → colour derived from id; see "Avatars").
+               hubUnlocked: M1
                checkpoint gate. equipment: slot → item map, multiple slots at once (e.g. { mainHand: "sword",
                offHand: "shield" }; armor slots later) — rides the zone subscription so others see it
                index: by_zone (zoneId)
@@ -186,10 +201,14 @@ boulder        id (PK, auto-inc), zoneId, x, y     (tile coords)
                dynamic obstacle. Seeded from the ZONES registry on first connect, moved only by `push`
                (or reset to the registry by the `resetBoulders` reducer, fired by the in-chat `/reset` command).
                index: by_zone (zoneId)
-hog            id (PK, auto-inc), zoneId, x, y     (tile coords)
-               a static Hog NPC (GDD glossary). A debug affordance ahead of its M3 home: dropped by the
-               `/spawn` command so the existing Hog sprite renders. Non-colliding, no movement or AI yet.
-               index: by_zone (zoneId)
+hog            id (PK, auto-inc), zoneId, x, y, dirX, dirY, movedAt
+               an ambient roaming Hog NPC (see "Hogs"). Intent-based motion like a player (position
+               derived with projectMotion); server-owned, no identity. Seeded from the ZONES registry
+               on first connect, dropped by the `/spawn` debug command, moved only by the scheduled
+               `wanderHogs`. index: by_zone (zoneId)
+hog_wander     scheduledId (PK, auto-inc), scheduledAt     (scheduled table)
+               the Hog wander timer — SpacetimeDB's deterministic scheduler (invariant 1). Fires
+               `wanderHogs`, which re-arms it only while a player is online. Private (no client reads it).
 actions        playerId, nodeId, kind, startedAt, endsAt
                index: by_player (playerId)
 chat_message   id (PK, auto-inc), zoneId, sender (Identity), name (denormalised), text, createdAt
@@ -254,9 +273,17 @@ Per-tile walkability landed in M0, ahead of the tracker, at maintainer direction
 
 Boulder pushing landed in M0 too, also at maintainer direction (see [Pushing](#pushing)) — pushable boulders as dynamic obstacles, slid one tile at a time at walk speed for as long as you hold into them, behind the `boulder-pushing` flag. It reuses the walkability collision (a boulder is just an occupied tile) and the intent model (the client fires the push off its own motion as it becomes flush, and the server re-bases motion, no tick), so it's an extension of movement rather than new infrastructure.
 
+Roaming Hogs landed in M0 too, also at maintainer direction (see [Hogs (roaming)](#hogs-roaming)) — ambient hedgehog NPCs that wander the zone behind the `roaming-hogs` flag. This is decorative presence only: the Hog merchant (M3) and LLM-driven Hog (M5) roles are untouched. It reuses the intent motion model and walkability collision, and introduces the first **scheduled reducer** (`wanderHogs`), exercising SpacetimeDB's deterministic timer — the same primitive M2's respawns and action completions will use — while staying within invariant 1 (it re-arms only while a player is online, so an empty zone does no work).
+
+Hold-shift-to-run landed in M0 too, also at maintainer direction (see [Movement](#movement)) — holding shift while moving runs at `RUN_SPEED_TILES_PER_SEC` instead of walking, behind the `running` flag. It's a pure extension of the intent model: `running` rides the synced motion intent so `projectMotion` derives the faster position on every client (no per-frame sync, no determinism mismatch — invariants 2 & 3), the `move` reducer re-bases at the current speed on each transition, and troggs gain a hunched `run_a`/`run_b` animation in the shared sprite sheet (Hogs always walk).
+
+A cosmetic easter egg rides on M0 too: on launch, a pale "ghost trogg" rarely (~1 in 20) flickers in at the origin tile for a heartbeat before fading, behind the `ghost-trogg` flag (invariant 5). It's a client-only render — no table, no reducer (invariant 3) — pure flavor seen only by the haunted player, not a mechanic with rules or data.
+
 Zone chat (M0 scope) ships on top of it: speech bubbles over heads plus a history side panel, behind the `chat-enabled` flag. Recent lines live in the `chat_message` table and replay when a client subscribes. The `chat` reducer enforces the 200-char cap and 1 msg/sec rate limit server-side (invariant 3); the flag gates the client mount.
 
-A `/spawn` debug command landed alongside chat, behind the `spawn-command` flag (default on in local dev, off in a production build): typing `/spawn boulder` or `/spawn hedgehog` in the chat box drops that entity at the caller's tile (the tile it faces, else a free neighbour). The placement and the `spawn` reducer are server-authoritative (invariant 3). This introduced the static `hog` table ahead of its M3 home so the existing Hog sprite has something to render — a non-colliding placeholder NPC, no movement or AI. There's no role system in M0, so the flag is the only gate; default it off in production.
+Trogg recolouring landed in M0 too, at maintainer direction (see [Avatars and equipment](#avatars-and-equipment)) — a player picks an avatar colour from the fixed `TROGG_COLORS` palette via the `recolor` reducer, which stores the chosen index on the `player` row; an unchosen trogg still falls back to the id-derived default (`COLOR_UNSET`), so the column is an additive-with-default migration and existing troggs are visually unchanged. Behind the `trogg-recolor` flag (invariant 5), with the swatches in the account panel beside rename; recolouring fires `trogg_recolored`.
+
+A `/spawn` debug command landed alongside chat, behind the `spawn-command` flag (default on in local dev, off in a production build): typing `/spawn boulder` or `/spawn hedgehog` in the chat box drops that entity at the caller's tile (the tile it faces, else a free neighbour). The placement and the `spawn` reducer are server-authoritative (invariant 3). A spawned Hog starts at rest and joins the roamers — the next `wanderHogs` tick gives it a heading like any other (see [Hogs (roaming)](#hogs-roaming)). There's no role system in M0, so the flag is the only gate; default it off in production.
 
 ## Open design threads
 

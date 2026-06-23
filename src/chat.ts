@@ -5,6 +5,8 @@ export interface ChatUI {
   addMessage(senderId: string, name: string, text: string, color: number): void;
   /** Rewrite the displayed name on every history line from `senderId` (a rename). */
   renameSender(senderId: string, name: string): void;
+  /** Retint the name on every history line from `senderId` (a recolour). */
+  recolorSender(senderId: string, color: number): void;
   destroy(): void;
 }
 
@@ -90,6 +92,12 @@ export function mountChat(send: (text: string) => void): ChatUI {
     renameSender(senderId, name) {
       for (const line of log.querySelectorAll<HTMLDivElement>(`div[data-sender="${senderId}"]`)) {
         line.firstElementChild!.textContent = `${name}: `;
+      }
+    },
+    recolorSender(senderId, color) {
+      const css = `#${color.toString(16).padStart(6, "0")}`;
+      for (const line of log.querySelectorAll<HTMLDivElement>(`div[data-sender="${senderId}"]`)) {
+        (line.firstElementChild as HTMLElement).style.color = css;
       }
     },
     destroy() {

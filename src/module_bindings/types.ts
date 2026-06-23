@@ -40,8 +40,17 @@ export const Hog = __t.object("Hog", {
   zoneId: __t.string(),
   x: __t.i32(),
   y: __t.i32(),
+  dirX: __t.i32(),
+  dirY: __t.i32(),
+  movedAt: __t.timestamp(),
 });
 export type Hog = __Infer<typeof Hog>;
+
+export const HogWander = __t.object("HogWander", {
+  scheduledId: __t.u64(),
+  scheduledAt: __t.scheduleAt(),
+});
+export type HogWander = __Infer<typeof HogWander>;
 
 export const Player = __t.object("Player", {
   identity: __t.identity(),
@@ -55,6 +64,8 @@ export const Player = __t.object("Player", {
   movedAt: __t.timestamp(),
   online: __t.bool(),
   lastChatAt: __t.option(__t.timestamp()),
+  running: __t.bool(),
+  color: __t.i32(),
 });
 export type Player = __Infer<typeof Player>;
 

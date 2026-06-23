@@ -10,12 +10,6 @@ import {
   type Infer as __Infer,
 } from "spacetimedb";
 
-export default __t.row({
-  id: __t.u64().primaryKey(),
-  zoneId: __t.string().name("zone_id"),
-  x: __t.i32(),
-  y: __t.i32(),
-  dirX: __t.i32().name("dir_x"),
-  dirY: __t.i32().name("dir_y"),
-  movedAt: __t.timestamp().name("moved_at"),
-});
+export default {
+  color: __t.i32(),
+};

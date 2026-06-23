@@ -1,11 +1,11 @@
 import { Application, Container, Graphics, Sprite, Text } from "pixi.js";
-import { ANCHOR, CHAT_BUBBLE_MS, facingTile, FRAME_H, FRAME_W, getZone, projectMotion, STARTING_ZONE_SLUG, troggColor, zoneBounds, type Facing } from "@trogg/shared";
+import { ANCHOR, CHAT_BUBBLE_MS, COLOR_UNSET, facingTile, FRAME_H, FRAME_W, getZone, projectMotion, STARTING_ZONE_SLUG, troggColorFor, zoneBounds, type Facing, type Kind } from "@trogg/shared";
 import type { DbConnection } from "./module_bindings";
 import type { Boulder, Hog, Player } from "./module_bindings/types";
 import { attachKeyboard, type MoveIntent } from "./input.js";
 import { mountChat, type ChatUI } from "./chat.js";
 import { createTerrain } from "./terrain.js";
-import { avatarFrame, avatarTexture, facingFromDir } from "./avatars.js";
+import { avatarFrame, avatarTexture, facingFromDir, ghostTexture } from "./avatars.js";
 import { captureEvent, isFeatureEnabled } from "./analytics.js";
 
 /** Art pixels per tile — terrain tiles are drawn at this and scaled up crisply. */
@@ -54,10 +54,14 @@ interface BoulderView {
   sprite: Container;
 }
 
-/** A Hog's live row plus its sprite. */
+/** A roaming Hog's sprite plus the client-clock instant its current intent arrived. */
 interface HogView {
+  marker: Container;
+  sprite: Sprite;
   row: Hog;
-  sprite: Container;
+  baseMs: number;
+  facing: Facing;
+  frameKey: string;
 }
 
 /** "x,y" key for a tile, matching the server's occupancy keys. */
@@ -96,6 +100,11 @@ export function mountWorld(app: Application, conn: DbConnection) {
   // Sprite avatars replace the placeholder marker behind a flag (invariant 5);
   // the kill-switch falls back to the colour marker, like `chat-enabled`.
   const useSprites = isFeatureEnabled("avatar-sprites");
+  // Ambient roaming Hogs render behind their own flag (invariant 5; kill-switch).
+  const useHogs = isFeatureEnabled("roaming-hogs");
+  // Hold-shift-to-run, behind its own flag (invariant 5); off → shift is ignored
+  // and movement stays at walk speed.
+  const canRun = isFeatureEnabled("running");
 
   // Tiles boulders currently occupy. Folded into the collision context below so
   // troggs stop flush against boulders exactly as they do against walls — and so
@@ -131,18 +140,22 @@ export function mountWorld(app: Application, conn: DbConnection) {
       place(view.sprite, view.row.x, view.row.y);
       boulderLayer.addChild(view.sprite);
     }
+    // Hog sprites bake TILE into their scale too; the ticker repositions them next frame.
     for (const view of hogs.values()) {
-      view.sprite.destroy({ children: true });
-      view.sprite = makeHog();
-      place(view.sprite, view.row.x, view.row.y);
-      hogLayer.addChild(view.sprite);
+      view.marker.destroy({ children: true });
+      const built = makeHog(view.facing);
+      view.marker = built.marker;
+      view.sprite = built.sprite;
+      view.frameKey = built.frameKey;
+      place(view.marker, view.row.x, view.row.y);
+      hogLayer.addChild(view.marker);
     }
   };
 
   const rebuildMarker = (id: string, entry: Tracked) => {
     if (entry.bubbleTimer) clearTimeout(entry.bubbleTimer);
     entry.marker.destroy({ children: true });
-    const built = makeMarker(entry.player.name, troggColor(id), id === myId, entry.facing, useSprites);
+    const built = makeMarker(entry.player.name, troggColorFor(entry.player.color, id), id === myId, entry.facing, useSprites);
     entry.marker = built.marker;
     entry.sprite = built.sprite;
     entry.frameKey = built.frameKey;
@@ -160,7 +173,7 @@ export function mountWorld(app: Application, conn: DbConnection) {
     const id = p.identity.toHexString();
     if (tracked.has(id)) return;
     const facing = facingFromDir(p.dirX, p.dirY, "down");
-    const { marker, sprite, frameKey } = makeMarker(p.name, troggColor(id), id === myId, facing, useSprites);
+    const { marker, sprite, frameKey } = makeMarker(p.name, troggColorFor(p.color, id), id === myId, facing, useSprites);
     const entry: Tracked = { marker, sprite, player: p, baseMs: performance.now(), facing, frameKey };
     place(marker, p.x, p.y);
     tracked.set(id, entry);
@@ -183,9 +196,9 @@ export function mountWorld(app: Application, conn: DbConnection) {
     // time — no server-clock sync needed, and each update reconciles drift.
     entry.player = p;
     entry.baseMs = performance.now();
-    // The nameplate is baked into the marker's label at build time, so a rename
-    // only shows once the marker is rebuilt from the updated row.
-    if (_old.name !== p.name) rebuildMarker(id, entry);
+    // The nameplate and tint are baked into the marker at build time, so a rename
+    // or recolour only shows once the marker is rebuilt from the updated row.
+    if (_old.name !== p.name || _old.color !== p.color) rebuildMarker(id, entry);
   });
   conn.db.player.onDelete((_ctx, p) => removePlayer(p.identity.toHexString()));
 
@@ -217,27 +230,34 @@ export function mountWorld(app: Application, conn: DbConnection) {
   conn.db.boulder.onUpdate((_ctx, _old, b) => upsertBoulder(b));
   conn.db.boulder.onDelete((_ctx, b) => removeBoulder(b));
 
-  const upsertHog = (h: Hog) => {
-    const key = h.id.toString();
-    let view = hogs.get(key);
-    if (!view) {
-      view = { row: h, sprite: makeHog() };
-      hogs.set(key, view);
-      hogLayer.addChild(view.sprite);
-    } else {
-      view.row = h;
-    }
-    place(view.sprite, h.x, h.y);
+  const addHog = (h: Hog) => {
+    const id = h.id.toString();
+    if (hogs.has(id)) return;
+    const facing = facingFromDir(h.dirX, h.dirY, "down");
+    const { marker, sprite, frameKey } = makeHog(facing);
+    place(marker, h.x, h.y);
+    hogs.set(id, { marker, sprite, row: h, baseMs: performance.now(), facing, frameKey });
+    hogLayer.addChild(marker);
+  };
+  const updateHog = (h: Hog) => {
+    const view = hogs.get(h.id.toString());
+    if (!view) return addHog(h);
+    // Rebase extrapolation on each new intent, like a player (see player.onUpdate).
+    view.row = h;
+    view.baseMs = performance.now();
   };
   const removeHog = (h: Hog) => {
     const view = hogs.get(h.id.toString());
-    view?.sprite.destroy({ children: true });
+    view?.marker.destroy({ children: true });
     hogs.delete(h.id.toString());
   };
 
-  conn.db.hog.onInsert((_ctx, h) => upsertHog(h));
-  conn.db.hog.onUpdate((_ctx, _old, h) => upsertHog(h));
-  conn.db.hog.onDelete((_ctx, h) => removeHog(h));
+  // Roaming Hogs render behind their own flag (invariant 5; kill-switch).
+  if (useHogs) {
+    conn.db.hog.onInsert((_ctx, h) => addHog(h));
+    conn.db.hog.onUpdate((_ctx, _old, h) => updateHog(h));
+    conn.db.hog.onDelete((_ctx, h) => removeHog(h));
+  }
 
   const pushEnabled = isFeatureEnabled("boulder-pushing");
 
@@ -250,10 +270,10 @@ export function mountWorld(app: Application, conn: DbConnection) {
   // `sent` is the move the server has (idle = stopped); `facing` is the way the trogg
   // points (sprite only — set even while standing still). `prevX`/`prevY` are last
   // frame's predicted position, so we can spot the moving axis crossing a centre.
-  let desired: MoveIntent = { dirX: 0, dirY: 0 };
-  let lastDesired: MoveIntent = { dirX: 0, dirY: 0 };
-  let sent: MoveIntent = { dirX: 0, dirY: 0 };
-  let facing: MoveIntent = { dirX: 0, dirY: 1 };
+  let desired: MoveIntent = { dirX: 0, dirY: 0, running: false };
+  let lastDesired: MoveIntent = { dirX: 0, dirY: 0, running: false };
+  let sent: MoveIntent = { dirX: 0, dirY: 0, running: false };
+  let facing: MoveIntent = { dirX: 0, dirY: 1, running: false };
   let prevX = Number.NaN;
   let prevY = Number.NaN;
   // A fresh press into a new direction turns the trogg in place; it only starts
@@ -297,9 +317,9 @@ export function mountWorld(app: Application, conn: DbConnection) {
     lastDesired = desired;
 
     if (!isIdle(sent)) {
-      // Walking: change direction or stop at the next tile centre (grid-lock). A new
-      // direction mid-walk corners fluidly — no turn-in-place beat while moving.
-      if (sameIntent(desired, sent)) return;
+      // Walking: change direction, speed (shift→run), or stop at the next tile centre
+      // (grid-lock). A new direction mid-walk corners fluidly — no turn-in-place beat.
+      if (sameIntent(desired, sent) && desired.running === sent.running) return;
       if (!reachedCentre(sent, prevX, prevY, x, y)) return;
       sent = desired;
       conn.reducers.move(desired);
@@ -339,6 +359,14 @@ export function mountWorld(app: Application, conn: DbConnection) {
       prevX = x;
       prevY = y;
     }
+
+    // Hogs ride the same intent extrapolation — derived locally, never per-frame
+    // sync (invariant 2). They collide against the same walls and boulders.
+    for (const view of hogs.values()) {
+      const { x, y } = projectMotion(view.row, now - view.baseMs, bounds);
+      place(view.marker, x, y);
+      driveSprite(view.sprite, "hog", view.row.dirX, view.row.dirY, false, view, now);
+    }
   });
 
   attachKeyboard((intent, immediate) => {
@@ -351,22 +379,27 @@ export function mountWorld(app: Application, conn: DbConnection) {
       sent = intent;
       conn.reducers.move(intent);
     }
-  });
+  }, canRun);
+
+  // Cosmetic join easter egg (invariant 5). Each launch has a chance of a haunt.
+  if (isFeatureEnabled("ghost-trogg") && Math.random() < GHOST_CHANCE) hauntGhost(stage);
 
   // Live once the initial rows have been delivered: backlog chat fills the
   // history panel silently, while later inserts also pop a bubble.
   const sub = { live: false };
   if (isFeatureEnabled("chat-enabled")) setupChat(conn, tracked, slug, sub, myId);
 
+  const queries = [
+    `SELECT * FROM player WHERE zone_id = '${slug}' AND online = true`,
+    `SELECT * FROM chat_message WHERE zone_id = '${slug}'`,
+    `SELECT * FROM boulder WHERE zone_id = '${slug}'`,
+  ];
+  if (useHogs) queries.push(`SELECT * FROM hog WHERE zone_id = '${slug}'`);
+
   conn
     .subscriptionBuilder()
     .onApplied(() => (sub.live = true))
-    .subscribe([
-      `SELECT * FROM player WHERE zone_id = '${slug}' AND online = true`,
-      `SELECT * FROM chat_message WHERE zone_id = '${slug}'`,
-      `SELECT * FROM boulder WHERE zone_id = '${slug}'`,
-      `SELECT * FROM hog WHERE zone_id = '${slug}'`,
-    ]);
+    .subscribe(queries);
 }
 
 /**
@@ -395,9 +428,12 @@ function setupChat(
     conn.reducers.chat({ text });
   });
 
+  const senderColor = (sender: Player["identity"]) =>
+    troggColorFor(conn.db.player.identity.find(sender)?.color ?? COLOR_UNSET, sender.toHexString());
+
   conn.db.chatMessage.onInsert((_ctx, message) => {
     const senderId = message.sender.toHexString();
-    chat.addMessage(senderId, message.name, message.text, troggColor(senderId));
+    chat.addMessage(senderId, message.name, message.text, senderColor(message.sender));
     // Bubble only for fresh lines: a reconnect replays the zone's recent history,
     // and those rows can arrive after the subscription goes live — without this an
     // old message would pop a stale bubble over its sender on every refresh.
@@ -411,6 +447,13 @@ function setupChat(
   // in the history panel so it doesn't show their old name until a reload.
   conn.db.chatMessage.onUpdate((_ctx, _old, message) => {
     chat.renameSender(message.sender.toHexString(), message.name);
+  });
+
+  // Colour isn't denormalised onto chat rows (it's derived from the live player
+  // row), so a recolour surfaces as a player-row update — retint the sender's
+  // history lines so they match the avatar without a reload.
+  conn.db.player.onUpdate((_ctx, _old, p) => {
+    if (_old.color !== p.color) chat.recolorSender(p.identity.toHexString(), troggColorFor(p.color, p.identity.toHexString()));
   });
 }
 
@@ -508,7 +551,7 @@ function makeMarker(name: string, color: number, self: boolean, facing: Facing, 
   let frameKey = "";
 
   if (sprites) {
-    const frame = avatarFrame(false, 0);
+    const frame = avatarFrame(false, false, 0);
     // Self gets a bright ground ring under the feet so you can pick yourself out.
     if (self) {
       const ring = new Graphics()
@@ -547,13 +590,31 @@ function makeMarker(name: string, color: number, self: boolean, facing: Facing, 
  *  for the placeholder marker (no sprite to swap). */
 function animate(entry: Tracked, now: number) {
   if (!entry.sprite) return;
-  const moving = entry.player.dirX !== 0 || entry.player.dirY !== 0;
-  entry.facing = facingFromDir(entry.player.dirX, entry.player.dirY, entry.facing);
-  const frame = avatarFrame(moving, now);
-  const key = `${entry.facing}_${frame}`;
-  if (key === entry.frameKey) return; // only touch the GPU on an actual change
-  entry.sprite.texture = avatarTexture("trogg", entry.facing, frame);
-  entry.frameKey = key;
+  driveSprite(entry.sprite, "trogg", entry.player.dirX, entry.player.dirY, entry.player.running, entry, now);
+}
+
+/**
+ * Point a sprite's facing and stride frame at its motion intent, mutating the
+ * caller's `facing`/`frameKey` so the next frame compares against it. Shared by
+ * troggs and Hogs (one rig); `running` picks the faster hunched run cycle (troggs
+ * only — Hogs always walk). Only touches the GPU when the frame actually changes.
+ */
+function driveSprite(
+  sprite: Sprite,
+  kind: Kind,
+  dirX: number,
+  dirY: number,
+  running: boolean,
+  state: { facing: Facing; frameKey: string },
+  now: number,
+) {
+  const moving = dirX !== 0 || dirY !== 0;
+  state.facing = facingFromDir(dirX, dirY, state.facing);
+  const frame = avatarFrame(moving, running, now);
+  const key = `${state.facing}_${frame}`;
+  if (key === state.frameKey) return;
+  sprite.texture = avatarTexture(kind, state.facing, frame);
+  state.frameKey = key;
 }
 
 /** A pushable boulder: a rounded stone filling its tile, with a lit top-left face. */
@@ -573,19 +634,43 @@ function makeBoulder() {
   return sprite;
 }
 
+/** A roaming Hog: the shared avatar sprite in its hedgehog skin, feet centred on the
+ *  tile (like a trogg). No name label, tint, or ground ring — Hogs are ambient
+ *  scenery, not players. */
+function makeHog(facing: Facing): { marker: Container; sprite: Sprite; frameKey: string } {
+  const marker = new Container();
+  const frame = avatarFrame(false, false, 0);
+  const sprite = new Sprite(avatarTexture("hog", facing, frame));
+  sprite.anchor.set(ANCHOR.x / FRAME_W, ANCHOR.y / FRAME_H);
+  sprite.scale.set(TILE / ART);
+  sprite.position.set(TILE / 2, feetY());
+  marker.addChild(sprite);
+  return { marker, sprite, frameKey: `${facing}_${frame}` };
+}
+
+/** Odds a given launch is haunted by the ghost trogg. */
+const GHOST_CHANCE = 1 / 20;
+/** How long the apparition holds before it fades. */
+const GHOST_FLICKER_MS = 500;
+
 /**
- * A static Hog: the shared Hog sprite (GDD "Avatars"), feet centred on its tile
- * like a trogg. Spawned by the `/spawn` debug command; it has no motion, so it
- * always faces down.
+ * Cosmetic easter egg (behind `ghost-trogg`): on launch, a pale trogg sometimes
+ * materialises at the origin tile for a heartbeat, then fades. Purely a client
+ * render — it touches no table and no reducer (invariant 3), so it's never seen
+ * by anyone but the haunted player.
  */
-function makeHog(): Container {
-  const sprite = new Container();
-  const hog = new Sprite(avatarTexture("hog", "down", "idle"));
-  hog.anchor.set(ANCHOR.x / FRAME_W, ANCHOR.y / FRAME_H);
-  hog.scale.set(TILE / ART);
-  hog.position.set(TILE / 2, feetY());
-  sprite.addChild(hog);
-  return sprite;
+function hauntGhost(stage: Container) {
+  const ghost = new Container();
+  const sprite = new Sprite(ghostTexture("down", "idle"));
+  sprite.anchor.set(ANCHOR.x / FRAME_W, ANCHOR.y / FRAME_H);
+  sprite.scale.set(TILE / ART);
+  sprite.position.set(TILE / 2, feetY());
+  sprite.alpha = 0.5;
+  ghost.addChild(sprite);
+  place(ghost, 0, 0);
+  stage.addChild(ghost);
+
+  setTimeout(() => ghost.destroy({ children: true }), GHOST_FLICKER_MS);
 }
 
 function place(marker: Container, x: number, y: number) {

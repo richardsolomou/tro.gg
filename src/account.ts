@@ -1,5 +1,6 @@
-import { isValidName, NAME_MAX_CHARS } from "@trogg/shared";
+import { COLOR_UNSET, isColorIndex, isValidName, NAME_MAX_CHARS, TROGG_COLORS } from "@trogg/shared";
 import type { DbConnection } from "./module_bindings";
+import { captureEvent, isFeatureEnabled } from "./analytics.js";
 import { signIn, signOut } from "./auth.js";
 import { setPendingClaim } from "./identity.js";
 
@@ -17,6 +18,7 @@ import { setPendingClaim } from "./identity.js";
 export function mountAccount(conn: DbConnection, opts: { signedIn: boolean }): void {
   const myId = conn.identity?.toHexString();
   const myName = () => (conn.identity ? (conn.db.player.identity.find(conn.identity)?.name ?? "") : "");
+  const myColor = () => (conn.identity ? (conn.db.player.identity.find(conn.identity)?.color ?? COLOR_UNSET) : COLOR_UNSET);
 
   const root = el("div", {
     position: "fixed",
@@ -69,6 +71,39 @@ export function mountAccount(conn: DbConnection, opts: { signedIn: boolean }): v
 
   root.append(who, input, status);
 
+  // The colour picker is its own mechanic, so it ships behind its own flag
+  // (invariant 5); off → only renaming shows. A swatch retints the trogg via the
+  // `recolor` reducer and the synced row, never asserting colour locally (invariant
+  // 3) — the avatar and chat name update from the player-row update.
+  const swatches: HTMLButtonElement[] = [];
+  let selectColor = (_index: number) => {};
+  if (isFeatureEnabled("trogg-recolor")) {
+    const palette = el("div", { display: "flex", flexWrap: "wrap", gap: "4px", marginBottom: "6px" });
+    selectColor = (index: number) => {
+      swatches.forEach((sw, i) => (sw.style.borderColor = i === index ? "#e8dcc4" : "transparent"));
+    };
+    TROGG_COLORS.forEach((color, index) => {
+      const swatch = document.createElement("button");
+      swatch.title = "Recolour your trogg";
+      Object.assign(swatch.style, {
+        width: "22px",
+        height: "22px",
+        padding: "0",
+        background: `#${color.toString(16).padStart(6, "0")}`,
+        border: "2px solid transparent",
+        borderRadius: "4px",
+        cursor: "pointer",
+      } satisfies Partial<CSSStyleDeclaration>);
+      swatch.addEventListener("click", () => {
+        void conn.reducers.recolor({ color: index });
+        captureEvent("trogg_recolored", { color: index });
+      });
+      swatches.push(swatch);
+      palette.append(swatch);
+    });
+    root.append(palette);
+  }
+
   if (opts.signedIn) {
     const out = button("Sign out", async () => {
       await signOut();
@@ -102,6 +137,8 @@ export function mountAccount(conn: DbConnection, opts: { signedIn: boolean }): v
     const name = myName();
     who.textContent = name ? `You are ${name}` : "Connecting…";
     if (document.activeElement !== input) input.value = name;
+    const color = myColor();
+    selectColor(isColorIndex(color) ? color : -1);
   };
   conn.db.player.onInsert((_ctx, p) => {
     if (p.identity.toHexString() === myId) refresh();

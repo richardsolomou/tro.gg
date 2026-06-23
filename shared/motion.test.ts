@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { MOVE_SPEED_TILES_PER_SEC, type Zone } from "./constants";
-import { facingTile, projectMotion, snapToTile, spawnTile, zoneBounds } from "./motion";
+import { MOVE_SPEED_TILES_PER_SEC, RUN_SPEED_TILES_PER_SEC, type Zone } from "./constants";
+import { facingTile, projectMotion, snapToTile, walkableCardinals, spawnTile, zoneBounds } from "./motion";
 
 // No isWalkable → open floor, clamped only to the rectangular bounds.
 const open = { width: 24, height: 16 };
@@ -15,6 +15,12 @@ test("moving advances the origin by speed × elapsed along the direction", () =>
   const at = projectMotion({ x: 2, y: 5, dirX: 1, dirY: 0 }, 1_000, open);
   assert.equal(at.x, 2 + MOVE_SPEED_TILES_PER_SEC);
   assert.equal(at.y, 5);
+});
+
+test("running advances at run speed, not walk speed", () => {
+  const at = projectMotion({ x: 2, y: 5, dirX: 1, dirY: 0, running: true }, 1_000, open);
+  assert.equal(at.x, 2 + RUN_SPEED_TILES_PER_SEC);
+  assert.ok(RUN_SPEED_TILES_PER_SEC > MOVE_SPEED_TILES_PER_SEC);
 });
 
 test("position is clamped to the zone bounds", () => {
@@ -102,6 +108,18 @@ test("settling a mid-step slide lands the trogg on a whole tile", () => {
   const mid = projectMotion({ x: 2, y: 5, dirX: 1, dirY: 0 }, 600, open);
   assert.equal(mid.x, 2 + MOVE_SPEED_TILES_PER_SEC * 0.6);
   assert.deepEqual(snapToTile(mid), { x: 4, y: 5 });
+});
+
+const dirKeys = (dirs: { dirX: number; dirY: number }[]) => new Set(dirs.map((d) => `${d.dirX},${d.dirY}`));
+
+test("a hog's walkable headings exclude walls and the zone edge", () => {
+  // (1,1) in the corner room: floor below and to the right, walls above and left.
+  assert.deepEqual(dirKeys(walkableCardinals(cornered, 1, 1)), new Set(["0,1", "1,0"]));
+});
+
+test("a hog's walkable headings treat a boulder like a wall", () => {
+  // (3,1) in the 1-tile-tall corridor with a boulder at (4,1): only left is open.
+  assert.deepEqual(dirKeys(walkableCardinals(withBoulder, 3, 1)), new Set(["-1,0"]));
 });
 
 test("facingTile names the adjacent tile only when squarely aligned", () => {

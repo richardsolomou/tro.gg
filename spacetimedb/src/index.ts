@@ -1,11 +1,16 @@
 import { schema, table, t, type InferSchema, type ReducerCtx } from "spacetimedb/server";
+import { ScheduleAt, Timestamp } from "spacetimedb";
 import {
   CHAT_HISTORY_MAX,
   CHAT_MAX_CHARS,
   CHAT_RATE_LIMIT_MS,
   CLAIM_CODE_TTL_MS,
+  COLOR_UNSET,
   facingTile,
   getZone,
+  HOG_IDLE_CHANCE,
+  HOG_WANDER_INTERVAL_MS,
+  isColorIndex,
   isGeneratedName,
   isValidName,
   isWalkable,
@@ -14,7 +19,9 @@ import {
   SPACETIMEAUTH_ISSUER,
   spawnTile,
   STARTING_ZONE_SLUG,
+  walkableCardinals,
   type Zone,
+  type ZoneBounds,
   zoneBounds,
 } from "../../shared/index";
 
@@ -31,10 +38,14 @@ import {
  * A trogg. The durable row is keyed by the player's Identity, so a returning
  * visitor who reconnects with the same stored token resumes the same trogg.
  * Motion is intent-based (invariants 1 & 2): the row holds an origin (x, y), a
- * WASD direction, and `movedAt`; position over time is derived, and settled back
- * into (x, y) on the next input or on disconnect. `color` is derived client-side
- * from the identity, never stored (GDD "Avatars"). `hubUnlocked`/`equipment` land
- * with M1/M2.
+ * WASD direction, `running`, and `movedAt`; position over time is derived, and
+ * settled back into (x, y) on the next input or on disconnect. `running` (shift
+ * held) rides the intent so every client derives the same speed (GDD "Movement").
+ * `color` is the chosen avatar palette index (GDD "Avatars"), set by `recolor`; it
+ * defaults to `COLOR_UNSET` (-1) so an unchosen trogg falls back to its id-derived
+ * colour. Both `running` and `color` carry defaults so adding them to the
+ * already-published `player` table is an in-place migration, not a breaking one.
+ * `hubUnlocked`/`equipment` land with M1/M2.
  */
 const player = table(
   { name: "player", public: true },
@@ -50,6 +61,13 @@ const player = table(
     movedAt: t.timestamp(),
     online: t.bool(),
     lastChatAt: t.option(t.timestamp()),
+    // Append new columns here, at the end, each with a default. SpacetimeDB
+    // auto-migrates an append-with-default in place, but inserting a column
+    // mid-table reads as a *reordering* and needs a manual migration — which the
+    // prod deploy refuses (no --delete-data), failing after merge. Order among
+    // these trailing columns is free; never wedge one in above `movedAt`.
+    running: t.bool().default(false),
+    color: t.i32().default(COLOR_UNSET),
   },
 );
 
@@ -108,10 +126,19 @@ const boulder = table(
 );
 
 /**
- * A Hog — a friendly hedgehog NPC (GDD glossary). A debug affordance ahead of its
- * M3 home: the `/spawn` command drops a static, non-colliding Hog at a tile so the
- * existing Hog sprite has something to render. No movement or AI yet; full Hog NPCs
- * (merchants, dialogue) land with M3/M5. Clients subscribe per zone like boulders.
+ * An ambient Hog NPC (GDD "Hogs"): a friendly hedgehog that roams the zone on its
+ * own. It carries the same intent-based motion as a trogg — an origin (x, y), a
+ * cardinal direction, and `movedAt` — so clients derive its position with
+ * `projectMotion` and there's no per-frame sync (invariant 2). Hogs are
+ * server-owned (no identity): seeded per zone from the `ZONES` registry on first
+ * connect, dropped by the `/spawn` debug command, then moved only by the scheduled
+ * `wanderHogs` reducer. The merchant/dialogue Hog roles land with M3/M5.
+ *
+ * Unlike a trogg, a Hog's origin is an integer tile (`i32`): it re-bases at a whole
+ * tile each wander tick (clients still glide between via `projectMotion`), and it
+ * never pushes, so it needs no sub-tile precision. The motion columns carry
+ * defaults so adding them to the already-published `hog` table is an in-place
+ * migration, not a breaking one. dirX/dirY/movedAt default to idle-at-epoch.
  */
 const hog = table(
   { name: "hog", public: true },
@@ -120,10 +147,28 @@ const hog = table(
     zoneId: t.string().index("btree"),
     x: t.i32(),
     y: t.i32(),
+    dirX: t.i32().default(0),
+    dirY: t.i32().default(0),
+    movedAt: t.timestamp().default(Timestamp.UNIX_EPOCH),
   },
 );
 
-const spacetimedb = schema({ player, chatMessage, claimCode, boulder, hog });
+/**
+ * The Hog wander timer (GDD "Hogs"). A scheduled table is SpacetimeDB's
+ * deterministic timer — the only way state changes outside player input (invariant
+ * 1: no simulation tick). Each tick fires `wanderHogs`, which repicks every Hog's
+ * heading and then re-arms this timer *only while a player is online*, so an empty
+ * zone settles its Hogs to rest and then does no further work (invariant 1).
+ */
+const hogWander = table(
+  { name: "hog_wander", scheduled: (): any => wanderHogs },
+  {
+    scheduledId: t.u64().primaryKey().autoInc(),
+    scheduledAt: t.scheduleAt(),
+  },
+);
+
+const spacetimedb = schema({ player, chatMessage, claimCode, boulder, hog, hogWander });
 export default spacetimedb;
 
 /** The reducer context, typed against this module's schema (db view + sender). */
@@ -137,9 +182,13 @@ export const init = spacetimedb.init(() => {});
  * separate load step.
  */
 export const onConnect = spacetimedb.clientConnected((ctx) => {
-  // The boulder table is new, so init (first-publish only) never seeded it on an
-  // already-published module; seed lazily on connect, idempotently.
-  seedBoulders(ctx, getZone(STARTING_ZONE_SLUG)!);
+  // The boulder/hog tables are new, so init (first-publish only) never seeded them
+  // on an already-published module; seed lazily on connect, idempotently.
+  const startingZone = getZone(STARTING_ZONE_SLUG)!;
+  seedBoulders(ctx, startingZone);
+  seedHogs(ctx, startingZone);
+  // A player is here, so make sure the Hogs are roaming (no-op if already armed).
+  armWander(ctx);
 
   const existing = ctx.db.player.identity.find(ctx.sender);
   if (existing) {
@@ -149,7 +198,7 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
     const zone = getZone(existing.zoneId);
     const stuck = zone && !isWalkable(zone, Math.round(existing.x), Math.round(existing.y));
     const pos = stuck ? spawnAt(zone) : { x: existing.x, y: existing.y };
-    ctx.db.player.identity.update({ ...existing, x: pos.x, y: pos.y, dirX: 0, dirY: 0, online: true, movedAt: ctx.timestamp });
+    ctx.db.player.identity.update({ ...existing, x: pos.x, y: pos.y, dirX: 0, dirY: 0, running: false, online: true, movedAt: ctx.timestamp });
     return;
   }
 
@@ -176,9 +225,11 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
     y: at.y,
     dirX: 0,
     dirY: 0,
+    running: false,
     movedAt: ctx.timestamp,
     online: true,
     lastChatAt: undefined,
+    color: COLOR_UNSET,
   });
 });
 
@@ -195,6 +246,14 @@ function seedBoulders(ctx: Ctx, zone: Zone): void {
   }
 }
 
+/** Seed a zone's roaming Hogs from the registry, unless it already has some. */
+function seedHogs(ctx: Ctx, zone: Zone): void {
+  if ([...ctx.db.hog.zoneId.filter(zone.slug)].length > 0) return;
+  for (const h of zone.hogs) {
+    ctx.db.hog.insert({ id: 0n, zoneId: zone.slug, x: h.x, y: h.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp });
+  }
+}
+
 /**
  * A client disconnected. Settle the trogg to where it is *now* and mark it
  * offline (clients subscribe to online players only, so it leaves their view
@@ -204,18 +263,20 @@ export const onDisconnect = spacetimedb.clientDisconnected((ctx) => {
   const p = ctx.db.player.identity.find(ctx.sender);
   if (!p) return;
   const settled = settle(ctx, p, ctx.timestamp);
-  ctx.db.player.identity.update({ ...p, x: settled.x, y: settled.y, dirX: 0, dirY: 0, online: false });
+  ctx.db.player.identity.update({ ...p, x: settled.x, y: settled.y, dirX: 0, dirY: 0, running: false, online: false });
 });
 
 /**
  * A WASD direction intent (GDD "Movement"). Movement is 4-directional — one
  * cardinal axis at a time, no diagonals (like Pokémon/Zelda). Settle the origin
- * to where the trogg is now (so elapsed travel under the old direction isn't lost
- * or replayed), then store the new direction and timestamp. Position is never
- * ticked (invariant 1). A diagonal intent is rejected, not coerced (invariant 3 —
- * never trust the client): the trogg holds its prior motion.
+ * to where the trogg is now (so elapsed travel under the old direction — and the
+ * old speed — isn't lost or replayed), then store the new direction, `running`,
+ * and timestamp. `running` (shift held) rides the intent so all clients derive the
+ * same faster speed (GDD "Movement"). Position is never ticked (invariant 1). A
+ * diagonal intent is rejected, not coerced (invariant 3 — never trust the client):
+ * the trogg holds its prior motion.
  */
-export const move = spacetimedb.reducer({ dirX: t.i32(), dirY: t.i32() }, (ctx, { dirX, dirY }) => {
+export const move = spacetimedb.reducer({ dirX: t.i32(), dirY: t.i32(), running: t.bool() }, (ctx, { dirX, dirY, running }) => {
   const p = ctx.db.player.identity.find(ctx.sender);
   if (!p) return;
   const dir = cardinal(dirX, dirY);
@@ -227,6 +288,7 @@ export const move = spacetimedb.reducer({ dirX: t.i32(), dirY: t.i32() }, (ctx, 
     y: settled.y,
     dirX: dir.dirX,
     dirY: dir.dirY,
+    running,
     movedAt: ctx.timestamp,
   });
 });
@@ -267,6 +329,44 @@ export const push = spacetimedb.reducer((ctx) => {
 });
 
 /**
+ * The Hog wander tick (GDD "Hogs"). Settle each Hog to where it is now (against
+ * walls and boulders, exactly like a trogg), then give it a fresh heading — a
+ * random walkable cardinal, or idle so it pauses. Randomness is the context RNG,
+ * seeded from the tick's timestamp, so the schedule replays deterministically
+ * (invariant 3). The timer re-arms only while a player is online: with the zone
+ * empty, every Hog is left at rest and the timer stops, so an empty zone does no
+ * further work (invariant 1).
+ */
+export const wanderHogs = spacetimedb.reducer({ timer: hogWander.rowType }, (ctx) => {
+  const online = anyPlayerOnline(ctx);
+  const occupiedByZone = new Map<string, Set<string>>();
+
+  for (const h of ctx.db.hog.iter()) {
+    const zone = getZone(h.zoneId);
+    if (!zone) continue;
+    let occupied = occupiedByZone.get(h.zoneId);
+    if (!occupied) {
+      occupied = boulderTiles(ctx, h.zoneId);
+      occupiedByZone.set(h.zoneId, occupied);
+    }
+    const bounds = zoneBounds(zone, (x, y) => occupied!.has(tileKey(x, y)));
+    const pos = projectMotion(h, elapsedMs(h.movedAt, ctx.timestamp), bounds);
+    // Re-base at a whole tile: the perpendicular axis is already integer, and
+    // projectMotion stops flush at walls, so rounding the moving axis stays on
+    // walkable floor (the `hog` origin is i32 — see the table definition).
+    const x = Math.round(pos.x);
+    const y = Math.round(pos.y);
+    const dir = online ? pickWanderDir(ctx, bounds, { x, y }) : { dirX: 0, dirY: 0 };
+    ctx.db.hog.id.update({ ...h, x, y, dirX: dir.dirX, dirY: dir.dirY, movedAt: ctx.timestamp });
+  }
+
+  // Clear first so exactly one timer is pending regardless of whether the firing
+  // row was auto-deleted, then re-arm only while someone is watching.
+  ctx.db.hogWander.clear();
+  if (online) armWander(ctx);
+});
+
+/**
  * Spawn a boulder or Hog at the caller's location — the `/spawn` debug command
  * (behind the `spawn-command` flag, gated client-side). The server re-derives the
  * trogg's tile authoritatively (invariant 3) and places the entity on the tile it
@@ -291,7 +391,9 @@ export const spawn = spacetimedb.reducer({ kind: t.string() }, (ctx, { kind }) =
   if (kind === "boulder") {
     ctx.db.boulder.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y });
   } else {
-    ctx.db.hog.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y });
+    // A spawned Hog starts at rest and joins the roamers — the next wander tick
+    // gives it a heading like any other.
+    ctx.db.hog.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp });
   }
 });
 
@@ -366,6 +468,21 @@ export const rename = spacetimedb.reducer({ name: t.string() }, (ctx, { name }) 
 });
 
 /**
+ * Recolour the caller's trogg (GDD "Avatars and equipment"): store a chosen index
+ * into the shared `TROGG_COLORS` palette, replacing the id-derived default. The
+ * index is validated server-side (invariant 3); an out-of-range index or one
+ * already set is a silent no-op, like `rename`. The colour rides the zone player
+ * sync, so the tint updates for everyone; chat name colour is derived from the
+ * same row, so no denormalised copy needs rewriting.
+ */
+export const recolor = spacetimedb.reducer({ color: t.i32() }, (ctx, { color }) => {
+  const p = ctx.db.player.identity.find(ctx.sender);
+  if (!p) return;
+  if (color === p.color || !isColorIndex(color)) return;
+  ctx.db.player.identity.update({ ...p, color });
+});
+
+/**
  * Step 1 of the guest → account upgrade (GDD "Identity"). Called while connected
  * as a guest: register the browser-minted nonce under the guest's own identity so
  * a later `redeemClaim` can authorise migrating this trogg. Only a guest with a
@@ -411,6 +528,29 @@ export const redeemClaim = spacetimedb.reducer({ code: t.string() }, (ctx, { cod
   ctx.db.player.identity.delete(guest.identity);
 });
 
+/** Whether any player is currently online — the Hogs only roam while someone is
+ *  watching (invariant 1: an empty zone does no work). */
+function anyPlayerOnline(ctx: Ctx): boolean {
+  for (const p of ctx.db.player.iter()) if (p.online) return true;
+  return false;
+}
+
+/** Arm a single one-shot Hog wander tick, unless one is already pending. */
+function armWander(ctx: Ctx): void {
+  if (ctx.db.hogWander.count() > 0n) return;
+  const at = ctx.timestamp.microsSinceUnixEpoch + BigInt(HOG_WANDER_INTERVAL_MS) * 1000n;
+  ctx.db.hogWander.insert({ scheduledId: 0n, scheduledAt: ScheduleAt.time(at) });
+}
+
+/** A Hog's next heading: a random walkable cardinal, or idle (`HOG_IDLE_CHANCE`)
+ *  so it pauses rather than marching nonstop. */
+function pickWanderDir(ctx: Ctx, bounds: ZoneBounds, pos: { x: number; y: number }): { dirX: number; dirY: number } {
+  if (ctx.random() < HOG_IDLE_CHANCE) return { dirX: 0, dirY: 0 };
+  const options = walkableCardinals(bounds, Math.round(pos.x), Math.round(pos.y));
+  if (options.length === 0) return { dirX: 0, dirY: 0 };
+  return options[ctx.random.integerInRange(0, options.length - 1)]!;
+}
+
 /** Whether the caller authenticated with a SpacetimeAuth OIDC token (an account, not a guest). */
 function isSpacetimeAuthCaller(ctx: Ctx): boolean {
   return ctx.senderAuth.hasJWT && ctx.senderAuth.jwt?.issuer === SPACETIMEAUTH_ISSUER;
@@ -438,7 +578,7 @@ function nameTaken(ctx: Ctx, name: string, self: Ctx["sender"]): boolean {
 type Stamp = { microsSinceUnixEpoch: bigint };
 
 /** The motion-bearing slice of a player row that `settle` derives position from. */
-type Settleable = { x: number; y: number; dirX: number; dirY: number; zoneId: string; movedAt: Stamp };
+type Settleable = { x: number; y: number; dirX: number; dirY: number; running: boolean; zoneId: string; movedAt: Stamp };
 
 /**
  * Derive the trogg's position at `now` from its stored motion intent, colliding

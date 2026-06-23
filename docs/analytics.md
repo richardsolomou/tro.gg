@@ -24,6 +24,7 @@ snake_case. Low-volume by design — anything that could fire more than ~once/se
 | ----- | ---------- | ---------- |
 | `player_joined` | `zone, is_guest` | Session starts and the trogg exists in the world |
 | `player_named` | — | Guest upgrades to an account — fires when a claim is redeemed, alongside `identify()` (the OIDC subject), merging the guest's history |
+| `trogg_recolored` | `color` | Player picks an avatar colour — `color` is the chosen `TROGG_COLORS` palette index |
 | `zone_entered` | `zone, from_zone` | Zone transition |
 | `action_started` | `action, node_type, zone` | Action begins |
 | `resource_gathered` | `node_type, item, zone` | Action completes |
@@ -46,10 +47,14 @@ kebab-case. Every new mechanic ships behind a flag. Registry:
 | ---- | -------- |
 | `chat-enabled` | M0 zone chat (client mount gate; kill-switch) |
 | `avatar-sprites` | Trogg sprite avatars vs the placeholder colour marker (render gate; kill-switch) |
+| `ghost-trogg` | Cosmetic launch easter egg — a pale trogg rarely flickers in at the origin (client render; kill-switch) |
 | `boulder-pushing` | M0 boulder pushing (off → boulders are immovable obstacles) |
+| `roaming-hogs` | M0 ambient roaming Hog NPCs (client render gate; kill-switch) |
+| `running` | M0 hold-shift-to-run (off → shift is ignored, movement stays at walk speed) |
 | `spawn-command` | `/spawn` debug command (drops a boulder or Hog at your tile; default on in local dev, off in prod) |
 | `boulder-reset` | M0 in-chat `/reset` command (off → `/reset` is an ordinary chat line) |
 | `auth-enabled` | M1 account sign-in + rename (account UI mount gate; kill-switch) |
+| `trogg-recolor` | Avatar colour picker in the account panel (off → only renaming shows) |
 | `gathering-enabled` | M2 gathering system |
 | `node-respawn-seconds` | Respawn tuning (multivariate / payload) |
 | `crafting-enabled` | M3 crafting |
