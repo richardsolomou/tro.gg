@@ -23,4 +23,5 @@ export default __t.row({
   movedAt: __t.timestamp().name("moved_at"),
   online: __t.bool(),
   lastChatAt: __t.option(__t.timestamp()).name("last_chat_at"),
+  color: __t.i32(),
 });
