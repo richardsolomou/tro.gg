@@ -4,7 +4,7 @@
   "compatibility_date": "2026-06-01",
   "main": "worker.ts",
   "assets": {
-    "directory": "./client/dist",
+    "directory": "./dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
     "run_worker_first": true

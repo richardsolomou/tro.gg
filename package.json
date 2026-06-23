@@ -7,11 +7,24 @@
     "node": ">=24"
   },
   "scripts": {
-    "dev": "pnpm --filter @trogg/shared build && pnpm --parallel --filter @trogg/shared --filter @trogg/client --filter @trogg/server dev",
-    "dev:client": "pnpm --filter @trogg/client dev",
-    "dev:server": "pnpm --filter @trogg/server dev",
-    "build": "pnpm --filter @trogg/shared build && pnpm --filter @trogg/client build && pnpm --filter @trogg/server build",
-    "build:client": "pnpm --filter @trogg/shared build && pnpm --filter @trogg/client build",
-    "typecheck": "pnpm -r typecheck"
+    "dev": "vite",
+    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck:module": "tsc -p spacetimedb/tsconfig.json --noEmit",
+    "test": "node --import tsx --test \"shared/*.test.ts\"",
+    "module:publish": "spacetime publish --module-path spacetimedb trogg",
+    "module:publish:prod": "spacetime publish --server trogg-prod --module-path spacetimedb trogg",
+    "module:generate": "spacetime generate --lang typescript --out-dir src/module_bindings --module-path spacetimedb"
+  },
+  "dependencies": {
+    "pixi.js": "^8.19.0",
+    "posthog-js": "^1.391.2",
+    "spacetimedb": "2.6.*"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.16"
   }
 }

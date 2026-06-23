@@ -35,7 +35,7 @@ snake_case. Low-volume by design — anything that could fire more than ~once/se
 | `project_completed` | `project` | M3 |
 | `shop_purchase` | `item, qty, price` | M3 |
 
-Client events via posthog-js (plus autocapture + session replay). Server events via posthog-node in the game server — gameplay-authoritative events (`resource_gathered`, `xp_gained`, `level_up`, crafting, projects, purchases) fire server-side, not client-side.
+Client events via posthog-js (plus autocapture + session replay). SpacetimeDB reducers are network-isolated — they can't call out to PostHog — so events fire client-side: the client emits a gameplay-authoritative event (`resource_gathered`, `xp_gained`, `level_up`, crafting, projects, purchases) when it observes the authoritative table change that earns it. If server-truth emission is ever needed, an external process subscribing to the tables can carry it; the event names and properties below are unchanged either way.
 
 ## Feature flags
 

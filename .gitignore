@@ -5,3 +5,6 @@ node_modules/
 dist/
 *.tsbuildinfo
 .DS_Store
+
+# Per-server database identity, resolved on first publish.
+spacetime.local.json

@@ -1,0 +1,55 @@
+name: Deploy module
+
+# Publishes the SpacetimeDB module to the production instance (spacetime.tro.gg)
+# on merge to main. Publishing auto-migrates compatible schema changes in place
+# without disconnecting clients; breaking changes are NOT forced here (no
+# --delete-data / --break-clients), so they fail loudly instead of losing data.
+#
+# Required secret: SPACETIME_TOKEN — a token for the identity that owns the
+# `trogg` database. Get it with `spacetime login show --token`.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "spacetimedb/**"
+      - "shared/**"
+      - ".github/workflows/deploy-module.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-module
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install SpacetimeDB CLI
+        run: |
+          curl -sSf https://install.spacetimedb.com | sh
+          echo "$HOME/.local/share/spacetime/bin/current" >> "$GITHUB_PATH"
+
+      - name: Pin CLI version
+        run: |
+          spacetime version install 2.6.0 || true
+          spacetime version use 2.6.0
+
+      - name: Authenticate
+        run: spacetime login --token "${{ secrets.SPACETIME_TOKEN }}"
+
+      - name: Register production server
+        run: spacetime server add trogg-prod --url https://spacetime.tro.gg || true
+
+      - name: Verify committed bindings match the module schema
+        run: |
+          spacetime generate --lang typescript --out-dir src/module_bindings --module-path spacetimedb -y
+          if ! git diff --exit-code src/module_bindings; then
+            echo "::error::src/module_bindings is stale — run 'just generate' and commit the result."
+            exit 1
+          fi
+
+      - name: Publish to production
+        run: spacetime publish --server trogg-prod --module-path spacetimedb trogg -y
