@@ -20,6 +20,13 @@ export const ChatMessage = __t.object("ChatMessage", {
 });
 export type ChatMessage = __Infer<typeof ChatMessage>;
 
+export const ClaimCode = __t.object("ClaimCode", {
+  code: __t.string(),
+  guest: __t.identity(),
+  createdAt: __t.timestamp(),
+});
+export type ClaimCode = __Infer<typeof ClaimCode>;
+
 export const Player = __t.object("Player", {
   identity: __t.identity(),
   name: __t.string(),

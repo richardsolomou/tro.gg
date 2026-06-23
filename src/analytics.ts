@@ -20,6 +20,16 @@ export function captureEvent(event: string, properties?: Record<string, unknown>
 }
 
 /**
+ * Associate the session with a stable account id (the OIDC subject) on the
+ * guest → account upgrade, merging the guest's prior history (docs/analytics.md).
+ * No-op without a PostHog key (local dev).
+ */
+export function identifyUser(distinctId: string) {
+  if (!POSTHOG_KEY) return;
+  posthog.identify(distinctId);
+}
+
+/**
  * Read a feature flag (invariant 5 — every mechanic ships behind one). Without
  * PostHog, or before flags have loaded, the fallback applies, so a kill-switch
  * takes effect on the next load rather than mid-session.
