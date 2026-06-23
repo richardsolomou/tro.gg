@@ -270,13 +270,17 @@ export function mountWorld(app: Application, conn: DbConnection) {
   };
 
   // Push (GDD "Pushing", behind its flag — invariant 5) fires while the trogg is
-  // *walking into* a boulder: a committed direction (`sent`, not the raw key, so a
-  // tap-to-turn never shoves) facing a boulder it's squarely on a centre against.
-  // Edge-triggered, so holding into a boulder shoves it one tile per tile as the
-  // trogg catches up (cadence falls out of walk speed); releasing at it stops you
-  // flush with no shove. The server re-validates and re-bases motion (invariant 3).
+  // *actively walking into* a boulder: the key is still held (`desired`) in the
+  // committed direction (`sent`, so a tap-to-turn never shoves) and it faces a
+  // boulder it's squarely on a centre against. Requiring the key still be held is
+  // what stops a mere approach from pushing — let go and `desired` goes idle at
+  // once, so coasting the last fraction of a tile to a stop beside a boulder never
+  // shoves it. Edge-triggered, so holding into a boulder slides it one tile per tile
+  // as the trogg catches up (cadence falls out of walk speed). The server
+  // re-validates and re-bases motion (invariant 3).
   const pushStep = (x: number, y: number) => {
-    const ahead = pushEnabled && !isIdle(sent) ? facingTile(x, y, sent.dirX, sent.dirY) : null;
+    const into = pushEnabled && !isIdle(sent) && sameIntent(desired, sent);
+    const ahead = into ? facingTile(x, y, sent.dirX, sent.dirY) : null;
     const intoBoulder = ahead != null && boulderTiles.has(tileKey(ahead.x, ahead.y));
     if (intoBoulder && !pushBlocked) conn.reducers.push({});
     pushBlocked = intoBoulder;
