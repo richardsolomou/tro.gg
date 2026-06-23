@@ -44,7 +44,6 @@ import StartClaimReducer from "./start_claim_reducer";
 
 // Import all table schema definitions
 import ChatMessageRow from "./chat_message_table";
-import ClaimCodeRow from "./claim_code_table";
 import PlayerRow from "./player_table";
 
 /** Type-only namespace exports for generated type groups. */
@@ -65,17 +64,6 @@ const tablesSchema = __schema({
       { name: 'chat_message_id_key', constraint: 'unique', columns: ['id'] },
     ],
   }, ChatMessageRow),
-  claimCode: __table({
-    name: 'claim_code',
-    indexes: [
-      { accessor: 'code', name: 'claim_code_code_idx_btree', algorithm: 'btree', columns: [
-        'code',
-      ] },
-    ],
-    constraints: [
-      { name: 'claim_code_code_key', constraint: 'unique', columns: ['code'] },
-    ],
-  }, ClaimCodeRow),
   player: __table({
     name: 'player',
     indexes: [
