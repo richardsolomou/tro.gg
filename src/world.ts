@@ -1,5 +1,5 @@
 import { Application, Container, Graphics, Sprite, Text } from "pixi.js";
-import { CHAT_BUBBLE_MS, facingTile, FRAME_H, getZone, projectMotion, snapToTile, STARTING_ZONE_SLUG, troggColor, zoneBounds, type Facing } from "@trogg/shared";
+import { CHAT_BUBBLE_MS, facingTile, FRAME_H, getZone, projectMotion, STARTING_ZONE_SLUG, troggColor, zoneBounds, type Facing } from "@trogg/shared";
 import type { DbConnection } from "./module_bindings";
 import type { Boulder, Player } from "./module_bindings/types";
 import { attachKeyboard, type MoveIntent } from "./input.js";
@@ -198,15 +198,17 @@ export function mountWorld(app: Application, conn: DbConnection) {
   let prevX = Number.NaN;
   let prevY = Number.NaN;
 
-  const flushMove = (entry: Tracked, x: number, y: number) => {
+  // Position stays purely server-driven (the trogg moves once the server confirms
+  // the intent and pushes the row back), so there's no local prediction to rewind
+  // against the confirmation — what we control here is only *when* the intent is
+  // sent, holding a turn or stop until the step finishes so the trogg lands on a
+  // centre. The server snaps each settled origin to a whole tile (`settle`), which
+  // is what keeps the trogg on tile centres.
+  const flushMove = (x: number, y: number) => {
     if (sameIntent(desired, sent)) return;
-    // Start immediately when parked on a centre (idle); otherwise wait out the step.
+    // Start immediately when parked on a centre (idle); otherwise wait out the
+    // current step so the trogg only ever turns or stops on a tile centre.
     if (!isIdle(sent) && !reachedCentre(sent, prevX, prevY, x, y)) return;
-    const at = snapToTile({ x, y });
-    // Optimistic local turn so control feels instant; the server confirms with the
-    // same snap (`settle` rounds to the nearest tile), so reconciliation is a no-op.
-    entry.player = { ...entry.player, x: at.x, y: at.y, dirX: desired.dirX, dirY: desired.dirY };
-    entry.baseMs = performance.now();
     sent = desired;
     conn.reducers.move(desired);
   };
@@ -232,7 +234,7 @@ export function mountWorld(app: Application, conn: DbConnection) {
         pushing = facingBoulder;
       }
 
-      flushMove(entry, x, y);
+      flushMove(x, y);
       prevX = x;
       prevY = y;
     }
@@ -240,18 +242,13 @@ export function mountWorld(app: Application, conn: DbConnection) {
 
   attachKeyboard((intent, immediate) => {
     desired = intent;
-    if (!immediate) return;
-    // Focus loss: stop where we are without finishing the step. A backgrounded tab's
-    // ticker is frozen, so deferring would let the trogg drift to a wall before the
-    // stop ever flushes.
-    const me = myId ? tracked.get(myId) : undefined;
-    if (me) {
-      const at = snapToTile(projectMotion(me.player, performance.now() - me.baseMs, bounds));
-      me.player = { ...me.player, x: at.x, y: at.y, dirX: 0, dirY: 0 };
-      me.baseMs = performance.now();
+    // Focus loss: stop now instead of finishing the step — a backgrounded tab's
+    // ticker is frozen, so a buffered stop would never flush and the trogg would
+    // keep sliding until it hit a wall. The server settles it onto a whole tile.
+    if (immediate) {
+      sent = intent;
+      conn.reducers.move(intent);
     }
-    sent = intent;
-    conn.reducers.move(intent);
   });
 
   // Live once the initial rows have been delivered: backlog chat fills the
