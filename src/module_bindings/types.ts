@@ -61,6 +61,7 @@ export const Player = __t.object("Player", {
   y: __t.f64(),
   dirX: __t.i32(),
   dirY: __t.i32(),
+  running: __t.bool(),
   movedAt: __t.timestamp(),
   online: __t.bool(),
   lastChatAt: __t.option(__t.timestamp()),

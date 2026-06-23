@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { MOVE_SPEED_TILES_PER_SEC, type Zone } from "./constants";
+import { MOVE_SPEED_TILES_PER_SEC, RUN_SPEED_TILES_PER_SEC, type Zone } from "./constants";
 import { facingTile, projectMotion, walkableCardinals, spawnTile, zoneBounds } from "./motion";
 
 // No isWalkable → open floor, clamped only to the rectangular bounds.
@@ -15,6 +15,12 @@ test("moving advances the origin by speed × elapsed along the direction", () =>
   const at = projectMotion({ x: 2, y: 5, dirX: 1, dirY: 0 }, 1_000, open);
   assert.equal(at.x, 2 + MOVE_SPEED_TILES_PER_SEC);
   assert.equal(at.y, 5);
+});
+
+test("running advances at run speed, not walk speed", () => {
+  const at = projectMotion({ x: 2, y: 5, dirX: 1, dirY: 0, running: true }, 1_000, open);
+  assert.equal(at.x, 2 + RUN_SPEED_TILES_PER_SEC);
+  assert.ok(RUN_SPEED_TILES_PER_SEC > MOVE_SPEED_TILES_PER_SEC);
 });
 
 test("position is clamped to the zone bounds", () => {

@@ -71,6 +71,9 @@ export function mountWorld(app: Application, conn: DbConnection) {
   const useSprites = isFeatureEnabled("avatar-sprites");
   // Ambient roaming Hogs render behind their own flag (invariant 5; kill-switch).
   const useHogs = isFeatureEnabled("roaming-hogs");
+  // Hold-shift-to-run, behind its own flag (invariant 5); off → shift is ignored
+  // and movement stays at walk speed.
+  const canRun = isFeatureEnabled("running");
 
   // Tiles boulders currently occupy. Folded into the collision context below so
   // troggs stop flush against boulders exactly as they do against walls — and so
@@ -252,11 +255,11 @@ export function mountWorld(app: Application, conn: DbConnection) {
     for (const view of hogs.values()) {
       const { x, y } = projectMotion(view.row, now - view.baseMs, bounds);
       place(view.marker, x, y);
-      driveSprite(view.sprite, "hog", view.row.dirX, view.row.dirY, view, now);
+      driveSprite(view.sprite, "hog", view.row.dirX, view.row.dirY, false, view, now);
     }
   });
 
-  attachKeyboard(conn);
+  attachKeyboard(conn, canRun);
 
   // Live once the initial rows have been delivered: backlog chat fills the
   // history panel silently, while later inserts also pop a bubble.
@@ -415,7 +418,7 @@ function makeMarker(name: string, color: number, self: boolean, facing: Facing, 
   let frameKey = "";
 
   if (sprites) {
-    const frame = avatarFrame(false, 0);
+    const frame = avatarFrame(false, false, 0);
     // Self gets a bright ground ring under the feet so you can pick yourself out.
     if (self) {
       const ring = new Graphics()
@@ -452,25 +455,27 @@ function makeMarker(name: string, color: number, self: boolean, facing: Facing, 
  *  for the placeholder marker (no sprite to swap). */
 function animate(entry: Tracked, now: number) {
   if (!entry.sprite) return;
-  driveSprite(entry.sprite, "trogg", entry.player.dirX, entry.player.dirY, entry, now);
+  driveSprite(entry.sprite, "trogg", entry.player.dirX, entry.player.dirY, entry.player.running, entry, now);
 }
 
 /**
- * Point a sprite's facing and walk frame at its motion intent, mutating the
+ * Point a sprite's facing and stride frame at its motion intent, mutating the
  * caller's `facing`/`frameKey` so the next frame compares against it. Shared by
- * troggs and Hogs (one rig). Only touches the GPU when the frame actually changes.
+ * troggs and Hogs (one rig); `running` picks the faster hunched run cycle (troggs
+ * only — Hogs always walk). Only touches the GPU when the frame actually changes.
  */
 function driveSprite(
   sprite: Sprite,
   kind: Kind,
   dirX: number,
   dirY: number,
+  running: boolean,
   state: { facing: Facing; frameKey: string },
   now: number,
 ) {
   const moving = dirX !== 0 || dirY !== 0;
   state.facing = facingFromDir(dirX, dirY, state.facing);
-  const frame = avatarFrame(moving, now);
+  const frame = avatarFrame(moving, running, now);
   const key = `${state.facing}_${frame}`;
   if (key === state.frameKey) return;
   sprite.texture = avatarTexture(kind, state.facing, frame);
@@ -498,7 +503,7 @@ function makeBoulder() {
  *  No name label, tint, or ground ring — Hogs are ambient scenery, not players. */
 function makeHog(facing: Facing): { marker: Container; sprite: Sprite; frameKey: string } {
   const marker = new Container();
-  const frame = avatarFrame(false, 0);
+  const frame = avatarFrame(false, false, 0);
   const sprite = new Sprite(avatarTexture("hog", facing, frame));
   sprite.anchor.set(0.5, 1);
   sprite.scale.set(TILE / ART);
