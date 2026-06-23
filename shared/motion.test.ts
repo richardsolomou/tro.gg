@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { MOVE_SPEED_TILES_PER_SEC, type Zone } from "./constants";
-import { facingTile, projectMotion, zoneBounds } from "./motion";
+import { facingTile, projectMotion, spawnTile, zoneBounds } from "./motion";
 
 // No isWalkable → open floor, clamped only to the rectangular bounds.
 const open = { width: 24, height: 16 };
@@ -96,4 +96,35 @@ test("facingTile names the adjacent tile only when squarely aligned", () => {
   assert.equal(facingTile(3.5, 1, 1, 0), null); // mid-tile on the moving axis
   assert.equal(facingTile(3, 1.5, 1, 0), null); // off-axis: not lined up
   assert.equal(facingTile(3, 1, 0, 0), null); // idle faces nothing
+});
+
+const none = () => false;
+
+test("spawnTile drops the entity on the tile the player faces when it's free", () => {
+  assert.deepEqual(spawnTile(openRoom, none, 3, 1, 1, 0), { x: 4, y: 1 }); // facing right
+  assert.deepEqual(spawnTile(openRoom, none, 3, 1, -1, 0), { x: 2, y: 1 }); // facing left
+});
+
+test("spawnTile falls back to a free neighbour when the player is idle", () => {
+  // Idle at (3,1) in a 1-tall corridor: the facing tile is skipped; the first
+  // free orthogonal neighbour (right) is taken, never the player's own tile.
+  assert.deepEqual(spawnTile(openRoom, none, 3, 1, 0, 0), { x: 4, y: 1 });
+});
+
+test("spawnTile skips the faced tile when a wall or another entity blocks it", () => {
+  // Facing right into the far wall at column 7 from (6,1): wall is skipped, the
+  // free left neighbour is used instead.
+  assert.deepEqual(spawnTile(openRoom, none, 6, 1, 1, 0), { x: 5, y: 1 });
+  // Faced tile occupied by a boulder → skip to a free neighbour.
+  const boulderAt4 = (x: number, y: number) => x === 4 && y === 1;
+  assert.deepEqual(spawnTile(openRoom, boulderAt4, 3, 1, 1, 0), { x: 2, y: 1 });
+});
+
+test("spawnTile returns null when the player is boxed in", () => {
+  // A single free tile (1,1) ringed by walls: every neighbour is a wall, and the
+  // player's own tile is the only floor — so it's used as the last resort.
+  const cell: Zone = { slug: "cell", name: "Cell", width: 3, height: 3, tiles: ["###", "#.#", "###"], boulders: [] };
+  assert.deepEqual(spawnTile(cell, none, 1, 1, 0, 0), { x: 1, y: 1 });
+  // Now mark even that tile occupied: nothing free anywhere → null.
+  assert.equal(spawnTile(cell, () => true, 1, 1, 0, 0), null);
 });

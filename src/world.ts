@@ -1,9 +1,9 @@
 import { Application, Container, Graphics, Sprite, Text } from "pixi.js";
 import { CHAT_BUBBLE_MS, facingTile, FRAME_H, getZone, projectMotion, STARTING_ZONE_SLUG, troggColor, zoneBounds, type Facing } from "@trogg/shared";
 import type { DbConnection } from "./module_bindings";
-import type { Boulder, Player } from "./module_bindings/types";
+import type { Boulder, Hog, Player } from "./module_bindings/types";
 import { attachKeyboard } from "./input.js";
-import { mountChat } from "./chat.js";
+import { mountChat, type ChatUI } from "./chat.js";
 import { createTerrain } from "./terrain.js";
 import { avatarFrame, avatarTexture, facingFromDir, ghostTexture } from "./avatars.js";
 import { captureEvent, isFeatureEnabled } from "./analytics.js";
@@ -41,6 +41,12 @@ interface BoulderView {
   sprite: Container;
 }
 
+/** A Hog's live row plus its sprite. */
+interface HogView {
+  row: Hog;
+  sprite: Container;
+}
+
 /** "x,y" key for a tile, matching the server's occupancy keys. */
 const tileKey = (x: number, y: number) => `${x},${y}`;
 
@@ -73,10 +79,12 @@ export function mountWorld(app: Application, conn: DbConnection) {
   app.stage.addChild(terrain.background, stage, terrain.vignette);
   stage.addChild(terrain.ground);
   const boulderLayer = new Container();
-  stage.addChild(boulderLayer);
+  const hogLayer = new Container();
+  stage.addChild(boulderLayer, hogLayer);
 
   const tracked = new Map<string, Tracked>();
   const boulders = new Map<string, BoulderView>();
+  const hogs = new Map<string, HogView>();
 
   const layout = () => {
     const { width: vw, height: vh } = app.renderer;
@@ -92,6 +100,12 @@ export function mountWorld(app: Application, conn: DbConnection) {
       place(view.sprite, view.row.x, view.row.y);
       boulderLayer.addChild(view.sprite);
     }
+    for (const view of hogs.values()) {
+      view.sprite.destroy({ children: true });
+      view.sprite = makeHog();
+      place(view.sprite, view.row.x, view.row.y);
+      hogLayer.addChild(view.sprite);
+    }
   };
 
   const rebuildMarker = (id: string, entry: Tracked) => {
@@ -103,6 +117,8 @@ export function mountWorld(app: Application, conn: DbConnection) {
     entry.frameKey = built.frameKey;
     entry.bubble = undefined;
     entry.bubbleTimer = undefined;
+    const { x, y } = projectMotion(entry.player, performance.now() - entry.baseMs, bounds);
+    place(entry.marker, x, y);
     stage.addChild(entry.marker);
   };
 
@@ -170,6 +186,28 @@ export function mountWorld(app: Application, conn: DbConnection) {
   conn.db.boulder.onUpdate((_ctx, _old, b) => upsertBoulder(b));
   conn.db.boulder.onDelete((_ctx, b) => removeBoulder(b));
 
+  const upsertHog = (h: Hog) => {
+    const key = h.id.toString();
+    let view = hogs.get(key);
+    if (!view) {
+      view = { row: h, sprite: makeHog() };
+      hogs.set(key, view);
+      hogLayer.addChild(view.sprite);
+    } else {
+      view.row = h;
+    }
+    place(view.sprite, h.x, h.y);
+  };
+  const removeHog = (h: Hog) => {
+    const view = hogs.get(h.id.toString());
+    view?.sprite.destroy({ children: true });
+    hogs.delete(h.id.toString());
+  };
+
+  conn.db.hog.onInsert((_ctx, h) => upsertHog(h));
+  conn.db.hog.onUpdate((_ctx, _old, h) => upsertHog(h));
+  conn.db.hog.onDelete((_ctx, h) => removeHog(h));
+
   // Pushing is gated behind its flag (invariant 5); off → boulders are immovable
   // rocks, on → a trogg shoves the one it walks squarely into. We fire `push` only
   // on the transition into "facing a boulder", never per frame (invariant 2); the
@@ -210,6 +248,7 @@ export function mountWorld(app: Application, conn: DbConnection) {
       `SELECT * FROM player WHERE zone_id = '${slug}' AND online = true`,
       `SELECT * FROM chat_message WHERE zone_id = '${slug}'`,
       `SELECT * FROM boulder WHERE zone_id = '${slug}'`,
+      `SELECT * FROM hog WHERE zone_id = '${slug}'`,
     ]);
 }
 
@@ -227,7 +266,15 @@ function setupChat(
   sub: { live: boolean },
   myId: string | undefined,
 ) {
+  // The `/spawn` debug command is typed in the chat box but isn't a chat line —
+  // it spawns an entity at the caller's tile (server-authoritative) instead of
+  // broadcasting. Behind its own flag (invariant 5); off → it's sent as plain chat.
+  // Defaults on in local dev, off in a production build (PostHog can flip it on).
+  const spawnEnabled = isFeatureEnabled("spawn-command", import.meta.env.DEV);
+  const resetEnabled = isFeatureEnabled("boulder-reset");
   const chat = mountChat((text) => {
+    if (spawnEnabled && handleSpawnCommand(conn, chat, text)) return;
+    if (resetEnabled && handleResetCommand(conn, slug, text)) return;
     conn.reducers.chat({ text });
   });
 
@@ -248,6 +295,46 @@ function setupChat(
   conn.db.chatMessage.onUpdate((_ctx, _old, message) => {
     chat.renameSender(message.sender.toHexString(), message.name);
   });
+}
+
+/** The world-facing `/spawn` arguments mapped to their entity kind in the module. */
+const SPAWNABLE: Record<string, "boulder" | "hog"> = { boulder: "boulder", hedgehog: "hog", hog: "hog" };
+
+/**
+ * Handle a chat line as a `/spawn <entity>` command. Returns true if it was a
+ * spawn command (so the caller skips sending it as chat): a known entity fires
+ * the `spawn` reducer; an unknown one or bad syntax posts a local usage hint.
+ * Anything not starting with `/spawn` returns false and falls through to chat.
+ */
+function handleSpawnCommand(conn: DbConnection, chat: ChatUI, text: string): boolean {
+  const m = /^\/spawn(?:\s+(\S+))?\s*$/i.exec(text);
+  if (!m) return false;
+
+  const hint = (msg: string) => chat.addMessage("spawn", "spawn", msg, 0x9a8c70);
+  const arg = m[1]?.toLowerCase();
+  if (!arg) {
+    hint("usage: /spawn boulder | hedgehog");
+    return true;
+  }
+  const kind = SPAWNABLE[arg];
+  if (!kind) {
+    hint(`unknown entity "${arg}" — try boulder or hedgehog`);
+    return true;
+  }
+  conn.reducers.spawn({ kind });
+  return true;
+}
+
+/**
+ * Handle a chat line as the `/reset` command: snap the caller's zone boulders back
+ * to their registry layout (server-authoritative) instead of broadcasting. Returns
+ * true if it was the command; anything else falls through to chat.
+ */
+function handleResetCommand(conn: DbConnection, zone: string, text: string): boolean {
+  if (!/^\/reset\s*$/i.test(text)) return false;
+  conn.reducers.resetBoulders({});
+  captureEvent("boulders_reset", { zone });
+  return true;
 }
 
 /** Pop a speech bubble over a trogg's head, replacing any current one. */
@@ -364,6 +451,21 @@ function makeBoulder() {
   // A small highlight reads as a lit facet under the cave's torchlight.
   body.roundRect(inset + px, inset + px, size * 0.4, size * 0.4, radius * 0.6).fill(0x8a7257);
   sprite.addChild(body);
+  return sprite;
+}
+
+/**
+ * A static Hog: the shared Hog sprite (GDD "Avatars"), feet anchored to the
+ * bottom-centre of its tile like a trogg. Spawned by the `/spawn` debug command;
+ * it has no motion, so it always faces down.
+ */
+function makeHog(): Container {
+  const sprite = new Container();
+  const hog = new Sprite(avatarTexture("hog", "down", "idle"));
+  hog.anchor.set(0.5, 1);
+  hog.scale.set(TILE / ART);
+  hog.position.set(TILE / 2, TILE);
+  sprite.addChild(hog);
   return sprite;
 }
 

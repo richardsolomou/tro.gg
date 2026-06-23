@@ -71,6 +71,7 @@ Boulders are pushable rocks — dynamic obstacles, the same block-pushing gramma
 - **No tick** (invariant 1) and **server-authoritative** (invariant 3). The client detects, from its own prediction, the moment its avatar lines up against a boulder (a motion transition — never per frame, invariant 2) and calls the `push` reducer. The server re-derives the trogg's position from its stored intent, validates alignment + a clear destination, moves the boulder one tile, and re-bases the trogg's motion to the flush tile.
 - **Cadence falls out of walk speed.** Re-basing leaves the boulder one tile ahead of the trogg, so it isn't faced again until the trogg physically catches up — the boulder advances at most one tile per tile walked, and spamming `push` can't make it move faster.
 - Boulders start from the zone's `boulders` registry entry, seeded into the `boulder` table on first connect, then moved only by `push`. Behind the `boulder-pushing` flag (invariant 5): off → immovable rocks; on → pushable. Playable either way (invariant 6).
+- **Resetting:** the in-chat `/reset` command snaps the player's current zone back to its registry boulder layout (the `resetBoulders` reducer clears and reseeds the zone). Behind the `boulder-reset` flag — off, `/reset` is just an ordinary chat line.
 
 ### Camera and rendering
 
@@ -180,7 +181,12 @@ nodes          type, zoneId, x, y, state ("available" | "depleted"), respawnAt
                index: by_zone (zoneId)
 boulder        id (PK, auto-inc), zoneId, x, y     (tile coords)
                a pushable rock on an unwalkable tile; clients subscribe per zone and treat it as a
-               dynamic obstacle. Seeded from the ZONES registry on first connect, moved only by `push`.
+               dynamic obstacle. Seeded from the ZONES registry on first connect, moved only by `push`
+               (or reset to the registry by the `resetBoulders` reducer, fired by the in-chat `/reset` command).
+               index: by_zone (zoneId)
+hog            id (PK, auto-inc), zoneId, x, y     (tile coords)
+               a static Hog NPC (GDD glossary). A debug affordance ahead of its M3 home: dropped by the
+               `/spawn` command so the existing Hog sprite renders. Non-colliding, no movement or AI yet.
                index: by_zone (zoneId)
 actions        playerId, nodeId, kind, startedAt, endsAt
                index: by_player (playerId)
@@ -249,6 +255,8 @@ Boulder pushing landed in M0 too, also at maintainer direction (see [Pushing](#p
 A cosmetic easter egg rides on M0 too: on join, a pale "ghost trogg" sometimes flickers in at the origin tile, then blinks around the zone and past its edges for a heartbeat each before fading, behind the `ghost-trogg` flag (invariant 5). It's a client-only render — no table, no reducer (invariant 3) — pure flavor seen only by the haunted player, not a mechanic with rules or data.
 
 Zone chat (M0 scope) ships on top of it: speech bubbles over heads plus a history side panel, behind the `chat-enabled` flag. Recent lines live in the `chat_message` table and replay when a client subscribes. The `chat` reducer enforces the 200-char cap and 1 msg/sec rate limit server-side (invariant 3); the flag gates the client mount.
+
+A `/spawn` debug command landed alongside chat, behind the `spawn-command` flag (default on in local dev, off in a production build): typing `/spawn boulder` or `/spawn hedgehog` in the chat box drops that entity at the caller's tile (the tile it faces, else a free neighbour). The placement and the `spawn` reducer are server-authoritative (invariant 3). This introduced the static `hog` table ahead of its M3 home so the existing Hog sprite has something to render — a non-colliding placeholder NPC, no movement or AI. There's no role system in M0, so the flag is the only gate; default it off in production.
 
 ## Open design threads
 
