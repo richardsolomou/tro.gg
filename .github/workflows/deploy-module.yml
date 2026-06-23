@@ -29,7 +29,7 @@ jobs:
 
       - name: Install SpacetimeDB CLI
         run: |
-          curl -sSf https://install.spacetimedb.com | sh
+          curl -sSf https://install.spacetimedb.com | sh -s -- --yes
           echo "$HOME/.local/share/spacetime/bin/current" >> "$GITHUB_PATH"
 
       - name: Pin CLI version
