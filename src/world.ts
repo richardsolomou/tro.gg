@@ -117,6 +117,8 @@ export function mountWorld(app: Application, conn: DbConnection) {
     entry.frameKey = built.frameKey;
     entry.bubble = undefined;
     entry.bubbleTimer = undefined;
+    const { x, y } = projectMotion(entry.player, performance.now() - entry.baseMs, bounds);
+    place(entry.marker, x, y);
     stage.addChild(entry.marker);
   };
 
@@ -143,12 +145,16 @@ export function mountWorld(app: Application, conn: DbConnection) {
 
   conn.db.player.onInsert((_ctx, p) => addPlayer(p));
   conn.db.player.onUpdate((_ctx, _old, p) => {
-    const entry = tracked.get(p.identity.toHexString());
+    const id = p.identity.toHexString();
+    const entry = tracked.get(id);
     if (!entry) return addPlayer(p);
     // Rebase extrapolation on every new intent so elapsed is measured in client
     // time — no server-clock sync needed, and each update reconciles drift.
     entry.player = p;
     entry.baseMs = performance.now();
+    // The nameplate is baked into the marker's label at build time, so a rename
+    // only shows once the marker is rebuilt from the updated row.
+    if (_old.name !== p.name) rebuildMarker(id, entry);
   });
   conn.db.player.onDelete((_ctx, p) => removePlayer(p.identity.toHexString()));
 
@@ -269,7 +275,7 @@ function setupChat(
 
   conn.db.chatMessage.onInsert((_ctx, message) => {
     const senderId = message.sender.toHexString();
-    chat.addMessage(message.name, message.text, troggColor(senderId));
+    chat.addMessage(senderId, message.name, message.text, troggColor(senderId));
     // Bubble only for fresh lines: a reconnect replays the zone's recent history,
     // and those rows can arrive after the subscription goes live — without this an
     // old message would pop a stale bubble over its sender on every refresh.
@@ -277,6 +283,12 @@ function setupChat(
     if (ageMs > CHAT_BUBBLE_MS) return;
     showBubble(tracked, senderId, message.text);
     if (sub.live && senderId === myId) captureEvent("chat_sent", { zone: slug });
+  });
+
+  // A rename rewrites the denormalised name on the sender's past lines; reflect it
+  // in the history panel so it doesn't show their old name until a reload.
+  conn.db.chatMessage.onUpdate((_ctx, _old, message) => {
+    chat.renameSender(message.sender.toHexString(), message.name);
   });
 }
 
