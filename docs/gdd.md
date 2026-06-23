@@ -72,6 +72,16 @@ Boulders are pushable rocks — dynamic obstacles, the same block-pushing gramma
 - **Cadence falls out of walk speed.** Re-basing leaves the boulder one tile ahead of the trogg, so it isn't faced again until the trogg physically catches up — the boulder advances at most one tile per tile walked, and spamming `push` can't make it move faster.
 - Boulders start from the zone's `boulders` registry entry, seeded into the `boulder` table on first connect, then moved only by `push`. Behind the `boulder-pushing` flag (invariant 5): off → immovable rocks; on → pushable. Playable either way (invariant 6).
 
+### Hogs (roaming)
+
+Ambient **Hog** NPCs (the glossary's friendly hedgehogs) roam the zone on their own — decorative life in the world, behind the `roaming-hogs` flag (invariant 5; off → no Hogs). This is presence and movement only: no dialogue, trade, or interaction. The merchant, townsfolk, and protectee roles stay deferred (Hog merchants at M3, LLM-driven Hogs at M5).
+
+- **Same motion model as troggs.** A Hog carries an intent — origin `(x, y)`, a cardinal direction, `movedAt` — and clients derive its position with `projectMotion`, so it's never per-frame synced (invariant 2) and it collides against the same walls and boulders.
+- **Driven by a scheduled reducer, not a tick.** A Hog changes heading only inside the scheduled `wanderHogs` reducer (SpacetimeDB's deterministic timer — the sanctioned exception in invariant 1, like respawns). Each tick re-derives every Hog's position and picks a fresh heading: a random walkable cardinal, or idle with chance `HOG_IDLE_CHANCE` so they pause. Randomness is the context RNG (seeded from the tick timestamp), so the schedule replays deterministically (invariant 3).
+- **Empty zone, no work.** The timer re-arms only while a player is online; when the last player leaves, the next tick settles every Hog to rest and stops, so an empty world produces no diffs and no work (invariant 1).
+- **Server-owned, seeded from the registry.** Hogs have no identity. Their starting tiles come from the zone's `hogs` registry entry (`ZONES` in `shared`), seeded into the `hog` table on first connect (idempotent, like boulders), then moved only by `wanderHogs`.
+- Wander cadence: a new heading every `HOG_WANDER_INTERVAL_MS` *(initial)*, at the shared move speed.
+
 ### Camera and rendering
 
 - 3/4 top-down (RuneScape-2004 / Stardew view), pixel art tiles and sprites.
@@ -182,6 +192,13 @@ boulder        id (PK, auto-inc), zoneId, x, y     (tile coords)
                a pushable rock on an unwalkable tile; clients subscribe per zone and treat it as a
                dynamic obstacle. Seeded from the ZONES registry on first connect, moved only by `push`.
                index: by_zone (zoneId)
+hog            id (PK, auto-inc), zoneId, x, y, dirX, dirY, movedAt
+               an ambient roaming Hog NPC (see "Hogs"). Intent-based motion like a player (position
+               derived with projectMotion); server-owned, no identity. Seeded from the ZONES registry
+               on first connect, moved only by the scheduled `wanderHogs`. index: by_zone (zoneId)
+hog_wander     scheduledId (PK, auto-inc), scheduledAt     (scheduled table)
+               the Hog wander timer — SpacetimeDB's deterministic scheduler (invariant 1). Fires
+               `wanderHogs`, which re-arms it only while a player is online. Private (no client reads it).
 actions        playerId, nodeId, kind, startedAt, endsAt
                index: by_player (playerId)
 chat_message   id (PK, auto-inc), zoneId, sender (Identity), name (denormalised), text, createdAt
@@ -244,6 +261,8 @@ Zones are now a first-class concept (M0 foundation): a static `ZONES` registry i
 Per-tile walkability landed in M0, ahead of the tracker, at maintainer direction: zones carry a `tiles` tilemap, and WASD movement clamps at the first unwalkable tile or the zone edge — confined to the floor, like classic top-down games. WASD is also 4-directional (cardinal only, no diagonals; last-key-wins). The trogg is a 1×1 footprint and the same tilemap drives both collision and the rendered walls. What remains of M1's "obstacles + A* pathfinding" is the pathfinding half: click-to-move and server-side A* that routes *around* obstacles (WASD only stops *at* them).
 
 Boulder pushing landed in M0 too, also at maintainer direction (see [Pushing](#pushing)) — pushable boulders as dynamic obstacles, shoved one tile at a time, behind the `boulder-pushing` flag. It reuses the walkability collision (a boulder is just an occupied tile) and the intent model (the push re-bases motion; cadence is walk speed, no tick), so it's an extension of movement rather than new infrastructure.
+
+Roaming Hogs landed in M0 too, also at maintainer direction (see [Hogs (roaming)](#hogs-roaming)) — ambient hedgehog NPCs that wander the zone behind the `roaming-hogs` flag. This is decorative presence only: the Hog merchant (M3) and LLM-driven Hog (M5) roles are untouched. It reuses the intent motion model and walkability collision, and introduces the first **scheduled reducer** (`wanderHogs`), exercising SpacetimeDB's deterministic timer — the same primitive M2's respawns and action completions will use — while staying within invariant 1 (it re-arms only while a player is online, so an empty zone does no work).
 
 Zone chat (M0 scope) ships on top of it: speech bubbles over heads plus a history side panel, behind the `chat-enabled` flag. Recent lines live in the `chat_message` table and replay when a client subscribes. The `chat` reducer enforces the 200-char cap and 1 msg/sec rate limit server-side (invariant 3); the flag gates the client mount.
 

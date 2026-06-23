@@ -1,7 +1,7 @@
 import { Application, Container, Graphics, Sprite, Text } from "pixi.js";
-import { CHAT_BUBBLE_MS, facingTile, FRAME_H, getZone, projectMotion, STARTING_ZONE_SLUG, troggColor, zoneBounds, type Facing } from "@trogg/shared";
+import { CHAT_BUBBLE_MS, facingTile, FRAME_H, getZone, projectMotion, STARTING_ZONE_SLUG, troggColor, zoneBounds, type Facing, type Kind } from "@trogg/shared";
 import type { DbConnection } from "./module_bindings";
-import type { Boulder, Player } from "./module_bindings/types";
+import type { Boulder, Hog, Player } from "./module_bindings/types";
 import { attachKeyboard } from "./input.js";
 import { mountChat } from "./chat.js";
 import { createTerrain } from "./terrain.js";
@@ -41,6 +41,16 @@ interface BoulderView {
   sprite: Container;
 }
 
+/** A roaming Hog's sprite plus the client-clock instant its current intent arrived. */
+interface HogView {
+  marker: Container;
+  sprite: Sprite;
+  row: Hog;
+  baseMs: number;
+  facing: Facing;
+  frameKey: string;
+}
+
 /** "x,y" key for a tile, matching the server's occupancy keys. */
 const tileKey = (x: number, y: number) => `${x},${y}`;
 
@@ -59,6 +69,8 @@ export function mountWorld(app: Application, conn: DbConnection) {
   // Sprite avatars replace the placeholder marker behind a flag (invariant 5);
   // the kill-switch falls back to the colour marker, like `chat-enabled`.
   const useSprites = isFeatureEnabled("avatar-sprites");
+  // Ambient roaming Hogs render behind their own flag (invariant 5; kill-switch).
+  const useHogs = isFeatureEnabled("roaming-hogs");
 
   // Tiles boulders currently occupy. Folded into the collision context below so
   // troggs stop flush against boulders exactly as they do against walls — and so
@@ -77,6 +89,7 @@ export function mountWorld(app: Application, conn: DbConnection) {
 
   const tracked = new Map<string, Tracked>();
   const boulders = new Map<string, BoulderView>();
+  const hogs = new Map<string, HogView>();
 
   const layout = () => {
     const { width: vw, height: vh } = app.renderer;
@@ -91,6 +104,16 @@ export function mountWorld(app: Application, conn: DbConnection) {
       view.sprite = makeBoulder();
       place(view.sprite, view.row.x, view.row.y);
       boulderLayer.addChild(view.sprite);
+    }
+    // Hog sprites bake TILE into their scale too; the ticker repositions them next frame.
+    for (const view of hogs.values()) {
+      view.marker.destroy({ children: true });
+      const built = makeHog(view.facing);
+      view.marker = built.marker;
+      view.sprite = built.sprite;
+      view.frameKey = built.frameKey;
+      place(view.marker, view.row.x, view.row.y);
+      stage.addChild(view.marker);
     }
   };
 
@@ -166,6 +189,28 @@ export function mountWorld(app: Application, conn: DbConnection) {
   conn.db.boulder.onUpdate((_ctx, _old, b) => upsertBoulder(b));
   conn.db.boulder.onDelete((_ctx, b) => removeBoulder(b));
 
+  const addHog = (h: Hog) => {
+    const id = h.id.toString();
+    if (hogs.has(id)) return;
+    const facing = facingFromDir(h.dirX, h.dirY, "down");
+    const { marker, sprite, frameKey } = makeHog(facing);
+    place(marker, h.x, h.y);
+    hogs.set(id, { marker, sprite, row: h, baseMs: performance.now(), facing, frameKey });
+    stage.addChild(marker);
+  };
+  const updateHog = (h: Hog) => {
+    const view = hogs.get(h.id.toString());
+    if (!view) return addHog(h);
+    // Rebase extrapolation on each new intent, like a player (see player.onUpdate).
+    view.row = h;
+    view.baseMs = performance.now();
+  };
+  const removeHog = (h: Hog) => {
+    const view = hogs.get(h.id.toString());
+    view?.marker.destroy({ children: true });
+    hogs.delete(h.id.toString());
+  };
+
   // Pushing is gated behind its flag (invariant 5); off → boulders are immovable
   // rocks, on → a trogg shoves the one it walks squarely into. We fire `push` only
   // on the transition into "facing a boulder", never per frame (invariant 2); the
@@ -187,6 +232,14 @@ export function mountWorld(app: Application, conn: DbConnection) {
       if (facingBoulder && !pushing) conn.reducers.push({});
       pushing = facingBoulder;
     }
+
+    // Hogs ride the same intent extrapolation — derived locally, never per-frame
+    // sync (invariant 2). They collide against the same walls and boulders.
+    for (const view of hogs.values()) {
+      const { x, y } = projectMotion(view.row, now - view.baseMs, bounds);
+      place(view.marker, x, y);
+      driveSprite(view.sprite, "hog", view.row.dirX, view.row.dirY, view, now);
+    }
   });
 
   attachKeyboard(conn);
@@ -196,14 +249,22 @@ export function mountWorld(app: Application, conn: DbConnection) {
   const sub = { live: false };
   if (isFeatureEnabled("chat-enabled")) setupChat(conn, tracked, slug, sub, myId);
 
+  const queries = [
+    `SELECT * FROM player WHERE zone_id = '${slug}' AND online = true`,
+    `SELECT * FROM chat_message WHERE zone_id = '${slug}'`,
+    `SELECT * FROM boulder WHERE zone_id = '${slug}'`,
+  ];
+  if (useHogs) {
+    conn.db.hog.onInsert((_ctx, h) => addHog(h));
+    conn.db.hog.onUpdate((_ctx, _old, h) => updateHog(h));
+    conn.db.hog.onDelete((_ctx, h) => removeHog(h));
+    queries.push(`SELECT * FROM hog WHERE zone_id = '${slug}'`);
+  }
+
   conn
     .subscriptionBuilder()
     .onApplied(() => (sub.live = true))
-    .subscribe([
-      `SELECT * FROM player WHERE zone_id = '${slug}' AND online = true`,
-      `SELECT * FROM chat_message WHERE zone_id = '${slug}'`,
-      `SELECT * FROM boulder WHERE zone_id = '${slug}'`,
-    ]);
+    .subscribe(queries);
 }
 
 /**
@@ -328,13 +389,42 @@ function makeMarker(name: string, color: number, self: boolean, facing: Facing, 
  *  for the placeholder marker (no sprite to swap). */
 function animate(entry: Tracked, now: number) {
   if (!entry.sprite) return;
-  const moving = entry.player.dirX !== 0 || entry.player.dirY !== 0;
-  entry.facing = facingFromDir(entry.player.dirX, entry.player.dirY, entry.facing);
+  driveSprite(entry.sprite, "trogg", entry.player.dirX, entry.player.dirY, entry, now);
+}
+
+/**
+ * Point a sprite's facing and walk frame at its motion intent, mutating the
+ * caller's `facing`/`frameKey` so the next frame compares against it. Shared by
+ * troggs and Hogs (one rig). Only touches the GPU when the frame actually changes.
+ */
+function driveSprite(
+  sprite: Sprite,
+  kind: Kind,
+  dirX: number,
+  dirY: number,
+  state: { facing: Facing; frameKey: string },
+  now: number,
+) {
+  const moving = dirX !== 0 || dirY !== 0;
+  state.facing = facingFromDir(dirX, dirY, state.facing);
   const frame = avatarFrame(moving, now);
-  const key = `${entry.facing}_${frame}`;
-  if (key === entry.frameKey) return; // only touch the GPU on an actual change
-  entry.sprite.texture = avatarTexture("trogg", entry.facing, frame);
-  entry.frameKey = key;
+  const key = `${state.facing}_${frame}`;
+  if (key === state.frameKey) return;
+  sprite.texture = avatarTexture(kind, state.facing, frame);
+  state.frameKey = key;
+}
+
+/** A roaming Hog: the shared avatar sprite in its hedgehog skin, feet on the tile.
+ *  No name label, tint, or ground ring — Hogs are ambient scenery, not players. */
+function makeHog(facing: Facing): { marker: Container; sprite: Sprite; frameKey: string } {
+  const marker = new Container();
+  const frame = avatarFrame(false, 0);
+  const sprite = new Sprite(avatarTexture("hog", facing, frame));
+  sprite.anchor.set(0.5, 1);
+  sprite.scale.set(TILE / ART);
+  sprite.position.set(TILE / 2, TILE);
+  marker.addChild(sprite);
+  return { marker, sprite, frameKey: `${facing}_${frame}` };
 }
 
 /** A pushable boulder: a rounded stone filling its tile, with a lit top-left face. */

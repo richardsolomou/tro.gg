@@ -1,4 +1,5 @@
 import { schema, table, t, type InferSchema, type ReducerCtx } from "spacetimedb/server";
+import { ScheduleAt } from "spacetimedb";
 import {
   CHAT_HISTORY_MAX,
   CHAT_MAX_CHARS,
@@ -6,13 +7,17 @@ import {
   CLAIM_CODE_TTL_MS,
   facingTile,
   getZone,
+  HOG_IDLE_CHANCE,
+  HOG_WANDER_INTERVAL_MS,
   isGeneratedName,
   isValidName,
   isWalkable,
   projectMotion,
   SPACETIMEAUTH_ISSUER,
   STARTING_ZONE_SLUG,
+  walkableCardinals,
   type Zone,
+  type ZoneBounds,
   zoneBounds,
 } from "../../shared/index";
 
@@ -104,7 +109,43 @@ const boulder = table(
   },
 );
 
-const spacetimedb = schema({ player, chatMessage, claimCode, boulder });
+/**
+ * An ambient Hog NPC (GDD "Hogs"): a friendly hedgehog that roams the zone on its
+ * own. It carries the same intent-based motion as a trogg — an origin (x, y), a
+ * cardinal direction, and `movedAt` — so clients derive its position with
+ * `projectMotion` and there's no per-frame sync (invariant 2). Hogs are
+ * server-owned (no identity): seeded per zone from the `ZONES` registry on first
+ * connect, then moved only by the scheduled `wanderHogs` reducer.
+ */
+const hog = table(
+  { name: "hog", public: true },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    zoneId: t.string().index("btree"),
+    x: t.f64(),
+    y: t.f64(),
+    dirX: t.i32(),
+    dirY: t.i32(),
+    movedAt: t.timestamp(),
+  },
+);
+
+/**
+ * The Hog wander timer (GDD "Hogs"). A scheduled table is SpacetimeDB's
+ * deterministic timer — the only way state changes outside player input (invariant
+ * 1: no simulation tick). Each tick fires `wanderHogs`, which repicks every Hog's
+ * heading and then re-arms this timer *only while a player is online*, so an empty
+ * zone settles its Hogs to rest and then does no further work (invariant 1).
+ */
+const hogWander = table(
+  { name: "hog_wander", scheduled: (): any => wanderHogs },
+  {
+    scheduledId: t.u64().primaryKey().autoInc(),
+    scheduledAt: t.scheduleAt(),
+  },
+);
+
+const spacetimedb = schema({ player, chatMessage, claimCode, boulder, hog, hogWander });
 export default spacetimedb;
 
 /** The reducer context, typed against this module's schema (db view + sender). */
@@ -118,9 +159,13 @@ export const init = spacetimedb.init(() => {});
  * separate load step.
  */
 export const onConnect = spacetimedb.clientConnected((ctx) => {
-  // The boulder table is new, so init (first-publish only) never seeded it on an
-  // already-published module; seed lazily on connect, idempotently.
-  seedBoulders(ctx, getZone(STARTING_ZONE_SLUG)!);
+  // The boulder/hog tables are new, so init (first-publish only) never seeded them
+  // on an already-published module; seed lazily on connect, idempotently.
+  const startingZone = getZone(STARTING_ZONE_SLUG)!;
+  seedBoulders(ctx, startingZone);
+  seedHogs(ctx, startingZone);
+  // A player is here, so make sure the Hogs are roaming (no-op if already armed).
+  armWander(ctx);
 
   const existing = ctx.db.player.identity.find(ctx.sender);
   if (existing) {
@@ -173,6 +218,14 @@ function seedBoulders(ctx: Ctx, zone: Zone): void {
   if ([...ctx.db.boulder.zoneId.filter(zone.slug)].length > 0) return;
   for (const b of zone.boulders) {
     ctx.db.boulder.insert({ id: 0n, zoneId: zone.slug, x: b.x, y: b.y });
+  }
+}
+
+/** Seed a zone's roaming Hogs from the registry, unless it already has some. */
+function seedHogs(ctx: Ctx, zone: Zone): void {
+  if ([...ctx.db.hog.zoneId.filter(zone.slug)].length > 0) return;
+  for (const h of zone.hogs) {
+    ctx.db.hog.insert({ id: 0n, zoneId: zone.slug, x: h.x, y: h.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp });
   }
 }
 
@@ -242,6 +295,39 @@ export const push = spacetimedb.reducer((ctx) => {
 
   ctx.db.boulder.id.update({ ...b, x: dest.x, y: dest.y });
   ctx.db.player.identity.update({ ...p, x: pos.x, y: pos.y, movedAt: ctx.timestamp });
+});
+
+/**
+ * The Hog wander tick (GDD "Hogs"). Settle each Hog to where it is now (against
+ * walls and boulders, exactly like a trogg), then give it a fresh heading — a
+ * random walkable cardinal, or idle so it pauses. Randomness is the context RNG,
+ * seeded from the tick's timestamp, so the schedule replays deterministically
+ * (invariant 3). The timer re-arms only while a player is online: with the zone
+ * empty, every Hog is left at rest and the timer stops, so an empty zone does no
+ * further work (invariant 1).
+ */
+export const wanderHogs = spacetimedb.reducer({ timer: hogWander.rowType }, (ctx) => {
+  const online = anyPlayerOnline(ctx);
+  const occupiedByZone = new Map<string, Set<string>>();
+
+  for (const h of ctx.db.hog.iter()) {
+    const zone = getZone(h.zoneId);
+    if (!zone) continue;
+    let occupied = occupiedByZone.get(h.zoneId);
+    if (!occupied) {
+      occupied = boulderTiles(ctx, h.zoneId);
+      occupiedByZone.set(h.zoneId, occupied);
+    }
+    const bounds = zoneBounds(zone, (x, y) => occupied!.has(tileKey(x, y)));
+    const pos = projectMotion(h, elapsedMs(h.movedAt, ctx.timestamp), bounds);
+    const dir = online ? pickWanderDir(ctx, bounds, pos) : { dirX: 0, dirY: 0 };
+    ctx.db.hog.id.update({ ...h, x: pos.x, y: pos.y, dirX: dir.dirX, dirY: dir.dirY, movedAt: ctx.timestamp });
+  }
+
+  // Clear first so exactly one timer is pending regardless of whether the firing
+  // row was auto-deleted, then re-arm only while someone is watching.
+  ctx.db.hogWander.clear();
+  if (online) armWander(ctx);
 });
 
 /**
@@ -338,6 +424,29 @@ export const redeemClaim = spacetimedb.reducer({ code: t.string() }, (ctx, { cod
   ctx.db.player.identity.update({ ...account, name: inheritName ? guest.name : account.name, isGuest: false });
   ctx.db.player.identity.delete(guest.identity);
 });
+
+/** Whether any player is currently online — the Hogs only roam while someone is
+ *  watching (invariant 1: an empty zone does no work). */
+function anyPlayerOnline(ctx: Ctx): boolean {
+  for (const p of ctx.db.player.iter()) if (p.online) return true;
+  return false;
+}
+
+/** Arm a single one-shot Hog wander tick, unless one is already pending. */
+function armWander(ctx: Ctx): void {
+  if (ctx.db.hogWander.count() > 0n) return;
+  const at = ctx.timestamp.microsSinceUnixEpoch + BigInt(HOG_WANDER_INTERVAL_MS) * 1000n;
+  ctx.db.hogWander.insert({ scheduledId: 0n, scheduledAt: ScheduleAt.time(at) });
+}
+
+/** A Hog's next heading: a random walkable cardinal, or idle (`HOG_IDLE_CHANCE`)
+ *  so it pauses rather than marching nonstop. */
+function pickWanderDir(ctx: Ctx, bounds: ZoneBounds, pos: { x: number; y: number }): { dirX: number; dirY: number } {
+  if (ctx.random() < HOG_IDLE_CHANCE) return { dirX: 0, dirY: 0 };
+  const options = walkableCardinals(bounds, Math.round(pos.x), Math.round(pos.y));
+  if (options.length === 0) return { dirX: 0, dirY: 0 };
+  return options[ctx.random.integerInRange(0, options.length - 1)]!;
+}
 
 /** Whether the caller authenticated with a SpacetimeAuth OIDC token (an account, not a guest). */
 function isSpacetimeAuthCaller(ctx: Ctx): boolean {

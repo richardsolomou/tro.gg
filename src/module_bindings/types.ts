@@ -35,6 +35,23 @@ export const ClaimCode = __t.object("ClaimCode", {
 });
 export type ClaimCode = __Infer<typeof ClaimCode>;
 
+export const Hog = __t.object("Hog", {
+  id: __t.u64(),
+  zoneId: __t.string(),
+  x: __t.f64(),
+  y: __t.f64(),
+  dirX: __t.i32(),
+  dirY: __t.i32(),
+  movedAt: __t.timestamp(),
+});
+export type Hog = __Infer<typeof Hog>;
+
+export const HogWander = __t.object("HogWander", {
+  scheduledId: __t.u64(),
+  scheduledAt: __t.scheduleAt(),
+});
+export type HogWander = __Infer<typeof HogWander>;
+
 export const Player = __t.object("Player", {
   identity: __t.identity(),
   name: __t.string(),
