@@ -57,10 +57,15 @@ const player = table(
     y: t.f64(),
     dirX: t.i32(),
     dirY: t.i32(),
-    running: t.bool().default(false),
     movedAt: t.timestamp(),
     online: t.bool(),
     lastChatAt: t.option(t.timestamp()),
+    // Append new columns here, at the end, each with a default. SpacetimeDB
+    // auto-migrates an append-with-default in place, but inserting a column
+    // mid-table reads as a *reordering* and needs a manual migration — which the
+    // prod deploy refuses (no --delete-data), failing after merge. Order among
+    // these trailing columns is free; never wedge one in above `movedAt`.
+    running: t.bool().default(false),
     color: t.i32().default(COLOR_UNSET),
   },
 );

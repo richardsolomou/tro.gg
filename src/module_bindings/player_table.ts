@@ -19,9 +19,9 @@ export default __t.row({
   y: __t.f64(),
   dirX: __t.i32().name("dir_x"),
   dirY: __t.i32().name("dir_y"),
-  running: __t.bool(),
   movedAt: __t.timestamp().name("moved_at"),
   online: __t.bool(),
   lastChatAt: __t.option(__t.timestamp()).name("last_chat_at"),
+  running: __t.bool(),
   color: __t.i32(),
 });
