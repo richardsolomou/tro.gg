@@ -36,6 +36,7 @@ import {
 // Import all reducer arg schemas
 import ChatReducer from "./chat_reducer";
 import MoveReducer from "./move_reducer";
+import PushReducer from "./push_reducer";
 import RedeemClaimReducer from "./redeem_claim_reducer";
 import RenameReducer from "./rename_reducer";
 import StartClaimReducer from "./start_claim_reducer";
@@ -43,6 +44,7 @@ import StartClaimReducer from "./start_claim_reducer";
 // Import all procedure arg schemas
 
 // Import all table schema definitions
+import BoulderRow from "./boulder_table";
 import ChatMessageRow from "./chat_message_table";
 import ClaimCodeRow from "./claim_code_table";
 import PlayerRow from "./player_table";
@@ -51,6 +53,20 @@ import PlayerRow from "./player_table";
 
 /** The schema information for all tables in this module. This is defined the same was as the tables would have been defined in the server. */
 const tablesSchema = __schema({
+  boulder: __table({
+    name: 'boulder',
+    indexes: [
+      { accessor: 'id', name: 'boulder_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+      { accessor: 'zoneId', name: 'boulder_zone_id_idx_btree', algorithm: 'btree', columns: [
+        'zoneId',
+      ] },
+    ],
+    constraints: [
+      { name: 'boulder_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, BoulderRow),
   chatMessage: __table({
     name: 'chat_message',
     indexes: [
@@ -96,6 +112,7 @@ const tablesSchema = __schema({
 const reducersSchema = __reducers(
   __reducerSchema("chat", ChatReducer),
   __reducerSchema("move", MoveReducer),
+  __reducerSchema("push", PushReducer),
   __reducerSchema("redeem_claim", RedeemClaimReducer),
   __reducerSchema("rename", RenameReducer),
   __reducerSchema("start_claim", StartClaimReducer),

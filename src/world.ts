@@ -1,7 +1,7 @@
 import { Application, Container, Graphics, Sprite, Text } from "pixi.js";
-import { CHAT_BUBBLE_MS, FRAME_H, getZone, projectMotion, STARTING_ZONE_SLUG, troggColor, type Facing } from "@trogg/shared";
+import { CHAT_BUBBLE_MS, facingTile, FRAME_H, getZone, projectMotion, STARTING_ZONE_SLUG, troggColor, zoneBounds, type Facing } from "@trogg/shared";
 import type { DbConnection } from "./module_bindings";
-import type { Player } from "./module_bindings/types";
+import type { Boulder, Player } from "./module_bindings/types";
 import { attachKeyboard } from "./input.js";
 import { mountChat } from "./chat.js";
 import { createTerrain } from "./terrain.js";
@@ -35,6 +35,15 @@ function headTopY(): number {
   return TILE - FRAME_H * (TILE / ART);
 }
 
+/** A boulder's live row plus its sprite. */
+interface BoulderView {
+  row: Boulder;
+  sprite: Container;
+}
+
+/** "x,y" key for a tile, matching the server's occupancy keys. */
+const tileKey = (x: number, y: number) => `${x},${y}`;
+
 /**
  * Renders the zone: a tile grid plus a marker per player. Movement is intent-
  * based (GDD "Movement") — the `player` table syncs each trogg's origin,
@@ -46,20 +55,28 @@ function headTopY(): number {
 export function mountWorld(app: Application, conn: DbConnection) {
   const slug = STARTING_ZONE_SLUG;
   const zone = getZone(slug)!;
-  const bounds = { width: zone.width, height: zone.height };
   const myId = conn.identity?.toHexString();
   // Sprite avatars replace the placeholder marker behind a flag (invariant 5);
   // the kill-switch falls back to the colour marker, like `chat-enabled`.
   const useSprites = isFeatureEnabled("avatar-sprites");
 
-  const terrain = createTerrain(bounds.width, bounds.height);
+  // Tiles boulders currently occupy. Folded into the collision context below so
+  // troggs stop flush against boulders exactly as they do against walls — and so
+  // client prediction confines them to the same tiles the server does.
+  const boulderTiles = new Set<string>();
+  const bounds = zoneBounds(zone, (x, y) => boulderTiles.has(tileKey(x, y)));
+
+  const terrain = createTerrain(zone);
   const stage = new Container();
-  // Background rock fills the screen behind the zone; the stage carries the
-  // floor + walls + markers and is centred; the vignette darkens the edges on top.
+  // Background rock fills the screen behind the zone; the stage carries the floor
+  // + walls + boulders + markers and is centred; the vignette darkens edges on top.
   app.stage.addChild(terrain.background, stage, terrain.vignette);
   stage.addChild(terrain.ground);
+  const boulderLayer = new Container();
+  stage.addChild(boulderLayer);
 
   const tracked = new Map<string, Tracked>();
+  const boulders = new Map<string, BoulderView>();
 
   const layout = () => {
     const { width: vw, height: vh } = app.renderer;
@@ -67,8 +84,14 @@ export function mountWorld(app: Application, conn: DbConnection) {
     TILE = Math.max(ART, Math.floor(fit));
     terrain.layout(TILE, vw, vh);
     centre(app, stage, bounds.width, bounds.height);
-    // Markers bake TILE into their size at creation, so resize redraws them.
+    // Markers and boulder sprites bake TILE into their size, so resize redraws them.
     for (const [id, entry] of tracked) rebuildMarker(id, entry);
+    for (const view of boulders.values()) {
+      view.sprite.destroy({ children: true });
+      view.sprite = makeBoulder();
+      place(view.sprite, view.row.x, view.row.y);
+      boulderLayer.addChild(view.sprite);
+    }
   };
 
   const rebuildMarker = (id: string, entry: Tracked) => {
@@ -115,12 +138,54 @@ export function mountWorld(app: Application, conn: DbConnection) {
   });
   conn.db.player.onDelete((_ctx, p) => removePlayer(p.identity.toHexString()));
 
+  const syncBoulderTiles = () => {
+    boulderTiles.clear();
+    for (const view of boulders.values()) boulderTiles.add(tileKey(view.row.x, view.row.y));
+  };
+  const upsertBoulder = (b: Boulder) => {
+    const key = b.id.toString();
+    let view = boulders.get(key);
+    if (!view) {
+      view = { row: b, sprite: makeBoulder() };
+      boulders.set(key, view);
+      boulderLayer.addChild(view.sprite);
+    } else {
+      view.row = b;
+    }
+    place(view.sprite, b.x, b.y);
+    syncBoulderTiles();
+  };
+  const removeBoulder = (b: Boulder) => {
+    const view = boulders.get(b.id.toString());
+    view?.sprite.destroy({ children: true });
+    boulders.delete(b.id.toString());
+    syncBoulderTiles();
+  };
+
+  conn.db.boulder.onInsert((_ctx, b) => upsertBoulder(b));
+  conn.db.boulder.onUpdate((_ctx, _old, b) => upsertBoulder(b));
+  conn.db.boulder.onDelete((_ctx, b) => removeBoulder(b));
+
+  // Pushing is gated behind its flag (invariant 5); off → boulders are immovable
+  // rocks, on → a trogg shoves the one it walks squarely into. We fire `push` only
+  // on the transition into "facing a boulder", never per frame (invariant 2); the
+  // server validates and re-bases motion, so the boulder slides at most one tile
+  // per tile walked (GDD "Pushing").
+  const pushEnabled = isFeatureEnabled("boulder-pushing");
+  let pushing = false;
+
   app.ticker.add(() => {
     const now = performance.now();
     for (const entry of tracked.values()) {
       const { x, y } = projectMotion(entry.player, now - entry.baseMs, bounds);
       place(entry.marker, x, y);
       animate(entry, now);
+
+      if (!pushEnabled || entry.player.identity.toHexString() !== myId) continue;
+      const ahead = facingTile(x, y, entry.player.dirX, entry.player.dirY);
+      const facingBoulder = ahead != null && boulderTiles.has(tileKey(ahead.x, ahead.y));
+      if (facingBoulder && !pushing) conn.reducers.push({});
+      pushing = facingBoulder;
     }
   });
 
@@ -137,6 +202,7 @@ export function mountWorld(app: Application, conn: DbConnection) {
     .subscribe([
       `SELECT * FROM player WHERE zone_id = '${slug}' AND online = true`,
       `SELECT * FROM chat_message WHERE zone_id = '${slug}'`,
+      `SELECT * FROM boulder WHERE zone_id = '${slug}'`,
     ]);
 }
 
@@ -269,6 +335,23 @@ function animate(entry: Tracked, now: number) {
   if (key === entry.frameKey) return; // only touch the GPU on an actual change
   entry.sprite.texture = avatarTexture("trogg", entry.facing, frame);
   entry.frameKey = key;
+}
+
+/** A pushable boulder: a rounded stone filling its tile, with a lit top-left face. */
+function makeBoulder() {
+  const sprite = new Container();
+  const inset = Math.max(2, Math.round(TILE * 0.1));
+  const size = TILE - inset * 2;
+  const radius = Math.max(3, Math.round(TILE * 0.28));
+  const px = Math.max(1, Math.round(TILE / ART));
+  const body = new Graphics()
+    .roundRect(inset, inset, size, size, radius)
+    .fill(0x6b5640)
+    .stroke({ width: px, color: 0x2a2118, alignment: 0 });
+  // A small highlight reads as a lit facet under the cave's torchlight.
+  body.roundRect(inset + px, inset + px, size * 0.4, size * 0.4, radius * 0.6).fill(0x8a7257);
+  sprite.addChild(body);
+  return sprite;
 }
 
 function place(marker: Container, x: number, y: number) {

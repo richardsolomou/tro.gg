@@ -1,12 +1,12 @@
 import type { DbConnection } from "./module_bindings";
 
-/** WASD intent: each axis is -1, 0, or 1; (0, 0) = stop. */
+/** WASD intent: one cardinal axis at a time; (0, 0) = stop. No diagonals. */
 interface MoveIntent {
   dirX: number;
   dirY: number;
 }
 
-/** Keys → axis contribution. WASD and arrows both drive the same intent. */
+/** Keys → cardinal direction. WASD and arrows both drive the same intent. */
 const KEY_VECTORS: Record<string, MoveIntent> = {
   KeyW: { dirX: 0, dirY: -1 },
   ArrowUp: { dirX: 0, dirY: -1 },
@@ -29,18 +29,18 @@ export function attachKeyboard(conn: DbConnection): () => void {
   let sent: MoveIntent = { dirX: 0, dirY: 0 };
 
   const sync = () => {
-    let dirX = 0;
-    let dirY = 0;
+    // Last key still held wins — pure 4-directional movement, no diagonals, like
+    // Pokémon/Zelda. A Set keeps insertion order, so the newest held key is the
+    // last one we see; holding right then tapping up goes up, releasing up
+    // resumes right. Each KEY_VECTORS entry is a single cardinal axis, so the
+    // intent is always cardinal by construction.
+    let intent: MoveIntent = { dirX: 0, dirY: 0 };
     for (const code of held) {
       const vector = KEY_VECTORS[code];
-      if (!vector) continue;
-      dirX += vector.dirX;
-      dirY += vector.dirY;
+      if (vector) intent = vector;
     }
-    dirX = Math.sign(dirX);
-    dirY = Math.sign(dirY);
-    if (dirX === sent.dirX && dirY === sent.dirY) return;
-    sent = { dirX, dirY };
+    if (intent.dirX === sent.dirX && intent.dirY === sent.dirY) return;
+    sent = intent;
     conn.reducers.move(sent);
   };
 

@@ -18,6 +18,7 @@ The buildable spec for tro.gg. If you are an agent working on this codebase: thi
 | zone | One contiguous area of the world. The unit of subscription, rendering, and chat. |
 | tile | The grid unit. Positions are integer tile coordinates within a zone. |
 | node | A gatherable world object (rock, mushroom). Has a type, a state, and a respawn timer. |
+| boulder | A pushable rock. Sits on an unwalkable tile; a trogg pushes it one tile at a time. `boulder` in code/schema. |
 | action | A timed activity a player starts on a node (mine, forage). One action at a time per player. |
 | skill | A progression track (mining, foraging). XP and levels per skill, per player. |
 | recipe | A crafting definition: inputs → output, skill requirement. |
@@ -52,7 +53,7 @@ Valheim-grammar progression: gather → craft better tools → better tools reac
 Two input modes, both supported:
 
 - **Click-to-move:** click a tile → the trogg walks a pathfound route to it. Click a node or obstacle → route to the nearest reachable tile beside it (get as close as possible), then act.
-- **WASD / arrow keys:** hold to move in a direction, release to stop. Direct control — the trogg moves until you let go, hit a wall, or reach a zone edge.
+- **WASD / arrow keys:** hold to move in a direction, release to stop. Direct control — the trogg moves until you let go, hit a wall, or reach a zone edge. **4-directional (cardinal only):** up, down, left, right — no diagonals, like classic top-down games (Pokémon, Zelda). Holding two perpendicular keys is resolved last-key-wins (the newest held key steers; releasing it resumes the other), so the intent is always one cardinal axis. The server rejects any diagonal intent rather than coercing it (invariant 3).
 
 Both are **input-driven, not per-frame.** The client writes a movement intent only on input transitions — a click (which sets a path), a key down/up, or a direction change — never on a timer or every frame. The server stores each player's motion as an origin `(x, y)`, a direction or a path, and `movedAt`; position over time is derived from these, and clients render it locally between updates.
 
@@ -61,6 +62,15 @@ Both are **input-driven, not per-frame.** The client writes a movement intent on
 - **Pathfinding:** the server runs grid `A*` over the zone's walkable tiles on each click, stores the resulting `path` on the player, and clients animate along that synced path — no client-side recompute, so no determinism mismatch to manage. An obstacle-free zone degenerates to a straight line. The algorithm runs server-side in the room on each click — a small hand-rolled grid `A*` or a battle-tested JS lib (PathFinding.js, easystarjs).
 - **No teleport-by-quit.** The stored `(x, y)` is the *origin* of the current move, never the destination. Position is only advanced by elapsed real time × speed along `path`, so clicking far away and quitting skips nothing — on return you're wherever the clock puts you (arrived only if enough time actually passed). A scheduled task may settle `(x, y)` to the path's end at `movedAt + traveltime`, but never before it.
 - **Prediction (display only):** because clients sync *intents*, not positions, every client derives the same motion locally and animates other troggs continuously from their last known intent — no waiting on a server round-trip to see movement. The server stays authoritative (invariant 3); a client snaps to server truth on any mismatch. Continuous extrapolation is inherent to the intent model; rollback-style reconciliation for your own avatar is optional polish, added only if it's needed.
+
+### Pushing
+
+Boulders are pushable rocks — dynamic obstacles, the same block-pushing grammar as classic top-down games. Walkability is the static tilemap **minus** the tiles boulders occupy, so the very collision that stops a trogg at a wall stops it flush at a boulder.
+
+- A trogg pushes the boulder it walks squarely into: it must be **tile-aligned and flush**, facing the boulder along its cardinal direction. Lined up and walking in, the boulder slides one tile — if the tile beyond is open floor (no wall, no other boulder).
+- **No tick** (invariant 1) and **server-authoritative** (invariant 3). The client detects, from its own prediction, the moment its avatar lines up against a boulder (a motion transition — never per frame, invariant 2) and calls the `push` reducer. The server re-derives the trogg's position from its stored intent, validates alignment + a clear destination, moves the boulder one tile, and re-bases the trogg's motion to the flush tile.
+- **Cadence falls out of walk speed.** Re-basing leaves the boulder one tile ahead of the trogg, so it isn't faced again until the trogg physically catches up — the boulder advances at most one tile per tile walked, and spamming `push` can't make it move faster.
+- Boulders start from the zone's `boulders` registry entry, seeded into the `boulder` table on first connect, then moved only by `push`. Behind the `boulder-pushing` flag (invariant 5): off → immovable rocks; on → pushable. Playable either way (invariant 6).
 
 ### Camera and rendering
 
@@ -79,7 +89,7 @@ Both are **input-driven, not per-frame.** The client writes a movement intent on
 ### Zones
 
 - A zone has a slug, display name, integer width/height in tiles, and a tilemap: per-tile walkability plus scenery. Nodes and obstacles sit on unwalkable tiles.
-- **Zone definitions are a static code registry** (`ZONES` in `shared`, keyed by slug) — static design data like the item and node registries, not the durable `zones` table the data model lists. The table is deferred until tilemaps need editable storage; until then a zone is a registry entry. A client subscribes to one zone's rows by slug (`WHERE zone_id = …`); zone dimensions come from the shared `ZONES` registry (imported by both the client and the module), so the grid is shared design data, not a per-session value.
+- **Zone definitions are a static code registry** (`ZONES` in `shared`, keyed by slug) — static design data like the item and node registries, not the durable `zones` table the data model lists. The table is deferred until tilemaps need editable storage; until then a zone is a registry entry. A client subscribes to one zone's rows by slug (`WHERE zone_id = …`); zone dimensions and the per-tile walkability tilemap (`tiles`, read through `isWalkable`) come from the shared `ZONES` registry (imported by both the client and the module), so the grid is shared design data, not a per-session value. The client renders walls from the same tilemap it collides against, so what's drawn is what blocks you.
 - **Spawn and the hub gate (M1):** new players spawn in a shared **starting zone** (working name: the cave) and must reach a checkpoint to unlock the hub, `hog-town`. The hub isn't available until the checkpoint is crossed — a per-player progression gate, not an instance; the starting zone is shared like any other.
 - M0 ships a single shared zone to prove the loop *(working slug `hog-town`, 24×16 (initial))*; the starting zone and gate land with M1.
 - Clients subscribe to players/nodes/chat **in their current zone only**. Within a zone, sync is deliberately naive (whole-zone queries) — see invariant 10.
@@ -168,6 +178,10 @@ zones          slug, name, width, height, tilemap (per-tile walkability + scener
                deferred — zone definitions currently live in a static code registry (ZONES in shared); this table lands when tilemaps need editable storage
 nodes          type, zoneId, x, y, state ("available" | "depleted"), respawnAt
                index: by_zone (zoneId)
+boulder        id (PK, auto-inc), zoneId, x, y     (tile coords)
+               a pushable rock on an unwalkable tile; clients subscribe per zone and treat it as a
+               dynamic obstacle. Seeded from the ZONES registry on first connect, moved only by `push`.
+               index: by_zone (zoneId)
 actions        playerId, nodeId, kind, startedAt, endsAt
                index: by_player (playerId)
 chat_message   id (PK, auto-inc), zoneId, sender (Identity), name (denormalised), text, createdAt
@@ -226,6 +240,10 @@ Durable persistence landed in M0, ahead of the tracker, at maintainer direction 
 The account-upgrade slice of M1 identity then landed too, also ahead of the tracker at maintainer direction: cross-device sign-in via **SpacetimeAuth** OIDC (Discord), the guest → account **claim** (a nonce minted by the guest and redeemed as the account — `startClaim`/`redeemClaim`, backed by the private `claim_code` table), and **renaming** (`rename`) with the `player_named` + `posthog.identify()` upgrade event. The browser-side OIDC flow is Authorization-Code-+-PKCE (a public client, no secret — invariant 8), all behind the `auth-enabled` flag (invariant 5). The earlier design note of a "recovery passphrase" was superseded by OIDC.
 
 Zones are now a first-class concept (M0 foundation): a static `ZONES` registry in `shared`, imported by both the client and the module, with per-zone subscriptions keyed by slug (`WHERE zone_id = …`) so the client renders any zone from shared design data. M0 still runs one zone (`hog-town`); the registry and zone-scoped subscriptions make M1's starting cave, hub gate, and transitions a config-and-content change, not a refactor.
+
+Per-tile walkability landed in M0, ahead of the tracker, at maintainer direction: zones carry a `tiles` tilemap, and WASD movement clamps at the first unwalkable tile or the zone edge — confined to the floor, like classic top-down games. WASD is also 4-directional (cardinal only, no diagonals; last-key-wins). The trogg is a 1×1 footprint and the same tilemap drives both collision and the rendered walls. What remains of M1's "obstacles + A* pathfinding" is the pathfinding half: click-to-move and server-side A* that routes *around* obstacles (WASD only stops *at* them).
+
+Boulder pushing landed in M0 too, also at maintainer direction (see [Pushing](#pushing)) — pushable boulders as dynamic obstacles, shoved one tile at a time, behind the `boulder-pushing` flag. It reuses the walkability collision (a boulder is just an occupied tile) and the intent model (the push re-bases motion; cadence is walk speed, no tick), so it's an extension of movement rather than new infrastructure.
 
 Zone chat (M0 scope) ships on top of it: speech bubbles over heads plus a history side panel, behind the `chat-enabled` flag. Recent lines live in the `chat_message` table and replay when a client subscribes. The `chat` reducer enforces the 200-char cap and 1 msg/sec rate limit server-side (invariant 3); the flag gates the client mount.
 

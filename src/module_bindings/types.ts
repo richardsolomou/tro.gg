@@ -10,6 +10,14 @@ import {
   type Infer as __Infer,
 } from "spacetimedb";
 
+export const Boulder = __t.object("Boulder", {
+  id: __t.u64(),
+  zoneId: __t.string(),
+  x: __t.i32(),
+  y: __t.i32(),
+});
+export type Boulder = __Infer<typeof Boulder>;
+
 export const ChatMessage = __t.object("ChatMessage", {
   id: __t.u64(),
   zoneId: __t.string(),

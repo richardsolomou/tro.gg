@@ -1,11 +1,13 @@
 import { Container, Graphics, Sprite, Texture, TilingSprite } from "pixi.js";
+import { isWalkable, type Zone } from "@trogg/shared";
 
 /**
  * Procedural pixel-art terrain for a zone (GDD "Camera and rendering"). The
  * floor and surrounding rock are generated once as small nearest-neighbour
  * textures and tiled, so the screen fills with cave stone instead of flat
- * background. Purely cosmetic — no walkability or scenery data (that's the
- * deferred tilemap; see GDD data model). Player markers render on top.
+ * background. Walls are drawn from the zone's tilemap — the same per-tile
+ * walkability `projectMotion` collides against — so what you see is what blocks
+ * you. Player markers render on top.
  */
 
 /** Art pixels per tile edge — the resolution each tile is drawn at before scaling. */
@@ -29,7 +31,7 @@ export interface Terrain {
   layout(tile: number, viewW: number, viewH: number): void;
 }
 
-export function createTerrain(zoneW: number, zoneH: number): Terrain {
+export function createTerrain(zone: Zone): Terrain {
   const background = new TilingSprite({ texture: floorlessPatch(VOID.base, 0.1, VOID.specks), width: 1, height: 1 });
   const floor = new TilingSprite({ texture: floorPatch(), width: 1, height: 1 });
   const walls = new Graphics();
@@ -43,12 +45,10 @@ export function createTerrain(zoneW: number, zoneH: number): Terrain {
     background.height = viewH;
     background.tileScale.set(scale);
 
-    const w = zoneW * tile;
-    const h = zoneH * tile;
-    floor.width = w;
-    floor.height = h;
+    floor.width = zone.width * tile;
+    floor.height = zone.height * tile;
     floor.tileScale.set(scale);
-    drawWalls(walls, w, h, tile);
+    drawWalls(walls, zone, tile);
 
     vignette.width = viewW;
     vignette.height = viewH;
@@ -57,18 +57,32 @@ export function createTerrain(zoneW: number, zoneH: number): Terrain {
   return { background, ground, vignette, layout };
 }
 
-/** A beveled stone wall framing the floor — lit inner edge, dark outer edge. */
-function drawWalls(g: Graphics, w: number, h: number, tile: number) {
-  const t = Math.round(tile * 0.5);
+/**
+ * Paint every unwalkable tile as beveled stone, reading the zone's tilemap so the
+ * walls line up exactly with what blocks movement. A wall face that has floor
+ * below it (visible to the 3/4 camera) gets a lit lower edge; one with floor
+ * above gets a dark top edge — cheap depth without a spritesheet.
+ */
+function drawWalls(g: Graphics, zone: Zone, tile: number) {
   const px = Math.max(1, Math.round(tile / ART));
   g.clear();
-  g.rect(-t, -t, w + 2 * t, t) // top
-    .rect(-t, h, w + 2 * t, t) // bottom
-    .rect(-t, 0, t, h) // left
-    .rect(w, 0, t, h) // right
-    .fill(WALL.face);
-  g.rect(-t, -t, w + 2 * t, h + 2 * t).stroke({ width: px, color: WALL.edge, alignment: 0 });
-  g.rect(0, 0, w, h).stroke({ width: px, color: WALL.top, alignment: 0 });
+
+  for (let ty = 0; ty < zone.height; ty++) {
+    for (let tx = 0; tx < zone.width; tx++) {
+      if (isWalkable(zone, tx, ty)) continue;
+      g.rect(tx * tile, ty * tile, tile, tile).fill(WALL.face);
+    }
+  }
+  // Bevels in a second pass so highlights sit on top of neighbouring wall faces.
+  for (let ty = 0; ty < zone.height; ty++) {
+    for (let tx = 0; tx < zone.width; tx++) {
+      if (isWalkable(zone, tx, ty)) continue;
+      const x = tx * tile;
+      const y = ty * tile;
+      if (isWalkable(zone, tx, ty + 1)) g.rect(x, y + tile - px * 2, tile, px * 2).fill(WALL.top);
+      if (isWalkable(zone, tx, ty - 1)) g.rect(x, y, tile, px).fill(WALL.edge);
+    }
+  }
 }
 
 /** Build a tiling texture by painting individual art pixels into a canvas. */
