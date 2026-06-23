@@ -1,4 +1,4 @@
-import { type Coord, isWalkable, MOVE_SPEED_TILES_PER_SEC, type Zone } from "./constants";
+import { type Coord, isWalkable, MOVE_SPEED_TILES_PER_SEC, RUN_SPEED_TILES_PER_SEC, type Zone } from "./constants";
 
 /**
  * Position-over-time derivation, shared by server and client so both agree
@@ -21,6 +21,10 @@ export interface Motion {
   y: number;
   dirX: number;
   dirY: number;
+  /** Holding shift runs at `RUN_SPEED_TILES_PER_SEC` instead of walking (GDD
+   *  "Movement"). Part of the intent so every client derives the same speed;
+   *  absent/false = walk. Hogs never set it, so they always walk. */
+  running?: boolean;
 }
 
 /**
@@ -124,7 +128,8 @@ export function projectMotion(motion: Motion, elapsedMs: number, zone: ZoneBound
   const { dirX, dirY } = motion;
   if (dirX === 0 && dirY === 0) return { x: motion.x, y: motion.y };
 
-  const dist = (MOVE_SPEED_TILES_PER_SEC * Math.max(elapsedMs, 0)) / 1000;
+  const speed = motion.running ? RUN_SPEED_TILES_PER_SEC : MOVE_SPEED_TILES_PER_SEC;
+  const dist = (speed * Math.max(elapsedMs, 0)) / 1000;
 
   // Cardinal: exactly one axis moves. Clamp to bounds, then to the first wall.
   if (dirX !== 0) {

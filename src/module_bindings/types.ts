@@ -64,6 +64,8 @@ export const Player = __t.object("Player", {
   movedAt: __t.timestamp(),
   online: __t.bool(),
   lastChatAt: __t.option(__t.timestamp()),
+  running: __t.bool(),
+  color: __t.i32(),
 });
 export type Player = __Infer<typeof Player>;
 

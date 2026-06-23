@@ -11,7 +11,5 @@ import {
 } from "spacetimedb";
 
 export default {
-  dirX: __t.i32(),
-  dirY: __t.i32(),
-  running: __t.bool(),
+  color: __t.i32(),
 };

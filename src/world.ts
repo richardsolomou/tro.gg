@@ -1,5 +1,5 @@
 import { Application, Container, Graphics, Sprite, Text } from "pixi.js";
-import { CHAT_BUBBLE_MS, facingTile, FRAME_H, getZone, projectMotion, STARTING_ZONE_SLUG, troggColor, zoneBounds, type Facing, type Kind } from "@trogg/shared";
+import { CHAT_BUBBLE_MS, COLOR_UNSET, facingTile, FRAME_H, getZone, projectMotion, STARTING_ZONE_SLUG, troggColorFor, zoneBounds, type Facing, type Kind } from "@trogg/shared";
 import type { DbConnection } from "./module_bindings";
 import type { Boulder, Hog, Player } from "./module_bindings/types";
 import { attachKeyboard } from "./input.js";
@@ -71,6 +71,9 @@ export function mountWorld(app: Application, conn: DbConnection) {
   const useSprites = isFeatureEnabled("avatar-sprites");
   // Ambient roaming Hogs render behind their own flag (invariant 5; kill-switch).
   const useHogs = isFeatureEnabled("roaming-hogs");
+  // Hold-shift-to-run, behind its own flag (invariant 5); off → shift is ignored
+  // and movement stays at walk speed.
+  const canRun = isFeatureEnabled("running");
 
   // Tiles boulders currently occupy. Folded into the collision context below so
   // troggs stop flush against boulders exactly as they do against walls — and so
@@ -121,7 +124,7 @@ export function mountWorld(app: Application, conn: DbConnection) {
   const rebuildMarker = (id: string, entry: Tracked) => {
     if (entry.bubbleTimer) clearTimeout(entry.bubbleTimer);
     entry.marker.destroy({ children: true });
-    const built = makeMarker(entry.player.name, troggColor(id), id === myId, entry.facing, useSprites);
+    const built = makeMarker(entry.player.name, troggColorFor(entry.player.color, id), id === myId, entry.facing, useSprites);
     entry.marker = built.marker;
     entry.sprite = built.sprite;
     entry.frameKey = built.frameKey;
@@ -139,7 +142,7 @@ export function mountWorld(app: Application, conn: DbConnection) {
     const id = p.identity.toHexString();
     if (tracked.has(id)) return;
     const facing = facingFromDir(p.dirX, p.dirY, "down");
-    const { marker, sprite, frameKey } = makeMarker(p.name, troggColor(id), id === myId, facing, useSprites);
+    const { marker, sprite, frameKey } = makeMarker(p.name, troggColorFor(p.color, id), id === myId, facing, useSprites);
     const entry: Tracked = { marker, sprite, player: p, baseMs: performance.now(), facing, frameKey };
     place(marker, p.x, p.y);
     tracked.set(id, entry);
@@ -162,9 +165,9 @@ export function mountWorld(app: Application, conn: DbConnection) {
     // time — no server-clock sync needed, and each update reconciles drift.
     entry.player = p;
     entry.baseMs = performance.now();
-    // The nameplate is baked into the marker's label at build time, so a rename
-    // only shows once the marker is rebuilt from the updated row.
-    if (_old.name !== p.name) rebuildMarker(id, entry);
+    // The nameplate and tint are baked into the marker at build time, so a rename
+    // or recolour only shows once the marker is rebuilt from the updated row.
+    if (_old.name !== p.name || _old.color !== p.color) rebuildMarker(id, entry);
   });
   conn.db.player.onDelete((_ctx, p) => removePlayer(p.identity.toHexString()));
 
@@ -252,11 +255,11 @@ export function mountWorld(app: Application, conn: DbConnection) {
     for (const view of hogs.values()) {
       const { x, y } = projectMotion(view.row, now - view.baseMs, bounds);
       place(view.marker, x, y);
-      driveSprite(view.sprite, "hog", view.row.dirX, view.row.dirY, view, now);
+      driveSprite(view.sprite, "hog", view.row.dirX, view.row.dirY, false, view, now);
     }
   });
 
-  attachKeyboard(conn);
+  attachKeyboard(conn, canRun);
 
   // Cosmetic join easter egg (invariant 5). Each launch has a chance of a haunt.
   if (isFeatureEnabled("ghost-trogg") && Math.random() < GHOST_CHANCE) hauntGhost(stage);
@@ -305,9 +308,12 @@ function setupChat(
     conn.reducers.chat({ text });
   });
 
+  const senderColor = (sender: Player["identity"]) =>
+    troggColorFor(conn.db.player.identity.find(sender)?.color ?? COLOR_UNSET, sender.toHexString());
+
   conn.db.chatMessage.onInsert((_ctx, message) => {
     const senderId = message.sender.toHexString();
-    chat.addMessage(senderId, message.name, message.text, troggColor(senderId));
+    chat.addMessage(senderId, message.name, message.text, senderColor(message.sender));
     // Bubble only for fresh lines: a reconnect replays the zone's recent history,
     // and those rows can arrive after the subscription goes live — without this an
     // old message would pop a stale bubble over its sender on every refresh.
@@ -321,6 +327,13 @@ function setupChat(
   // in the history panel so it doesn't show their old name until a reload.
   conn.db.chatMessage.onUpdate((_ctx, _old, message) => {
     chat.renameSender(message.sender.toHexString(), message.name);
+  });
+
+  // Colour isn't denormalised onto chat rows (it's derived from the live player
+  // row), so a recolour surfaces as a player-row update — retint the sender's
+  // history lines so they match the avatar without a reload.
+  conn.db.player.onUpdate((_ctx, _old, p) => {
+    if (_old.color !== p.color) chat.recolorSender(p.identity.toHexString(), troggColorFor(p.color, p.identity.toHexString()));
   });
 }
 
@@ -418,7 +431,7 @@ function makeMarker(name: string, color: number, self: boolean, facing: Facing, 
   let frameKey = "";
 
   if (sprites) {
-    const frame = avatarFrame(false, 0);
+    const frame = avatarFrame(false, false, 0);
     // Self gets a bright ground ring under the feet so you can pick yourself out.
     if (self) {
       const ring = new Graphics()
@@ -455,25 +468,27 @@ function makeMarker(name: string, color: number, self: boolean, facing: Facing, 
  *  for the placeholder marker (no sprite to swap). */
 function animate(entry: Tracked, now: number) {
   if (!entry.sprite) return;
-  driveSprite(entry.sprite, "trogg", entry.player.dirX, entry.player.dirY, entry, now);
+  driveSprite(entry.sprite, "trogg", entry.player.dirX, entry.player.dirY, entry.player.running, entry, now);
 }
 
 /**
- * Point a sprite's facing and walk frame at its motion intent, mutating the
+ * Point a sprite's facing and stride frame at its motion intent, mutating the
  * caller's `facing`/`frameKey` so the next frame compares against it. Shared by
- * troggs and Hogs (one rig). Only touches the GPU when the frame actually changes.
+ * troggs and Hogs (one rig); `running` picks the faster hunched run cycle (troggs
+ * only — Hogs always walk). Only touches the GPU when the frame actually changes.
  */
 function driveSprite(
   sprite: Sprite,
   kind: Kind,
   dirX: number,
   dirY: number,
+  running: boolean,
   state: { facing: Facing; frameKey: string },
   now: number,
 ) {
   const moving = dirX !== 0 || dirY !== 0;
   state.facing = facingFromDir(dirX, dirY, state.facing);
-  const frame = avatarFrame(moving, now);
+  const frame = avatarFrame(moving, running, now);
   const key = `${state.facing}_${frame}`;
   if (key === state.frameKey) return;
   sprite.texture = avatarTexture(kind, state.facing, frame);
@@ -501,7 +516,7 @@ function makeBoulder() {
  *  No name label, tint, or ground ring — Hogs are ambient scenery, not players. */
 function makeHog(facing: Facing): { marker: Container; sprite: Sprite; frameKey: string } {
   const marker = new Container();
-  const frame = avatarFrame(false, 0);
+  const frame = avatarFrame(false, false, 0);
   const sprite = new Sprite(avatarTexture("hog", facing, frame));
   sprite.anchor.set(0.5, 1);
   sprite.scale.set(TILE / ART);

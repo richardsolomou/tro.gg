@@ -85,11 +85,15 @@ export function facingFromDir(dirX: number, dirY: number, last: Facing): Facing 
   return dirY < 0 ? "up" : "down";
 }
 
-/** Milliseconds per step of the two-frame walk cycle. */
+/** Milliseconds per step of the two-frame stride cycle — quicker when running. */
 const WALK_STEP_MS = 160;
+const RUN_STEP_MS = 100;
 
-/** The frame to show: idle when stopped, else an alternating two-step stride. */
-export function avatarFrame(moving: boolean, nowMs: number): FrameName {
+/** The frame to show: idle when stopped, else an alternating two-step stride —
+ *  the walk cycle, or the faster hunched run cycle when `running` (GDD "Movement"). */
+export function avatarFrame(moving: boolean, running: boolean, nowMs: number): FrameName {
   if (!moving) return "idle";
-  return Math.floor(nowMs / WALK_STEP_MS) % 2 === 0 ? "walk_a" : "walk_b";
+  const even = Math.floor(nowMs / (running ? RUN_STEP_MS : WALK_STEP_MS)) % 2 === 0;
+  if (running) return even ? "run_a" : "run_b";
+  return even ? "walk_a" : "walk_b";
 }

@@ -5,10 +5,12 @@ import {
   CHAT_MAX_CHARS,
   CHAT_RATE_LIMIT_MS,
   CLAIM_CODE_TTL_MS,
+  COLOR_UNSET,
   facingTile,
   getZone,
   HOG_IDLE_CHANCE,
   HOG_WANDER_INTERVAL_MS,
+  isColorIndex,
   isGeneratedName,
   isValidName,
   isWalkable,
@@ -35,10 +37,14 @@ import {
  * A trogg. The durable row is keyed by the player's Identity, so a returning
  * visitor who reconnects with the same stored token resumes the same trogg.
  * Motion is intent-based (invariants 1 & 2): the row holds an origin (x, y), a
- * WASD direction, and `movedAt`; position over time is derived, and settled back
- * into (x, y) on the next input or on disconnect. `color` is derived client-side
- * from the identity, never stored (GDD "Avatars"). `hubUnlocked`/`equipment` land
- * with M1/M2.
+ * WASD direction, `running`, and `movedAt`; position over time is derived, and
+ * settled back into (x, y) on the next input or on disconnect. `running` (shift
+ * held) rides the intent so every client derives the same speed (GDD "Movement").
+ * `color` is the chosen avatar palette index (GDD "Avatars"), set by `recolor`; it
+ * defaults to `COLOR_UNSET` (-1) so an unchosen trogg falls back to its id-derived
+ * colour. Both `running` and `color` carry defaults so adding them to the
+ * already-published `player` table is an in-place migration, not a breaking one.
+ * `hubUnlocked`/`equipment` land with M1/M2.
  */
 const player = table(
   { name: "player", public: true },
@@ -54,6 +60,13 @@ const player = table(
     movedAt: t.timestamp(),
     online: t.bool(),
     lastChatAt: t.option(t.timestamp()),
+    // Append new columns here, at the end, each with a default. SpacetimeDB
+    // auto-migrates an append-with-default in place, but inserting a column
+    // mid-table reads as a *reordering* and needs a manual migration — which the
+    // prod deploy refuses (no --delete-data), failing after merge. Order among
+    // these trailing columns is free; never wedge one in above `movedAt`.
+    running: t.bool().default(false),
+    color: t.i32().default(COLOR_UNSET),
   },
 );
 
@@ -184,7 +197,7 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
     const zone = getZone(existing.zoneId);
     const stuck = zone && !isWalkable(zone, Math.round(existing.x), Math.round(existing.y));
     const pos = stuck ? spawnAt(zone) : { x: existing.x, y: existing.y };
-    ctx.db.player.identity.update({ ...existing, x: pos.x, y: pos.y, dirX: 0, dirY: 0, online: true, movedAt: ctx.timestamp });
+    ctx.db.player.identity.update({ ...existing, x: pos.x, y: pos.y, dirX: 0, dirY: 0, running: false, online: true, movedAt: ctx.timestamp });
     return;
   }
 
@@ -211,9 +224,11 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
     y: at.y,
     dirX: 0,
     dirY: 0,
+    running: false,
     movedAt: ctx.timestamp,
     online: true,
     lastChatAt: undefined,
+    color: COLOR_UNSET,
   });
 });
 
@@ -247,18 +262,20 @@ export const onDisconnect = spacetimedb.clientDisconnected((ctx) => {
   const p = ctx.db.player.identity.find(ctx.sender);
   if (!p) return;
   const settled = settle(ctx, p, ctx.timestamp);
-  ctx.db.player.identity.update({ ...p, x: settled.x, y: settled.y, dirX: 0, dirY: 0, online: false });
+  ctx.db.player.identity.update({ ...p, x: settled.x, y: settled.y, dirX: 0, dirY: 0, running: false, online: false });
 });
 
 /**
  * A WASD direction intent (GDD "Movement"). Movement is 4-directional — one
  * cardinal axis at a time, no diagonals (like Pokémon/Zelda). Settle the origin
- * to where the trogg is now (so elapsed travel under the old direction isn't lost
- * or replayed), then store the new direction and timestamp. Position is never
- * ticked (invariant 1). A diagonal intent is rejected, not coerced (invariant 3 —
- * never trust the client): the trogg holds its prior motion.
+ * to where the trogg is now (so elapsed travel under the old direction — and the
+ * old speed — isn't lost or replayed), then store the new direction, `running`,
+ * and timestamp. `running` (shift held) rides the intent so all clients derive the
+ * same faster speed (GDD "Movement"). Position is never ticked (invariant 1). A
+ * diagonal intent is rejected, not coerced (invariant 3 — never trust the client):
+ * the trogg holds its prior motion.
  */
-export const move = spacetimedb.reducer({ dirX: t.i32(), dirY: t.i32() }, (ctx, { dirX, dirY }) => {
+export const move = spacetimedb.reducer({ dirX: t.i32(), dirY: t.i32(), running: t.bool() }, (ctx, { dirX, dirY, running }) => {
   const p = ctx.db.player.identity.find(ctx.sender);
   if (!p) return;
   const dir = cardinal(dirX, dirY);
@@ -270,6 +287,7 @@ export const move = spacetimedb.reducer({ dirX: t.i32(), dirY: t.i32() }, (ctx, 
     y: settled.y,
     dirX: dir.dirX,
     dirY: dir.dirY,
+    running,
     movedAt: ctx.timestamp,
   });
 });
@@ -446,6 +464,21 @@ export const rename = spacetimedb.reducer({ name: t.string() }, (ctx, { name }) 
 });
 
 /**
+ * Recolour the caller's trogg (GDD "Avatars and equipment"): store a chosen index
+ * into the shared `TROGG_COLORS` palette, replacing the id-derived default. The
+ * index is validated server-side (invariant 3); an out-of-range index or one
+ * already set is a silent no-op, like `rename`. The colour rides the zone player
+ * sync, so the tint updates for everyone; chat name colour is derived from the
+ * same row, so no denormalised copy needs rewriting.
+ */
+export const recolor = spacetimedb.reducer({ color: t.i32() }, (ctx, { color }) => {
+  const p = ctx.db.player.identity.find(ctx.sender);
+  if (!p) return;
+  if (color === p.color || !isColorIndex(color)) return;
+  ctx.db.player.identity.update({ ...p, color });
+});
+
+/**
  * Step 1 of the guest → account upgrade (GDD "Identity"). Called while connected
  * as a guest: register the browser-minted nonce under the guest's own identity so
  * a later `redeemClaim` can authorise migrating this trogg. Only a guest with a
@@ -541,7 +574,7 @@ function nameTaken(ctx: Ctx, name: string, self: Ctx["sender"]): boolean {
 type Stamp = { microsSinceUnixEpoch: bigint };
 
 /** The motion-bearing slice of a player row that `settle` derives position from. */
-type Settleable = { x: number; y: number; dirX: number; dirY: number; zoneId: string; movedAt: Stamp };
+type Settleable = { x: number; y: number; dirX: number; dirY: number; running: boolean; zoneId: string; movedAt: Stamp };
 
 /**
  * Derive the trogg's position at `now` from its stored motion intent, colliding
