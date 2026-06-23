@@ -268,8 +268,10 @@ function setupChat(
   // broadcasting. Behind its own flag (invariant 5); off → it's sent as plain chat.
   // Defaults on in local dev, off in a production build (PostHog can flip it on).
   const spawnEnabled = isFeatureEnabled("spawn-command", import.meta.env.DEV);
+  const resetEnabled = isFeatureEnabled("boulder-reset");
   const chat = mountChat((text) => {
     if (spawnEnabled && handleSpawnCommand(conn, chat, text)) return;
+    if (resetEnabled && handleResetCommand(conn, slug, text)) return;
     conn.reducers.chat({ text });
   });
 
@@ -317,6 +319,18 @@ function handleSpawnCommand(conn: DbConnection, chat: ChatUI, text: string): boo
     return true;
   }
   conn.reducers.spawn({ kind });
+  return true;
+}
+
+/**
+ * Handle a chat line as the `/reset` command: snap the caller's zone boulders back
+ * to their registry layout (server-authoritative) instead of broadcasting. Returns
+ * true if it was the command; anything else falls through to chat.
+ */
+function handleResetCommand(conn: DbConnection, zone: string, text: string): boolean {
+  if (!/^\/reset\s*$/i.test(text)) return false;
+  conn.reducers.resetBoulders({});
+  captureEvent("boulders_reset", { zone });
   return true;
 }
 
