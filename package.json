@@ -10,6 +10,7 @@
     "dev": "vite",
     "build": "tsc -p tsconfig.json --noEmit && vite build",
     "preview": "vite preview",
+    "sprites": "node --import tsx tools/gen-sprites.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "typecheck:module": "tsc -p spacetimedb/tsconfig.json --noEmit",
     "test": "node --import tsx --test \"shared/*.test.ts\"",
