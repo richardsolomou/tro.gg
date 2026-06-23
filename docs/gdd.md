@@ -71,6 +71,7 @@ Boulders are pushable rocks — dynamic obstacles, the same block-pushing gramma
 - **No tick** (invariant 1) and **server-authoritative** (invariant 3). The client detects, from its own prediction, the moment its avatar lines up against a boulder (a motion transition — never per frame, invariant 2) and calls the `push` reducer. The server re-derives the trogg's position from its stored intent, validates alignment + a clear destination, moves the boulder one tile, and re-bases the trogg's motion to the flush tile.
 - **Cadence falls out of walk speed.** Re-basing leaves the boulder one tile ahead of the trogg, so it isn't faced again until the trogg physically catches up — the boulder advances at most one tile per tile walked, and spamming `push` can't make it move faster.
 - Boulders start from the zone's `boulders` registry entry, seeded into the `boulder` table on first connect, then moved only by `push`. Behind the `boulder-pushing` flag (invariant 5): off → immovable rocks; on → pushable. Playable either way (invariant 6).
+- **Resetting:** the in-chat `/reset` command snaps the player's current zone back to its registry boulder layout (the `resetBoulders` reducer clears and reseeds the zone). Behind the `boulder-reset` flag — off, `/reset` is just an ordinary chat line.
 
 ### Hogs (roaming)
 
@@ -190,7 +191,8 @@ nodes          type, zoneId, x, y, state ("available" | "depleted"), respawnAt
                index: by_zone (zoneId)
 boulder        id (PK, auto-inc), zoneId, x, y     (tile coords)
                a pushable rock on an unwalkable tile; clients subscribe per zone and treat it as a
-               dynamic obstacle. Seeded from the ZONES registry on first connect, moved only by `push`.
+               dynamic obstacle. Seeded from the ZONES registry on first connect, moved only by `push`
+               (or reset to the registry by the `resetBoulders` reducer, fired by the in-chat `/reset` command).
                index: by_zone (zoneId)
 hog            id (PK, auto-inc), zoneId, x, y, dirX, dirY, movedAt
                an ambient roaming Hog NPC (see "Hogs"). Intent-based motion like a player (position
