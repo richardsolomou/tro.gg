@@ -13,6 +13,9 @@ import {
 export default __t.row({
   id: __t.u64().primaryKey(),
   zoneId: __t.string().name("zone_id"),
-  x: __t.i32(),
-  y: __t.i32(),
+  x: __t.f64(),
+  y: __t.f64(),
+  dirX: __t.i32().name("dir_x"),
+  dirY: __t.i32().name("dir_y"),
+  movedAt: __t.timestamp().name("moved_at"),
 });
