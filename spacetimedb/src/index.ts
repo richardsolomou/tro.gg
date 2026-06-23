@@ -1,10 +1,14 @@
-import { schema, table, t } from "spacetimedb/server";
+import { schema, table, t, type InferSchema, type ReducerCtx } from "spacetimedb/server";
 import {
   CHAT_HISTORY_MAX,
   CHAT_MAX_CHARS,
   CHAT_RATE_LIMIT_MS,
+  CLAIM_CODE_TTL_MS,
   getZone,
+  isGeneratedName,
+  isValidName,
   projectMotion,
+  SPACETIMEAUTH_ISSUER,
   STARTING_ZONE_SLUG,
   type Zone,
 } from "../../shared/index";
@@ -62,7 +66,28 @@ const chatMessage = table(
   },
 );
 
-const spacetimedb = schema({ player, chatMessage });
+/**
+ * A pending account claim (GDD "Identity" — guest → account upgrade). A guest's
+ * browser generates a random `code`, registers it under its own (guest) identity
+ * via `startClaim`, then signs in and redeems it as the SpacetimeAuth identity via
+ * `redeemClaim`. Binding the code to the guest server-side is what authorises the
+ * migration (invariant 3): redeem trusts the code, never a client-asserted guest
+ * identity. Private — no client ever reads this table; the code lives only in the
+ * browser that minted it. Stale rows expire after `CLAIM_CODE_TTL_MS`.
+ */
+const claimCode = table(
+  { name: "claim_code", public: false },
+  {
+    code: t.string().primaryKey(),
+    guest: t.identity(),
+    createdAt: t.timestamp(),
+  },
+);
+
+const spacetimedb = schema({ player, chatMessage, claimCode });
+
+/** The fully-typed reducer context for this module's tables (used by extracted helpers). */
+type Ctx = ReducerCtx<InferSchema<typeof spacetimedb>>;
 export default spacetimedb;
 
 export const init = spacetimedb.init(() => {});
@@ -79,13 +104,23 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
     return;
   }
 
+  // A connection authenticated by a SpacetimeAuth OIDC token is an account, not a
+  // guest (its identity is stable across browsers/devices). Any other token —
+  // including SpacetimeDB's own self-issued anonymous one — is a guest.
+  const isAccount = isSpacetimeAuthCaller(ctx);
+
   const zone = getZone(STARTING_ZONE_SLUG)!;
   // Identity hex starts with a fixed `c200` tag, so name from the variable tail.
   const hex = ctx.sender.toHexString();
+  const generated = `trogg-${hex.slice(-4)}`;
+  // Seed an account with its provider username when it's valid and free; fall
+  // back to a generated name (a fresh-device sign-in then needs no rename to play).
+  const name = isAccount ? (claimProviderName(ctx) ?? generated) : generated;
+
   ctx.db.player.insert({
     identity: ctx.sender,
-    name: `trogg-${hex.slice(-4)}`,
-    isGuest: true,
+    name,
+    isGuest: !isAccount,
     zoneId: zone.slug,
     x: Math.floor(zone.width / 2),
     y: Math.floor(zone.height / 2),
@@ -159,6 +194,92 @@ export const chat = spacetimedb.reducer({ text: t.string() }, (ctx, { text }) =>
     ctx.db.chatMessage.id.delete(lines[i]!.id);
   }
 });
+
+/**
+ * Rename the caller's trogg (GDD "Identity": names are unique, 3–20 chars,
+ * alphanumeric + hyphen). This is how a player swaps the generated `trogg-####`
+ * for one they choose. Validation and the uniqueness scan run server-side
+ * (invariant 3); an invalid or taken name is a silent no-op, like a rejected chat
+ * line, and the client sees its name simply not change.
+ */
+export const rename = spacetimedb.reducer({ name: t.string() }, (ctx, { name }) => {
+  const p = ctx.db.player.identity.find(ctx.sender);
+  if (!p) return;
+
+  const trimmed = name.trim();
+  if (!isValidName(trimmed) || nameTaken(ctx, trimmed, ctx.sender)) return;
+
+  ctx.db.player.identity.update({ ...p, name: trimmed });
+});
+
+/**
+ * Step 1 of the guest → account upgrade (GDD "Identity"). Called while connected
+ * as a guest: register the browser-minted nonce under the guest's own identity so
+ * a later `redeemClaim` can authorise migrating this trogg. Only a guest with a
+ * live trogg may start a claim; any previous pending code for this guest is
+ * replaced so only the latest attempt is redeemable.
+ */
+export const startClaim = spacetimedb.reducer({ code: t.string() }, (ctx, { code }) => {
+  const p = ctx.db.player.identity.find(ctx.sender);
+  if (!p || !p.isGuest) return;
+
+  for (const existing of ctx.db.claimCode.iter()) {
+    if (existing.guest.isEqual(ctx.sender)) ctx.db.claimCode.code.delete(existing.code);
+  }
+  ctx.db.claimCode.insert({ code, guest: ctx.sender, createdAt: ctx.timestamp });
+});
+
+/**
+ * Step 2 of the guest → account upgrade. Called after signing in, now connected
+ * as the SpacetimeAuth identity. Trust only a real SpacetimeAuth caller (invariant
+ * 3) and a fresh, matching nonce; then fold the guest trogg into this account: the
+ * guest's chosen name carries over (unless this account already chose one), and
+ * the guest row is removed so the world shows one trogg. The account row itself was
+ * created by `clientConnected` on this connection (or already existed on return).
+ */
+export const redeemClaim = spacetimedb.reducer({ code: t.string() }, (ctx, { code }) => {
+  if (!isSpacetimeAuthCaller(ctx)) return;
+
+  const pending = ctx.db.claimCode.code.find(code);
+  if (!pending) return;
+  // Always consume the nonce, even if it's stale or the guest is gone.
+  ctx.db.claimCode.code.delete(code);
+  if (elapsedMs(pending.createdAt, ctx.timestamp) > CLAIM_CODE_TTL_MS) return;
+
+  const guest = ctx.db.player.identity.find(pending.guest);
+  const account = ctx.db.player.identity.find(ctx.sender);
+  if (!guest || !account || guest.identity.isEqual(account.identity)) return;
+
+  // Carry the guest's chosen name onto a freshly-named account (never clobber a
+  // returning account's own name), staying within the uniqueness rule.
+  const inheritName =
+    !isGeneratedName(guest.name) && isGeneratedName(account.name) && !nameTaken(ctx, guest.name, ctx.sender);
+  ctx.db.player.identity.update({ ...account, name: inheritName ? guest.name : account.name, isGuest: false });
+  ctx.db.player.identity.delete(guest.identity);
+});
+
+/** Whether the caller authenticated with a SpacetimeAuth OIDC token (an account, not a guest). */
+function isSpacetimeAuthCaller(ctx: Ctx): boolean {
+  return ctx.senderAuth.hasJWT && ctx.senderAuth.jwt?.issuer === SPACETIMEAUTH_ISSUER;
+}
+
+/** A valid, free name from the caller's OIDC username claims, or undefined. */
+function claimProviderName(ctx: Ctx): string | undefined {
+  const payload = ctx.senderAuth.jwt?.fullPayload ?? {};
+  const candidate = payload["preferred_username"] ?? payload["name"];
+  if (typeof candidate !== "string") return undefined;
+  const trimmed = candidate.trim();
+  return isValidName(trimmed) && !nameTaken(ctx, trimmed, ctx.sender) ? trimmed : undefined;
+}
+
+/** Whether another player already holds `name` (case-insensitive). */
+function nameTaken(ctx: Ctx, name: string, self: Ctx["sender"]): boolean {
+  const lower = name.toLowerCase();
+  for (const other of ctx.db.player.iter()) {
+    if (!self.isEqual(other.identity) && other.name.toLowerCase() === lower) return true;
+  }
+  return false;
+}
 
 /** A Timestamp, narrowed to the field this module reads. */
 type Stamp = { microsSinceUnixEpoch: bigint };

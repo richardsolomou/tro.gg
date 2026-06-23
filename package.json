@@ -19,6 +19,7 @@
     "module:generate": "spacetime generate --lang typescript --out-dir src/module_bindings --module-path spacetimedb"
   },
   "dependencies": {
+    "oidc-client-ts": "^3.5.0",
     "pixi.js": "^8.19.0",
     "posthog-js": "^1.391.2",
     "spacetimedb": "2.6.*"

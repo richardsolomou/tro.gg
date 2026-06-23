@@ -95,8 +95,9 @@ Both are **input-driven, not per-frame.** The client writes a movement intent on
 
 - Anonymous-first: SpacetimeDB issues each connection a cryptographic **Identity**; the browser stores the connection token it returns. Identity is the connection's own `ctx.sender` server-side, never client-asserted (invariant 3). Guests get a generated name `trogg-####` and exist within seconds, no signup.
 - **Guest persistence:** the browser securely stores the SpacetimeDB connection token — not game state, which stays server-authoritative (invariant 3) — so a returning visitor reconnects with the same Identity and resumes the same trogg row with their progress intact. Clearing the browser or switching devices makes a guest a new trogg.
-- **Signing in** upgrades a guest to an account: pick a real name (fires `player_named` and `posthog.identify()`, merging the guest's history) and play cross-browser/device, since the account — not the browser — now anchors the synced state.
-- Names: unique, 3–20 chars, alphanumeric + hyphen.
+- **Signing in** upgrades a guest to an account via **SpacetimeAuth** (SpacetimeDB's managed OIDC provider; Discord is the enabled login). SpacetimeDB derives a *stable* Identity from the OIDC token's `iss`+`sub`, so the account — not the browser — now anchors the synced state and the trogg resumes on any device. The browser runs the OIDC Authorization-Code-**+-PKCE** flow (a public client: no client secret in the bundle, invariant 8); the module trusts only the SpacetimeAuth issuer as an account provider (invariant 3). Account creation and the upgrade fire `player_named` alongside `posthog.identify()`, merging the guest's history.
+- **Claiming** (folding a guest's trogg into the account, since the two are different Identities): the guest's browser mints a one-time nonce, registers it under the guest Identity via `startClaim`, then signs in and redeems it as the account via `redeemClaim` — both sides proven, never a client-asserted identity (invariant 3). The guest's chosen name carries over (a generated `trogg-####` never overwrites a name the account already chose); the guest row is then absorbed. A fresh device with no guest just signs in and resumes the account directly. Nonces expire after `CLAIM_CODE_TTL_MS`.
+- **Changing your name:** the `rename` reducer swaps the generated `trogg-####` for a chosen one, validated server-side. Names: unique, 3–20 chars, alphanumeric + hyphen.
 
 ### Skills and XP
 
@@ -172,6 +173,10 @@ actions        playerId, nodeId, kind, startedAt, endsAt
 chat_message   id (PK, auto-inc), zoneId, sender (Identity), name (denormalised), text, createdAt
                a new row is the live bubble; clients subscribe to recent rows per zone, capped at
                CHAT_HISTORY_MAX (trimmed in the chat reducer). index: by_zone (zoneId)
+claim_code     code (PK), guest (Identity), createdAt
+               a pending guest → account claim (see "Identity"). Private (not public): the nonce lives
+               only in the browser that minted it; no client reads this table. startClaim writes it under
+               the guest Identity; redeemClaim consumes it as the account. Stale after CLAIM_CODE_TTL_MS.
 skills         playerId, skill, xp
                index: by_player (playerId)
 inventories    playerId, item, qty
@@ -216,7 +221,9 @@ Current milestone: **M0**. Don't build ahead without being asked.
 | M5 | not started | Talking Hogs | LLM-driven Hog NPCs | Actions calling LLMs; AI observability |
 | M6 | not started | Defense events (optional) | PvE waves; protect the Hogs | Event-based combat within invariant 7 |
 
-Durable persistence landed in M0, ahead of the tracker, at maintainer direction — SpacetimeDB's tables are the durable store, so players resume their trogg across reconnects and restarts with no separate cache or database. Anonymous identity landed alongside it, also ahead of the tracker: SpacetimeDB issues each connection a cryptographic Identity, the browser stores the connection token, and reducers authorise by `ctx.sender` — identity is connection-issued, never client-asserted (invariant 3). What remains of M1 identity is the account upgrade: cross-device sign-in via a recovery passphrase, and choosing a real name (`player_named` + `posthog.identify()`).
+Durable persistence landed in M0, ahead of the tracker, at maintainer direction — SpacetimeDB's tables are the durable store, so players resume their trogg across reconnects and restarts with no separate cache or database. Anonymous identity landed alongside it, also ahead of the tracker: SpacetimeDB issues each connection a cryptographic Identity, the browser stores the connection token, and reducers authorise by `ctx.sender` — identity is connection-issued, never client-asserted (invariant 3).
+
+The account-upgrade slice of M1 identity then landed too, also ahead of the tracker at maintainer direction: cross-device sign-in via **SpacetimeAuth** OIDC (Discord), the guest → account **claim** (a nonce minted by the guest and redeemed as the account — `startClaim`/`redeemClaim`, backed by the private `claim_code` table), and **renaming** (`rename`) with the `player_named` + `posthog.identify()` upgrade event. The browser-side OIDC flow is Authorization-Code-+-PKCE (a public client, no secret — invariant 8), all behind the `auth-enabled` flag (invariant 5). The earlier design note of a "recovery passphrase" was superseded by OIDC.
 
 Zones are now a first-class concept (M0 foundation): a static `ZONES` registry in `shared`, imported by both the client and the module, with per-zone subscriptions keyed by slug (`WHERE zone_id = …`) so the client renders any zone from shared design data. M0 still runs one zone (`hog-town`); the registry and zone-scoped subscriptions make M1's starting cave, hub gate, and transitions a config-and-content change, not a refactor.
 

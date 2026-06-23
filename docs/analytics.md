@@ -23,7 +23,7 @@ snake_case. Low-volume by design — anything that could fire more than ~once/se
 | Event | Properties | Fires when |
 | ----- | ---------- | ---------- |
 | `player_joined` | `zone, is_guest` | Session starts and the trogg exists in the world |
-| `player_named` | — | Guest upgrades to an account (alongside `identify()`) |
+| `player_named` | — | Guest upgrades to an account — fires when a claim is redeemed, alongside `identify()` (the OIDC subject), merging the guest's history |
 | `zone_entered` | `zone, from_zone` | Zone transition |
 | `action_started` | `action, node_type, zone` | Action begins |
 | `resource_gathered` | `node_type, item, zone` | Action completes |
@@ -45,6 +45,7 @@ kebab-case. Every new mechanic ships behind a flag. Registry:
 | ---- | -------- |
 | `chat-enabled` | M0 zone chat (client mount gate; kill-switch) |
 | `avatar-sprites` | Trogg sprite avatars vs the placeholder colour marker (render gate; kill-switch) |
+| `auth-enabled` | M1 account sign-in + rename (account UI mount gate; kill-switch) |
 | `gathering-enabled` | M2 gathering system |
 | `node-respawn-seconds` | Respawn tuning (multivariate / payload) |
 | `crafting-enabled` | M3 crafting |

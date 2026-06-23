@@ -4,21 +4,23 @@ import { SPACETIMEDB_DB_NAME, SPACETIMEDB_HOST } from "./env.js";
 import { getStoredToken, storeToken } from "./identity.js";
 
 /**
- * Connects to the SpacetimeDB module, presenting our stored connection token so
- * the server resumes our trogg (GDD "Identity"). A first-time browser gets a
- * fresh anonymous Identity and we store the token it returns; there's no
- * mint/verify round-trip — identity is the connection's own `ctx.sender`
- * server-side (invariant 3). Resolves once connected; the durable tables are
- * subscribed to by the world (see world.ts).
+ * Connects to the SpacetimeDB module (GDD "Identity"). With no `accountToken`, we
+ * present our stored guest token so the server resumes our anonymous trogg — a
+ * first-time browser gets a fresh Identity and we store the token it returns.
+ * With an `accountToken` (a SpacetimeAuth ID token), we connect as that account
+ * instead; the server derives a stable Identity from its `iss`+`sub`. Either way
+ * identity is the connection's own `ctx.sender` server-side (invariant 3); there's
+ * no mint/verify round-trip. We only ever persist the *guest* token — the account
+ * credential is the OIDC session, owned by auth.ts. Resolves once connected.
  */
-export function connect(): Promise<DbConnection> {
+export function connect(accountToken?: string): Promise<DbConnection> {
   return new Promise((resolve, reject) => {
     DbConnection.builder()
       .withUri(SPACETIMEDB_HOST)
       .withDatabaseName(SPACETIMEDB_DB_NAME)
-      .withToken(getStoredToken() ?? undefined)
+      .withToken(accountToken ?? getStoredToken() ?? undefined)
       .onConnect((conn: DbConnection, _identity: Identity, token: string) => {
-        storeToken(token);
+        if (!accountToken) storeToken(token);
         resolve(conn);
       })
       .onConnectError((_ctx, error: Error) => reject(error))

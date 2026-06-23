@@ -36,11 +36,15 @@ import {
 // Import all reducer arg schemas
 import ChatReducer from "./chat_reducer";
 import MoveReducer from "./move_reducer";
+import RedeemClaimReducer from "./redeem_claim_reducer";
+import RenameReducer from "./rename_reducer";
+import StartClaimReducer from "./start_claim_reducer";
 
 // Import all procedure arg schemas
 
 // Import all table schema definitions
 import ChatMessageRow from "./chat_message_table";
+import ClaimCodeRow from "./claim_code_table";
 import PlayerRow from "./player_table";
 
 /** Type-only namespace exports for generated type groups. */
@@ -61,6 +65,17 @@ const tablesSchema = __schema({
       { name: 'chat_message_id_key', constraint: 'unique', columns: ['id'] },
     ],
   }, ChatMessageRow),
+  claimCode: __table({
+    name: 'claim_code',
+    indexes: [
+      { accessor: 'code', name: 'claim_code_code_idx_btree', algorithm: 'btree', columns: [
+        'code',
+      ] },
+    ],
+    constraints: [
+      { name: 'claim_code_code_key', constraint: 'unique', columns: ['code'] },
+    ],
+  }, ClaimCodeRow),
   player: __table({
     name: 'player',
     indexes: [
@@ -81,6 +96,9 @@ const tablesSchema = __schema({
 const reducersSchema = __reducers(
   __reducerSchema("chat", ChatReducer),
   __reducerSchema("move", MoveReducer),
+  __reducerSchema("redeem_claim", RedeemClaimReducer),
+  __reducerSchema("rename", RenameReducer),
+  __reducerSchema("start_claim", StartClaimReducer),
 );
 
 /** The schema information for all procedures in this module. This is defined the same way as the procedures would have been defined in the server. */

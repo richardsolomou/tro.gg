@@ -8,7 +8,13 @@ import { type Infer as __Infer } from "spacetimedb";
 // Import all reducer arg schemas
 import ChatReducer from "../chat_reducer";
 import MoveReducer from "../move_reducer";
+import RedeemClaimReducer from "../redeem_claim_reducer";
+import RenameReducer from "../rename_reducer";
+import StartClaimReducer from "../start_claim_reducer";
 
 export type ChatParams = __Infer<typeof ChatReducer>;
 export type MoveParams = __Infer<typeof MoveReducer>;
+export type RedeemClaimParams = __Infer<typeof RedeemClaimReducer>;
+export type RenameParams = __Infer<typeof RenameReducer>;
+export type StartClaimParams = __Infer<typeof StartClaimReducer>;
 
