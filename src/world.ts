@@ -15,6 +15,10 @@ const ZONE_FILL = 0.92;
 /** Screen pixels per tile, sized to the viewport in `layout`. */
 let TILE = 28;
 
+/** How long a new direction must be held before the trogg walks rather than just
+ *  turning in place — the tap-vs-hold window (GDD "Movement"). Tune for feel. */
+const TURN_TAP_MS = 130;
+
 /** A player's sprite plus the client-clock instant its current intent arrived. */
 interface Tracked {
   marker: Container;
@@ -239,38 +243,78 @@ export function mountWorld(app: Application, conn: DbConnection) {
 
   // My-trogg movement is grid-locked (GDD "Movement", Pokémon/Zelda style): the
   // `move` reducer fires only when the trogg sits on a tile centre, so a step always
-  // finishes before it turns or stops. `desired` is what the keys want now; `sent`
-  // is what the server has. We hold a new `desired` until the trogg reaches the next
-  // centre, then flush it. `prevX`/`prevY` are last frame's predicted position, so
-  // we can spot the moment the moving axis crosses a centre between frames.
+  // finishes before it turns or stops. Position stays purely server-driven (the
+  // trogg moves once the server confirms the intent and pushes the row back), so
+  // there's no local prediction to rewind against the confirmation — what we control
+  // here is only *when* the intent is sent. `desired` is what the keys want now;
+  // `sent` is the move the server has (idle = stopped); `facing` is the way the trogg
+  // points (sprite only — set even while standing still). `prevX`/`prevY` are last
+  // frame's predicted position, so we can spot the moving axis crossing a centre.
   let desired: MoveIntent = { dirX: 0, dirY: 0 };
+  let lastDesired: MoveIntent = { dirX: 0, dirY: 0 };
   let sent: MoveIntent = { dirX: 0, dirY: 0 };
+  let facing: MoveIntent = { dirX: 0, dirY: 1 };
   let prevX = Number.NaN;
   let prevY = Number.NaN;
+  // A fresh press into a new direction turns the trogg in place; it only starts
+  // walking if the key is still held past this beat — so a tap turns, a hold walks
+  // (Pokémon-style). Gates that one hold; pressing the faced direction walks at once.
+  let walkAfter = Number.POSITIVE_INFINITY;
 
-  // Position stays purely server-driven (the trogg moves once the server confirms
-  // the intent and pushes the row back), so there's no local prediction to rewind
-  // against the confirmation — what we control here is only *when* the intent is
-  // sent, holding a turn or stop until the step finishes so the trogg lands on a
-  // centre. The server snaps each settled origin to a whole tile (`settle`), which
-  // is what keeps the trogg on tile centres.
-  const flushMove = (x: number, y: number) => {
-    if (sameIntent(desired, sent)) return;
-    // Start immediately when parked on a centre (idle); otherwise wait out the
-    // current step so the trogg only ever turns or stops on a tile centre.
-    if (!isIdle(sent) && !reachedCentre(sent, prevX, prevY, x, y)) return;
+  // Fire `push` (GDD "Pushing", behind its flag — invariant 5) when the move `dir`
+  // we just sent faces a boulder the trogg is squarely on a centre against. Pushing
+  // is thus a deliberate move *into* a boulder, not arriving beside one: you walk up
+  // and stop flush like a wall, and shove it only by pressing in. The server
+  // re-validates and re-bases motion (invariant 3), one tile per press.
+  const maybePush = (x: number, y: number, dir: MoveIntent) => {
+    if (!pushEnabled || isIdle(dir)) return;
+    const ahead = facingTile(x, y, dir.dirX, dir.dirY);
+    if (ahead && boulderTiles.has(tileKey(ahead.x, ahead.y))) conn.reducers.push({});
+  };
+
+  const startWalk = (x: number, y: number) => {
     sent = desired;
     conn.reducers.move(desired);
+    maybePush(x, y, desired);
+  };
 
-    // Pushing (GDD "Pushing", behind its flag — invariant 5) is driven by this
-    // deliberate move *into* a boulder, not by arriving next to one: walking up to a
-    // boulder stops you flush against it like a wall, and you shove it only by
-    // pressing into it from there. So fire `push` when the intent we just sent faces
-    // a boulder we're already squarely on a centre against; the server re-validates
-    // and re-bases motion (invariant 3), one tile per press.
-    if (pushEnabled && !isIdle(desired)) {
-      const ahead = facingTile(x, y, desired.dirX, desired.dirY);
-      if (ahead && boulderTiles.has(tileKey(ahead.x, ahead.y))) conn.reducers.push({});
+  const turn = (entry: Tracked, now: number) => {
+    facing = desired;
+    entry.facing = facingFromDir(desired.dirX, desired.dirY, entry.facing);
+    walkAfter = now + TURN_TAP_MS;
+  };
+
+  const driveSelf = (entry: Tracked, x: number, y: number, now: number) => {
+    const fresh = !sameIntent(desired, lastDesired);
+    lastDesired = desired;
+
+    if (!isIdle(sent)) {
+      // Walking: change direction or stop at the next tile centre (grid-lock). A new
+      // direction mid-walk corners fluidly — no turn-in-place beat while moving.
+      if (sameIntent(desired, sent)) return;
+      if (!reachedCentre(sent, prevX, prevY, x, y)) return;
+      sent = desired;
+      conn.reducers.move(desired);
+      if (!isIdle(desired)) facing = desired;
+      maybePush(x, y, desired);
+      return;
+    }
+
+    // Stopped (on a tile centre).
+    if (isIdle(desired)) {
+      walkAfter = Number.POSITIVE_INFINITY;
+      return;
+    }
+    if (fresh) {
+      // Press the way we already face → walk at once; a new direction → turn in place.
+      if (sameIntent(desired, facing)) startWalk(x, y);
+      else turn(entry, now);
+      return;
+    }
+    // Holding the faced direction past the turn beat → start walking.
+    if (sameIntent(desired, facing) && now >= walkAfter) {
+      walkAfter = Number.POSITIVE_INFINITY;
+      startWalk(x, y);
     }
   };
 
@@ -283,7 +327,7 @@ export function mountWorld(app: Application, conn: DbConnection) {
 
       if (entry.player.identity.toHexString() !== myId) continue;
 
-      flushMove(x, y);
+      driveSelf(entry, x, y, now);
       prevX = x;
       prevY = y;
     }
@@ -295,6 +339,7 @@ export function mountWorld(app: Application, conn: DbConnection) {
     // ticker is frozen, so a buffered stop would never flush and the trogg would
     // keep sliding until it hit a wall. The server settles it onto a whole tile.
     if (immediate) {
+      walkAfter = Number.POSITIVE_INFINITY;
       sent = intent;
       conn.reducers.move(intent);
     }
