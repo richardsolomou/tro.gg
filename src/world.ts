@@ -103,6 +103,8 @@ export function mountWorld(app: Application, conn: DbConnection) {
     entry.frameKey = built.frameKey;
     entry.bubble = undefined;
     entry.bubbleTimer = undefined;
+    const { x, y } = projectMotion(entry.player, performance.now() - entry.baseMs, bounds);
+    place(entry.marker, x, y);
     stage.addChild(entry.marker);
   };
 
