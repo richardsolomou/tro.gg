@@ -1,8 +1,8 @@
 import { Application, Container, Graphics, Sprite, Text } from "pixi.js";
-import { CHAT_BUBBLE_MS, COLOR_UNSET, facingTile, FRAME_H, getZone, projectMotion, STARTING_ZONE_SLUG, troggColorFor, zoneBounds, type Facing, type Kind } from "@trogg/shared";
+import { ANCHOR, CHAT_BUBBLE_MS, COLOR_UNSET, facingTile, FRAME_H, FRAME_W, getZone, projectMotion, STARTING_ZONE_SLUG, troggColorFor, zoneBounds, type Facing, type Kind } from "@trogg/shared";
 import type { DbConnection } from "./module_bindings";
 import type { Boulder, Hog, Player } from "./module_bindings/types";
-import { attachKeyboard } from "./input.js";
+import { attachKeyboard, type MoveIntent } from "./input.js";
 import { mountChat, type ChatUI } from "./chat.js";
 import { createTerrain } from "./terrain.js";
 import { avatarFrame, avatarTexture, facingFromDir, ghostTexture } from "./avatars.js";
@@ -14,6 +14,10 @@ const ART = 16;
 const ZONE_FILL = 0.92;
 /** Screen pixels per tile, sized to the viewport in `layout`. */
 let TILE = 28;
+
+/** How long a new direction must be held before the trogg walks rather than just
+ *  turning in place — the tap-vs-hold window (GDD "Movement"). Tune for feel. */
+const TURN_TAP_MS = 130;
 
 /** A player's sprite plus the client-clock instant its current intent arrived. */
 interface Tracked {
@@ -30,9 +34,18 @@ interface Tracked {
   bubbleTimer?: ReturnType<typeof setTimeout>;
 }
 
+/**
+ * Screen-space y of a trogg's feet within its tile cell, relative to the cell's
+ * top-left (where `place` anchors the marker). The feet sit at the cell's vertical
+ * centre so the trogg stands in the middle of its tile, not on the bottom-edge seam.
+ */
+function feetY(): number {
+  return TILE / 2;
+}
+
 /** Screen-space y of the top of a trogg's head, for placing labels and bubbles. */
 function headTopY(): number {
-  return TILE - FRAME_H * (TILE / ART);
+  return feetY() - FRAME_H * (TILE / ART);
 }
 
 /** A boulder's live row plus its sprite. */
@@ -53,6 +66,24 @@ interface HogView {
 
 /** "x,y" key for a tile, matching the server's occupancy keys. */
 const tileKey = (x: number, y: number) => `${x},${y}`;
+
+const sameIntent = (a: MoveIntent, b: MoveIntent) => a.dirX === b.dirX && a.dirY === b.dirY;
+const isIdle = (i: MoveIntent) => i.dirX === 0 && i.dirY === 0;
+
+/**
+ * Has the trogg reached a tile centre on the axis it's moving along, since the last
+ * frame? True when it lands on one (within float slack — also covers a trogg parked
+ * flush against a wall) or crosses one between frames (moving at speed, a centre can
+ * fall between two frames). `prev` is NaN on the first frame of a motion, where the
+ * origin is already a centre, so treat that as reached.
+ */
+function reachedCentre(intent: MoveIntent, prevX: number, prevY: number, x: number, y: number): boolean {
+  const prev = intent.dirX !== 0 ? prevX : prevY;
+  const cur = intent.dirX !== 0 ? x : y;
+  if (Number.isNaN(prev)) return true;
+  if (Math.abs(cur - Math.round(cur)) < 1e-3) return true;
+  return Math.floor(prev) !== Math.floor(cur);
+}
 
 /**
  * Renders the zone: a tile grid plus a marker per player. Movement is intent-
@@ -228,13 +259,91 @@ export function mountWorld(app: Application, conn: DbConnection) {
     conn.db.hog.onDelete((_ctx, h) => removeHog(h));
   }
 
-  // Pushing is gated behind its flag (invariant 5); off → boulders are immovable
-  // rocks, on → a trogg shoves the one it walks squarely into. We fire `push` only
-  // on the transition into "facing a boulder", never per frame (invariant 2); the
-  // server validates and re-bases motion, so the boulder slides at most one tile
-  // per tile walked (GDD "Pushing").
   const pushEnabled = isFeatureEnabled("boulder-pushing");
-  let pushing = false;
+
+  // My-trogg movement is grid-locked (GDD "Movement", Pokémon/Zelda style): the
+  // `move` reducer fires only when the trogg sits on a tile centre, so a step always
+  // finishes before it turns or stops. Position stays purely server-driven (the
+  // trogg moves once the server confirms the intent and pushes the row back), so
+  // there's no local prediction to rewind against the confirmation — what we control
+  // here is only *when* the intent is sent. `desired` is what the keys want now;
+  // `sent` is the move the server has (idle = stopped); `facing` is the way the trogg
+  // points (sprite only — set even while standing still). `prevX`/`prevY` are last
+  // frame's predicted position, so we can spot the moving axis crossing a centre.
+  let desired: MoveIntent = { dirX: 0, dirY: 0, running: false };
+  let lastDesired: MoveIntent = { dirX: 0, dirY: 0, running: false };
+  let sent: MoveIntent = { dirX: 0, dirY: 0, running: false };
+  let facing: MoveIntent = { dirX: 0, dirY: 1, running: false };
+  let prevX = Number.NaN;
+  let prevY = Number.NaN;
+  // A fresh press into a new direction turns the trogg in place; it only starts
+  // walking if the key is still held past this beat — so a tap turns, a hold walks
+  // (Pokémon-style). Gates that one hold; pressing the faced direction walks at once.
+  let walkAfter = Number.POSITIVE_INFINITY;
+  // Whether we were flush against a pushable boulder last frame, so `push` fires once
+  // per tile (on the rising edge), not every frame.
+  let pushBlocked = false;
+
+  const startWalk = () => {
+    sent = desired;
+    conn.reducers.move(desired);
+  };
+
+  // Push (GDD "Pushing", behind its flag — invariant 5) fires while the trogg is
+  // *actively walking into* a boulder: the key is still held (`desired`) in the
+  // committed direction (`sent`, so a tap-to-turn never shoves) and it faces a
+  // boulder it's squarely on a centre against. Requiring the key still be held is
+  // what stops a mere approach from pushing — let go and `desired` goes idle at
+  // once, so coasting the last fraction of a tile to a stop beside a boulder never
+  // shoves it. Edge-triggered, so holding into a boulder slides it one tile per tile
+  // as the trogg catches up (cadence falls out of walk speed). The server
+  // re-validates and re-bases motion (invariant 3).
+  const pushStep = (x: number, y: number) => {
+    const into = pushEnabled && !isIdle(sent) && sameIntent(desired, sent);
+    const ahead = into ? facingTile(x, y, sent.dirX, sent.dirY) : null;
+    const intoBoulder = ahead != null && boulderTiles.has(tileKey(ahead.x, ahead.y));
+    if (intoBoulder && !pushBlocked) conn.reducers.push({});
+    pushBlocked = intoBoulder;
+  };
+
+  const turn = (entry: Tracked, now: number) => {
+    facing = desired;
+    entry.facing = facingFromDir(desired.dirX, desired.dirY, entry.facing);
+    walkAfter = now + TURN_TAP_MS;
+  };
+
+  const driveSelf = (entry: Tracked, x: number, y: number, now: number) => {
+    const fresh = !sameIntent(desired, lastDesired);
+    lastDesired = desired;
+
+    if (!isIdle(sent)) {
+      // Walking: change direction, speed (shift→run), or stop at the next tile centre
+      // (grid-lock). A new direction mid-walk corners fluidly — no turn-in-place beat.
+      if (sameIntent(desired, sent) && desired.running === sent.running) return;
+      if (!reachedCentre(sent, prevX, prevY, x, y)) return;
+      sent = desired;
+      conn.reducers.move(desired);
+      if (!isIdle(desired)) facing = desired;
+      return;
+    }
+
+    // Stopped (on a tile centre).
+    if (isIdle(desired)) {
+      walkAfter = Number.POSITIVE_INFINITY;
+      return;
+    }
+    if (fresh) {
+      // Press the way we already face → walk at once; a new direction → turn in place.
+      if (sameIntent(desired, facing)) startWalk();
+      else turn(entry, now);
+      return;
+    }
+    // Holding the faced direction past the turn beat → start walking.
+    if (sameIntent(desired, facing) && now >= walkAfter) {
+      walkAfter = Number.POSITIVE_INFINITY;
+      startWalk();
+    }
+  };
 
   app.ticker.add(() => {
     const now = performance.now();
@@ -243,11 +352,12 @@ export function mountWorld(app: Application, conn: DbConnection) {
       place(entry.marker, x, y);
       animate(entry, now);
 
-      if (!pushEnabled || entry.player.identity.toHexString() !== myId) continue;
-      const ahead = facingTile(x, y, entry.player.dirX, entry.player.dirY);
-      const facingBoulder = ahead != null && boulderTiles.has(tileKey(ahead.x, ahead.y));
-      if (facingBoulder && !pushing) conn.reducers.push({});
-      pushing = facingBoulder;
+      if (entry.player.identity.toHexString() !== myId) continue;
+
+      driveSelf(entry, x, y, now);
+      pushStep(x, y);
+      prevX = x;
+      prevY = y;
     }
 
     // Hogs ride the same intent extrapolation — derived locally, never per-frame
@@ -259,7 +369,17 @@ export function mountWorld(app: Application, conn: DbConnection) {
     }
   });
 
-  attachKeyboard(conn, canRun);
+  attachKeyboard((intent, immediate) => {
+    desired = intent;
+    // Focus loss: stop now instead of finishing the step — a backgrounded tab's
+    // ticker is frozen, so a buffered stop would never flush and the trogg would
+    // keep sliding until it hit a wall. The server settles it onto a whole tile.
+    if (immediate) {
+      walkAfter = Number.POSITIVE_INFINITY;
+      sent = intent;
+      conn.reducers.move(intent);
+    }
+  }, canRun);
 
   // Cosmetic join easter egg (invariant 5). Each launch has a chance of a haunt.
   if (isFeatureEnabled("ghost-trogg") && Math.random() < GHOST_CHANCE) hauntGhost(stage);
@@ -420,7 +540,7 @@ function makeBubble(text: string, topY: number): Container {
 /**
  * A trogg. With the `avatar-sprites` flag on, it's the layered avatar sprite
  * (GDD "Avatars and equipment") tinted by the player's stable colour, feet at
- * the bottom-centre of the tile cell and head extending up out of it — so the
+ * the centre of the tile cell and head extending up out of it — so the
  * per-player colour, formerly the whole marker, now rides as a tint, keeping
  * "the same trogg is the same colour for everyone". With the flag off it's the
  * placeholder colour marker (a tile-filling rect). Both carry a name label.
@@ -435,14 +555,16 @@ function makeMarker(name: string, color: number, self: boolean, facing: Facing, 
     // Self gets a bright ground ring under the feet so you can pick yourself out.
     if (self) {
       const ring = new Graphics()
-        .ellipse(TILE / 2, TILE - 1, TILE * 0.34, TILE * 0.16)
+        .ellipse(TILE / 2, feetY(), TILE * 0.34, TILE * 0.16)
         .stroke({ width: 2, color: 0xe8dcc4 });
       marker.addChild(ring);
     }
     sprite = new Sprite(avatarTexture("trogg", facing, frame));
-    sprite.anchor.set(0.5, 1);
+    // Anchor on the art's feet point (ANCHOR), not the frame's bottom edge, so the
+    // feet — not the empty pixels below them — land on the tile centre.
+    sprite.anchor.set(ANCHOR.x / FRAME_W, ANCHOR.y / FRAME_H);
     sprite.scale.set(TILE / ART);
-    sprite.position.set(TILE / 2, TILE);
+    sprite.position.set(TILE / 2, feetY());
     sprite.tint = color;
     marker.addChild(sprite);
     frameKey = `${facing}_${frame}`;
@@ -512,15 +634,16 @@ function makeBoulder() {
   return sprite;
 }
 
-/** A roaming Hog: the shared avatar sprite in its hedgehog skin, feet on the tile.
- *  No name label, tint, or ground ring — Hogs are ambient scenery, not players. */
+/** A roaming Hog: the shared avatar sprite in its hedgehog skin, feet centred on the
+ *  tile (like a trogg). No name label, tint, or ground ring — Hogs are ambient
+ *  scenery, not players. */
 function makeHog(facing: Facing): { marker: Container; sprite: Sprite; frameKey: string } {
   const marker = new Container();
   const frame = avatarFrame(false, false, 0);
   const sprite = new Sprite(avatarTexture("hog", facing, frame));
-  sprite.anchor.set(0.5, 1);
+  sprite.anchor.set(ANCHOR.x / FRAME_W, ANCHOR.y / FRAME_H);
   sprite.scale.set(TILE / ART);
-  sprite.position.set(TILE / 2, TILE);
+  sprite.position.set(TILE / 2, feetY());
   marker.addChild(sprite);
   return { marker, sprite, frameKey: `${facing}_${frame}` };
 }
@@ -539,9 +662,9 @@ const GHOST_FLICKER_MS = 500;
 function hauntGhost(stage: Container) {
   const ghost = new Container();
   const sprite = new Sprite(ghostTexture("down", "idle"));
-  sprite.anchor.set(0.5, 1);
+  sprite.anchor.set(ANCHOR.x / FRAME_W, ANCHOR.y / FRAME_H);
   sprite.scale.set(TILE / ART);
-  sprite.position.set(TILE / 2, TILE);
+  sprite.position.set(TILE / 2, feetY());
   sprite.alpha = 0.5;
   ghost.addChild(sprite);
   place(ghost, 0, 0);

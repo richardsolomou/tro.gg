@@ -92,6 +92,18 @@ export function walkableCardinals(zone: ZoneBounds, x: number, y: number): { dir
 }
 
 /**
+ * The tile centre nearest a position — a trogg's grid-locked resting place.
+ * Movement is tile-to-tile (GDD "Movement", Pokémon/Zelda style), so a settled
+ * origin is always a whole tile, never a fractional point on one. A trogg only
+ * ever slides along one axis between integer tiles, and every tile it crosses is
+ * walkable (`projectMotion` stops at the first that isn't), so rounding always
+ * lands on walkable floor.
+ */
+export function snapToTile(pos: { x: number; y: number }): { x: number; y: number } {
+  return { x: Math.round(pos.x), y: Math.round(pos.y) };
+}
+
+/**
  * Pick a tile to drop a spawned entity on (the debug `/spawn` command): the tile
  * the player faces if it's free, else the nearest free orthogonal neighbour, else
  * the player's own tile — or null if every candidate is blocked. "Free" is a

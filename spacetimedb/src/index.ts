@@ -15,6 +15,7 @@ import {
   isValidName,
   isWalkable,
   projectMotion,
+  snapToTile,
   SPACETIMEAUTH_ISSUER,
   spawnTile,
   STARTING_ZONE_SLUG,
@@ -320,8 +321,11 @@ export const push = spacetimedb.reducer((ctx) => {
   const dest = { x: ahead.x + Math.sign(p.dirX), y: ahead.y + Math.sign(p.dirY) };
   if (!isWalkable(zone, dest.x, dest.y) || occupied.has(tileKey(dest.x, dest.y))) return; // blocked
 
+  // `facingTile` already proved the trogg is on a tile centre; re-base its motion
+  // to that whole tile so the grid-lock holds (GDD "Movement").
+  const flush = snapToTile(pos);
   ctx.db.boulder.id.update({ ...b, x: dest.x, y: dest.y });
-  ctx.db.player.identity.update({ ...p, x: pos.x, y: pos.y, movedAt: ctx.timestamp });
+  ctx.db.player.identity.update({ ...p, x: flush.x, y: flush.y, movedAt: ctx.timestamp });
 });
 
 /**
@@ -579,14 +583,17 @@ type Settleable = { x: number; y: number; dirX: number; dirY: number; running: b
 /**
  * Derive the trogg's position at `now` from its stored motion intent, colliding
  * against the zone's walls *and* its boulders (so a trogg settles flush against a
- * boulder, never inside it).
+ * boulder, never inside it), then snap it to a whole tile: movement is grid-locked
+ * (GDD "Movement"), so a stored origin is always a tile centre. The client only
+ * sends `move` when the trogg is tile-aligned, so the snap is a no-op in the normal
+ * case and a guard against a misbehaving client in the rest (invariant 3).
  */
 function settle(ctx: Ctx, p: Settleable, now: Stamp): { x: number; y: number } {
   const zone = getZone(p.zoneId);
   if (!zone) return { x: p.x, y: p.y };
   const occupied = boulderTiles(ctx, p.zoneId);
   const bounds = zoneBounds(zone, (x, y) => occupied.has(tileKey(x, y)));
-  return projectMotion(p, elapsedMs(p.movedAt, now), bounds);
+  return snapToTile(projectMotion(p, elapsedMs(p.movedAt, now), bounds));
 }
 
 /** "x,y" key for a tile, used to test occupancy in O(1). */
