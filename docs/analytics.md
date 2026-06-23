@@ -48,6 +48,7 @@ kebab-case. Every new mechanic ships behind a flag. Registry:
 | `avatar-sprites` | Trogg sprite avatars vs the placeholder colour marker (render gate; kill-switch) |
 | `ghost-trogg` | Cosmetic launch easter egg — a pale trogg rarely flickers in at the origin (client render; kill-switch) |
 | `boulder-pushing` | M0 boulder pushing (off → boulders are immovable obstacles) |
+| `roaming-hogs` | M0 ambient roaming Hog NPCs (client render gate; kill-switch) |
 | `spawn-command` | `/spawn` debug command (drops a boulder or Hog at your tile; default on in local dev, off in prod) |
 | `boulder-reset` | M0 in-chat `/reset` command (off → `/reset` is an ordinary chat line) |
 | `auth-enabled` | M1 account sign-in + rename (account UI mount gate; kill-switch) |

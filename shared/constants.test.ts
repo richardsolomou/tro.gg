@@ -58,3 +58,9 @@ test("the starting zone seeds boulders on floor, clear of the spawn", () => {
     assert.ok(b.x !== spawn.x || b.y !== spawn.y, "boulder must not sit on the spawn tile");
   }
 });
+
+test("the starting zone seeds roaming hogs on walkable floor", () => {
+  const zone = getZone(STARTING_ZONE_SLUG)!;
+  assert.ok(zone.hogs.length > 0);
+  for (const h of zone.hogs) assert.equal(isWalkable(zone, h.x, h.y), true);
+});

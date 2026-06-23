@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { MOVE_SPEED_TILES_PER_SEC, type Zone } from "./constants";
-import { facingTile, projectMotion, spawnTile, zoneBounds } from "./motion";
+import { facingTile, projectMotion, walkableCardinals, spawnTile, zoneBounds } from "./motion";
 
 // No isWalkable → open floor, clamped only to the rectangular bounds.
 const open = { width: 24, height: 16 };
@@ -88,6 +88,18 @@ test("the same tile is walkable once nothing occupies it", () => {
   const open = zoneBounds(openRoom);
   const at = projectMotion({ x: 1, y: 1, dirX: 1, dirY: 0 }, 10_000, open);
   assert.equal(at.x, 6); // walks to the far wall at column 7
+});
+
+const dirKeys = (dirs: { dirX: number; dirY: number }[]) => new Set(dirs.map((d) => `${d.dirX},${d.dirY}`));
+
+test("a hog's walkable headings exclude walls and the zone edge", () => {
+  // (1,1) in the corner room: floor below and to the right, walls above and left.
+  assert.deepEqual(dirKeys(walkableCardinals(cornered, 1, 1)), new Set(["0,1", "1,0"]));
+});
+
+test("a hog's walkable headings treat a boulder like a wall", () => {
+  // (3,1) in the 1-tile-tall corridor with a boulder at (4,1): only left is open.
+  assert.deepEqual(dirKeys(walkableCardinals(withBoulder, 3, 1)), new Set(["-1,0"]));
 });
 
 test("facingTile names the adjacent tile only when squarely aligned", () => {

@@ -15,4 +15,7 @@ export default __t.row({
   zoneId: __t.string().name("zone_id"),
   x: __t.i32(),
   y: __t.i32(),
+  dirX: __t.i32().name("dir_x"),
+  dirY: __t.i32().name("dir_y"),
+  movedAt: __t.timestamp().name("moved_at"),
 });
