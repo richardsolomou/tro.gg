@@ -1,5 +1,5 @@
 import { Application, Container, Graphics, Sprite, Text } from "pixi.js";
-import { ANCHOR, CHAT_BUBBLE_MS, COLOR_UNSET, facingTile, FRAME_H, FRAME_W, getZone, projectMotion, STARTING_ZONE_SLUG, troggColorFor, zoneBounds, type Facing, type Kind } from "@trogg/shared";
+import { ANCHOR, CHAT_BUBBLE_MS, COLOR_UNSET, facingTile, FRAME_H, FRAME_W, getZone, projectMotion, snapToTile, STARTING_ZONE_SLUG, troggColorFor, zoneBounds, type Facing, type Kind } from "@trogg/shared";
 import type { DbConnection } from "./module_bindings";
 import type { Boulder, Hog, Player } from "./module_bindings/types";
 import { attachKeyboard, type MoveIntent } from "./input.js";
@@ -32,6 +32,13 @@ interface Tracked {
   frameKey: string;
   bubble?: Container;
   bubbleTimer?: ReturnType<typeof setTimeout>;
+}
+
+type TimestampLike = { microsSinceUnixEpoch: bigint };
+
+interface MotionSnapshot extends MoveIntent {
+  x: number;
+  y: number;
 }
 
 /**
@@ -68,7 +75,35 @@ interface HogView {
 const tileKey = (x: number, y: number) => `${x},${y}`;
 
 const sameIntent = (a: MoveIntent, b: MoveIntent) => a.dirX === b.dirX && a.dirY === b.dirY;
+const sameMoveIntent = (a: MoveIntent, b: MoveIntent) => sameIntent(a, b) && a.running === b.running;
 const isIdle = (i: MoveIntent) => i.dirX === 0 && i.dirY === 0;
+const motionTol = 1e-6;
+
+function timestampBaseMs(movedAt: TimestampLike): number {
+  const movedAtMs = Number(movedAt.microsSinceUnixEpoch / 1000n);
+  const elapsedMs = Math.max(0, Date.now() - movedAtMs);
+  return performance.now() - elapsedMs;
+}
+
+function playerIntent(p: Pick<Player, "dirX" | "dirY" | "running">): MoveIntent {
+  return { dirX: p.dirX, dirY: p.dirY, running: p.running };
+}
+
+function playerMotion(p: Pick<Player, "x" | "y" | "dirX" | "dirY" | "running">): MotionSnapshot {
+  return { x: p.x, y: p.y, dirX: p.dirX, dirY: p.dirY, running: p.running };
+}
+
+function sameMotion(a: MotionSnapshot, b: MotionSnapshot): boolean {
+  return (
+    Math.abs(a.x - b.x) < motionTol &&
+    Math.abs(a.y - b.y) < motionTol &&
+    sameMoveIntent(a, b)
+  );
+}
+
+function withMotion(p: Player, motion: MotionSnapshot): Player {
+  return { ...p, x: motion.x, y: motion.y, dirX: motion.dirX, dirY: motion.dirY, running: motion.running };
+}
 
 /**
  * Has the trogg reached a tile centre on the axis it's moving along, since the last
@@ -80,9 +115,10 @@ const isIdle = (i: MoveIntent) => i.dirX === 0 && i.dirY === 0;
 function reachedCentre(intent: MoveIntent, prevX: number, prevY: number, x: number, y: number): boolean {
   const prev = intent.dirX !== 0 ? prevX : prevY;
   const cur = intent.dirX !== 0 ? x : y;
+  const step = intent.dirX !== 0 ? Math.sign(intent.dirX) : Math.sign(intent.dirY);
   if (Number.isNaN(prev)) return true;
   if (Math.abs(cur - Math.round(cur)) < 1e-3) return true;
-  return Math.floor(prev) !== Math.floor(cur);
+  return step > 0 ? Math.floor(prev) !== Math.floor(cur) : Math.ceil(prev) !== Math.ceil(cur);
 }
 
 /**
@@ -125,6 +161,7 @@ export function mountWorld(app: Application, conn: DbConnection) {
   const tracked = new Map<string, Tracked>();
   const boulders = new Map<string, BoulderView>();
   const hogs = new Map<string, HogView>();
+  const pendingSelfMoves: MotionSnapshot[] = [];
 
   const layout = () => {
     const { width: vw, height: vh } = app.renderer;
@@ -174,8 +211,9 @@ export function mountWorld(app: Application, conn: DbConnection) {
     if (tracked.has(id)) return;
     const facing = facingFromDir(p.dirX, p.dirY, "down");
     const { marker, sprite, frameKey } = makeMarker(p.name, troggColorFor(p.color, id), id === myId, facing, useSprites);
-    const entry: Tracked = { marker, sprite, player: p, baseMs: performance.now(), facing, frameKey };
-    place(marker, p.x, p.y);
+    const entry: Tracked = { marker, sprite, player: p, baseMs: timestampBaseMs(p.movedAt), facing, frameKey };
+    const { x, y } = projectMotion(p, performance.now() - entry.baseMs, bounds);
+    place(marker, x, y);
     tracked.set(id, entry);
     stage.addChild(marker);
   };
@@ -192,10 +230,32 @@ export function mountWorld(app: Application, conn: DbConnection) {
     const id = p.identity.toHexString();
     const entry = tracked.get(id);
     if (!entry) return addPlayer(p);
-    // Rebase extrapolation on every new intent so elapsed is measured in client
-    // time — no server-clock sync needed, and each update reconciles drift.
-    entry.player = p;
-    entry.baseMs = performance.now();
+
+    if (id === myId) {
+      const serverMotion = playerMotion(p);
+      const pendingIndex = pendingSelfMoves.findIndex((motion) => sameMotion(motion, serverMotion));
+      if (pendingIndex >= 0) {
+        pendingSelfMoves.splice(0, pendingIndex + 1);
+        entry.player = withMotion(p, playerMotion(entry.player));
+      } else if (sameMotion(playerMotion(entry.player), serverMotion)) {
+        entry.player = withMotion(p, playerMotion(entry.player));
+      } else {
+        pendingSelfMoves.length = 0;
+        entry.player = p;
+        entry.baseMs = timestampBaseMs(p.movedAt);
+        sent = playerIntent(p);
+        prevX = Number.NaN;
+        prevY = Number.NaN;
+        pushBlocked = false;
+      }
+    } else {
+      // Rebase extrapolation to the server's `movedAt`, mapped onto the local
+      // monotonic clock. Using receipt time here makes deployed clients trail the
+      // server by their network latency, which shows up as correction jitter.
+      entry.player = p;
+      entry.baseMs = timestampBaseMs(p.movedAt);
+    }
+
     // The nameplate and tint are baked into the marker at build time, so a rename
     // or recolour only shows once the marker is rebuilt from the updated row.
     if (_old.name !== p.name || _old.color !== p.color) rebuildMarker(id, entry);
@@ -235,16 +295,18 @@ export function mountWorld(app: Application, conn: DbConnection) {
     if (hogs.has(id)) return;
     const facing = facingFromDir(h.dirX, h.dirY, "down");
     const { marker, sprite, frameKey } = makeHog(facing);
-    place(marker, h.x, h.y);
-    hogs.set(id, { marker, sprite, row: h, baseMs: performance.now(), facing, frameKey });
+    const baseMs = timestampBaseMs(h.movedAt);
+    const { x, y } = projectMotion(h, performance.now() - baseMs, bounds);
+    place(marker, x, y);
+    hogs.set(id, { marker, sprite, row: h, baseMs, facing, frameKey });
     hogLayer.addChild(marker);
   };
   const updateHog = (h: Hog) => {
     const view = hogs.get(h.id.toString());
     if (!view) return addHog(h);
-    // Rebase extrapolation on each new intent, like a player (see player.onUpdate).
+    // Rebase extrapolation on each new intent, like remote players.
     view.row = h;
-    view.baseMs = performance.now();
+    view.baseMs = timestampBaseMs(h.movedAt);
   };
   const removeHog = (h: Hog) => {
     const view = hogs.get(h.id.toString());
@@ -263,13 +325,14 @@ export function mountWorld(app: Application, conn: DbConnection) {
 
   // My-trogg movement is grid-locked (GDD "Movement", Pokémon/Zelda style): the
   // `move` reducer fires only when the trogg sits on a tile centre, so a step always
-  // finishes before it turns or stops. Position stays purely server-driven (the
-  // trogg moves once the server confirms the intent and pushes the row back), so
-  // there's no local prediction to rewind against the confirmation — what we control
-  // here is only *when* the intent is sent. `desired` is what the keys want now;
-  // `sent` is the move the server has (idle = stopped); `facing` is the way the trogg
-  // points (sprite only — set even while standing still). `prevX`/`prevY` are last
-  // frame's predicted position, so we can spot the moving axis crossing a centre.
+  // finishes before it turns or stops. We optimistically apply our own sent intent
+  // to display state, then treat the matching server row as an ack instead of
+  // restarting the animation from receipt time. Server rows that don't match a
+  // pending prediction still win and snap the display back to authority.
+  // `desired` is what the keys want now; `sent` is the committed display intent
+  // (idle = stopped); `facing` is the way the trogg points (sprite only — set even
+  // while standing still). `prevX`/`prevY` are last frame's predicted position, so
+  // we can spot the moving axis crossing a centre.
   let desired: MoveIntent = { dirX: 0, dirY: 0, running: false };
   let lastDesired: MoveIntent = { dirX: 0, dirY: 0, running: false };
   let sent: MoveIntent = { dirX: 0, dirY: 0, running: false };
@@ -284,9 +347,20 @@ export function mountWorld(app: Application, conn: DbConnection) {
   // per tile (on the rising edge), not every frame.
   let pushBlocked = false;
 
-  const startWalk = () => {
-    sent = desired;
-    conn.reducers.move(desired);
+  const sendMove = (entry: Tracked, intent: MoveIntent, x: number, y: number, now: number) => {
+    const origin = snapToTile({ x, y });
+    const motion: MotionSnapshot = { ...intent, x: origin.x, y: origin.y };
+    sent = intent;
+    pendingSelfMoves.push(motion);
+    entry.player = withMotion(entry.player, motion);
+    entry.baseMs = now;
+    prevX = Number.NaN;
+    prevY = Number.NaN;
+    if (!isIdle(intent)) {
+      facing = intent;
+      entry.facing = facingFromDir(intent.dirX, intent.dirY, entry.facing);
+    }
+    conn.reducers.move(intent);
   };
 
   // Push (GDD "Pushing", behind its flag — invariant 5) fires while the trogg is
@@ -321,8 +395,7 @@ export function mountWorld(app: Application, conn: DbConnection) {
       // (grid-lock). A new direction mid-walk corners fluidly — no turn-in-place beat.
       if (sameIntent(desired, sent) && desired.running === sent.running) return;
       if (!reachedCentre(sent, prevX, prevY, x, y)) return;
-      sent = desired;
-      conn.reducers.move(desired);
+      sendMove(entry, desired, x, y, now);
       if (!isIdle(desired)) facing = desired;
       return;
     }
@@ -334,14 +407,14 @@ export function mountWorld(app: Application, conn: DbConnection) {
     }
     if (fresh) {
       // Press the way we already face → walk at once; a new direction → turn in place.
-      if (sameIntent(desired, facing)) startWalk();
+      if (sameIntent(desired, facing)) sendMove(entry, desired, x, y, now);
       else turn(entry, now);
       return;
     }
     // Holding the faced direction past the turn beat → start walking.
     if (sameIntent(desired, facing) && now >= walkAfter) {
       walkAfter = Number.POSITIVE_INFINITY;
-      startWalk();
+      sendMove(entry, desired, x, y, now);
     }
   };
 
@@ -375,9 +448,16 @@ export function mountWorld(app: Application, conn: DbConnection) {
     // ticker is frozen, so a buffered stop would never flush and the trogg would
     // keep sliding until it hit a wall. The server settles it onto a whole tile.
     if (immediate) {
+      const now = performance.now();
+      const self = myId ? tracked.get(myId) : undefined;
       walkAfter = Number.POSITIVE_INFINITY;
-      sent = intent;
-      conn.reducers.move(intent);
+      if (self) {
+        const { x, y } = projectMotion(self.player, now - self.baseMs, bounds);
+        sendMove(self, intent, x, y, now);
+      } else {
+        sent = intent;
+        conn.reducers.move(intent);
+      }
     }
   }, canRun);
 
