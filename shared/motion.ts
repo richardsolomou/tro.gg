@@ -64,6 +64,18 @@ export function facingTile(x: number, y: number, dirX: number, dirY: number, tol
   return { x: tx + Math.sign(dirX), y: ty + Math.sign(dirY) };
 }
 
+/**
+ * The tile centre nearest a position — a trogg's grid-locked resting place.
+ * Movement is tile-to-tile (GDD "Movement", Pokémon/Zelda style), so a settled
+ * origin is always a whole tile, never a fractional point on one. A trogg only
+ * ever slides along one axis between integer tiles, and every tile it crosses is
+ * walkable (`projectMotion` stops at the first that isn't), so rounding always
+ * lands on walkable floor.
+ */
+export function snapToTile(pos: { x: number; y: number }): { x: number; y: number } {
+  return { x: Math.round(pos.x), y: Math.round(pos.y) };
+}
+
 /** Slack to keep tile-boundary floats off the edge when deriving a footprint. */
 const EPS = 1e-6;
 

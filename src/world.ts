@@ -1,8 +1,8 @@
 import { Application, Container, Graphics, Sprite, Text } from "pixi.js";
-import { CHAT_BUBBLE_MS, facingTile, FRAME_H, getZone, projectMotion, STARTING_ZONE_SLUG, troggColor, zoneBounds, type Facing } from "@trogg/shared";
+import { CHAT_BUBBLE_MS, facingTile, FRAME_H, getZone, projectMotion, snapToTile, STARTING_ZONE_SLUG, troggColor, zoneBounds, type Facing } from "@trogg/shared";
 import type { DbConnection } from "./module_bindings";
 import type { Boulder, Player } from "./module_bindings/types";
-import { attachKeyboard } from "./input.js";
+import { attachKeyboard, type MoveIntent } from "./input.js";
 import { mountChat } from "./chat.js";
 import { createTerrain } from "./terrain.js";
 import { avatarFrame, avatarTexture, facingFromDir } from "./avatars.js";
@@ -43,6 +43,24 @@ interface BoulderView {
 
 /** "x,y" key for a tile, matching the server's occupancy keys. */
 const tileKey = (x: number, y: number) => `${x},${y}`;
+
+const sameIntent = (a: MoveIntent, b: MoveIntent) => a.dirX === b.dirX && a.dirY === b.dirY;
+const isIdle = (i: MoveIntent) => i.dirX === 0 && i.dirY === 0;
+
+/**
+ * Has the trogg reached a tile centre on the axis it's moving along, since the last
+ * frame? True when it lands on one (within float slack — also covers a trogg parked
+ * flush against a wall) or crosses one between frames (moving at speed, a centre can
+ * fall between two frames). `prev` is NaN on the first frame of a motion, where the
+ * origin is already a centre, so treat that as reached.
+ */
+function reachedCentre(intent: MoveIntent, prevX: number, prevY: number, x: number, y: number): boolean {
+  const prev = intent.dirX !== 0 ? prevX : prevY;
+  const cur = intent.dirX !== 0 ? x : y;
+  if (Number.isNaN(prev)) return true;
+  if (Math.abs(cur - Math.round(cur)) < 1e-3) return true;
+  return Math.floor(prev) !== Math.floor(cur);
+}
 
 /**
  * Renders the zone: a tile grid plus a marker per player. Movement is intent-
@@ -166,13 +184,32 @@ export function mountWorld(app: Application, conn: DbConnection) {
   conn.db.boulder.onUpdate((_ctx, _old, b) => upsertBoulder(b));
   conn.db.boulder.onDelete((_ctx, b) => removeBoulder(b));
 
-  // Pushing is gated behind its flag (invariant 5); off → boulders are immovable
-  // rocks, on → a trogg shoves the one it walks squarely into. We fire `push` only
-  // on the transition into "facing a boulder", never per frame (invariant 2); the
-  // server validates and re-bases motion, so the boulder slides at most one tile
-  // per tile walked (GDD "Pushing").
   const pushEnabled = isFeatureEnabled("boulder-pushing");
   let pushing = false;
+
+  // My-trogg movement is grid-locked (GDD "Movement", Pokémon/Zelda style): the
+  // `move` reducer fires only when the trogg sits on a tile centre, so a step always
+  // finishes before it turns or stops. `desired` is what the keys want now; `sent`
+  // is what the server has. We hold a new `desired` until the trogg reaches the next
+  // centre, then flush it. `prevX`/`prevY` are last frame's predicted position, so
+  // we can spot the moment the moving axis crosses a centre between frames.
+  let desired: MoveIntent = { dirX: 0, dirY: 0 };
+  let sent: MoveIntent = { dirX: 0, dirY: 0 };
+  let prevX = Number.NaN;
+  let prevY = Number.NaN;
+
+  const flushMove = (entry: Tracked, x: number, y: number) => {
+    if (sameIntent(desired, sent)) return;
+    // Start immediately when parked on a centre (idle); otherwise wait out the step.
+    if (!isIdle(sent) && !reachedCentre(sent, prevX, prevY, x, y)) return;
+    const at = snapToTile({ x, y });
+    // Optimistic local turn so control feels instant; the server confirms with the
+    // same snap (`settle` rounds to the nearest tile), so reconciliation is a no-op.
+    entry.player = { ...entry.player, x: at.x, y: at.y, dirX: desired.dirX, dirY: desired.dirY };
+    entry.baseMs = performance.now();
+    sent = desired;
+    conn.reducers.move(desired);
+  };
 
   app.ticker.add(() => {
     const now = performance.now();
@@ -181,15 +218,41 @@ export function mountWorld(app: Application, conn: DbConnection) {
       place(entry.marker, x, y);
       animate(entry, now);
 
-      if (!pushEnabled || entry.player.identity.toHexString() !== myId) continue;
-      const ahead = facingTile(x, y, entry.player.dirX, entry.player.dirY);
-      const facingBoulder = ahead != null && boulderTiles.has(tileKey(ahead.x, ahead.y));
-      if (facingBoulder && !pushing) conn.reducers.push({});
-      pushing = facingBoulder;
+      if (entry.player.identity.toHexString() !== myId) continue;
+
+      // Pushing is gated behind its flag (invariant 5); off → boulders are immovable
+      // rocks, on → a trogg shoves the one it walks squarely into. We fire `push`
+      // only on the transition into "facing a boulder", never per frame (invariant
+      // 2); the server validates and re-bases motion, so the boulder slides at most
+      // one tile per tile walked (GDD "Pushing").
+      if (pushEnabled) {
+        const ahead = facingTile(x, y, entry.player.dirX, entry.player.dirY);
+        const facingBoulder = ahead != null && boulderTiles.has(tileKey(ahead.x, ahead.y));
+        if (facingBoulder && !pushing) conn.reducers.push({});
+        pushing = facingBoulder;
+      }
+
+      flushMove(entry, x, y);
+      prevX = x;
+      prevY = y;
     }
   });
 
-  attachKeyboard(conn);
+  attachKeyboard((intent, immediate) => {
+    desired = intent;
+    if (!immediate) return;
+    // Focus loss: stop where we are without finishing the step. A backgrounded tab's
+    // ticker is frozen, so deferring would let the trogg drift to a wall before the
+    // stop ever flushes.
+    const me = myId ? tracked.get(myId) : undefined;
+    if (me) {
+      const at = snapToTile(projectMotion(me.player, performance.now() - me.baseMs, bounds));
+      me.player = { ...me.player, x: at.x, y: at.y, dirX: 0, dirY: 0 };
+      me.baseMs = performance.now();
+    }
+    sent = intent;
+    conn.reducers.move(intent);
+  });
 
   // Live once the initial rows have been delivered: backlog chat fills the
   // history panel silently, while later inserts also pop a bubble.

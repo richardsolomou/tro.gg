@@ -1,7 +1,5 @@
-import type { DbConnection } from "./module_bindings";
-
 /** WASD intent: one cardinal axis at a time; (0, 0) = stop. No diagonals. */
-interface MoveIntent {
+export interface MoveIntent {
   dirX: number;
   dirY: number;
 }
@@ -19,29 +17,37 @@ const KEY_VECTORS: Record<string, MoveIntent> = {
 };
 
 /**
- * Translates held WASD/arrow keys into direction intents and calls the `move`
- * reducer only on transitions (invariant 2: input-driven, never per-frame).
- * Holding moves; releasing every key stops. Returns a teardown that detaches the
- * listeners.
+ * Translates held WASD/arrow keys into cardinal direction intents and reports each
+ * change via `onIntent`. It only reports the *desired* direction — the world layer
+ * decides when to send it to the server, holding it until the trogg sits on a tile
+ * centre so movement stays grid-locked (GDD "Movement"). `immediate` is set on focus
+ * loss, where the step can't finish (a backgrounded tab's ticker is frozen) and the
+ * trogg must stop where it is. Reports only on transitions (invariant 2: input-driven,
+ * never per-frame). Returns a teardown that detaches the listeners.
  */
-export function attachKeyboard(conn: DbConnection): () => void {
+export function attachKeyboard(onIntent: (intent: MoveIntent, immediate?: boolean) => void): () => void {
   const held = new Set<string>();
-  let sent: MoveIntent = { dirX: 0, dirY: 0 };
+  let current: MoveIntent = { dirX: 0, dirY: 0 };
 
-  const sync = () => {
-    // Last key still held wins — pure 4-directional movement, no diagonals, like
-    // Pokémon/Zelda. A Set keeps insertion order, so the newest held key is the
-    // last one we see; holding right then tapping up goes up, releasing up
-    // resumes right. Each KEY_VECTORS entry is a single cardinal axis, so the
-    // intent is always cardinal by construction.
+  // Last key still held wins — pure 4-directional movement, no diagonals, like
+  // Pokémon/Zelda. A Set keeps insertion order, so the newest held key is the last
+  // one we see; holding right then tapping up goes up, releasing up resumes right.
+  // Each KEY_VECTORS entry is a single cardinal axis, so the intent is always
+  // cardinal by construction.
+  const compute = (): MoveIntent => {
     let intent: MoveIntent = { dirX: 0, dirY: 0 };
     for (const code of held) {
       const vector = KEY_VECTORS[code];
       if (vector) intent = vector;
     }
-    if (intent.dirX === sent.dirX && intent.dirY === sent.dirY) return;
-    sent = intent;
-    conn.reducers.move(sent);
+    return intent;
+  };
+
+  const emit = (immediate?: boolean) => {
+    const intent = compute();
+    if (intent.dirX === current.dirX && intent.dirY === current.dirY) return;
+    current = intent;
+    onIntent(intent, immediate);
   };
 
   const onKeyDown = (e: KeyboardEvent) => {
@@ -49,19 +55,19 @@ export function attachKeyboard(conn: DbConnection): () => void {
     e.preventDefault();
     if (held.has(e.code)) return; // ignore auto-repeat
     held.add(e.code);
-    sync();
+    emit();
   };
 
   const onKeyUp = (e: KeyboardEvent) => {
     if (!held.delete(e.code)) return;
-    sync();
+    emit();
   };
 
-  // A lost focus (tab switch, alt-tab) strands held keys; release them.
+  // A lost focus (tab switch, alt-tab) strands held keys; release them and stop now.
   const onBlur = () => {
     if (held.size === 0) return;
     held.clear();
-    sync();
+    emit(true);
   };
 
   window.addEventListener("keydown", onKeyDown);
