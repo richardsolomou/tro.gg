@@ -8,6 +8,14 @@
 export const MOVE_SPEED_TILES_PER_SEC = 4;
 
 /**
+ * Running speed (GDD "Movement"): holding shift while moving runs instead of
+ * walks. It rides the synced motion intent (`player.running`), so every client
+ * derives the same faster position with `projectMotion` — no per-frame sync and
+ * no determinism mismatch (invariants 2 & 3). Behind the `running` flag. (initial)
+ */
+export const RUN_SPEED_TILES_PER_SEC = 7;
+
+/**
  * Roaming Hogs (GDD "Hogs"). Ambient hedgehog NPCs wander on their own: a
  * scheduled reducer repicks each Hog's heading every `HOG_WANDER_INTERVAL_MS`,
  * with a `HOG_IDLE_CHANCE` of pausing instead so they don't march nonstop. They
