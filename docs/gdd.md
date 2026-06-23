@@ -65,7 +65,7 @@ Both are **input-driven, not per-frame.** The client writes a movement intent on
 ### Camera and rendering
 
 - 3/4 top-down (RuneScape-2004 / Stardew view), pixel art tiles and sprites.
-- Rendered with **PixiJS** (WebGL/WebGPU canvas) on a Vite + TypeScript client, nearest-neighbour scaled for crisp pixels. The client consumes Colyseus room state and draws it; all authority stays server-side (invariant 3).
+- Rendered with **PixiJS** (WebGL/WebGPU canvas) on a Vite + TypeScript client, nearest-neighbour scaled for crisp pixels. The client subscribes to the zone's SpacetimeDB tables and draws them; all authority stays server-side (invariant 3).
 
 ### Avatars and equipment
 
@@ -78,7 +78,7 @@ Both are **input-driven, not per-frame.** The client writes a movement intent on
 ### Zones
 
 - A zone has a slug, display name, integer width/height in tiles, and a tilemap: per-tile walkability plus scenery. Nodes and obstacles sit on unwalkable tiles.
-- **Zone definitions are a static code registry** (`ZONES` in `shared`, keyed by slug) — static design data like the item and node registries, not the durable `zones` table the data model lists. The table is deferred until tilemaps need editable storage; until then a zone is a registry entry. One room hosts one zone (joined by slug, `filterBy(["zone"])`); its dimensions ride the room state so the client renders from server truth, not a constant.
+- **Zone definitions are a static code registry** (`ZONES` in `shared`, keyed by slug) — static design data like the item and node registries, not the durable `zones` table the data model lists. The table is deferred until tilemaps need editable storage; until then a zone is a registry entry. A client subscribes to one zone's rows by slug (`WHERE zone_id = …`); zone dimensions come from the shared `ZONES` registry (imported by both the client and the module), so the grid is shared design data, not a per-session value.
 - **Spawn and the hub gate (M1):** new players spawn in a shared **starting zone** (working name: the cave) and must reach a checkpoint to unlock the hub, `hog-town`. The hub isn't available until the checkpoint is crossed — a per-player progression gate, not an instance; the starting zone is shared like any other.
 - M0 ships a single shared zone to prove the loop *(working slug `hog-town`, 24×16 (initial))*; the starting zone and gate land with M1.
 - Clients subscribe to players/nodes/chat **in their current zone only**. Within a zone, sync is deliberately naive (whole-zone queries) — see invariant 10.
@@ -92,8 +92,8 @@ Both are **input-driven, not per-frame.** The client writes a movement intent on
 
 ### Identity
 
-- Anonymous-first: on first load the server issues an anonymous credential (a signed token the browser stores) and Colyseus validates it in `onAuth`. Guests get a generated name: `trogg-####` and exist within seconds, no signup.
-- **Guest persistence:** the browser securely stores the guest's auth credential — not game state, which stays server-authoritative (invariant 3) — so a returning visitor resumes the same trogg with their progress intact. Clearing the browser or switching devices makes a guest a new trogg.
+- Anonymous-first: SpacetimeDB issues each connection a cryptographic **Identity**; the browser stores the connection token it returns. Identity is the connection's own `ctx.sender` server-side, never client-asserted (invariant 3). Guests get a generated name `trogg-####` and exist within seconds, no signup.
+- **Guest persistence:** the browser securely stores the SpacetimeDB connection token — not game state, which stays server-authoritative (invariant 3) — so a returning visitor reconnects with the same Identity and resumes the same trogg row with their progress intact. Clearing the browser or switching devices makes a guest a new trogg.
 - **Signing in** upgrades a guest to an account: pick a real name (fires `player_named` and `posthog.identify()`, merging the guest's history) and play cross-browser/device, since the account — not the browser — now anchors the synced state.
 - Names: unique, 3–20 chars, alphanumeric + hyphen.
 
@@ -148,15 +148,18 @@ New node types are added by extending this table — keep it the registry.
 
 ## Data model
 
-Two layers. **Postgres** is the durable store (tables below); **Valkey** is a write-through cache in front of it (Redis-protocol, connected via `REDIS_URL`). The **live room state** synced to clients is a `@colyseus/schema` projection of it — one room per zone holds the players in that zone (motion fields + equipment), its nodes (type, state, `respawnAt`), and recent chat; Colyseus syncs that schema to everyone in the room automatically. A room hydrates each player on join (Valkey cache → Postgres → new) and writes durable changes back — to Valkey on every change, flushed through to Postgres on leave, dispose, and a periodic checkpoint. An empty zone has no room (`autoDispose`) and rehydrates on the next join. Only settled position persists; transient motion intents (direction, path, `movedAt`) are not durable. Indexes noted where the access pattern demands them.
+One layer. **SpacetimeDB** is the durable store *and* the live feed: the tables below are the source of truth, and clients subscribe directly to the rows in their current zone — there is no separate cache or room projection to keep in sync. Only **reducers** (transactional server functions) may write, and the writer's identity is the connection's own `ctx.sender` (invariant 3). A connecting client upserts its `player` row (`clientConnected`) and settles it on disconnect (`clientDisconnected`); SpacetimeDB persists every table, so a returning Identity resumes its trogg with no hydrate step. Motion intents (direction, `movedAt`) live in the durable row, but position is still *derived* from them with `projectMotion`, never advanced on a timer — the no-teleport-by-quit rule holds (invariant 1). A zone with no connected players produces no diffs and no work. Indexes noted where the access pattern demands them.
 
-Dev mirrors prod: `just dev` brings up local Postgres + Valkey (via `docker compose`) so persistence is always exercised the same way it runs in production. The server still tolerates a backend being absent — without `DATABASE_URL` / `REDIS_URL` the missing layer is skipped and state is in-memory only (invariant 6: it still boots) — but that is a fallback, not the default dev path.
+Dev mirrors prod: a local `spacetime start` instance runs the very module production runs — `just dev` publishes to it and regenerates the client bindings — so persistence is exercised the same way it runs in production. No Docker, no separate database to provision.
 
 ```text
-players        userId, name, isGuest, zoneId, x, y, dirX, dirY, path, movedAt, hubUnlocked, equipment
-               motion derived from origin (x,y) + movedAt: WASD uses dirX/dirY (0,0 = idle);
-               click-to-move walks `path` (waypoint tiles, empty otherwise). hubUnlocked: M1 checkpoint gate.
-               equipment: slot → item map, multiple slots at once (e.g. { mainHand: "sword", offHand: "shield" }; armor slots later) — rides the room's zone sync so others see it
+player         identity (PK), name, isGuest, zoneId, x, y, dirX, dirY, movedAt, online, lastChatAt, hubUnlocked, equipment
+               keyed by the connection's Identity. motion derived from origin (x,y) + movedAt: WASD uses
+               dirX/dirY (0,0 = idle); click-to-move adds `path` (waypoint tiles) at M1. online: in-zone
+               presence — clients subscribe to online players, so a disconnect settles the row and drops it
+               from view without losing progress. lastChatAt: per-player chat rate limit. hubUnlocked: M1
+               checkpoint gate. equipment: slot → item map, multiple slots at once (e.g. { mainHand: "sword",
+               offHand: "shield" }; armor slots later) — rides the zone subscription so others see it
                index: by_zone (zoneId)
 zones          slug, name, width, height, tilemap (per-tile walkability + scenery), checkpoint (unlock tile, null if none)
                index: by_slug (slug)
@@ -165,8 +168,9 @@ nodes          type, zoneId, x, y, state ("available" | "depleted"), respawnAt
                index: by_zone (zoneId)
 actions        playerId, nodeId, kind, startedAt, endsAt
                index: by_player (playerId)
-chatMessages   zoneId, playerId, text, createdAt
-               index: by_zone_recent (zoneId, createdAt)
+chat_message   id (PK, auto-inc), zoneId, sender (Identity), name (denormalised), text, createdAt
+               a new row is the live bubble; clients subscribe to recent rows per zone, capped at
+               CHAT_HISTORY_MAX (trimmed in the chat reducer). index: by_zone (zoneId)
 skills         playerId, skill, xp
                index: by_player (playerId)
 inventories    playerId, item, qty
@@ -177,18 +181,18 @@ projects       slug, zoneId, status, requirements, contributed     (M3)
 
 ## Multiplayer scaling stance
 
-- **One room per zone, naive within it.** A zone maps to a Colyseus room; clients join the room for their current zone and Colyseus syncs its state to everyone in it. Within a room there's no interest management and no instancing — everyone sees every player.
-- **Fixed cost, watched in metrics.** The VPS is a flat monthly bill, not a usage meter, so the concern is CPU, memory, and bandwidth per node — watched via server metrics and PostHog, not an egress invoice. At the realistic scale (tens of concurrent) a single process on a small Hetzner box is ample.
-- **Capacity cap before launch.** Room and connection limits are set so a viral night sheds or queues load instead of toppling the box; vertical scale (a bigger VPS) is the first lever, horizontal (more processes) the second.
-- **The answer key, only when a graph demands it:** raise the room's patch-rate budget, area-of-interest filtering via schema views (`@filter`), crowd aggregation above a density threshold, multiple processes sharing a Valkey presence/driver, and — break-glass — moving the live position feed to a Valkey pub/sub channel while the room keeps all authoritative state. None of these are built in advance.
-- **Valkey is already wired single-node** as the Colyseus presence/driver (and the player cache), so the prod backend is mirrored from M0. This is parity plumbing, not scale-out: still one process, rooms not distributed. Actually *running* multiple processes — and everything else in the answer key — stays deferred under invariant 10.
-- **Swappable position feed:** the client consumes positions through one interface (`subscribeToPositions(area)`) and writes through one path. This is code hygiene, not optimization — it's what makes every option above a one-module swap.
+- **One subscription per zone, naive within it.** A client subscribes to the rows of its current zone; SpacetimeDB pushes row diffs to everyone subscribed. Within a zone there's no interest management and no instancing — everyone sees every player.
+- **Fixed cost, watched in metrics.** The VPS runs the self-hosted SpacetimeDB instance on a flat monthly bill, not a usage meter, so the concern is CPU, memory, and bandwidth — watched via server metrics and PostHog, not an egress invoice. At the realistic scale (tens of concurrent) a single instance on a small Hetzner box is ample.
+- **Capacity cap before launch.** Connection and subscription limits are set so a viral night sheds or queues load instead of toppling the box; vertical scale (a bigger VPS) is the first lever.
+- **The answer key, only when a graph demands it:** narrow the subscription with area-of-interest SQL filters (a smaller `WHERE` per client), crowd aggregation above a density threshold, and — when one box isn't enough — SpacetimeDB's own horizontal scaling. None of these are built in advance.
+- **Same module, dev to prod.** The instance the VPS runs is the module that runs locally, mirrored from M0. Running beyond a single instance — and everything else in the answer key — stays deferred under invariant 10.
+- **Swappable position feed:** the client reads positions through the zone subscription and writes through reducers, both in one place. Tightening to area-of-interest is a query change, not a rewrite.
 
 ## Invariants (non-negotiable)
 
-1. No simulation tick. We never run a server simulation loop (no `setSimulationInterval`); state changes only on player input or scheduled completions (`clock.setTimeout`). Colyseus's patch loop merely *broadcasts* state diffs — an unchanged room produces none — and a zone with no players has no room (`autoDispose`), so an empty world computes nothing.
-2. No per-frame or per-tile server sync. The server syncs movement intents (click→path, key down/up, direction change) via room messages; clients derive and predict motion locally. Synced player state changes on input, never on a timer or every frame.
-3. All authoritative state lives on the server — the Colyseus room in memory, durably persisted to Postgres. Never trust the client.
+1. No simulation tick. We never run a server simulation loop; state changes only inside a reducer — on player input or a scheduled reducer (SpacetimeDB's deterministic timer, used for respawns and action completions). SpacetimeDB sends only row diffs to subscribers, so an unchanged table produces none and a zone with no connected players computes nothing.
+2. No per-frame or per-tile server sync. Movement intents (click→path, key down/up, direction change) are sent via reducers; clients derive and predict motion locally. Synced player state changes on input, never on a timer or every frame.
+3. All authoritative state lives on the server — SpacetimeDB's durable tables, written only by reducers, with the writer identified by `ctx.sender`. Never trust the client.
 4. Analytics events are low-volume and never contain chat content or PII beyond the player name (full rules in [analytics.md](analytics.md)).
 5. Every new mechanic ships behind a feature flag.
 6. The game is playable at the end of every session. No half-wired states on `main`.
@@ -203,19 +207,19 @@ Current milestone: **M0**. Don't build ahead without being asked.
 
 | # | Status | Name | Scope | Demos |
 | - | ------ | ---- | ----- | ----- |
-| M0 | in progress | Tiny shared world | Avatars, click-to-move + WASD, chat bubbles, one zone | Colyseus room state sync, presence; autocapture, first session replays |
-| M1 | not started | Identity & onboarding | Browser-persisted guests + cross-device sign-in, names; starting cave → checkpoint → hub gate; obstacles + A* pathfinding | Anonymous-first auth (self-issued tokens); `identify`, person profiles, unified front/back journeys |
-| M2 | not started | Gathering loop | Stone + glowcap nodes, mining/foraging XP, leaderboard | Room timers + timestamp-derived respawns; funnels, retention |
-| M3 | not started | Crafting & the tribe builds | Recipes, tools, first communal project, Hog merchants | Atomic Postgres transactions; flags as balance knobs, first A/B experiment |
+| M0 | in progress | Tiny shared world | Avatars, click-to-move + WASD, chat bubbles, one zone | SpacetimeDB table subscriptions, presence; autocapture, first session replays |
+| M1 | not started | Identity & onboarding | Browser-persisted guests + cross-device sign-in, names; starting cave → checkpoint → hub gate; obstacles + A* pathfinding | Anonymous-first auth (SpacetimeDB Identity); `identify`, person profiles, unified front/back journeys |
+| M2 | not started | Gathering loop | Stone + glowcap nodes, mining/foraging XP, leaderboard | Scheduled reducers + timestamp-derived respawns; funnels, retention |
+| M3 | not started | Crafting & the tribe builds | Recipes, tools, first communal project, Hog merchants | Atomic reducer transactions; flags as balance knobs, first A/B experiment |
 | M4 | not started | The Great Delving | Community stress-test event: everyone piles in at once | Load behavior; live analytics at peak; the load graph's big night |
 | M5 | not started | Talking Hogs | LLM-driven Hog NPCs | Actions calling LLMs; AI observability |
 | M6 | not started | Defense events (optional) | PvE waves; protect the Hogs | Event-based combat within invariant 7 |
 
-Durable persistence (Postgres + Valkey cache + Colyseus presence/driver) landed in M0, ahead of the tracker, at maintainer direction — players now resume their trogg across reconnects and restarts. Signed anonymous guest credentials landed alongside it, also ahead of the tracker: the server mints a token (`POST /auth/guest`, HMAC-signed with `AUTH_SECRET`), the browser stores it, and `ZoneRoom.onAuth` verifies it before a join — identity is server-issued, never client-asserted (invariant 3). What remains of M1 identity is the account upgrade: cross-device sign-in via a recovery passphrase, and choosing a real name (`player_named` + `posthog.identify()`).
+Durable persistence landed in M0, ahead of the tracker, at maintainer direction — SpacetimeDB's tables are the durable store, so players resume their trogg across reconnects and restarts with no separate cache or database. Anonymous identity landed alongside it, also ahead of the tracker: SpacetimeDB issues each connection a cryptographic Identity, the browser stores the connection token, and reducers authorise by `ctx.sender` — identity is connection-issued, never client-asserted (invariant 3). What remains of M1 identity is the account upgrade: cross-device sign-in via a recovery passphrase, and choosing a real name (`player_named` + `posthog.identify()`).
 
-Zones are now a first-class concept (M0 foundation): a static `ZONES` registry in `shared`, a `ZoneRoom` parameterized by slug (joined via `filterBy(["zone"])`), and dimensions synced on the room state so the client renders any zone without a hardcoded constant. M0 still runs one zone (`hog-town`); the registry and per-zone room routing make M1's starting cave, hub gate, and transitions a config-and-content change, not a refactor.
+Zones are now a first-class concept (M0 foundation): a static `ZONES` registry in `shared`, imported by both the client and the module, with per-zone subscriptions keyed by slug (`WHERE zone_id = …`) so the client renders any zone from shared design data. M0 still runs one zone (`hog-town`); the registry and zone-scoped subscriptions make M1's starting cave, hub gate, and transitions a config-and-content change, not a refactor.
 
-Zone chat (M0 scope) ships on top of it: speech bubbles over heads plus a history side panel, behind the `chat-enabled` flag. Recent lines persist to Postgres and replay when a zone's room respawns. Server-side validation enforces the 200-char cap and 1 msg/sec rate limit; the flag currently gates the client mount (server-side enforcement lands with posthog-node).
+Zone chat (M0 scope) ships on top of it: speech bubbles over heads plus a history side panel, behind the `chat-enabled` flag. Recent lines live in the `chat_message` table and replay when a client subscribes. The `chat` reducer enforces the 200-char cap and 1 msg/sec rate limit server-side (invariant 3); the flag gates the client mount.
 
 ## Open design threads
 

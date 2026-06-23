@@ -4,30 +4,39 @@
 default:
     @just --list
 
-# Start Postgres + Valkey, run the dev stack, and stop the containers on exit.
-dev:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    docker compose up -d --wait
-    trap 'docker compose stop' EXIT
+# Run the local SpacetimeDB instance (foreground, long-lived). Run once in its own
+# terminal; `just dev` publishes the module to it. Replaces the old docker compose.
+start:
+    spacetime start
+
+# Publish the module to the local instance and regenerate client bindings.
+publish:
+    spacetime publish --module-path spacetimedb trogg -y
+    just generate
+
+# Regenerate the TypeScript client bindings from the module schema.
+generate:
+    spacetime generate --lang typescript --out-dir src/module_bindings --module-path spacetimedb -y
+
+# Publish the module, regenerate bindings, then run the client on :5173.
+# Assumes `just start` is already running in another terminal.
+dev: publish
     pnpm dev
 
-# Start the backing services (Postgres + Valkey) in the background.
-db-up:
-    docker compose up -d --wait
+# Deploy the module to the hosted production instance (spacetime.tro.gg).
+# One-time setup: spacetime server add trogg-prod --url https://spacetime.tro.gg
+publish-prod:
+    spacetime publish --server trogg-prod --module-path spacetimedb trogg
 
-# Stop the backing services, keeping their data in the volumes.
-db-down:
-    docker compose down
-
-# Build all packages.
+# Build the client.
 build:
     pnpm build
 
-# Type-check all packages.
+# Type-check the client and the module.
 typecheck:
     pnpm typecheck
+    pnpm typecheck:module
 
-# Run the server unit tests.
+# Run the shared pure-logic unit tests.
 test:
-    pnpm --filter @trogg/server test
+    pnpm test

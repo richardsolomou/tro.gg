@@ -1,4 +1,10 @@
-packages:
-  - shared
-  - client
-  - server
+# The SpacetimeDB module in spacetimedb/ is intentionally NOT a workspace package:
+# under a hoisted node-linker, a workspace dir named `spacetimedb` shadows the npm
+# `spacetimedb` package and stops it linking at the root. The module instead
+# resolves the SDK by normal node walk-up from the root node_modules (the same way
+# SpacetimeDB's own template — which isn't a pnpm workspace — works).
+#
+# This project deliberately tracks the latest releases (SpacetimeDB, PostHog, and
+# their transitive deps all ship frequently), so the global minimum-release-age
+# install guard blocks legitimate pinned versions. Disable it for this repo.
+minimumReleaseAge: 0

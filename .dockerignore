@@ -1,9 +1,0 @@
-**/node_modules
-**/dist
-**/.env*
-**/*.tsbuildinfo
-client
-landing
-docs
-.git
-.DS_Store
