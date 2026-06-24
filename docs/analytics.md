@@ -41,7 +41,7 @@ Client events via posthog-js (plus autocapture + session replay). SpacetimeDB re
 
 ## Feature flags
 
-Feature flags are optional operational controls. Use them for remote rollout, kill-switches, experiments, or live tuning. Do not add a flag just because a feature is new. If code reads a flag key, register it here with its fallback so missing PostHog configuration is intentional.
+Feature flags are optional operational controls. Use them for remote rollout, kill-switches, experiments, or live tuning. Do not add a flag just because a feature is new. If code reads a flag key, register it here with its fallback and create or update the matching flag in the configured PostHog project in the same task, at the intended rollout.
 
 Code currently reads these flag keys:
 
@@ -58,7 +58,7 @@ Code currently reads these flag keys:
 | `chat-enabled` | Chat panel and bubbles | On |
 | `trogg-recolor` | Colour swatches in the account panel | On |
 
-PostHog project audit (2026-06-24): only `auth-enabled` is configured in PostHog, active at 100% rollout. The other code-read flags rely on their fallbacks until someone creates matching PostHog flags. Planned future flags should be added here when code starts reading them, not before.
+PostHog project audit (2026-06-24): all code-read flags above are configured in PostHog project 314596 and active at 100% rollout. Planned future flags should be added here, and created in PostHog, when code starts reading them.
 
 ## Rules
 

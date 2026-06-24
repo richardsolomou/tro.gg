@@ -241,7 +241,7 @@ projects       slug, zoneId, status, requirements, contributed
 2. No per-frame or per-tile server sync. Movement intents (click→path, key down/up, direction change) are sent via reducers; clients derive and predict motion locally. Synced player state changes on input, never on a timer or every frame.
 3. All authoritative state lives on the server — SpacetimeDB's durable tables, written only by reducers, with the writer identified by `ctx.sender`. Never trust the client.
 4. Analytics events are low-volume and never contain chat content or PII beyond the player name (full rules in [analytics.md](analytics.md)).
-5. Feature flags are operational controls, not a blanket requirement. Add or configure one when a feature needs remote rollout, a kill-switch, an experiment, or live tuning; otherwise keep the code simple. Any flag key the code reads must be registered in [analytics.md](analytics.md) with its fallback behavior.
+5. Feature flags are operational controls, not a blanket requirement. Add or configure one when a feature needs remote rollout, a kill-switch, an experiment, or live tuning; otherwise keep the code simple. Any flag key the code reads must be registered in [analytics.md](analytics.md) with its fallback behavior, and the matching PostHog flag must be created or updated in the configured project during the same task.
 6. The game is playable at the end of every session. No half-wired states on `main`.
 7. No PvP. No twitch combat: any PvE is event-based, stat-driven, and slow — no projectiles, physics, or real-time aiming. No procedural generation.
 8. No secrets in the repo — env vars only, `.env*` is gitignored. This repo is public.
@@ -254,7 +254,7 @@ Roadmap notes are planning context, not permission gates. Pick work by current p
 
 Current playable foundation: durable SpacetimeDB tables are the store, anonymous SpacetimeDB Identity gives each browser a persistent trogg, and optional SpacetimeAuth OIDC lets a guest claim an account with `startClaim`/`redeemClaim`, `rename`, `player_named`, and `posthog.identify()`. Identity is issued by the connection and reducers authorize by `ctx.sender`; it is never client-asserted.
 
-Implemented world systems: a static shared `ZONES` registry, zone-scoped subscriptions, per-tile walkability, cardinal grid-locked WASD movement, boulder pushing, roaming Hogs, hold-shift-to-run, sprite avatars, chat bubbles/history, trogg recolouring, a small ghost-trogg cosmetic, `/spawn`, and `/reset`. Some of these have optional client-side flag gates for remote rollout or kill-switch use; missing PostHog flags fall back according to the code.
+Implemented world systems: a static shared `ZONES` registry, zone-scoped subscriptions, per-tile walkability, cardinal grid-locked WASD movement, boulder pushing, roaming Hogs, hold-shift-to-run, sprite avatars, chat bubbles/history, trogg recolouring, a small ghost-trogg cosmetic, `/spawn`, and `/reset`. Some of these have optional client-side flag gates for remote rollout or kill-switch use; the current code-read flags are configured in PostHog and still have code fallbacks for local or unconfigured environments.
 
 Likely next work areas include starting-zone onboarding, click-to-move pathfinding around obstacles, gathering and XP, inventory/equipment, crafting, communal projects, Hog merchants, load events, LLM-driven Hogs, and optional PvE defense. These are intentionally fluid; implement the slice that best serves the current task.
 ## Open design threads
