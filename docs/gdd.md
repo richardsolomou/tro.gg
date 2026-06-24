@@ -5,10 +5,10 @@ The buildable spec for tro.gg. If you are an agent working on this codebase: thi
 ## How to use this document
 
 - **Glossary names are canonical.** Use them in code, schema, events, and UI. Don't invent synonyms (it's a `node`, not a "resource spawner").
-- **Constants marked *(initial)* are tuning values**, expected to change via feature flags — implement them as flag-readable, don't hardcode beliefs about them elsewhere.
+- **Constants marked *(initial)* are starting values.** Keep them centralized in shared constants; make them remotely configurable only when runtime tuning or experiments are useful.
 - **The invariants section is non-negotiable.** If a task seems to require breaking one, stop and ask.
-- **The milestone tracker reflects current state.** Don't build ahead of the current milestone unless asked.
-- **New events and flags are registered in [analytics.md](analytics.md)** in the same change that introduces them.
+- **Roadmap notes are planning context, not gates.** Do not block a task just because it used to belong to a later phase.
+- **Custom analytics events and feature flags are registered in [analytics.md](analytics.md)** in the same change that introduces or changes them.
 
 ## Glossary
 
@@ -44,7 +44,7 @@ Valheim-grammar progression: gather → craft better tools → better tools reac
 4. Craft tools and goods at the Hog town; contribute resources to communal projects that unlock new areas.
 5. Chat renders as speech bubbles over heads (and in a side panel).
 
-**Onboarding (M1):** new players spawn in the shared starting zone (working name: the cave) and navigate to a checkpoint, which unlocks the hub (`hog-town`). It teaches movement and the world before the full loop opens (gathering layers on at M2). The specific framing is deferred (see [world.md](world.md)).
+**Planned onboarding:** new players spawn in the shared starting zone (working name: the cave) and navigate to a checkpoint, which unlocks the hub (`hog-town`). It teaches movement and the world before the full loop opens. The specific framing is deferred (see [world.md](world.md)).
 
 ## Systems
 
@@ -60,7 +60,7 @@ Two input modes, both supported:
 Both are **input-driven, not per-frame.** The client writes a movement intent only on input transitions — a click (which sets a path), a key down/up, or a direction change — never on a timer or every frame. For grid-lock, the client holds a turn or stop until its predicted avatar reaches the next tile centre, then sends the intent (it detects the centre from its own prediction — a motion transition, not a per-frame sync; the same pattern `push` uses). The server stores each player's motion as an origin `(x, y)`, a direction or a path, and `movedAt`; position over time is derived from these, and clients render it locally between updates.
 
 - Move speed: 4 tiles/sec *(initial)*, shared by both modes. A click overrides held keys and vice versa.
-- **Running:** holding **shift** while moving runs at `RUN_SPEED_TILES_PER_SEC` (7 tiles/sec *(initial)*) instead of walking, behind the `running` flag (invariant 5; off → shift is ignored, movement stays at walk speed). Run state rides the synced motion intent (`player.running`), so `projectMotion` derives the same faster position on every client — no per-frame sync, no determinism mismatch (invariants 2 & 3). Releasing shift, stopping, or a change of direction re-bases the origin at the current speed (the `move` reducer settles before storing the new intent). Troggs show a faster, hunched run animation (`run_a`/`run_b` in `shared/sprites.ts`); Hogs always walk.
+- **Running:** holding **shift** while moving runs at `RUN_SPEED_TILES_PER_SEC` (7 tiles/sec *(initial)*) instead of walking, controlled by the optional `running` flag (off → shift is ignored, movement stays at walk speed). Run state rides the synced motion intent (`player.running`), so `projectMotion` derives the same faster position on every client — no per-frame sync, no determinism mismatch (invariants 2 & 3). Releasing shift, stopping, or a change of direction re-bases the origin at the current speed (the `move` reducer settles before storing the new intent). Troggs show a faster, hunched run animation (`run_a`/`run_b` in `shared/sprites.ts`); Hogs always walk.
 - **Obstacles:** tiles carry a walkability flag; nodes and scenery (trees, rocks, walls) sit on unwalkable tiles. WASD clamps at the first unwalkable tile or the zone edge; click-to-move routes around them.
 - **Pathfinding:** the server runs grid `A*` over the zone's walkable tiles on each click, stores the resulting `path` on the player, and clients animate along that synced path — no client-side recompute, so no determinism mismatch to manage. An obstacle-free zone degenerates to a straight line. The algorithm runs server-side in the room on each click — a small hand-rolled grid `A*` or a battle-tested JS lib (PathFinding.js, easystarjs).
 - **No teleport-by-quit.** The stored `(x, y)` is the *origin* of the current move, never the destination. Position is only advanced by elapsed real time × speed along `path`, so clicking far away and quitting skips nothing — on return you're wherever the clock puts you (arrived only if enough time actually passed). A scheduled task may settle `(x, y)` to the path's end at `movedAt + traveltime`, but never before it.
@@ -73,12 +73,12 @@ Boulders are pushable rocks — dynamic obstacles, the same block-pushing gramma
 - **A push is walking *into* a boulder, not arriving beside one.** Hold a direction into a boulder you face and it slides ahead of you, one tile at a time, for as long as you keep pushing — like walking. Releasing as you reach it stops the trogg flush against it like a wall (it's an occupied tile), no shove; tap-to-turn (see "Movement") means you face it deliberately first, so you never shove something you only brushed past. The trogg must be **tile-aligned and flush**, and the tile beyond the boulder must be open floor (no wall, no other boulder).
 - **No tick** (invariant 1) and **server-authoritative** (invariant 3). The client fires `push` off its own prediction — the moment the trogg, moving in a committed direction (not merely facing one), becomes flush against a boulder (a motion transition, once per tile — never per frame, invariant 2). The server re-derives the trogg's position from its stored intent, validates alignment + a clear destination, moves the boulder one tile, and re-bases the trogg's motion to the flush tile.
 - **Cadence falls out of walk speed.** Re-basing leaves the boulder one tile ahead, and the trogg follows into the vacated tile before it's flush again — so the boulder advances at most one tile per tile walked, and a held key gives a steady slide at walk speed, never faster. Spamming `push` can't help: the boulder isn't faced again until the trogg catches up.
-- Boulders start from the zone's `boulders` registry entry, seeded into the `boulder` table on first connect, then moved only by `push`. Behind the `boulder-pushing` flag (invariant 5): off → immovable rocks; on → pushable. Playable either way (invariant 6).
+- Boulders start from the zone's `boulders` registry entry, seeded into the `boulder` table on first connect, then moved only by `push`. The optional `boulder-pushing` flag can turn this off remotely: off → immovable rocks; on → pushable. Playable either way (invariant 6).
 - **Resetting:** the in-chat `/reset` command snaps the player's current zone back to its registry boulder layout (the `resetBoulders` reducer clears and reseeds the zone). Behind the `boulder-reset` flag — off, `/reset` is just an ordinary chat line.
 
 ### Hogs (roaming)
 
-Ambient **Hog** NPCs (the glossary's friendly hedgehogs) roam the zone on their own — decorative life in the world, behind the `roaming-hogs` flag (invariant 5; off → no Hogs). This is presence and movement only: no dialogue, trade, or interaction. The merchant, townsfolk, and protectee roles stay deferred (Hog merchants at M3, LLM-driven Hogs at M5).
+Ambient **Hog** NPCs (the glossary's friendly hedgehogs) roam the zone on their own — decorative life in the world, controlled by the optional `roaming-hogs` flag (off → no Hogs). This is presence and movement only: no dialogue, trade, or interaction. Merchant, townsfolk, and dialogue roles are separate later work.
 
 - **Same motion model as troggs.** A Hog carries an intent — origin `(x, y)`, a cardinal direction, `movedAt` — and clients derive its position with `projectMotion`, so it's never per-frame synced (invariant 2) and it collides against the same walls and boulders.
 - **Driven by a scheduled reducer, not a tick.** A Hog changes heading only inside the scheduled `wanderHogs` reducer (SpacetimeDB's deterministic timer — the sanctioned exception in invariant 1, like respawns). Each tick re-derives every Hog's position and picks a fresh heading: a random walkable cardinal, or idle with chance `HOG_IDLE_CHANCE` so they pause. Randomness is the context RNG (seeded from the tick timestamp), so the schedule replays deterministically (invariant 3).
@@ -96,17 +96,17 @@ Ambient **Hog** NPCs (the glossary's friendly hedgehogs) roam the zone on their 
 - A trogg (and a Hog) is a **layered sprite**: a base body plus composable overlay layers, drawn per facing (down/up/left/right) and per animation frame (idle/walk). Troggs and Hogs share the rig, so equipment renders the same on either.
 - **Held items** (torch, pick, axe, sword, shield) render as per-hand layers — a **main hand** and an **off hand**, so combinations like sword + shield work. Each hand has its own anchor point and z-order per direction/frame (e.g. the off-hand arm and its item sit behind the body when facing up, in front when facing down). A new holdable is a new item sprite, not a new character.
 - **Armor (later)** layers the same way over body slots (head, torso). The rig reserves the layer order now; armor sprites are added with the mechanic.
-- What's equipped rides the zone's player sync, so others see what you're holding. First held-item rendering lands with tools (M2); the model is built extensible from the first sprite.
-- **Sprite avatars (behind `avatar-sprites`):** a trogg renders as the layered avatar sprite — programmer pixel art generated from `shared/sprites.ts` (4 facings × idle/walk/run, troggs and Hogs sharing one rig), feet anchored at the centre of the tile (not its bottom edge, so a grid-locked trogg stands in the middle of its tile). The per-trogg colour rides as a sprite **tint**, so the same trogg is the same colour for everyone, every session; your own trogg gets a ground ring so you can pick it out. The committed sprite sheet asset (`assets/sprites/`) is the reviewable export; the client paints the same art into a texture at runtime.
+- What's equipped rides the zone's player sync, so others see what you're holding. Held-item rendering can land with tools; the model is built extensible from the first sprite.
+- **Sprite avatars (`avatar-sprites`):** a trogg renders as the layered avatar sprite — programmer pixel art generated from `shared/sprites.ts` (4 facings × idle/walk/run, troggs and Hogs sharing one rig), feet anchored at the centre of the tile (not its bottom edge, so a grid-locked trogg stands in the middle of its tile). The per-trogg colour rides as a sprite **tint**, so the same trogg is the same colour for everyone, every session; your own trogg gets a ground ring so you can pick it out. The committed sprite sheet asset (`assets/sprites/`) is the reviewable export; the client paints the same art into a texture at runtime.
 - **Placeholder marker (kill-switch fallback):** with `avatar-sprites` off, a trogg draws as a solid tile-filling marker in its colour (own trogg outlined) — the original placeholder, kept as the flag's fallback.
-- **Trogg colour (behind `trogg-recolor`):** the tint comes from a fixed palette (`TROGG_COLORS` in `shared`). A trogg picks one via the `recolor` reducer, which stores its chosen palette index on the `player` row (validated server-side, invariant 3); until it chooses, the colour falls back to a stable default derived from its durable id (a deterministic projection, like a level from XP — `COLOR_UNSET` is the unchosen sentinel). The chosen colour rides the zone player sync, so the tint and the trogg's chat-name colour update everywhere it's shown. The palette swatches live in the account panel beside rename, behind the `trogg-recolor` flag.
+- **Trogg colour (`trogg-recolor`):** the tint comes from a fixed palette (`TROGG_COLORS` in `shared`). A trogg picks one via the `recolor` reducer, which stores its chosen palette index on the `player` row (validated server-side, invariant 3); until it chooses, the colour falls back to a stable default derived from its durable id (a deterministic projection, like a level from XP — `COLOR_UNSET` is the unchosen sentinel). The chosen colour rides the zone player sync, so the tint and the trogg's chat-name colour update everywhere it's shown. The optional flag controls whether the palette swatches show in the account panel beside rename.
 
 ### Zones
 
 - A zone has a slug, display name, integer width/height in tiles, and a tilemap: per-tile walkability plus scenery. Nodes and obstacles sit on unwalkable tiles.
 - **Zone definitions are a static code registry** (`ZONES` in `shared`, keyed by slug) — static design data like the item and node registries, not the durable `zones` table the data model lists. The table is deferred until tilemaps need editable storage; until then a zone is a registry entry. A client subscribes to one zone's rows by slug (`WHERE zone_id = …`); zone dimensions and the per-tile walkability tilemap (`tiles`, read through `isWalkable`) come from the shared `ZONES` registry (imported by both the client and the module), so the grid is shared design data, not a per-session value. The client renders walls from the same tilemap it collides against, so what's drawn is what blocks you.
-- **Spawn and the hub gate (M1):** new players spawn in a shared **starting zone** (working name: the cave) and must reach a checkpoint to unlock the hub, `hog-town`. The hub isn't available until the checkpoint is crossed — a per-player progression gate, not an instance; the starting zone is shared like any other.
-- M0 ships a single shared zone to prove the loop *(working slug `hog-town`, 24×16 (initial))*; the starting zone and gate land with M1.
+- **Spawn and the hub gate:** new players spawn in a shared **starting zone** (working name: the cave) and must reach a checkpoint to unlock the hub, `hog-town`. The hub isn't available until the checkpoint is crossed — a per-player progression gate, not an instance; the starting zone is shared like any other.
+- The current world ships a single shared zone *(working slug `hog-town`, 24×16 (initial))*; additional zones, starting areas, and gates can be added when they help the current gameplay.
 - Clients subscribe to players/nodes/chat **in their current zone only**. Within a zone, sync is deliberately naive (whole-zone queries) — see invariant 10.
 - New zones ship incrementally; transitions are walk-to-edge or interact-with-passage. How later areas gate (checkpoints, light, communal projects) is an open thread.
 
@@ -129,7 +129,7 @@ Ambient **Hog** NPCs (the glossary's friendly hedgehogs) roam the zone on their 
 - Skills exist per player, per skill, as accumulated XP. Level is derived, never stored.
 - Total XP to reach level L: `50 × (L − 1)²` *(initial)* — level 2 at 50 XP, level 10 at 4,050.
 - Level cap: 50 *(initial)*.
-- First skills (M2): **mining** and **foraging**. Crafting skill arrives with M3. No combat skills until defense events are specced.
+- First skills: **mining** and **foraging**. Crafting can arrive when recipes and inventory need it. No combat skills until defense events are specced.
 
 ### Gathering (nodes and actions)
 
@@ -150,26 +150,26 @@ New node types are added by extending this table — keep it the registry.
 - Items are defined in a static registry (id, name, stackable, blurb). Holdable/wearable items also carry their slot and sprite. No item randomization.
 - Equipping sets a `players.equipment` slot to an owned item (the item stays counted in inventory; equipment just references it). See [Avatars and equipment](#avatars-and-equipment).
 
-### Crafting (M3 — specced at M3)
+### Crafting
 
 - Recipes: inputs → output, optional skill/level requirement, crafted at stations in the Hog town (e.g., torches, better picks).
 - Better tools gather faster or unlock harder node types — the progression spine.
 
-### Communal construction (M3 — specced at M3)
+### Communal construction
 
 - Projects the whole tribe contributes resources to ("the beacon needs 500 stone"), with a public progress bar. Completion unlocks a zone, station, or capability for everyone.
 - Contributions are per-player tracked (leaderboards, achievements); the unlock is shared.
 
-### Hog merchants and economy (M3 — specced at M3)
+### Hog merchants and economy
 
-- Hog NPCs buy and sell at fixed prices in town. Player trading, if added, is a transactional mutation under contention — both inventories checked and mutated atomically.
-- Currency: TBD at M3 (working name: shards).
+- Hog NPCs can buy and sell at fixed prices in town. Player trading, if added, is a transactional mutation under contention — both inventories checked and mutated atomically.
+- Currency: TBD (working name: shards).
 
-### Defense events (post-M5 — specced if reached)
+### Defense events
 
 - PvE only. Things come out of the dark; the tribe defends the Hogs. Event-based combat: scheduled waves, slow stat-driven resolution, click-to-engage. No projectiles, no physics, no real-time aiming — ever (invariant 7).
 
-### AI inhabitants (M5 — specced when M4 is done)
+### AI inhabitants
 
 - LLM-driven Hog NPCs with real dialogue (merchants, quest-giver-ish townsfolk). Every interaction is an LLM call traced with AI observability.
 
@@ -183,12 +183,11 @@ Dev mirrors prod: a local `spacetime start` instance runs the very module produc
 player         identity (PK), name, isGuest, zoneId, x, y, dirX, dirY, running, movedAt, online, lastChatAt, color, hubUnlocked, equipment
                keyed by the connection's Identity. motion derived from origin (x,y) + movedAt: WASD uses
                dirX/dirY (0,0 = idle); running (shift held) picks run speed over walk speed in projectMotion,
-               so it rides the intent like direction; click-to-move adds `path` (waypoint tiles) at M1. online: in-zone
+               so it rides the intent like direction; click-to-move can add `path` (waypoint tiles). online: in-zone
                presence — clients subscribe to online players, so a disconnect settles the row and drops it
                from view without losing progress. lastChatAt: per-player chat rate limit. color: chosen
                TROGG_COLORS palette index (COLOR_UNSET = -1 → colour derived from id; see "Avatars").
-               hubUnlocked: M1
-               checkpoint gate. equipment: slot → item map, multiple slots at once (e.g. { mainHand: "sword",
+               hubUnlocked: checkpoint gate. equipment: slot → item map, multiple slots at once (e.g. { mainHand: "sword",
                offHand: "shield" }; armor slots later) — rides the zone subscription so others see it
                index: by_zone (zoneId)
 zones          slug, name, width, height, tilemap (per-tile walkability + scenery), checkpoint (unlock tile, null if none)
@@ -223,7 +222,7 @@ skills         playerId, skill, xp
                index: by_player (playerId)
 inventories    playerId, item, qty
                index: by_player (playerId)
-projects       slug, zoneId, status, requirements, contributed     (M3)
+projects       slug, zoneId, status, requirements, contributed
                index: by_zone (zoneId)
 ```
 
@@ -233,7 +232,7 @@ projects       slug, zoneId, status, requirements, contributed     (M3)
 - **Fixed cost, watched in metrics.** The VPS runs the self-hosted SpacetimeDB instance on a flat monthly bill, not a usage meter, so the concern is CPU, memory, and bandwidth — watched via server metrics and PostHog, not an egress invoice. At the realistic scale (tens of concurrent) a single instance on a small Hetzner box is ample.
 - **Capacity cap before launch.** Connection and subscription limits are set so a viral night sheds or queues load instead of toppling the box; vertical scale (a bigger VPS) is the first lever.
 - **The answer key, only when a graph demands it:** narrow the subscription with area-of-interest SQL filters (a smaller `WHERE` per client), crowd aggregation above a density threshold, and — when one box isn't enough — SpacetimeDB's own horizontal scaling. None of these are built in advance.
-- **Same module, dev to prod.** The instance the VPS runs is the module that runs locally, mirrored from M0. Running beyond a single instance — and everything else in the answer key — stays deferred under invariant 10.
+- **Same module, dev to prod.** The instance the VPS runs is the module that runs locally, mirrored from the current production module. Running beyond a single instance — and everything else in the answer key — stays deferred under invariant 10.
 - **Swappable position feed:** the client reads positions through the zone subscription and writes through reducers, both in one place. Tightening to area-of-interest is a query change, not a rewrite.
 
 ## Invariants (non-negotiable)
@@ -242,53 +241,26 @@ projects       slug, zoneId, status, requirements, contributed     (M3)
 2. No per-frame or per-tile server sync. Movement intents (click→path, key down/up, direction change) are sent via reducers; clients derive and predict motion locally. Synced player state changes on input, never on a timer or every frame.
 3. All authoritative state lives on the server — SpacetimeDB's durable tables, written only by reducers, with the writer identified by `ctx.sender`. Never trust the client.
 4. Analytics events are low-volume and never contain chat content or PII beyond the player name (full rules in [analytics.md](analytics.md)).
-5. Every new mechanic ships behind a feature flag.
+5. Feature flags are operational controls, not a blanket requirement. Add or configure one when a feature needs remote rollout, a kill-switch, an experiment, or live tuning; otherwise keep the code simple. Any flag key the code reads must be registered in [analytics.md](analytics.md) with its fallback behavior, and the matching PostHog flag must be created or updated in the configured project during the same task.
 6. The game is playable at the end of every session. No half-wired states on `main`.
 7. No PvP. No twitch combat: any PvE is event-based, stat-driven, and slow — no projectiles, physics, or real-time aiming. No procedural generation.
 8. No secrets in the repo — env vars only, `.env*` is gitignored. This repo is public.
 9. Glossary names are canonical across code, schema, events, and UI.
 10. No preemptive scaling work. Optimizations from the scaling answer key are built only when a dashboard graph justifies them. No instancing below ~1,000 concurrent in a zone.
 
-## Milestone tracker
+## Roadmap and current state
 
-Current milestone: **M0**. Don't build ahead without being asked.
+Roadmap notes are planning context, not permission gates. Pick work by current product need, maintainer direction, and what keeps the game playable. Do not block a task because older notes placed it later, and do not treat this section as a release checklist.
 
-| # | Status | Name | Scope | Demos |
-| - | ------ | ---- | ----- | ----- |
-| M0 | in progress | Tiny shared world | Avatars, click-to-move + WASD, chat bubbles, one zone | SpacetimeDB table subscriptions, presence; autocapture, first session replays |
-| M1 | not started | Identity & onboarding | Browser-persisted guests + cross-device sign-in, names; starting cave → checkpoint → hub gate; obstacles + A* pathfinding | Anonymous-first auth (SpacetimeDB Identity); `identify`, person profiles, unified front/back journeys |
-| M2 | not started | Gathering loop | Stone + glowcap nodes, mining/foraging XP, leaderboard | Scheduled reducers + timestamp-derived respawns; funnels, retention |
-| M3 | not started | Crafting & the tribe builds | Recipes, tools, first communal project, Hog merchants | Atomic reducer transactions; flags as balance knobs, first A/B experiment |
-| M4 | not started | The Great Delving | Community stress-test event: everyone piles in at once | Load behavior; live analytics at peak; the load graph's big night |
-| M5 | not started | Talking Hogs | LLM-driven Hog NPCs | Actions calling LLMs; AI observability |
-| M6 | not started | Defense events (optional) | PvE waves; protect the Hogs | Event-based combat within invariant 7 |
+Current playable foundation: durable SpacetimeDB tables are the store, anonymous SpacetimeDB Identity gives each browser a persistent trogg, and optional SpacetimeAuth OIDC lets a guest claim an account with `startClaim`/`redeemClaim`, `rename`, `player_named`, and `posthog.identify()`. Identity is issued by the connection and reducers authorize by `ctx.sender`; it is never client-asserted.
 
-Durable persistence landed in M0, ahead of the tracker, at maintainer direction — SpacetimeDB's tables are the durable store, so players resume their trogg across reconnects and restarts with no separate cache or database. Anonymous identity landed alongside it, also ahead of the tracker: SpacetimeDB issues each connection a cryptographic Identity, the browser stores the connection token, and reducers authorise by `ctx.sender` — identity is connection-issued, never client-asserted (invariant 3).
+Implemented world systems: a static shared `ZONES` registry, zone-scoped subscriptions, per-tile walkability, cardinal grid-locked WASD movement, boulder pushing, roaming Hogs, hold-shift-to-run, sprite avatars, chat bubbles/history, trogg recolouring, a small ghost-trogg cosmetic, `/spawn`, and `/reset`. Some of these have optional client-side flag gates for remote rollout or kill-switch use; the current code-read flags are configured in PostHog and still have code fallbacks for local or unconfigured environments.
 
-The account-upgrade slice of M1 identity then landed too, also ahead of the tracker at maintainer direction: cross-device sign-in via **SpacetimeAuth** OIDC (Discord), the guest → account **claim** (a nonce minted by the guest and redeemed as the account — `startClaim`/`redeemClaim`, backed by the private `claim_code` table), and **renaming** (`rename`) with the `player_named` + `posthog.identify()` upgrade event. The browser-side OIDC flow is Authorization-Code-+-PKCE (a public client, no secret — invariant 8), all behind the `auth-enabled` flag (invariant 5). The earlier design note of a "recovery passphrase" was superseded by OIDC.
-
-Zones are now a first-class concept (M0 foundation): a static `ZONES` registry in `shared`, imported by both the client and the module, with per-zone subscriptions keyed by slug (`WHERE zone_id = …`) so the client renders any zone from shared design data. M0 still runs one zone (`hog-town`); the registry and zone-scoped subscriptions make M1's starting cave, hub gate, and transitions a config-and-content change, not a refactor.
-
-Per-tile walkability landed in M0, ahead of the tracker, at maintainer direction: zones carry a `tiles` tilemap, and WASD movement clamps at the first unwalkable tile or the zone edge — confined to the floor, like classic top-down games. WASD is also 4-directional (cardinal only, no diagonals; last-key-wins) and **grid-locked** — the trogg moves tile-to-tile and always rests on a tile centre, completing the current step before it turns or stops (the client holds the new intent until its predicted avatar reaches the next centre; the server snaps each settled origin to a whole tile). The trogg is a 1×1 footprint and the same tilemap drives both collision and the rendered walls. What remains of M1's "obstacles + A* pathfinding" is the pathfinding half: click-to-move and server-side A* that routes *around* obstacles (WASD only stops *at* them).
-
-Boulder pushing landed in M0 too, also at maintainer direction (see [Pushing](#pushing)) — pushable boulders as dynamic obstacles, slid one tile at a time at walk speed for as long as you hold into them, behind the `boulder-pushing` flag. It reuses the walkability collision (a boulder is just an occupied tile) and the intent model (the client fires the push off its own motion as it becomes flush, and the server re-bases motion, no tick), so it's an extension of movement rather than new infrastructure.
-
-Roaming Hogs landed in M0 too, also at maintainer direction (see [Hogs (roaming)](#hogs-roaming)) — ambient hedgehog NPCs that wander the zone behind the `roaming-hogs` flag. This is decorative presence only: the Hog merchant (M3) and LLM-driven Hog (M5) roles are untouched. It reuses the intent motion model and walkability collision, and introduces the first **scheduled reducer** (`wanderHogs`), exercising SpacetimeDB's deterministic timer — the same primitive M2's respawns and action completions will use — while staying within invariant 1 (it re-arms only while a player is online, so an empty zone does no work).
-
-Hold-shift-to-run landed in M0 too, also at maintainer direction (see [Movement](#movement)) — holding shift while moving runs at `RUN_SPEED_TILES_PER_SEC` instead of walking, behind the `running` flag. It's a pure extension of the intent model: `running` rides the synced motion intent so `projectMotion` derives the faster position on every client (no per-frame sync, no determinism mismatch — invariants 2 & 3), the `move` reducer re-bases at the current speed on each transition, and troggs gain a hunched `run_a`/`run_b` animation in the shared sprite sheet (Hogs always walk).
-
-A cosmetic easter egg rides on M0 too: on launch, a pale "ghost trogg" rarely (~1 in 20) flickers in at the origin tile for a heartbeat before fading, behind the `ghost-trogg` flag (invariant 5). It's a client-only render — no table, no reducer (invariant 3) — pure flavor seen only by the haunted player, not a mechanic with rules or data.
-
-Zone chat (M0 scope) ships on top of it: speech bubbles over heads plus a history side panel, behind the `chat-enabled` flag. Recent lines live in the `chat_message` table and replay when a client subscribes. The `chat` reducer enforces the 200-char cap and 1 msg/sec rate limit server-side (invariant 3); the flag gates the client mount.
-
-Trogg recolouring landed in M0 too, at maintainer direction (see [Avatars and equipment](#avatars-and-equipment)) — a player picks an avatar colour from the fixed `TROGG_COLORS` palette via the `recolor` reducer, which stores the chosen index on the `player` row; an unchosen trogg still falls back to the id-derived default (`COLOR_UNSET`), so the column is an additive-with-default migration and existing troggs are visually unchanged. Behind the `trogg-recolor` flag (invariant 5), with the swatches in the account panel beside rename; recolouring fires `trogg_recolored`.
-
-A `/spawn` debug command landed alongside chat, behind the `spawn-command` flag (default on in local dev, off in a production build): typing `/spawn boulder` or `/spawn hedgehog` in the chat box drops that entity at the caller's tile (the tile it faces, else a free neighbour). The placement and the `spawn` reducer are server-authoritative (invariant 3). A spawned Hog starts at rest and joins the roamers — the next `wanderHogs` tick gives it a heading like any other (see [Hogs (roaming)](#hogs-roaming)). There's no role system in M0, so the flag is the only gate; default it off in production.
-
+Likely next work areas include starting-zone onboarding, click-to-move pathfinding around obstacles, gathering and XP, inventory/equipment, crafting, communal projects, Hog merchants, load events, LLM-driven Hogs, and optional PvE defense. These are intentionally fluid; implement the slice that best serves the current task.
 ## Open design threads
 
 - Mascot integration: a first programmer-pixel-art trogg/Hog sprite sheet has landed (`shared/sprites.ts` → `assets/sprites/`, rendered for troggs behind `avatar-sprites`); replacing it with finished concept-art-based sprites is the remaining work.
 - Tilemap and pixel asset direction once the colored grid stops being charming.
-- Light/darkness as a mechanic: torch radius, communal beacons, dark-gated zones — how literal to make it (M2–M3 decision).
+- Light/darkness as a mechanic: torch radius, communal beacons, dark-gated zones — how literal to make it.
 - Own-avatar prediction polish: basic optimistic acknowledgement handling has landed for movement; richer rollback/smoothing is deferred until playtests show a need.
-- Currency design at M3.
+- Currency design.

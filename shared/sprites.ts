@@ -16,9 +16,9 @@
  * the feet (`ANCHOR`) so a sprite drops onto a tile by its base, head room up.
  *
  * This is the avatar *base body* only. Held-item and armour overlays (GDD
- * per-hand layers) reuse the same frame grid and anchor when they land (M2+);
- * the rig reserves their order now. Nothing here is wired into rendering yet —
- * M0 still draws the placeholder marker (see `avatar.ts` / `world.ts`).
+ * per-hand layers) reuse the same frame grid and anchor when they land; the rig
+ * reserves their order now. Rendering can fall back to the placeholder marker
+ * when sprite avatars are disabled.
  */
 
 export type Kind = "trogg" | "hog";

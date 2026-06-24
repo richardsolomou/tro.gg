@@ -1,7 +1,7 @@
 /**
- * Tuning values from the GDD. Those marked (initial) are expected to move to
- * feature flags — read them through here, never hardcode beliefs about them
- * elsewhere. See docs/gdd.md.
+ * Tuning values from the GDD. Those marked (initial) are starting values; keep
+ * them centralized here and make them remotely configurable only when runtime
+ * tuning or experiments are useful. See docs/gdd.md.
  */
 
 /** Movement speed shared by click-to-move and WASD. (initial) */
@@ -11,7 +11,7 @@ export const MOVE_SPEED_TILES_PER_SEC = 4;
  * Running speed (GDD "Movement"): holding shift while moving runs instead of
  * walks. It rides the synced motion intent (`player.running`), so every client
  * derives the same faster position with `projectMotion` — no per-frame sync and
- * no determinism mismatch (invariants 2 & 3). Behind the `running` flag. (initial)
+ * no determinism mismatch (invariants 2 & 3). Optionally gated by the `running` flag. (initial)
  */
 export const RUN_SPEED_TILES_PER_SEC = 7;
 
@@ -104,8 +104,8 @@ export interface Zone {
 }
 
 /**
- * Every zone in the world, keyed by slug. M0 ships one shared zone; later zones
- * are added here. The starting cave and hub gate land with M1.
+ * Every zone in the world, keyed by slug. The current world has one shared zone;
+ * later zones, starting areas, and gates are added here when they serve the game.
  *
  * `hog-town` is a 24×16 cave: a one-tile rock wall around the rim with two rock
  * pillars inside, so the playable floor is a real non-rectangular shape. Edit

@@ -49,7 +49,7 @@ async function main() {
     }
 
     mountWorld(app, conn);
-    // Account UI (rename + claim) ships behind its flag (invariant 5) and only
+    // Account UI (rename + claim) reads an optional rollout flag and only mounts
     // when SpacetimeAuth is configured for this build.
     if (authConfigured() && isFeatureEnabled("auth-enabled")) mountAccount(conn, { signedIn });
   } catch (err) {

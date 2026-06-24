@@ -13,10 +13,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "typecheck:module": "tsc -p spacetimedb/tsconfig.json --noEmit",
     "test": "node --import tsx --test \"shared/*.test.ts\"",
-    "sprites": "tsx tools/gen-spritesheet.ts",
-    "module:publish": "spacetime publish --module-path spacetimedb trogg",
-    "module:publish:prod": "spacetime publish --server trogg-prod --module-path spacetimedb trogg",
-    "module:generate": "spacetime generate --lang typescript --out-dir src/module_bindings --module-path spacetimedb"
+    "sprites": "tsx tools/gen-spritesheet.ts"
   },
   "dependencies": {
     "oidc-client-ts": "^3.5.0",

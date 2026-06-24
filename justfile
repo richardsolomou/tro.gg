@@ -1,32 +1,35 @@
 # tro.gg tasks — run `just` to list recipes.
 
+spacetime := env_var_or_default("SPACETIME", "spacetime")
+
 # List available recipes.
 default:
     @just --list
 
-# Run the local SpacetimeDB instance (foreground, long-lived). Run once in its own
-# terminal; `just dev` publishes the module to it. Replaces the old docker compose.
+# Install the SpacetimeDB CLI into the current user profile.
+spacetime-install:
+    curl -sSf https://install.spacetimedb.com | sh
+
+# Run the local SpacetimeDB instance in the foreground.
 start:
-    spacetime start
+    {{spacetime}} start
 
 # Publish the module to the local instance and regenerate client bindings.
 publish:
-    spacetime publish --module-path spacetimedb trogg -y
+    {{spacetime}} publish --module-path spacetimedb trogg -y
     just generate
 
 # Regenerate the TypeScript client bindings from the module schema.
 generate:
-    spacetime generate --lang typescript --out-dir src/module_bindings --module-path spacetimedb -y
+    {{spacetime}} generate --lang typescript --out-dir src/module_bindings --module-path spacetimedb -y
 
 # Publish the module, regenerate bindings, then run the client on :5173.
-# Assumes `just start` is already running in another terminal.
 dev: publish
     pnpm dev
 
 # Deploy the module to the hosted production instance (spacetime.tro.gg).
-# One-time setup: spacetime server add trogg-prod --url https://spacetime.tro.gg
 publish-prod:
-    spacetime publish --server trogg-prod --module-path spacetimedb trogg
+    {{spacetime}} publish --server trogg-prod --module-path spacetimedb trogg
 
 # Build the client.
 build:

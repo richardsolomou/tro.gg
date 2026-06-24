@@ -45,7 +45,7 @@ import {
  * defaults to `COLOR_UNSET` (-1) so an unchosen trogg falls back to its id-derived
  * colour. Both `running` and `color` carry defaults so adding them to the
  * already-published `player` table is an in-place migration, not a breaking one.
- * `hubUnlocked`/`equipment` land with M1/M2.
+ * `hubUnlocked`/`equipment` are reserved for onboarding and equipment systems.
  */
 const player = table(
   { name: "player", public: true },
@@ -132,7 +132,7 @@ const boulder = table(
  * `projectMotion` and there's no per-frame sync (invariant 2). Hogs are
  * server-owned (no identity): seeded per zone from the `ZONES` registry on first
  * connect, dropped by the `/spawn` debug command, then moved only by the scheduled
- * `wanderHogs` reducer. The merchant/dialogue Hog roles land with M3/M5.
+ * `wanderHogs` reducer. Merchant/dialogue Hog roles are separate later work.
  *
  * Unlike a trogg, a Hog's origin is an integer tile (`i32`): it re-bases at a whole
  * tile each wander tick (clients still glide between via `projectMotion`), and it
@@ -368,10 +368,10 @@ export const wanderHogs = spacetimedb.reducer({ timer: hogWander.rowType }, (ctx
 
 /**
  * Spawn a boulder or Hog at the caller's location — the `/spawn` debug command
- * (behind the `spawn-command` flag, gated client-side). The server re-derives the
- * trogg's tile authoritatively (invariant 3) and places the entity on the tile it
- * faces, falling back to a free neighbour, so nothing lands inside a wall or on
- * another boulder. An unknown kind or a boxed-in trogg is a silent no-op.
+ * (optionally gated client-side by `spawn-command`). The server re-derives the
+ * trogg's tile authoritatively (invariant 3) and places the entity on the tile
+ * it faces, falling back to a free neighbour, so nothing lands inside a wall or
+ * on another boulder. An unknown kind or a boxed-in trogg is a silent no-op.
  */
 export const spawn = spacetimedb.reducer({ kind: t.string() }, (ctx, { kind }) => {
   if (kind !== "boulder" && kind !== "hog") return;
@@ -401,8 +401,8 @@ export const spawn = spacetimedb.reducer({ kind: t.string() }, (ctx, { kind }) =
  * Reset the caller's zone boulders to their `ZONES` registry positions (GDD
  * "Pushing"). Clears the zone's boulders and reseeds from the registry — the single
  * source of truth — so a layout shoved out of shape snaps back. Fired by the in-chat
- * `/reset` command; open like every reducer, with the `boulder-reset` flag gating
- * the client command (invariant 5).
+ * `/reset` command; open like every reducer, with the optional `boulder-reset`
+ * flag gating the client command.
  */
 export const resetBoulders = spacetimedb.reducer((ctx) => {
   const p = ctx.db.player.identity.find(ctx.sender);

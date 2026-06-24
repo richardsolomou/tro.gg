@@ -7,7 +7,8 @@ import { setPendingClaim } from "./identity.js";
 /**
  * The account panel (GDD "Identity"): rename your trogg, and — for a guest —
  * claim an account so you can log back in on any device. Sits top-right, styled
- * like the chat panel; mounted only behind the `auth-enabled` flag.
+ * like the chat panel; mounted when SpacetimeAuth is configured and the optional
+ * `auth-enabled` flag is on.
  *
  * Renaming and claiming are server-authoritative (invariant 3): the panel calls
  * the `rename` / `startClaim` reducers and reflects the result from the synced
@@ -71,10 +72,10 @@ export function mountAccount(conn: DbConnection, opts: { signedIn: boolean }): v
 
   root.append(who, input, status);
 
-  // The colour picker is its own mechanic, so it ships behind its own flag
-  // (invariant 5); off → only renaming shows. A swatch retints the trogg via the
-  // `recolor` reducer and the synced row, never asserting colour locally (invariant
-  // 3) — the avatar and chat name update from the player-row update.
+  // The colour picker has its own optional rollout flag; off → only renaming
+  // shows. A swatch retints the trogg via the `recolor` reducer and the synced
+  // row, never asserting colour locally (invariant 3) — the avatar and chat name
+  // update from the player-row update.
   const swatches: HTMLButtonElement[] = [];
   let selectColor = (_index: number) => {};
   if (isFeatureEnabled("trogg-recolor")) {

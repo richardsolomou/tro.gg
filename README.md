@@ -19,7 +19,7 @@ You're a trogg in a shared world. Gather, craft better gear, and push into harde
 
 ## Status
 
-M0 in progress — SpacetimeDB module + client wired, one zone with presence, WASD movement, and zone chat (speech bubbles + history panel). State lives in durable SpacetimeDB tables, so players and chat resume across reconnects and restarts.
+Playable shared-world foundation: SpacetimeDB module + client wired, one zone with presence, grid movement, boulders, roaming Hogs, account claiming, avatar sprites, recolouring, and zone chat. State lives in durable SpacetimeDB tables, so players and chat resume across reconnects and restarts.
 
 ## Development
 
@@ -31,18 +31,27 @@ The repo follows SpacetimeDB's layout:
 | `spacetimedb/` | SpacetimeDB TypeScript module — the tables and reducers that are the whole backend (matches SpacetimeDB's template layout; intentionally not a pnpm workspace package, so it resolves the SDK from the root `node_modules`) | Self-hosted SpacetimeDB (Hetzner VPS) |
 | `shared/` | Pure game logic (motion, constants, avatar colours), imported by both the client and the module | — |
 
-Tasks run through [`just`](https://github.com/casey/just) — run `just` to list recipes. You'll need the [`spacetime` CLI](https://spacetimedb.com/install) installed (it replaces the old Docker requirement).
+Tasks run through [`just`](https://github.com/casey/just) — run `just` to list recipes. Use `pnpm` for dependency installation and the package scripts consumed by CI/hosting; use `just` for local project tasks. You'll need the [`spacetime` CLI](https://spacetimedb.com/install) installed (it replaces the old Docker requirement).
 
 ```sh
 pnpm install
+just spacetime-install # only if spacetime is not already installed
 cp .env.example .env   # VITE_SPACETIMEDB_HOST / _DB_NAME, PostHog key — defaults are local
 just start             # local SpacetimeDB instance — leave running in its own terminal
 just dev               # publish the module + generate bindings, then client on :5173
 ```
 
+Fresh cloud task environments often do not have `spacetime` on `PATH`. Use `just spacetime-install`, then either add `/root/.local/bin` to `PATH` or pass the binary explicitly:
+
+```sh
+SPACETIME=/root/.local/bin/spacetime just generate
+```
+
+Generating bindings does not require SpacetimeDB login; it only needs `node_modules` and the CLI. In this pnpm layout, the Spacetime CLI may warn that `tsc` is not in `spacetimedb/node_modules`; the generate step is still healthy if it finishes successfully. Publishing to a local or hosted database does require the normal `spacetime login`/token setup for the target server.
+
 Dev mirrors prod: `just start` runs a local SpacetimeDB instance, and `just dev` publishes the same `spacetimedb/` module that production runs and regenerates the client bindings, so state persists exactly as it does in prod — players and chat resume across reloads and restarts. No Docker, no database to provision. The `.env.example` defaults point at the local instance and the `trogg` module, so a fresh `cp` works as-is.
 
-Identity is issued by SpacetimeDB: each browser gets an anonymous Identity and stores its connection token, so a returning visitor resumes the same trogg. Optionally, players can **sign in** to claim an account and log back in on any device — via [SpacetimeAuth](https://spacetimedb.com/docs/core-concepts/authentication/spacetimeauth/) (OIDC, with Discord), run as a browser Authorization-Code-**+-PKCE** flow, so there's still **no auth secret in the repo or bundle**. Accounts are disabled (guest-only) when `VITE_SPACETIMEAUTH_CLIENT_ID` is unset, so a local loop needs no auth setup. The account UI is gated by the `auth-enabled` flag.
+Identity is issued by SpacetimeDB: each browser gets an anonymous Identity and stores its connection token, so a returning visitor resumes the same trogg. Optionally, players can **sign in** to claim an account and log back in on any device — via [SpacetimeAuth](https://spacetimedb.com/docs/core-concepts/authentication/spacetimeauth/) (OIDC, with Discord), run as a browser Authorization-Code-**+-PKCE** flow, so there's still **no auth secret in the repo or bundle**. Accounts are disabled (guest-only) when `VITE_SPACETIMEAUTH_CLIENT_ID` is unset, so a local loop needs no auth setup. The account UI also reads the optional `auth-enabled` flag.
 
 `just build` builds the client; `just typecheck` checks the client and the module; `just test` runs the shared unit tests.
 
