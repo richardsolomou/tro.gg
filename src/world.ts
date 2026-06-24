@@ -133,13 +133,13 @@ export function mountWorld(app: Application, conn: DbConnection) {
   const slug = STARTING_ZONE_SLUG;
   const zone = getZone(slug)!;
   const myId = conn.identity?.toHexString();
-  // Sprite avatars replace the placeholder marker behind a flag (invariant 5);
-  // the kill-switch falls back to the colour marker, like `chat-enabled`.
+  // Sprite avatars replace the placeholder marker behind an optional kill-switch;
+  // the fallback is the colour marker.
   const useSprites = isFeatureEnabled("avatar-sprites");
-  // Ambient roaming Hogs render behind their own flag (invariant 5; kill-switch).
+  // Ambient roaming Hogs render behind their optional kill-switch.
   const useHogs = isFeatureEnabled("roaming-hogs");
-  // Hold-shift-to-run, behind its own flag (invariant 5); off → shift is ignored
-  // and movement stays at walk speed.
+  // Hold-shift-to-run has an optional rollout flag; off → shift is ignored and
+  // movement stays at walk speed.
   const canRun = isFeatureEnabled("running");
 
   // Tiles boulders currently occupy. Folded into the collision context below so
@@ -314,7 +314,7 @@ export function mountWorld(app: Application, conn: DbConnection) {
     hogs.delete(h.id.toString());
   };
 
-  // Roaming Hogs render behind their own flag (invariant 5; kill-switch).
+  // Roaming Hogs render behind their optional kill-switch.
   if (useHogs) {
     conn.db.hog.onInsert((_ctx, h) => addHog(h));
     conn.db.hog.onUpdate((_ctx, _old, h) => updateHog(h));
@@ -363,7 +363,7 @@ export function mountWorld(app: Application, conn: DbConnection) {
     conn.reducers.move(intent);
   };
 
-  // Push (GDD "Pushing", behind its flag — invariant 5) fires while the trogg is
+  // Push (GDD "Pushing", gated by its optional flag) fires while the trogg is
   // *actively walking into* a boulder: the key is still held (`desired`) in the
   // committed direction (`sent`, so a tap-to-turn never shoves) and it faces a
   // boulder it's squarely on a centre against. Requiring the key still be held is
@@ -461,7 +461,7 @@ export function mountWorld(app: Application, conn: DbConnection) {
     }
   }, canRun);
 
-  // Cosmetic join easter egg (invariant 5). Each launch has a chance of a haunt.
+  // Cosmetic join easter egg. Each launch has a chance of a haunt.
   if (isFeatureEnabled("ghost-trogg") && Math.random() < GHOST_CHANCE) hauntGhost(stage);
 
   // Live once the initial rows have been delivered: backlog chat fills the
@@ -498,7 +498,7 @@ function setupChat(
 ) {
   // The `/spawn` debug command is typed in the chat box but isn't a chat line —
   // it spawns an entity at the caller's tile (server-authoritative) instead of
-  // broadcasting. Behind its own flag (invariant 5); off → it's sent as plain chat.
+  // broadcasting. It has an optional flag; off → it's sent as plain chat.
   // Defaults on in local dev, off in a production build (PostHog can flip it on).
   const spawnEnabled = isFeatureEnabled("spawn-command", import.meta.env.DEV);
   const resetEnabled = isFeatureEnabled("boulder-reset");

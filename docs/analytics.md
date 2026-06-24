@@ -1,6 +1,6 @@
 # Analytics
 
-The PostHog plan: every product gets a real job, introduced one milestone at a time. This document is binding alongside the [GDD](gdd.md) — new mechanics must register their events and flags here in the same change.
+The PostHog plan: every product gets a real job when it is useful. This document is binding alongside the [GDD](gdd.md) when adding or changing custom events, experiments, or feature flags.
 
 ## Product plan
 
@@ -10,11 +10,11 @@ The PostHog plan: every product gets a real job, introduced one milestone at a t
 | Session replay | Watch new players get lost; review sessions after the fact; debugging |
 | Identify / person profiles | Guest → account upgrade, merged identities |
 | Funnels / retention | Onboarding funnel, XP progression, return cohorts |
-| Feature flags | Every mechanic ships behind one; balance knobs; gradual rollouts |
+| Feature flags | Remote rollout, kill-switches, balance knobs, and experiments when they are worth the extra branch |
 | Experiments | A/B on tuning values (gather times, respawns), announced to players |
 | Error tracking | Client + server errors |
 | Surveys | In-game feedback prompts |
-| AI observability | M5 talking Hogs — traces, cost, quality |
+| AI observability | LLM-driven Hogs — traces, cost, quality |
 
 ## Events
 
@@ -32,33 +32,33 @@ snake_case. Low-volume by design — anything that could fire more than ~once/se
 | `level_up` | `skill, level` | Derived level increases |
 | `chat_sent` | `zone` | Message sent — **no content** |
 | `boulders_reset` | `zone` | Player runs the in-chat `/reset` command |
-| `item_crafted` | `recipe, qty` | M3 |
-| `project_contributed` | `project, item, qty` | M3 |
-| `project_completed` | `project` | M3 |
-| `shop_purchase` | `item, qty, price` | M3 |
+| `item_crafted` | `recipe, qty` | Item crafting succeeds |
+| `project_contributed` | `project, item, qty` | Player contributes to a communal project |
+| `project_completed` | `project` | Communal project completes |
+| `shop_purchase` | `item, qty, price` | Player buys from a Hog merchant |
 
 Client events via posthog-js (plus autocapture + session replay). SpacetimeDB reducers are network-isolated — they can't call out to PostHog — so events fire client-side: the client emits a gameplay-authoritative event (`resource_gathered`, `xp_gained`, `level_up`, crafting, projects, purchases) when it observes the authoritative table change that earns it. If server-truth emission is ever needed, an external process subscribing to the tables can carry it; the event names and properties below are unchanged either way.
 
 ## Feature flags
 
-kebab-case. Every new mechanic ships behind a flag. Registry:
+Feature flags are optional operational controls. Use them for remote rollout, kill-switches, experiments, or live tuning. Do not add a flag just because a feature is new. If code reads a flag key, register it here with its fallback so missing PostHog configuration is intentional.
 
-| Flag | Controls |
-| ---- | -------- |
-| `chat-enabled` | M0 zone chat (client mount gate; kill-switch) |
-| `avatar-sprites` | Trogg sprite avatars vs the placeholder colour marker (render gate; kill-switch) |
-| `ghost-trogg` | Cosmetic launch easter egg — a pale trogg rarely flickers in at the origin (client render; kill-switch) |
-| `boulder-pushing` | M0 boulder pushing (off → boulders are immovable obstacles) |
-| `roaming-hogs` | M0 ambient roaming Hog NPCs (client render gate; kill-switch) |
-| `running` | M0 hold-shift-to-run (off → shift is ignored, movement stays at walk speed) |
-| `spawn-command` | `/spawn` debug command (drops a boulder or Hog at your tile; default on in local dev, off in prod) |
-| `boulder-reset` | M0 in-chat `/reset` command (off → `/reset` is an ordinary chat line) |
-| `auth-enabled` | M1 account sign-in + rename (account UI mount gate; kill-switch) |
-| `trogg-recolor` | Avatar colour picker in the account panel (off → only renaming shows) |
-| `gathering-enabled` | M2 gathering system |
-| `node-respawn-seconds` | Respawn tuning (multivariate / payload) |
-| `crafting-enabled` | M3 crafting |
-| `shop-enabled` | M3 Hog merchants |
+Code currently reads these flag keys:
+
+| Flag | Controls | Fallback |
+| ---- | -------- | -------- |
+| `auth-enabled` | Account sign-in, claim, and rename UI | On, but the UI still requires `VITE_SPACETIMEAUTH_CLIENT_ID` |
+| `avatar-sprites` | Trogg sprite avatars vs the placeholder colour marker | On |
+| `ghost-trogg` | Client-only cosmetic launch easter egg | On |
+| `boulder-pushing` | Client push input for boulders | On |
+| `roaming-hogs` | Hog rendering and subscription | On |
+| `running` | Hold-shift-to-run input | On |
+| `spawn-command` | `/spawn` debug command | On in local dev, off in production builds |
+| `boulder-reset` | `/reset` boulder layout command | On |
+| `chat-enabled` | Chat panel and bubbles | On |
+| `trogg-recolor` | Colour swatches in the account panel | On |
+
+PostHog project audit (2026-06-24): only `auth-enabled` is configured in PostHog, active at 100% rollout. The other code-read flags rely on their fallbacks until someone creates matching PostHog flags. Planned future flags should be added here when code starts reading them, not before.
 
 ## Rules
 

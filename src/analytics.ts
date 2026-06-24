@@ -30,9 +30,9 @@ export function identifyUser(distinctId: string) {
 }
 
 /**
- * Read a feature flag (invariant 5 — every mechanic ships behind one). Without
- * PostHog, or before flags have loaded, the fallback applies, so a kill-switch
- * takes effect on the next load rather than mid-session.
+ * Read a feature flag. Without PostHog, or before flags have loaded, the
+ * fallback applies, so a kill-switch takes effect on the next load rather than
+ * mid-session. Register code-read flags in docs/analytics.md.
  */
 export function isFeatureEnabled(flag: string, fallback = true): boolean {
   if (!POSTHOG_KEY) return fallback;

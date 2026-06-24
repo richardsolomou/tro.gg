@@ -19,7 +19,7 @@ You're a trogg in a shared world. Gather, craft better gear, and push into harde
 
 ## Status
 
-M0 in progress — SpacetimeDB module + client wired, one zone with presence, WASD movement, and zone chat (speech bubbles + history panel). State lives in durable SpacetimeDB tables, so players and chat resume across reconnects and restarts.
+Playable shared-world foundation: SpacetimeDB module + client wired, one zone with presence, grid movement, boulders, roaming Hogs, account claiming, avatar sprites, recolouring, and zone chat. State lives in durable SpacetimeDB tables, so players and chat resume across reconnects and restarts.
 
 ## Development
 
@@ -35,10 +35,20 @@ Tasks run through [`just`](https://github.com/casey/just) — run `just` to list
 
 ```sh
 pnpm install
+pnpm spacetime:install # only if spacetime is not already installed
 cp .env.example .env   # VITE_SPACETIMEDB_HOST / _DB_NAME, PostHog key — defaults are local
 just start             # local SpacetimeDB instance — leave running in its own terminal
 just dev               # publish the module + generate bindings, then client on :5173
 ```
+
+Fresh cloud task environments often do not have `spacetime` on `PATH`. Use `pnpm spacetime:install` or `just spacetime-install`, then either add `/root/.local/bin` to `PATH` or pass the binary explicitly:
+
+```sh
+SPACETIME=/root/.local/bin/spacetime pnpm module:generate
+SPACETIME=/root/.local/bin/spacetime just generate
+```
+
+Generating bindings does not require SpacetimeDB login; it only needs `node_modules` and the CLI. In this pnpm layout, the Spacetime CLI may warn that `tsc` is not in `spacetimedb/node_modules`; the generate step is still healthy if it finishes successfully. Publishing to a local or hosted database does require the normal `spacetime login`/token setup for the target server.
 
 Dev mirrors prod: `just start` runs a local SpacetimeDB instance, and `just dev` publishes the same `spacetimedb/` module that production runs and regenerates the client bindings, so state persists exactly as it does in prod — players and chat resume across reloads and restarts. No Docker, no database to provision. The `.env.example` defaults point at the local instance and the `trogg` module, so a fresh `cp` works as-is.
 

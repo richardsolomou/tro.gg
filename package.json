@@ -14,9 +14,10 @@
     "typecheck:module": "tsc -p spacetimedb/tsconfig.json --noEmit",
     "test": "node --import tsx --test \"shared/*.test.ts\"",
     "sprites": "tsx tools/gen-spritesheet.ts",
-    "module:publish": "spacetime publish --module-path spacetimedb trogg",
-    "module:publish:prod": "spacetime publish --server trogg-prod --module-path spacetimedb trogg",
-    "module:generate": "spacetime generate --lang typescript --out-dir src/module_bindings --module-path spacetimedb"
+    "module:publish": "${SPACETIME:-spacetime} publish --module-path spacetimedb trogg",
+    "module:publish:prod": "${SPACETIME:-spacetime} publish --server trogg-prod --module-path spacetimedb trogg",
+    "module:generate": "${SPACETIME:-spacetime} generate --lang typescript --out-dir src/module_bindings --module-path spacetimedb",
+    "spacetime:install": "curl -sSf https://install.spacetimedb.com | sh"
   },
   "dependencies": {
     "oidc-client-ts": "^3.5.0",

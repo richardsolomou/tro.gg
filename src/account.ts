@@ -71,10 +71,10 @@ export function mountAccount(conn: DbConnection, opts: { signedIn: boolean }): v
 
   root.append(who, input, status);
 
-  // The colour picker is its own mechanic, so it ships behind its own flag
-  // (invariant 5); off → only renaming shows. A swatch retints the trogg via the
-  // `recolor` reducer and the synced row, never asserting colour locally (invariant
-  // 3) — the avatar and chat name update from the player-row update.
+  // The colour picker has its own optional rollout flag; off → only renaming
+  // shows. A swatch retints the trogg via the `recolor` reducer and the synced
+  // row, never asserting colour locally (invariant 3) — the avatar and chat name
+  // update from the player-row update.
   const swatches: HTMLButtonElement[] = [];
   let selectColor = (_index: number) => {};
   if (isFeatureEnabled("trogg-recolor")) {
