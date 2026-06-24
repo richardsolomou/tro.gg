@@ -31,20 +31,19 @@ The repo follows SpacetimeDB's layout:
 | `spacetimedb/` | SpacetimeDB TypeScript module — the tables and reducers that are the whole backend (matches SpacetimeDB's template layout; intentionally not a pnpm workspace package, so it resolves the SDK from the root `node_modules`) | Self-hosted SpacetimeDB (Hetzner VPS) |
 | `shared/` | Pure game logic (motion, constants, avatar colours), imported by both the client and the module | — |
 
-Tasks run through [`just`](https://github.com/casey/just) — run `just` to list recipes. You'll need the [`spacetime` CLI](https://spacetimedb.com/install) installed (it replaces the old Docker requirement).
+Tasks run through [`just`](https://github.com/casey/just) — run `just` to list recipes. Use `pnpm` for dependency installation and the package scripts consumed by CI/hosting; use `just` for local project tasks. You'll need the [`spacetime` CLI](https://spacetimedb.com/install) installed (it replaces the old Docker requirement).
 
 ```sh
 pnpm install
-pnpm spacetime:install # only if spacetime is not already installed
+just spacetime-install # only if spacetime is not already installed
 cp .env.example .env   # VITE_SPACETIMEDB_HOST / _DB_NAME, PostHog key — defaults are local
 just start             # local SpacetimeDB instance — leave running in its own terminal
 just dev               # publish the module + generate bindings, then client on :5173
 ```
 
-Fresh cloud task environments often do not have `spacetime` on `PATH`. Use `pnpm spacetime:install` or `just spacetime-install`, then either add `/root/.local/bin` to `PATH` or pass the binary explicitly:
+Fresh cloud task environments often do not have `spacetime` on `PATH`. Use `just spacetime-install`, then either add `/root/.local/bin` to `PATH` or pass the binary explicitly:
 
 ```sh
-SPACETIME=/root/.local/bin/spacetime pnpm module:generate
 SPACETIME=/root/.local/bin/spacetime just generate
 ```
 
