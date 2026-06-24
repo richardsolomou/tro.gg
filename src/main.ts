@@ -49,8 +49,8 @@ async function main() {
     }
 
     mountWorld(app, conn);
-    // Account UI (rename + claim) is behind an optional rollout flag and only
-    // mounts when SpacetimeAuth is configured for this build.
+    // Account UI (rename + claim) reads an optional rollout flag and only mounts
+    // when SpacetimeAuth is configured for this build.
     if (authConfigured() && isFeatureEnabled("auth-enabled")) mountAccount(conn, { signedIn });
   } catch (err) {
     console.error("Failed to connect to SpacetimeDB:", err);

@@ -368,10 +368,10 @@ export const wanderHogs = spacetimedb.reducer({ timer: hogWander.rowType }, (ctx
 
 /**
  * Spawn a boulder or Hog at the caller's location — the `/spawn` debug command
- * (behind the `spawn-command` flag, gated client-side). The server re-derives the
- * trogg's tile authoritatively (invariant 3) and places the entity on the tile it
- * faces, falling back to a free neighbour, so nothing lands inside a wall or on
- * another boulder. An unknown kind or a boxed-in trogg is a silent no-op.
+ * (optionally gated client-side by `spawn-command`). The server re-derives the
+ * trogg's tile authoritatively (invariant 3) and places the entity on the tile
+ * it faces, falling back to a free neighbour, so nothing lands inside a wall or
+ * on another boulder. An unknown kind or a boxed-in trogg is a silent no-op.
  */
 export const spawn = spacetimedb.reducer({ kind: t.string() }, (ctx, { kind }) => {
   if (kind !== "boulder" && kind !== "hog") return;

@@ -7,7 +7,8 @@ import { setPendingClaim } from "./identity.js";
 /**
  * The account panel (GDD "Identity"): rename your trogg, and — for a guest —
  * claim an account so you can log back in on any device. Sits top-right, styled
- * like the chat panel; mounted only behind the `auth-enabled` flag.
+ * like the chat panel; mounted when SpacetimeAuth is configured and the optional
+ * `auth-enabled` flag is on.
  *
  * Renaming and claiming are server-authoritative (invariant 3): the panel calls
  * the `rename` / `startClaim` reducers and reflects the result from the synced
