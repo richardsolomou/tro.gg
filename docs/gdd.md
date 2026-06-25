@@ -90,6 +90,7 @@ Ambient **Hog** NPCs (the glossary's friendly hedgehogs) roam the zone on their 
 
 - 3/4 top-down (RuneScape-2004 / Stardew view), pixel art tiles and sprites.
 - Rendered with **PixiJS** (WebGL/WebGPU canvas) on a Vite + TypeScript client, nearest-neighbour scaled for crisp pixels. The client subscribes to the zone's SpacetimeDB tables and draws them; all authority stays server-side (invariant 3).
+- Visible in-game HUD surfaces — chat history/input, account claim/rename controls, and avatar colour swatches — render inside the PixiJS scene above the world so layout is owned by the game renderer on small screens. Browser-native text input is still used as an invisible bridge while typing, because mobile keyboards, paste, and IME composition are platform controls.
 
 ### Avatars and equipment
 
@@ -113,6 +114,7 @@ Ambient **Hog** NPCs (the glossary's friendly hedgehogs) roam the zone on their 
 ### Chat
 
 - Zone-scoped. Max 200 chars *(initial)*. Bubble displays 5s *(initial)*; side panel keeps recent history.
+- Chat bubbles, history, and the visible typing field render in the PixiJS scene. The field mirrors through the hidden native text-input bridge only while focused; chat content is never inserted as HTML.
 - Server-side rate limit: 1 message/sec per player *(initial)*.
 - Message content is **never** sent to analytics.
 - **`/ghost`:** flickers the cosmetic ghost trogg at a random tile in the zone (behind `ghost-trogg`, fallback on, so anyone can summon it). Purely a client render — touches no table or reducer (invariant 3), so only the caller sees it. Off → it's just an ordinary chat line. The same cosmetic also haunts the origin tile by chance on launch.
@@ -124,6 +126,7 @@ Ambient **Hog** NPCs (the glossary's friendly hedgehogs) roam the zone on their 
 - **Signing in** upgrades a guest to an account via **SpacetimeAuth** (SpacetimeDB's managed OIDC provider; Discord is the enabled login). SpacetimeDB derives a *stable* Identity from the OIDC token's `iss`+`sub`, so the account — not the browser — now anchors the synced state and the trogg resumes on any device. The browser runs the OIDC Authorization-Code-**+-PKCE** flow (a public client: no client secret in the bundle, invariant 8); the module trusts only the SpacetimeAuth issuer as an account provider (invariant 3). Account creation and the upgrade fire `player_named` alongside `posthog.identify()`, merging the guest's history.
 - **Claiming** (folding a guest's trogg into the account, since the two are different Identities): the guest's browser mints a one-time nonce, registers it under the guest Identity via `startClaim`, then signs in and redeems it as the account via `redeemClaim` — both sides proven, never a client-asserted identity (invariant 3). The guest's chosen name carries over (a generated `trogg-####` never overwrites a name the account already chose); the guest row is then absorbed. A fresh device with no guest just signs in and resumes the account directly. Nonces expire after `CLAIM_CODE_TTL_MS`.
 - **Changing your name:** the `rename` reducer swaps the generated `trogg-####` for a chosen one, validated server-side. Names: unique, 3–20 chars, alphanumeric + hyphen. The new name takes effect everywhere it's shown — the nameplate over the trogg and the denormalised `name` on the player's past `chat_message` rows are both rewritten, so nothing keeps showing the old name.
+- The account panel is a PixiJS HUD surface; its visible buttons, rename field, and colour swatches are engine-rendered. Sign-in still uses the browser redirect to SpacetimeAuth, and rename typing uses the hidden native text-input bridge.
 
 ### Skills and XP
 
@@ -181,15 +184,14 @@ One layer. **SpacetimeDB** is the durable store *and* the live feed: the tables 
 Dev mirrors prod: a local `spacetime start` instance runs the very module production runs — `just dev` publishes to it and regenerates the client bindings — so persistence is exercised the same way it runs in production. No Docker, no separate database to provision.
 
 ```text
-player         identity (PK), name, isGuest, zoneId, x, y, dirX, dirY, running, movedAt, online, lastChatAt, color, hubUnlocked, equipment
+player         identity (PK), name, isGuest, zoneId, x, y, dirX, dirY, movedAt, online, lastChatAt, running, color, carrying
                keyed by the connection's Identity. motion derived from origin (x,y) + movedAt: WASD uses
                dirX/dirY (0,0 = idle); running (shift held) picks run speed over walk speed in projectMotion,
                so it rides the intent like direction; click-to-move can add `path` (waypoint tiles). online: in-zone
                presence — clients subscribe to online players, so a disconnect settles the row and drops it
                from view without losing progress. lastChatAt: per-player chat rate limit. color: chosen
                TROGG_COLORS palette index (COLOR_UNSET = -1 → colour derived from id; see "Avatars").
-               hubUnlocked: checkpoint gate. equipment: slot → item map, multiple slots at once (e.g. { mainHand: "sword",
-               offHand: "shield" }; armor slots later) — rides the zone subscription so others see it
+               carrying: legacy string slot retained for migration compatibility until equipment replaces it.
                index: by_zone (zoneId)
 zones          slug, name, width, height, tilemap (per-tile walkability + scenery), checkpoint (unlock tile, null if none)
                index: by_slug (slug)

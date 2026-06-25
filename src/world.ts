@@ -7,6 +7,7 @@ import { mountChat, type ChatUI } from "./chat.js";
 import { createTerrain } from "./terrain.js";
 import { avatarFrame, avatarTexture, facingFromDir, ghostTexture } from "./avatars.js";
 import { captureEvent, isFeatureEnabled } from "./analytics.js";
+import { TEXT_RESOLUTION } from "./ui_text.js";
 
 /** Art pixels per tile — terrain tiles are drawn at this and scaled up crisply. */
 const ART = 16;
@@ -467,7 +468,7 @@ export function mountWorld(app: Application, conn: DbConnection) {
   // Live once the initial rows have been delivered: backlog chat fills the
   // history panel silently, while later inserts also pop a bubble.
   const sub = { live: false };
-  if (isFeatureEnabled("chat-enabled")) setupChat(conn, tracked, zone, sub, myId, stage);
+  if (isFeatureEnabled("chat-enabled")) setupChat(app, conn, tracked, zone, sub, myId, stage);
 
   const queries = [
     `SELECT * FROM player WHERE zone_id = '${slug}' AND online = true`,
@@ -490,6 +491,7 @@ export function mountWorld(app: Application, conn: DbConnection) {
  * docs/analytics.md).
  */
 function setupChat(
+  app: Application,
   conn: DbConnection,
   tracked: Map<string, Tracked>,
   zone: Zone,
@@ -507,7 +509,7 @@ function setupChat(
   // `/ghost` flickers the cosmetic ghost at a random tile; same flag as the launch
   // haunt (fallback on, so anyone can summon it), kept client-only.
   const ghostEnabled = isFeatureEnabled("ghost-trogg");
-  const chat = mountChat((text) => {
+  const chat = mountChat(app, (text) => {
     if (spawnEnabled && handleSpawnCommand(conn, chat, text)) return;
     if (resetEnabled && handleResetCommand(conn, slug, text)) return;
     if (ghostEnabled && handleGhostCommand(text, stage, zone)) return;
@@ -622,6 +624,7 @@ function makeBubble(text: string, topY: number): Container {
   const label = new Text({
     text,
     style: { fontFamily: "monospace", fontSize: 11, fill: 0x0a0806, align: "center", wordWrap: true, wordWrapWidth: 150 },
+    resolution: TEXT_RESOLUTION,
   });
   label.anchor.set(0.5, 1);
   const padX = 5;
@@ -678,6 +681,7 @@ function makeMarker(name: string, color: number, self: boolean, facing: Facing, 
   const label = new Text({
     text: name,
     style: { fontFamily: "monospace", fontSize: 11, fill: 0xe8dcc4 },
+    resolution: TEXT_RESOLUTION,
   });
   label.anchor.set(0.5, 1);
   label.position.set(TILE / 2, sprites ? headTopY() - 2 : -2);
