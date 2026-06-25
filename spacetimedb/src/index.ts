@@ -17,6 +17,8 @@ import {
   isGeneratedName,
   isValidName,
   isWalkable,
+  MAX_BOULDERS_PER_ZONE,
+  MAX_HOGS_PER_ZONE,
   projectMotion,
   serializePath,
   snapToTile,
@@ -526,7 +528,9 @@ export const wanderHogs = spacetimedb.reducer({ timer: hogWander.rowType }, (ctx
  * (optionally gated client-side by `spawn-command`). The server re-derives the
  * trogg's tile authoritatively (invariant 3) and places the entity on the tile
  * it faces, falling back to a free neighbour, so nothing lands inside a wall or
- * on another boulder. An unknown kind or a boxed-in trogg is a silent no-op.
+ * on another boulder. Refused once the zone is at its entity cap, so a scripted
+ * client can't flood it (the client flag only gates the UI). An unknown kind, a
+ * full zone, or a boxed-in trogg is a silent no-op.
  */
 export const spawn = spacetimedb.reducer({ kind: t.string() }, (ctx, { kind }) => {
   if (kind !== "boulder" && kind !== "hog") return;
@@ -535,6 +539,9 @@ export const spawn = spacetimedb.reducer({ kind: t.string() }, (ctx, { kind }) =
   if (!p) return;
   const zone = getZone(p.zoneId);
   if (!zone) return;
+
+  if (kind === "boulder" && countRows(ctx.db.boulder.zoneId.filter(p.zoneId)) >= MAX_BOULDERS_PER_ZONE) return;
+  if (kind === "hog" && countRows(ctx.db.hog.zoneId.filter(p.zoneId)) >= MAX_HOGS_PER_ZONE) return;
 
   // Drop the entity on free floor — never inside a wall or on top of anything solid
   // (a boulder, a Hog, or another trogg), now that Hogs and troggs collide.
@@ -611,12 +618,16 @@ export const chat = spacetimedb.reducer({ text: t.string() }, (ctx, { text }) =>
     createdAt: ctx.timestamp,
   });
 
-  // Keep only the most recent CHAT_HISTORY_MAX lines per zone; auto-inc id is the
-  // insertion order, so the lowest ids are the oldest.
-  const lines = [...ctx.db.chatMessage.zoneId.filter(p.zoneId)].sort((a, b) => Number(a.id - b.id));
-  for (let i = 0; i < lines.length - CHAT_HISTORY_MAX; i++) {
-    ctx.db.chatMessage.id.delete(lines[i]!.id);
+  // Cap the zone's history. We trim on every insert, so the backlog is over by at most
+  // one — drop the single oldest row (lowest auto-inc id) in a single pass, rather than
+  // materializing and sorting the whole zone history on each message.
+  let count = 0;
+  let oldest: bigint | undefined;
+  for (const line of ctx.db.chatMessage.zoneId.filter(p.zoneId)) {
+    count++;
+    if (oldest === undefined || line.id < oldest) oldest = line.id;
   }
+  if (count > CHAT_HISTORY_MAX && oldest !== undefined) ctx.db.chatMessage.id.delete(oldest);
 });
 
 /**
@@ -656,6 +667,9 @@ export const recolor = spacetimedb.reducer({ color: t.i32() }, (ctx, { color }) 
   ctx.db.player.identity.update({ ...p, color });
 });
 
+/** A claim nonce is a v4 UUID minted by the client (`crypto.randomUUID`). */
+const CLAIM_CODE_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * Step 1 of the guest → account upgrade (GDD "Identity"). Called while connected
  * as a guest: register the browser-minted nonce under the guest's own identity so
@@ -666,6 +680,7 @@ export const recolor = spacetimedb.reducer({ color: t.i32() }, (ctx, { color }) 
 export const startClaim = spacetimedb.reducer({ code: t.string() }, (ctx, { code }) => {
   const p = ctx.db.player.identity.find(ctx.sender);
   if (!p || !p.isGuest) return;
+  if (!CLAIM_CODE_RE.test(code)) return; // client mints a UUID (crypto.randomUUID); reject anything else
 
   for (const existing of ctx.db.claimCode.iter()) {
     if (existing.guest.isEqual(ctx.sender)) ctx.db.claimCode.code.delete(existing.code);
@@ -785,6 +800,13 @@ function settle(ctx: Ctx, p: Settleable, now: Stamp): { x: number; y: number } {
   const blockers = troggBlockers(ctx, p.zoneId, now);
   const bounds = zoneBounds(zone, (x, y) => blockers.has(tileKey(x, y)));
   return snapToTile(projectMotion(p, elapsedMs(p.movedAt, now), bounds));
+}
+
+/** Count rows in a table iterable without materializing an array. */
+function countRows(rows: Iterable<unknown>): number {
+  let n = 0;
+  for (const _ of rows) n++;
+  return n;
 }
 
 /** The set of tiles occupied by boulders in a zone, keyed by `tileKey`. */
