@@ -454,6 +454,12 @@ export function mountWorld(app: Application, conn: DbConnection) {
   // fired every frame.
   let lastMoveToAt = 0;
   let lastFootstepTile = "";
+  // The tile our motion origin currently sits on. A straight run re-bases the origin to
+  // each tile centre it crosses (`driveSelf`), so position is only ever derived over the
+  // last tile — a Hog wandering onto a tile we've already passed is behind the origin and
+  // can't rewind us (the WASD analogue of forward-only path projection). Dedupes the
+  // per-tile re-base so it fires once per crossing, not every frame.
+  let lastRebaseTile = "";
   // A click-to-move target waiting for the trogg to reach a tile centre before it
   // re-paths. Click-to-move is grid-locked like WASD (GDD "Movement"): re-basing
   // the path mid-step would let the server snap the trogg's fractional position
@@ -474,6 +480,7 @@ export function mountWorld(app: Application, conn: DbConnection) {
     prevX = Number.NaN;
     prevY = Number.NaN;
     lastFootstepTile = tileKey(origin.x, origin.y);
+    lastRebaseTile = tileKey(origin.x, origin.y);
     if (!isIdle(intent)) {
       facing = intent;
       entry.facing = facingFromDir(intent.dirX, intent.dirY, entry.facing);
@@ -546,7 +553,18 @@ export function mountWorld(app: Application, conn: DbConnection) {
       // Walking: change direction, speed (shift→run), or stop at the next tile centre
       // (grid-lock). A new direction mid-walk corners fluidly — no turn-in-place beat.
       const keepGoing = sameIntent(desired, sent) && desired.running === sent.running;
-      if (keepGoing && !blockedByHog(x, y, sent)) return;
+      if (keepGoing && !blockedByHog(x, y, sent)) {
+        // Running straight on. Re-base the origin to each tile centre we cross so position
+        // is only ever derived over the last tile: a Hog stepping onto a tile we've already
+        // passed sits behind the origin and can no longer rewind us (stateless re-derivation
+        // from a stale origin would otherwise yank us flush against it). The tile-key guard
+        // keeps this to one re-base per crossing — `reachedCentre`'s 1e-3 slack can read true
+        // on two adjacent frames straddling the same centre, which would re-base it twice.
+        const tile = snapToTile({ x, y });
+        const key = tileKey(tile.x, tile.y);
+        if (key !== lastRebaseTile && reachedCentre(sent, prevX, prevY, x, y)) sendMove(entry, sent, x, y, now);
+        return;
+      }
       if (!reachedCentre(sent, prevX, prevY, x, y)) return;
       if (keepGoing) {
         // Flush against a Hog while still holding this way. Stop here instead of keeping
