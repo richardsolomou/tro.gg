@@ -432,6 +432,14 @@ export function mountWorld(app: Application, conn: DbConnection) {
   // per tile (on the rising edge), not every frame.
   let pushBlocked = false;
   let lastFootstepTile = "";
+  // A click-to-move target waiting for the trogg to reach a tile centre before it
+  // re-paths. Click-to-move is grid-locked like WASD (GDD "Movement"): re-basing
+  // the path mid-step would let the server snap the trogg's fractional position
+  // forward to the nearest tile for free, so double-clicking would bank sub-tile
+  // distance and visibly speed the trogg up for everyone. Holding the click until
+  // the next centre keeps every re-path on a whole tile, so the snap is a no-op;
+  // repeated clicks just overwrite this target and resolve to one clean route.
+  let pendingMoveTo: Coord | null = null;
 
   const sendMove = (entry: Tracked, intent: MoveIntent, x: number, y: number, now: number) => {
     const origin = snapToTile({ x, y });
@@ -529,6 +537,23 @@ export function mountWorld(app: Application, conn: DbConnection) {
     }
   };
 
+  // Fire a pending click-to-move once the trogg sits on a tile centre, so a step
+  // always completes before it re-paths (GDD "Movement" grid-lock) — the same beat
+  // `driveSelf` waits for to turn or stop under WASD. An idle trogg is already
+  // centred and routes at once; a moving one finishes its current step first. The
+  // server then settles onto that whole tile (a no-op snap), so no sub-tile distance
+  // is banked no matter how fast the clicks come.
+  const flushPendingMoveTo = (entry: Tracked, motion: ProjectedMotion, x: number, y: number) => {
+    if (!pendingMoveTo) return;
+    const dir = { dirX: motion.dirX, dirY: motion.dirY, running: entry.player.running };
+    if (!isIdle(dir) && !reachedCentre(dir, prevX, prevY, x, y)) return;
+    const target = pendingMoveTo;
+    pendingMoveTo = null;
+    sent = { dirX: 0, dirY: 0, running: false };
+    pendingSelfMoves.length = 0;
+    conn.reducers.moveTo({ x: target.x, y: target.y, running: false });
+  };
+
   app.ticker.add(() => {
     const now = performance.now();
     for (const entry of tracked.values()) {
@@ -540,8 +565,9 @@ export function mountWorld(app: Application, conn: DbConnection) {
       if (entry.player.identity.toHexString() !== myId) continue;
 
       playFootstepAtCentre(x, y, { dirX: motion.dirX, dirY: motion.dirY, running: entry.player.running });
-      if (motion.arrived && entry.player.path !== "") clearDestination();
-      driveSelf(entry, x, y, now);
+      if (!pendingMoveTo && motion.arrived && entry.player.path !== "") clearDestination();
+      if (pendingMoveTo) flushPendingMoveTo(entry, motion, x, y);
+      else driveSelf(entry, x, y, now);
       pushStep(x, y);
       prevX = x;
       prevY = y;
@@ -550,15 +576,17 @@ export function mountWorld(app: Application, conn: DbConnection) {
     // Hogs ride the same intent extrapolation — derived locally, never per-frame
     // sync (invariant 2). They collide against the same walls and boulders.
     for (const view of hogs.values()) {
-      const { x, y } = projectMotion(view.row, now - view.baseMs, bounds);
-      place(view.marker, x, y);
-      driveSprite(view.sprite, "hog", view.row.dirX, view.row.dirY, false, view, now);
+      const motion = projectMotionState(view.row, now - view.baseMs, bounds);
+      place(view.marker, motion.x, motion.y);
+      driveSprite(view.sprite, "hog", motion.dirX, motion.dirY, false, view, now);
     }
   });
 
   attachKeyboard((intent, immediate) => {
     desired = intent;
     destinationPath = "";
+    // A keypress takes over from click-to-move: drop any click waiting for a centre.
+    pendingMoveTo = null;
     clearDestination();
     // Focus loss: stop now instead of finishing the step — a backgrounded tab's
     // ticker is frozen, so a buffered stop would never flush and the trogg would
@@ -592,10 +620,12 @@ export function mountWorld(app: Application, conn: DbConnection) {
     lastDesired = desired;
     walkAfter = Number.POSITIVE_INFINITY;
     pushBlocked = false;
-    pendingSelfMoves.length = 0;
     destinationPath = "";
+    // Show the target now, but hold the actual re-path until the trogg reaches a
+    // tile centre (`flushPendingMoveTo`) — a flurry of clicks just overwrites the
+    // target, so the trogg can never bank sub-tile distance between centres.
+    pendingMoveTo = { x, y };
     setDestination({ x, y });
-    conn.reducers.moveTo({ x, y, running: false });
   });
 
   // Cosmetic join easter egg. Each launch has a chance of a haunt at the origin.

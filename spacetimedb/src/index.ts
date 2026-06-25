@@ -11,17 +11,19 @@ import {
   getZone,
   HOG_IDLE_CHANCE,
   HOG_WANDER_INTERVAL_MS,
+  HOG_WANDER_RADIUS,
+  HOG_WANDER_TRIES,
   isColorIndex,
   isGeneratedName,
   isValidName,
   isWalkable,
   projectMotion,
+  projectMotionState,
   serializePath,
   snapToTile,
   SPACETIMEAUTH_ISSUER,
   spawnTile,
   STARTING_ZONE_SLUG,
-  walkableCardinals,
   type Zone,
   type ZoneBounds,
   zoneBounds,
@@ -145,10 +147,13 @@ const boulder = table(
  * `wanderHogs` reducer. Merchant/dialogue Hog roles are separate later work.
  *
  * Unlike a trogg, a Hog's origin is an integer tile (`i32`): it re-bases at a whole
- * tile each wander tick (clients still glide between via `projectMotion`), and it
- * never pushes, so it needs no sub-tile precision. The motion columns carry
- * defaults so adding them to the already-published `hog` table is an in-place
- * migration, not a breaking one. dirX/dirY/movedAt default to idle-at-epoch.
+ * tile when it reaches the end of its route (clients still glide between via
+ * `projectMotion`), and it never pushes, so it needs no sub-tile precision. Like a
+ * trogg it carries a `path` of click-to-move waypoints — `wanderHogs` routes it to a
+ * random tile near its `home` and the row holds that route until it arrives. The
+ * motion columns carry defaults so adding them to the already-published `hog` table is an
+ * in-place migration, not a breaking one (appended at the end — invariant: shipped
+ * columns are never reordered). dirX/dirY/movedAt default to idle-at-epoch, path to none.
  */
 const hog = table(
   { name: "hog", public: true },
@@ -160,15 +165,23 @@ const hog = table(
     dirX: t.i32().default(0),
     dirY: t.i32().default(0),
     movedAt: t.timestamp().default(Timestamp.UNIX_EPOCH),
+    path: t.string().default(""),
+    // The tile the Hog roams around — `wanderHogs` keeps its destinations within
+    // `HOG_WANDER_RADIUS` of here, so a Hog stays in its patch instead of drifting
+    // off as each hop's radius re-centres on its latest spot. Set to the spawn tile
+    // on insert; the -1 sentinel marks a pre-migration row, which adopts its current
+    // tile as home on the next tick.
+    homeX: t.i32().default(-1),
+    homeY: t.i32().default(-1),
   },
 );
 
 /**
  * The Hog wander timer (GDD "Hogs"). A scheduled table is SpacetimeDB's
  * deterministic timer — the only way state changes outside player input (invariant
- * 1: no simulation tick). Each tick fires `wanderHogs`, which repicks every Hog's
- * heading and then re-arms this timer *only while a player is online*, so an empty
- * zone settles its Hogs to rest and then does no further work (invariant 1).
+ * 1: no simulation tick). Each tick fires `wanderHogs`, which re-routes arrived Hogs
+ * and then re-arms this timer *only while a player is online*, so an empty zone
+ * settles its Hogs to rest and then does no further work (invariant 1).
  */
 const hogWander = table(
   { name: "hog_wander", scheduled: (): any => wanderHogs },
@@ -262,7 +275,7 @@ function seedBoulders(ctx: Ctx, zone: Zone): void {
 function seedHogs(ctx: Ctx, zone: Zone): void {
   if ([...ctx.db.hog.zoneId.filter(zone.slug)].length > 0) return;
   for (const h of zone.hogs) {
-    ctx.db.hog.insert({ id: 0n, zoneId: zone.slug, x: h.x, y: h.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp });
+    ctx.db.hog.insert({ id: 0n, zoneId: zone.slug, x: h.x, y: h.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, path: "", homeX: h.x, homeY: h.y });
   }
 }
 
@@ -429,13 +442,15 @@ export const interact = spacetimedb.reducer({ dirX: t.i32(), dirY: t.i32() }, (c
 });
 
 /**
- * The Hog wander tick (GDD "Hogs"). Settle each Hog to where it is now (against
- * walls and boulders, exactly like a trogg), then give it a fresh heading — a
- * random walkable cardinal, or idle so it pauses. Randomness is the context RNG,
- * seeded from the tick's timestamp, so the schedule replays deterministically
- * (invariant 3). The timer re-arms only while a player is online: with the zone
- * empty, every Hog is left at rest and the timer stops, so an empty zone does no
- * further work (invariant 1).
+ * The Hog wander tick (GDD "Hogs"). A Hog walks a `findPath` route to a random
+ * nearby tile; its row holds that route while clients glide along it, untouched, so
+ * a Hog still en route costs the tick nothing. The tick only acts on Hogs that have
+ * arrived (or stalled on a boulder dropped across the route): re-base at the tile
+ * they ended on, then route them somewhere new with `planWander` — or, while the
+ * zone is empty, just settle them to rest. Randomness is the context RNG, seeded from
+ * the tick's timestamp, so the schedule replays deterministically (invariant 3). The
+ * timer re-arms only while a player is online, so an empty zone does no further work
+ * (invariant 1).
  */
 export const wanderHogs = spacetimedb.reducer({ timer: hogWander.rowType }, (ctx) => {
   const online = anyPlayerOnline(ctx);
@@ -450,14 +465,29 @@ export const wanderHogs = spacetimedb.reducer({ timer: hogWander.rowType }, (ctx
       occupiedByZone.set(h.zoneId, occupied);
     }
     const bounds = zoneBounds(zone, (x, y) => occupied!.has(tileKey(x, y)));
-    const pos = projectMotion(h, elapsedMs(h.movedAt, ctx.timestamp), bounds);
-    // Re-base at a whole tile: the perpendicular axis is already integer, and
-    // projectMotion stops flush at walls, so rounding the moving axis stays on
-    // walkable floor (the `hog` origin is i32 — see the table definition).
-    const x = Math.round(pos.x);
-    const y = Math.round(pos.y);
-    const dir = online ? pickWanderDir(ctx, bounds, { x, y }) : { dirX: 0, dirY: 0 };
-    ctx.db.hog.id.update({ ...h, x, y, dirX: dir.dirX, dirY: dir.dirY, movedAt: ctx.timestamp });
+    const settled = projectMotionState(h, elapsedMs(h.movedAt, ctx.timestamp), bounds);
+
+    // Still walking its route: leave the row alone so clients keep extrapolating.
+    // `arrived` is false only while a non-zero heading remains; a path stalled at a
+    // boulder reports no heading, so it falls through to be re-routed below.
+    if (online && !settled.arrived && (settled.dirX !== 0 || settled.dirY !== 0)) continue;
+
+    // Re-base at the tile it ended on: the route runs tile-to-tile over walkable
+    // floor, so rounding the in-between position lands on walkable floor (the `hog`
+    // origin is i32 — see the table definition).
+    const x = Math.round(settled.x);
+    const y = Math.round(settled.y);
+    // A pre-migration row has no home (-1 sentinel); it adopts its current tile.
+    const homeX = h.homeX < 0 ? x : h.homeX;
+    const homeY = h.homeY < 0 ? y : h.homeY;
+    const plan = online ? planWander(ctx, bounds, { x, y }, { x: homeX, y: homeY }) : { dirX: 0, dirY: 0, path: "" };
+
+    // Skip the write when nothing changed — a resting Hog that re-rolls idle, or any
+    // Hog once the zone has emptied — so an idle world produces no diffs (invariant 1).
+    const unchanged =
+      x === h.x && y === h.y && homeX === h.homeX && homeY === h.homeY && plan.dirX === h.dirX && plan.dirY === h.dirY && plan.path === h.path;
+    if (unchanged) continue;
+    ctx.db.hog.id.update({ ...h, x, y, homeX, homeY, dirX: plan.dirX, dirY: plan.dirY, path: plan.path, movedAt: ctx.timestamp });
   }
 
   // Clear first so exactly one timer is pending regardless of whether the firing
@@ -493,7 +523,7 @@ export const spawn = spacetimedb.reducer({ kind: t.string() }, (ctx, { kind }) =
   } else {
     // A spawned Hog starts at rest and joins the roamers — the next wander tick
     // gives it a heading like any other.
-    ctx.db.hog.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp });
+    ctx.db.hog.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, path: "", homeX: tile.x, homeY: tile.y });
   }
 });
 
@@ -642,13 +672,31 @@ function armWander(ctx: Ctx): void {
   ctx.db.hogWander.insert({ scheduledId: 0n, scheduledAt: ScheduleAt.time(at) });
 }
 
-/** A Hog's next heading: a random walkable cardinal, or idle (`HOG_IDLE_CHANCE`)
- *  so it pauses rather than marching nonstop. */
-function pickWanderDir(ctx: Ctx, bounds: ZoneBounds, pos: { x: number; y: number }): { dirX: number; dirY: number } {
-  if (ctx.random() < HOG_IDLE_CHANCE) return { dirX: 0, dirY: 0 };
-  const options = walkableCardinals(bounds, Math.round(pos.x), Math.round(pos.y));
-  if (options.length === 0) return { dirX: 0, dirY: 0 };
-  return options[ctx.random.integerInRange(0, options.length - 1)]!;
+/**
+ * A Hog's next move: a route from `pos` to a random reachable tile within
+ * `HOG_WANDER_RADIUS` of `home` — anchoring on home, not the current spot, keeps the
+ * Hog in its patch instead of drifting as each hop re-centres. Idles
+ * (`HOG_IDLE_CHANCE`, or after `HOG_WANDER_TRIES` unreachable rolls) so it pauses
+ * rather than marching nonstop. `dirX/dirY` is the first step of the route, matching
+ * the trogg motion intent; `path` is the serialized remainder.
+ */
+function planWander(
+  ctx: Ctx,
+  bounds: ZoneBounds,
+  pos: { x: number; y: number },
+  home: { x: number; y: number },
+): { dirX: number; dirY: number; path: string } {
+  const idle = { dirX: 0, dirY: 0, path: "" };
+  if (ctx.random() < HOG_IDLE_CHANCE) return idle;
+
+  for (let attempt = 0; attempt < HOG_WANDER_TRIES; attempt++) {
+    const tx = home.x + ctx.random.integerInRange(-HOG_WANDER_RADIUS, HOG_WANDER_RADIUS);
+    const ty = home.y + ctx.random.integerInRange(-HOG_WANDER_RADIUS, HOG_WANDER_RADIUS);
+    const route = findPath(bounds, pos, { x: tx, y: ty });
+    const first = route[0];
+    if (first) return { dirX: first.x - pos.x, dirY: first.y - pos.y, path: serializePath(route) };
+  }
+  return idle;
 }
 
 /** Whether the caller authenticated with a SpacetimeAuth OIDC token (an account, not a guest). */
@@ -756,7 +804,7 @@ function placeCarried(
   if (kind === "boulder") {
     ctx.db.boulder.insert({ id: 0n, zoneId: zone.slug, x: tile.x, y: tile.y });
   } else if (kind === "hog") {
-    ctx.db.hog.insert({ id: 0n, zoneId: zone.slug, x: tile.x, y: tile.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp });
+    ctx.db.hog.insert({ id: 0n, zoneId: zone.slug, x: tile.x, y: tile.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, path: "", homeX: tile.x, homeY: tile.y });
   } else {
     return false;
   }
