@@ -43,8 +43,8 @@ import {
  * held) rides the intent so every client derives the same speed (GDD "Movement").
  * `color` is the chosen avatar palette index (GDD "Avatars"), set by `recolor`; it
  * defaults to `COLOR_UNSET` (-1) so an unchosen trogg falls back to its id-derived
- * colour. `carrying` is a legacy string slot retained for migration compatibility
- * until the equipment model replaces it.
+ * colour. `carrying` is the kind of tile-sized entity the trogg holds (GDD
+ * "Interacting"), set by `interact`; "" when empty-handed.
  */
 const player = table(
   { name: "player", public: true },
@@ -67,6 +67,11 @@ const player = table(
     // these trailing columns is free; never wedge one in above `movedAt`.
     running: t.bool().default(false),
     color: t.i32().default(COLOR_UNSET),
+    // What the trogg is carrying (GDD "Interacting"): "" = empty-handed, else the
+    // kind of the held entity ("boulder" | "hog"). Picking up deletes the entity's
+    // world row and stamps its kind here; putting down clears it and re-inserts the
+    // entity. Boulders/hogs are fungible (no identity, seeded from the registry), so
+    // the kind is all the client needs to draw the carry overlay — no id to keep.
     carrying: t.string().default(""),
   },
 );
@@ -264,7 +269,17 @@ export const onDisconnect = spacetimedb.clientDisconnected((ctx) => {
   const p = ctx.db.player.identity.find(ctx.sender);
   if (!p) return;
   const settled = settle(ctx, p, ctx.timestamp);
-  ctx.db.player.identity.update({ ...p, x: settled.x, y: settled.y, dirX: 0, dirY: 0, running: false, online: false });
+  // Drop whatever the trogg was carrying where it stops, so a carried entity is
+  // never orphaned while its carrier is offline (GDD "Interacting"). If it's boxed
+  // in and can't be placed, keep it on the row — it's durable and still droppable
+  // when the trogg returns.
+  let carrying = p.carrying;
+  if (carrying !== "") {
+    const zone = getZone(p.zoneId);
+    const occupied = boulderTiles(ctx, p.zoneId);
+    if (zone && placeCarried(ctx, zone, carrying, occupied, settled.x, settled.y, p.dirX, p.dirY)) carrying = "";
+  }
+  ctx.db.player.identity.update({ ...p, x: settled.x, y: settled.y, dirX: 0, dirY: 0, running: false, online: false, carrying });
 });
 
 /**
@@ -327,6 +342,53 @@ export const push = spacetimedb.reducer((ctx) => {
   const flush = snapToTile(pos);
   ctx.db.boulder.id.update({ ...b, x: dest.x, y: dest.y });
   ctx.db.player.identity.update({ ...p, x: flush.x, y: flush.y, movedAt: ctx.timestamp });
+});
+
+/**
+ * Interact with the tile a trogg faces (GDD "Interacting") — a generic action key
+ * (client `E`). Today the one effect is pick up / put down a tile-sized entity:
+ * empty-handed, lift the boulder or hog on the faced tile onto the trogg (delete
+ * its world row, stamp `carrying`); already carrying, set it back down on the faced
+ * tile. It's a toggle. The faced direction is passed in because an idle trogg's
+ * standing facing isn't synced (GDD "Movement"); the server still re-derives the
+ * trogg's tile and only acts on the entity actually on the adjacent faced tile, so
+ * the client can't reach past its neighbours (invariant 3). Future interactions
+ * (switches, fires, item pickups) branch in here on the faced target.
+ */
+export const interact = spacetimedb.reducer({ dirX: t.i32(), dirY: t.i32() }, (ctx, { dirX, dirY }) => {
+  const p = ctx.db.player.identity.find(ctx.sender);
+  if (!p) return;
+  const zone = getZone(p.zoneId);
+  if (!zone) return;
+
+  const dir = cardinal(dirX, dirY);
+  const occupied = boulderTiles(ctx, p.zoneId);
+  const pos = settle(ctx, p, ctx.timestamp);
+
+  if (p.carrying !== "") {
+    // Put down: place the held entity on the faced tile, or the nearest free
+    // neighbour (spawnTile). A boxed-in trogg can't drop, so it keeps carrying.
+    const place = placeCarried(ctx, zone, p.carrying, occupied, pos.x, pos.y, dir?.dirX ?? 0, dir?.dirY ?? 0);
+    if (place) ctx.db.player.identity.update({ ...p, carrying: "" });
+    return;
+  }
+
+  // Pick up the boulder or hog on the tile the trogg squarely faces.
+  if (!dir || (dir.dirX === 0 && dir.dirY === 0)) return;
+  const ax = Math.round(pos.x) + dir.dirX;
+  const ay = Math.round(pos.y) + dir.dirY;
+
+  const b = boulderAt(ctx, p.zoneId, ax, ay);
+  if (b) {
+    ctx.db.boulder.id.delete(b.id);
+    ctx.db.player.identity.update({ ...p, carrying: "boulder" });
+    return;
+  }
+  const h = hogAt(ctx, p.zoneId, ax, ay, ctx.timestamp);
+  if (h) {
+    ctx.db.hog.id.delete(h.id);
+    ctx.db.player.identity.update({ ...p, carrying: "hog" });
+  }
 });
 
 /**
@@ -615,6 +677,53 @@ function boulderAt(ctx: Ctx, zoneId: string, x: number, y: number) {
     if (b.x === x && b.y === y) return b;
   }
   return undefined;
+}
+
+/**
+ * The Hog currently on a tile in a zone, or undefined. Unlike a boulder a Hog is
+ * in motion, so re-derive each Hog's position at `now` (against walls and boulders,
+ * like `wanderHogs`) and round to its tile before comparing — the same projection
+ * the client renders, so a faced Hog matches what the player sees (invariant 3).
+ */
+function hogAt(ctx: Ctx, zoneId: string, x: number, y: number, now: Stamp) {
+  const zone = getZone(zoneId);
+  if (!zone) return undefined;
+  const occupied = boulderTiles(ctx, zoneId);
+  const bounds = zoneBounds(zone, (tx, ty) => occupied.has(tileKey(tx, ty)));
+  for (const h of ctx.db.hog.zoneId.filter(zoneId)) {
+    const pos = projectMotion(h, elapsedMs(h.movedAt, now), bounds);
+    if (Math.round(pos.x) === x && Math.round(pos.y) === y) return h;
+  }
+  return undefined;
+}
+
+/**
+ * Drop a carried entity (GDD "Interacting") onto the faced tile, or the nearest
+ * free neighbour, then the trogg's own tile (`spawnTile`) — so a boulder never
+ * lands in a wall or on another boulder. Returns false if every candidate is
+ * blocked, leaving the trogg still carrying it. `x`/`y` are the trogg's settled
+ * tile; `dirX`/`dirY` its facing (0,0 = no faced tile, take a neighbour).
+ */
+function placeCarried(
+  ctx: Ctx,
+  zone: Zone,
+  kind: string,
+  occupied: Set<string>,
+  x: number,
+  y: number,
+  dirX: number,
+  dirY: number,
+): boolean {
+  const tile = spawnTile(zone, (tx, ty) => occupied.has(tileKey(tx, ty)), x, y, dirX, dirY);
+  if (!tile) return false;
+  if (kind === "boulder") {
+    ctx.db.boulder.insert({ id: 0n, zoneId: zone.slug, x: tile.x, y: tile.y });
+  } else if (kind === "hog") {
+    ctx.db.hog.insert({ id: 0n, zoneId: zone.slug, x: tile.x, y: tile.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp });
+  } else {
+    return false;
+  }
+  return true;
 }
 
 /** Milliseconds between two timestamps. */

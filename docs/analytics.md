@@ -32,6 +32,8 @@ snake_case. Low-volume by design — anything that could fire more than ~once/se
 | `level_up` | `skill, level` | Derived level increases |
 | `chat_sent` | `zone` | Message sent — **no content** |
 | `boulders_reset` | `zone` | Player runs the in-chat `/reset` command |
+| `object_picked_up` | `zone, kind` | Player picks up a tile-sized object — `kind` is `boulder` or `hog` |
+| `object_dropped` | `zone, kind` | Player puts down what they were carrying |
 | `item_crafted` | `recipe, qty` | Item crafting succeeds |
 | `project_contributed` | `project, item, qty` | Player contributes to a communal project |
 | `project_completed` | `project` | Communal project completes |
@@ -51,6 +53,7 @@ Code currently reads these flag keys:
 | `avatar-sprites` | Trogg sprite avatars vs the placeholder colour marker | On |
 | `ghost-trogg` | Client-only cosmetic ghost easter egg (launch haunt + `/ghost` command) | On |
 | `boulder-pushing` | Client push input for boulders | On |
+| `interact` | Interact key (`E`) — pick up / put down tile-sized objects | On |
 | `roaming-hogs` | Hog rendering and subscription | On |
 | `running` | Hold-shift-to-run input | On |
 | `spawn-command` | `/spawn` debug command | On in local dev, off in production builds |
@@ -58,7 +61,7 @@ Code currently reads these flag keys:
 | `chat-enabled` | Chat panel and bubbles | On |
 | `trogg-recolor` | Colour swatches in the account panel | On |
 
-PostHog project audit (2026-06-24): all code-read flags above are configured in PostHog project 314596 and active at 100% rollout. Planned future flags should be added here, and created in PostHog, when code starts reading them.
+PostHog project audit (2026-06-25): all code-read flags above are configured in PostHog project 314596 and active at 100% rollout (`interact` created 2026-06-25 with the carry mechanic). Planned future flags should be added here, and created in PostHog, when code starts reading them.
 
 ## Rules
 
