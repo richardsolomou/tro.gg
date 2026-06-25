@@ -544,6 +544,25 @@ export const resetBoulders = spacetimedb.reducer((ctx) => {
 });
 
 /**
+ * Reset the caller's zone Hogs to their `ZONES` registry population (GDD "Hogs").
+ * Clears the zone's Hogs and reseeds from the registry — the single source of
+ * truth — so a zone overrun with `/spawn`ed Hogs snaps back to its intended
+ * count. The mirror of `resetBoulders`. A Hog a trogg is carrying lives on the
+ * player row, not the `hog` table, so it survives the cull and re-materialises on
+ * put-down (GDD "Interacting"). Fired by the in-chat `/reset hedgehogs` command;
+ * open like every reducer, with the optional `hog-reset` flag gating the client
+ * command.
+ */
+export const resetHogs = spacetimedb.reducer((ctx) => {
+  const p = ctx.db.player.identity.find(ctx.sender);
+  if (!p) return;
+  const zone = getZone(p.zoneId);
+  if (!zone) return;
+  for (const h of [...ctx.db.hog.zoneId.filter(zone.slug)]) ctx.db.hog.id.delete(h.id);
+  seedHogs(ctx, zone);
+});
+
+/**
  * A zone-scoped chat line. Validate length, enforce the per-player rate limit
  * (invariant 3 — never trust the client), append the row, and trim the zone's
  * history to its cap.
