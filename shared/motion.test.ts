@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { MOVE_SPEED_TILES_PER_SEC, RUN_SPEED_TILES_PER_SEC, type Zone } from "./constants";
-import { facingTile, findPath, projectMotion, projectMotionState, serializePath, snapToTile, spawnTile, zoneBounds } from "./motion";
+import { facingTile, findPath, projectMotion, projectMotionState, serializePath, snapToTile, spawnTile, walkableCardinals, zoneBounds } from "./motion";
 
 // No isWalkable → open floor, clamped only to the rectangular bounds.
 const open = { width: 24, height: 16 };
@@ -206,4 +206,16 @@ test("spawnTile returns null when the player is boxed in", () => {
   assert.deepEqual(spawnTile(cell, none, 1, 1, 0, 0), { x: 1, y: 1 });
   // Now mark even that tile occupied: nothing free anywhere → null.
   assert.equal(spawnTile(cell, () => true, 1, 1, 0, 0), null);
+});
+
+const dirKeys = (dirs: { dirX: number; dirY: number }[]) => new Set(dirs.map((d) => `${d.dirX},${d.dirY}`));
+
+test("a hog's walkable headings exclude walls and the zone edge", () => {
+  // (1,1) in the corner room: floor below and to the right, walls above and left.
+  assert.deepEqual(dirKeys(walkableCardinals(cornered, 1, 1)), new Set(["0,1", "1,0"]));
+});
+
+test("a hog's walkable headings treat an occupied tile (boulder/hog/trogg) like a wall", () => {
+  // (3,1) in the 1-tile-tall corridor with the tile at (4,1) occupied: only left is open.
+  assert.deepEqual(dirKeys(walkableCardinals(withBoulder, 3, 1)), new Set(["-1,0"]));
 });

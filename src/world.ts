@@ -157,11 +157,17 @@ export function mountWorld(app: Application, conn: DbConnection) {
   // optional kill-switch; off → E does nothing.
   const useInteract = isFeatureEnabled("interact");
 
-  // Tiles boulders currently occupy. Folded into the collision context below so
-  // troggs stop flush against boulders exactly as they do against walls — and so
-  // client prediction confines them to the same tiles the server does.
+  // Tiles boulders occupy, and tiles Hogs occupy (rebuilt each frame from their
+  // projected positions — Hogs move, so their tiles shift between row updates).
+  // Troggs are solid against boulders *and* Hogs (`troggBounds`); Hogs are rendered
+  // against walls + boulders only (`hogBounds`), since the server already chose each
+  // Hog's one-tile step clear of troggs and other Hogs (GDD "Hogs"). Troggs never
+  // collide with each other, so player tiles are in neither set. The same builders
+  // run server-side, so prediction confines entities to the same tiles authority does.
   const boulderTiles = new Set<string>();
-  const bounds = zoneBounds(zone, (x, y) => boulderTiles.has(tileKey(x, y)));
+  const hogTiles = new Set<string>();
+  const hogBounds = zoneBounds(zone, (x, y) => boulderTiles.has(tileKey(x, y)));
+  const troggBounds = zoneBounds(zone, (x, y) => boulderTiles.has(tileKey(x, y)) || hogTiles.has(tileKey(x, y)));
 
   const terrain = createTerrain(zone);
   const stage = new Container();
@@ -225,13 +231,13 @@ export function mountWorld(app: Application, conn: DbConnection) {
 
   const layout = () => {
     const { width: vw, height: vh } = app.renderer;
-    const fit = Math.min((vw * ZONE_FILL) / bounds.width, (vh * ZONE_FILL) / bounds.height);
+    const fit = Math.min((vw * ZONE_FILL) / zone.width, (vh * ZONE_FILL) / zone.height);
     TILE = Math.max(ART, Math.floor(fit));
     terrain.layout(TILE, vw, vh);
     clickLayer.clear();
-    clickLayer.hitArea = new Rectangle(0, 0, bounds.width * TILE, bounds.height * TILE);
+    clickLayer.hitArea = new Rectangle(0, 0, zone.width * TILE, zone.height * TILE);
     drawDestination();
-    centre(app, stage, bounds.width, bounds.height);
+    centre(app, stage, zone.width, zone.height);
     // Markers and boulder sprites bake TILE into their size, so resize redraws them.
     for (const [id, entry] of tracked) rebuildMarker(id, entry);
     for (const view of boulders.values()) {
@@ -264,7 +270,7 @@ export function mountWorld(app: Application, conn: DbConnection) {
     // The carried overlay was a child of the old marker, so it's gone too; re-add it.
     entry.carried = undefined;
     entry.carriedKind = "";
-    const { x, y } = projectMotion(entry.player, performance.now() - entry.baseMs, bounds);
+    const { x, y } = projectMotion(entry.player, performance.now() - entry.baseMs, troggBounds);
     place(entry.marker, x, y);
     stage.addChild(entry.marker);
     applyCarry(entry);
@@ -279,7 +285,7 @@ export function mountWorld(app: Application, conn: DbConnection) {
     const facing = facingFromDir(p.dirX, p.dirY, "down");
     const { marker, sprite, frameKey } = makeMarker(p.name, troggColorFor(p.color, id), id === myId, facing, useSprites);
     const entry: Tracked = { marker, sprite, player: p, baseMs: timestampBaseMs(p.movedAt), facing, frameKey, carriedKind: "" };
-    const { x, y } = projectMotion(p, performance.now() - entry.baseMs, bounds);
+    const { x, y } = projectMotion(p, performance.now() - entry.baseMs, troggBounds);
     place(marker, x, y);
     tracked.set(id, entry);
     stage.addChild(marker);
@@ -377,7 +383,7 @@ export function mountWorld(app: Application, conn: DbConnection) {
     const facing = facingFromDir(h.dirX, h.dirY, "down");
     const { marker, sprite, frameKey } = makeHog(facing);
     const baseMs = timestampBaseMs(h.movedAt);
-    const { x, y } = projectMotion(h, performance.now() - baseMs, bounds);
+    const { x, y } = projectMotion(h, performance.now() - baseMs, hogBounds);
     place(marker, x, y);
     hogs.set(id, { marker, sprite, row: h, baseMs, facing, frameKey });
     hogLayer.addChild(marker);
@@ -496,6 +502,17 @@ export function mountWorld(app: Application, conn: DbConnection) {
     walkAfter = now + TURN_TAP_MS;
   };
 
+  // Is a Hog flush on the tile directly ahead in `dir`? `facingTile` returns that tile
+  // only when we're squarely on a centre (within tol), so a trogg still sliding mid-tile
+  // never reads as blocked. Hogs are the moving obstacle a trogg stops against; boulders
+  // are handled by `push` (which re-bases each shove, so its intent never goes stale) and
+  // walls never move, so neither needs the stop-and-resume below.
+  const blockedByHog = (x: number, y: number, dir: MoveIntent) => {
+    if (isIdle(dir)) return false;
+    const ahead = facingTile(x, y, dir.dirX, dir.dirY);
+    return ahead != null && hogTiles.has(tileKey(ahead.x, ahead.y));
+  };
+
   const driveSelf = (entry: Tracked, x: number, y: number, now: number) => {
     const fresh = !sameIntent(desired, lastDesired);
     lastDesired = desired;
@@ -513,8 +530,21 @@ export function mountWorld(app: Application, conn: DbConnection) {
     if (!isIdle(sent)) {
       // Walking: change direction, speed (shift→run), or stop at the next tile centre
       // (grid-lock). A new direction mid-walk corners fluidly — no turn-in-place beat.
-      if (sameIntent(desired, sent) && desired.running === sent.running) return;
+      const keepGoing = sameIntent(desired, sent) && desired.running === sent.running;
+      if (keepGoing && !blockedByHog(x, y, sent)) return;
       if (!reachedCentre(sent, prevX, prevY, x, y)) return;
+      if (keepGoing) {
+        // Flush against a Hog while still holding this way. Stop here instead of keeping
+        // a walking intent that goes stale: a held intent banks elapsed travel against
+        // the Hog, and the moment the Hog ambles off the server re-derives the position
+        // from that stale origin with nothing left to clamp it — flinging the trogg to
+        // where the uninterrupted walk would have reached. An idle intent can't overshoot.
+        // We resume below the instant the tile frees (`desired` still holds the way).
+        sendMove(entry, { dirX: 0, dirY: 0, running: sent.running }, x, y, now);
+        facing = sent;
+        entry.facing = facingFromDir(sent.dirX, sent.dirY, entry.facing);
+        return;
+      }
       sendMove(entry, desired, x, y, now);
       if (!isIdle(desired)) facing = desired;
       return;
@@ -523,6 +553,15 @@ export function mountWorld(app: Application, conn: DbConnection) {
     // Stopped (on a tile centre).
     if (isIdle(desired)) {
       walkAfter = Number.POSITIVE_INFINITY;
+      return;
+    }
+    if (blockedByHog(x, y, desired)) {
+      // Want to go, but a Hog is flush ahead. Wait facing it — no stale walking intent to
+      // overshoot — and keep `walkAfter` in the past so the frame it clears we walk at
+      // once (no turn-in-place beat: we were already committed to this direction).
+      facing = desired;
+      entry.facing = facingFromDir(desired.dirX, desired.dirY, entry.facing);
+      walkAfter = now;
       return;
     }
     if (fresh) {
@@ -557,8 +596,22 @@ export function mountWorld(app: Application, conn: DbConnection) {
 
   app.ticker.add(() => {
     const now = performance.now();
+
+    // Hogs first: derive each Hog's position (intent extrapolation, never per-frame
+    // sync — invariant 2) and rebuild the Hog tile set so trogg collision this frame
+    // sees where the Hogs actually are. Hogs collide against walls and boulders only;
+    // the server already kept their one-tile step clear of troggs and other Hogs.
+    hogTiles.clear();
+    for (const view of hogs.values()) {
+      const motion = projectMotionState(view.row, now - view.baseMs, hogBounds);
+      place(view.marker, motion.x, motion.y);
+      driveSprite(view.sprite, "hog", motion.dirX, motion.dirY, false, view, now);
+      const tile = snapToTile({ x: motion.x, y: motion.y });
+      hogTiles.add(tileKey(tile.x, tile.y));
+    }
+
     for (const entry of tracked.values()) {
-      const motion = projectMotionState(entry.player, now - entry.baseMs, bounds);
+      const motion = projectMotionState(entry.player, now - entry.baseMs, troggBounds);
       const { x, y } = motion;
       place(entry.marker, x, y);
       animate(entry, now, motion);
@@ -567,19 +620,22 @@ export function mountWorld(app: Application, conn: DbConnection) {
 
       playFootstepAtCentre(x, y, { dirX: motion.dirX, dirY: motion.dirY, running: entry.player.running });
       if (!pendingMoveTo && motion.arrived && entry.player.path !== "") clearDestination();
-      if (pendingMoveTo) flushPendingMoveTo(entry, motion, x, y);
-      else driveSelf(entry, x, y, now);
+      if (pendingMoveTo) {
+        flushPendingMoveTo(entry, motion, x, y);
+      } else if (entry.player.path !== "" && !motion.arrived && motion.dirX === 0 && motion.dirY === 0) {
+        // Click-to-move route stalled against a Hog (or boulder) that moved onto it.
+        // Stop flush here rather than holding the path: a held route banks elapsed
+        // travel against the obstacle, and the instant it clears the projection would
+        // fling the trogg forward along the banked path. Stopping leaves a fresh click
+        // to resume; the server settles onto this whole tile, so nothing is banked.
+        sendMove(entry, { dirX: 0, dirY: 0, running: entry.player.running }, x, y, now);
+        clearDestination();
+      } else {
+        driveSelf(entry, x, y, now);
+      }
       pushStep(x, y);
       prevX = x;
       prevY = y;
-    }
-
-    // Hogs ride the same intent extrapolation — derived locally, never per-frame
-    // sync (invariant 2). They collide against the same walls and boulders.
-    for (const view of hogs.values()) {
-      const motion = projectMotionState(view.row, now - view.baseMs, bounds);
-      place(view.marker, motion.x, motion.y);
-      driveSprite(view.sprite, "hog", motion.dirX, motion.dirY, false, view, now);
     }
   });
 
@@ -597,7 +653,7 @@ export function mountWorld(app: Application, conn: DbConnection) {
       const self = myId ? tracked.get(myId) : undefined;
       walkAfter = Number.POSITIVE_INFINITY;
       if (self) {
-        const { x, y } = projectMotion(self.player, now - self.baseMs, bounds);
+        const { x, y } = projectMotion(self.player, now - self.baseMs, troggBounds);
         sendMove(self, intent, x, y, now);
       } else {
         sent = intent;
@@ -616,7 +672,7 @@ export function mountWorld(app: Application, conn: DbConnection) {
     const local = e.getLocalPosition(stage);
     const x = Math.floor(local.x / TILE);
     const y = Math.floor(local.y / TILE);
-    if (x < 0 || y < 0 || x >= bounds.width || y >= bounds.height) return;
+    if (x < 0 || y < 0 || x >= zone.width || y >= zone.height) return;
     desired = { dirX: 0, dirY: 0, running: false };
     lastDesired = desired;
     walkAfter = Number.POSITIVE_INFINITY;
