@@ -13,6 +13,15 @@ export default {
       url.hostname = "tro.gg";
       return Response.redirect(url.toString(), 301);
     }
+    // The client polls /version.json to spot a freshly-deployed frontend; serve it
+    // uncached so the poll reflects the live deploy the moment it lands, not a copy
+    // the edge or browser held onto.
+    if (url.pathname === "/version.json") {
+      const res = await env.ASSETS.fetch(request);
+      const headers = new Headers(res.headers);
+      headers.set("Cache-Control", "no-store");
+      return new Response(res.body, { status: res.status, headers });
+    }
     return env.ASSETS.fetch(request);
   },
 };

@@ -5,6 +5,8 @@ import { accountSubject, authConfigured, completeSignIn, currentIdToken } from "
 import { captureEvent, identifyUser, initAnalytics, isFeatureEnabled } from "./analytics.js";
 import { clearStoredToken, clearPendingClaim, getPendingClaim } from "./identity.js";
 import { connect } from "./net.js";
+import { startReconnect } from "./reconnect.js";
+import { watchForUpdate } from "./version.js";
 import { mountWorld } from "./world.js";
 
 async function main() {
@@ -27,7 +29,9 @@ async function main() {
     await completeSignIn();
     const idToken = await currentIdToken();
 
-    const conn = await connect(idToken ?? undefined);
+    // A redeploy closes every live socket at once; recover automatically instead
+    // of leaving players frozen on stale state until they refresh (reconnect.ts).
+    const conn = await connect(idToken ?? undefined, () => startReconnect(idToken ?? undefined));
     const signedIn = idToken !== null;
 
     // Server-authoritative events can't be emitted from inside reducers
@@ -51,6 +55,10 @@ async function main() {
     }
 
     mountWorld(app, conn);
+    // The frontend deploys separately from the backend (Cloudflare vs the VPS), so
+    // a client-only deploy fires no socket disconnect — poll for it instead and
+    // offer a refresh when newer assets ship (version.ts).
+    watchForUpdate();
     // Account UI owns rename/recolour for every player. Claim/sign-in controls only
     // appear when SpacetimeAuth is configured for this build.
     if (isFeatureEnabled("auth-enabled")) mountAccount(app, conn, { signedIn, authAvailable: authConfigured() });
