@@ -23,6 +23,8 @@ snake_case. Low-volume by design — anything that could fire more than ~once/se
 | Event | Properties | Fires when |
 | ----- | ---------- | ---------- |
 | `player_joined` | `zone, is_guest` | Session starts and the trogg exists in the world |
+| `connection_lost` | — | Live SpacetimeDB socket dropped after being connected (usually a backend redeploy); the client begins auto-reconnecting. Best-effort — fired just before the recovery reload, so it measures deploy disruption |
+| `client_update_available` | — | Polling spotted a newer deployed frontend than the running build (a Cloudflare-only deploy); the refresh prompt is shown. Measures how many players are on a stale client after a frontend deploy |
 | `player_named` | — | Guest upgrades to an account — fires when a claim is redeemed, alongside `identify()` (the OIDC subject), merging the guest's history |
 | `trogg_recolored` | `color` | Player picks an avatar colour — `color` is the chosen `TROGG_COLORS` palette index |
 | `zone_entered` | `zone, from_zone` | Zone transition |

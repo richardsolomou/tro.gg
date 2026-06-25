@@ -1,6 +1,22 @@
 import { fileURLToPath, URL } from "node:url";
 import { defineConfig, type Plugin } from "vite";
 
+// A unique stamp per build. It is both compiled into the client (as `__BUILD_ID__`)
+// and written to `dist/version.json`, so a running client can poll the file and
+// notice when a *newer* frontend has shipped. The frontend and backend deploy
+// independently — the client to Cloudflare, the SpacetimeDB module to the VPS — so
+// a client-only deploy fires no socket disconnect for reconnect.ts to react to;
+// polling this stamp is the only signal that new assets are live.
+const buildId = `${Date.now()}`;
+
+// Emit dist/version.json alongside the hashed bundle so it ships with this build.
+const versionFile: Plugin = {
+  name: "version-file",
+  generateBundle() {
+    this.emitFile({ type: "asset", fileName: "version.json", source: JSON.stringify({ build: buildId }) });
+  },
+};
+
 // In dev, Vite has no directory-index resolution, so `/play` would fall through
 // to the SPA fallback and serve the landing. Rewrite it to `/play/` so the dev
 // server serves the game page — matching how Cloudflare serves `/play` in prod.
@@ -15,7 +31,10 @@ const playRoute: Plugin = {
 };
 
 export default defineConfig({
-  plugins: [playRoute],
+  define: {
+    __BUILD_ID__: JSON.stringify(buildId),
+  },
+  plugins: [playRoute, versionFile],
   resolve: {
     alias: {
       "@trogg/shared": fileURLToPath(new URL("./shared/index.ts", import.meta.url)),

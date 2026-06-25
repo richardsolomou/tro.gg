@@ -12,8 +12,14 @@ import { getStoredToken, storeToken } from "./identity.js";
  * identity is the connection's own `ctx.sender` server-side (invariant 3); there's
  * no mint/verify round-trip. We only ever persist the *guest* token — the account
  * credential is the OIDC session, owned by auth.ts. Resolves once connected.
+ *
+ * `onDisconnect` fires when an established connection drops — most often because a
+ * new module version was just published, which closes every live socket at once.
+ * It is *not* invoked on a failed initial connect (that rejects the promise via
+ * `onConnectError`), so callers can treat it purely as "we were in, now we're out"
+ * (see reconnect.ts).
  */
-export function connect(accountToken?: string): Promise<DbConnection> {
+export function connect(accountToken?: string, onDisconnect?: () => void): Promise<DbConnection> {
   return new Promise((resolve, reject) => {
     DbConnection.builder()
       .withUri(SPACETIMEDB_HOST)
@@ -24,6 +30,7 @@ export function connect(accountToken?: string): Promise<DbConnection> {
         resolve(conn);
       })
       .onConnectError((_ctx, error: Error) => reject(error))
+      .onDisconnect(() => onDisconnect?.())
       .build();
   });
 }
