@@ -1,5 +1,6 @@
 import { Application, Container, Graphics, Rectangle, Text } from "pixi.js";
 import { CHAT_HISTORY_MAX, CHAT_MAX_CHARS } from "@trogg/shared";
+import { createTextField } from "./input_field.js";
 import { blurTextInput, focusTextInput, isTextInputActive } from "./text_input.js";
 import { TEXT_RESOLUTION } from "./ui_text.js";
 
@@ -42,16 +43,13 @@ export function mountChat(app: Application, send: (text: string) => void): ChatU
   const logBg = new Graphics();
   const logContent = new Container();
   const inputBox = new Graphics();
-  const inputText = new Text({
-    text: "Press Enter to chat...",
-    style: { fontFamily: FONT, fontSize: 13, fill: MUTED },
-    resolution: TEXT_RESOLUTION,
-  });
+  const inputField = createTextField({ ticker: app.ticker, fontSize: 13, ink: INK, muted: MUTED });
 
-  root.addChild(logBg, logContent, inputBox, inputText);
+  root.addChild(logBg, logContent, inputBox, inputField.view);
 
   const lines: ChatLine[] = [];
   let inputValue = "";
+  let caret = 0;
   let focused = false;
   let width = 320;
   let logHeight = 140;
@@ -59,8 +57,9 @@ export function mountChat(app: Application, send: (text: string) => void): ChatU
   let maxScroll = 0;
   let logRect = new Rectangle(0, 0, 0, 0);
 
-  const setInput = (value: string) => {
+  const setInput = (value: string, at = value.length) => {
     inputValue = value.slice(0, CHAT_MAX_CHARS);
+    caret = Math.min(at, inputValue.length);
     renderInput();
   };
 
@@ -153,14 +152,13 @@ export function mountChat(app: Application, send: (text: string) => void): ChatU
     inputBox.removeAllListeners("pointertap");
     inputBox.on("pointertap", focus);
 
-    inputText.position.set(8, logHeight + 12);
+    inputField.place(8, logHeight + 12, width - 16);
     renderMessages();
     renderInput();
   };
 
   function renderInput() {
-    inputText.text = inputValue || "Press Enter to chat...";
-    inputText.style.fill = inputValue ? INK : MUTED;
+    inputField.set({ value: inputValue, placeholder: "Press Enter to chat...", focused, caret });
     inputBox.clear();
     drawPanel(inputBox, 0, logHeight + 6, width, 30, PANEL, focused ? 0.92 : 0.82, focused ? INK : BORDER);
   }
@@ -238,6 +236,7 @@ export function mountChat(app: Application, send: (text: string) => void): ChatU
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("wheel", onWheel);
       app.renderer.off("resize", layout);
+      inputField.destroy();
       root.destroy({ children: true });
     },
   };

@@ -4,6 +4,7 @@ import type { DbConnection } from "./module_bindings";
 import { captureEvent, isFeatureEnabled } from "./analytics.js";
 import { signIn, signOut } from "./auth.js";
 import { setPendingClaim } from "./identity.js";
+import { createTextField } from "./input_field.js";
 import { focusTextInput } from "./text_input.js";
 import { TEXT_RESOLUTION } from "./ui_text.js";
 
@@ -33,7 +34,7 @@ export function mountAccount(app: Application, conn: DbConnection, opts: { signe
   const bg = new Graphics();
   const who = text("", 13, INK);
   const inputBox = new Graphics();
-  const inputLabel = text("", 13, MUTED);
+  const inputField = createTextField({ ticker: app.ticker, fontSize: 13, ink: INK, muted: MUTED });
   const status = text("", 12, MUTED);
   const palette = new Container();
   const swatches: Swatch[] = [];
@@ -60,13 +61,14 @@ export function mountAccount(app: Application, conn: DbConnection, opts: { signe
       })
     : null;
 
-  root.addChild(bg, who, inputBox, inputLabel, status, palette);
+  root.addChild(bg, who, inputBox, inputField.view, status, palette);
   if (action) root.addChild(action.root);
 
   let width = 260;
   let height = 0;
   let inputY = 0;
   let inputValue = "";
+  let caret = 0;
   let inputFocused = false;
 
   const rename = async (raw: string) => {
@@ -81,14 +83,16 @@ export function mountAccount(app: Application, conn: DbConnection, opts: { signe
     refresh();
   };
 
-  const setInput = (value: string) => {
+  const setInput = (value: string, at = value.length) => {
     inputValue = value.slice(0, NAME_MAX_CHARS);
+    caret = Math.min(at, inputValue.length);
     renderInput();
   };
 
   const focusRename = () => {
     inputFocused = true;
     if (!inputValue) inputValue = myName();
+    caret = inputValue.length;
     renderInput();
     focusTextInput({
       value: inputValue,
@@ -132,7 +136,7 @@ export function mountAccount(app: Application, conn: DbConnection, opts: { signe
 
     inputY = y;
     drawInput();
-    inputLabel.position.set(18, y + 7);
+    inputField.place(18, y + 7, width - 36);
     y += 36;
 
     status.position.set(10, y);
@@ -183,8 +187,7 @@ export function mountAccount(app: Application, conn: DbConnection, opts: { signe
 
   function renderInput() {
     drawInput();
-    inputLabel.text = inputValue || "Rename your trogg...";
-    inputLabel.style.fill = inputValue ? INK : MUTED;
+    inputField.set({ value: inputValue, placeholder: "Rename your trogg...", focused: inputFocused, caret });
   }
 
   conn.db.player.onInsert((_ctx, p) => {
