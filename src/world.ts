@@ -4,6 +4,7 @@ import type { DbConnection } from "./module_bindings";
 import type { Boulder, Hog, Player } from "./module_bindings/types";
 import { attachKeyboard, type MoveIntent } from "./input.js";
 import { mountChat, type ChatUI } from "./chat.js";
+import { mountHelp } from "./help.js";
 import { createTerrain } from "./terrain.js";
 import { avatarFrame, avatarTexture, facingFromDir, ghostTexture } from "./avatars.js";
 import { captureEvent, isFeatureEnabled } from "./analytics.js";
@@ -635,6 +636,10 @@ export function mountWorld(app: Application, conn: DbConnection) {
   // history panel silently, while later inserts also pop a bubble.
   if (isFeatureEnabled("chat-enabled")) setupChat(app, conn, tracked, zone, sub, myId, stage);
 
+  // A standing reference of controls and chat commands so a fresh trogg knows what
+  // it can do — listing only the features this session has enabled (GDD HUD note).
+  mountHelp(app);
+
   const queries = [
     `SELECT * FROM player WHERE zone_id = '${slug}' AND online = true`,
     `SELECT * FROM chat_message WHERE zone_id = '${slug}'`,
@@ -670,13 +675,17 @@ function setupChat(
   // broadcasting. It has an optional flag; off → it's sent as plain chat.
   // Defaults on in local dev, off in a production build (PostHog can flip it on).
   const spawnEnabled = isFeatureEnabled("spawn-command", import.meta.env.DEV);
-  const resetEnabled = isFeatureEnabled("boulder-reset");
+  // `/reset` snaps the zone's boulders (`boulder-reset`) or Hogs (`hog-reset`) back
+  // to their registry layout; each target is independently gated, so bare `/reset`
+  // and `/reset boulders` need boulders on, `/reset hedgehogs` needs Hogs on.
+  const resetBouldersEnabled = isFeatureEnabled("boulder-reset");
+  const resetHogsEnabled = isFeatureEnabled("hog-reset");
   // `/ghost` flickers the cosmetic ghost at a random tile; same flag as the launch
   // haunt (fallback on, so anyone can summon it), kept client-only.
   const ghostEnabled = isFeatureEnabled("ghost-trogg");
   const chat = mountChat(app, (text) => {
     if (spawnEnabled && handleSpawnCommand(conn, chat, text)) return;
-    if (resetEnabled && handleResetCommand(conn, slug, text)) return;
+    if (handleResetCommand(conn, chat, slug, text, resetBouldersEnabled, resetHogsEnabled)) return;
     if (ghostEnabled && handleGhostCommand(text, stage, zone)) return;
     audio.playChatSend();
     conn.reducers.chat({ text });
@@ -744,16 +753,57 @@ function handleSpawnCommand(conn: DbConnection, chat: ChatUI, text: string): boo
   return true;
 }
 
+/** The `/reset` targets mapped to a stable key, so aliases resolve to one branch. */
+const RESET_TARGETS: Record<string, "boulders" | "hogs"> = {
+  boulder: "boulders",
+  boulders: "boulders",
+  hog: "hogs",
+  hogs: "hogs",
+  hedgehog: "hogs",
+  hedgehogs: "hogs",
+};
+
 /**
- * Handle a chat line as the `/reset` command: snap the caller's zone boulders back
- * to their registry layout (server-authoritative) instead of broadcasting. Returns
- * true if it was the command; anything else falls through to chat.
+ * Handle a chat line as the `/reset [boulders|hedgehogs]` command: snap the caller's
+ * zone boulders or Hogs back to their registry layout (server-authoritative) instead
+ * of broadcasting. Bare `/reset` resets boulders, the original behaviour. Each target
+ * is independently flag-gated (`boulder-reset` / `hog-reset`); a target whose flag is
+ * off, or an unknown one, posts a local usage hint. Returns true if the line was a
+ * `/reset` command; anything else falls through to chat.
  */
-function handleResetCommand(conn: DbConnection, zone: string, text: string): boolean {
-  if (!/^\/reset\s*$/i.test(text)) return false;
-  audio.playCommand();
-  conn.reducers.resetBoulders({});
-  captureEvent("boulders_reset", { zone });
+function handleResetCommand(
+  conn: DbConnection,
+  chat: ChatUI,
+  zone: string,
+  text: string,
+  bouldersEnabled: boolean,
+  hogsEnabled: boolean,
+): boolean {
+  const m = /^\/reset(?:\s+(\S+))?\s*$/i.exec(text);
+  if (!m) return false;
+  // With neither target enabled, `/reset` isn't a command at all — fall through so
+  // it sends as an ordinary chat line (the prior behaviour when `boulder-reset` was off).
+  if (!bouldersEnabled && !hogsEnabled) return false;
+
+  const hint = (msg: string) => chat.addMessage("reset", "reset", msg, 0x9a8c70);
+  const targets = [bouldersEnabled && "boulders", hogsEnabled && "hedgehogs"].filter(Boolean).join(" | ");
+  const target = m[1] ? RESET_TARGETS[m[1].toLowerCase()] : "boulders";
+
+  if (target === "boulders" && bouldersEnabled) {
+    audio.playCommand();
+    conn.reducers.resetBoulders({});
+    captureEvent("boulders_reset", { zone });
+    return true;
+  }
+  if (target === "hogs" && hogsEnabled) {
+    audio.playCommand();
+    conn.reducers.resetHogs({});
+    captureEvent("hedgehogs_reset", { zone });
+    return true;
+  }
+
+  audio.playError();
+  hint(`usage: /reset ${targets}`);
   return true;
 }
 
