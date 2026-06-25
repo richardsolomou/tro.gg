@@ -145,14 +145,13 @@ const boulder = table(
  * connect, dropped by the `/spawn` debug command, then moved only by the scheduled
  * `wanderHogs` reducer. Merchant/dialogue Hog roles are separate later work.
  *
- * Unlike a trogg, a Hog's origin is an integer tile (`i32`): it re-bases at a whole
- * tile when it reaches the end of its route (clients still glide between via
- * `projectMotion`), and it never pushes, so it needs no sub-tile precision. Like a
- * trogg it carries a `path` of click-to-move waypoints — `wanderHogs` routes it to a
- * random tile near its `home` and the row holds that route until it arrives. The
- * motion columns carry defaults so adding them to the already-published `hog` table is an
- * in-place migration, not a breaking one (appended at the end — invariant: shipped
- * columns are never reordered). dirX/dirY/movedAt default to idle-at-epoch, path to none.
+ * Unlike a trogg, a Hog's origin is an integer tile (`i32`): it ambles tile-to-tile,
+ * re-based to each whole tile it reaches (clients still glide between via
+ * `projectMotion`), and it never pushes, so it needs no sub-tile precision. The
+ * `path`/`homeX`/`homeY` columns are unused by the amble — retained from an earlier
+ * home-anchored pathfinding wander, kept only so the shipped schema isn't reordered
+ * (columns are appended at the end, never moved — see the migration note above).
+ * dirX/dirY/movedAt default to idle-at-epoch, path to none.
  */
 const hog = table(
   { name: "hog", public: true },
@@ -165,11 +164,8 @@ const hog = table(
     dirY: t.i32().default(0),
     movedAt: t.timestamp().default(Timestamp.UNIX_EPOCH),
     path: t.string().default(""),
-    // The tile the Hog roams around — `wanderHogs` keeps its destinations within
-    // `HOG_WANDER_RADIUS` of here, so a Hog stays in its patch instead of drifting
-    // off as each hop's radius re-centres on its latest spot. Set to the spawn tile
-    // on insert; the -1 sentinel marks a pre-migration row, which adopts its current
-    // tile as home on the next tick.
+    // Unused by the tile-by-tile amble; retained from the earlier home-anchored wander
+    // (the -1 default is its pre-migration sentinel). Kept only to avoid a column reorder.
     homeX: t.i32().default(-1),
     homeY: t.i32().default(-1),
   },
@@ -178,9 +174,10 @@ const hog = table(
 /**
  * The Hog wander timer (GDD "Hogs"). A scheduled table is SpacetimeDB's
  * deterministic timer — the only way state changes outside player input (invariant
- * 1: no simulation tick). Each tick fires `wanderHogs`, which re-routes arrived Hogs
- * and then re-arms this timer *only while a player is online*, so an empty zone
- * settles its Hogs to rest and then does no further work (invariant 1).
+ * 1: no simulation tick). Each tick fires `wanderHogs`, which re-bases every Hog to
+ * the tile it reached and picks its next heading, then re-arms this timer *only while
+ * a player is online*, so an empty zone settles its Hogs to rest and then does no
+ * further work (invariant 1).
  */
 const hogWander = table(
   { name: "hog_wander", scheduled: (): any => wanderHogs },

@@ -335,9 +335,9 @@ export function mountWorld(app: Application, conn: DbConnection) {
       }
       syncDestinationFromPath(p.path);
     } else {
-      // Rebase extrapolation to the server's `movedAt`, mapped onto the local
-      // monotonic clock. Using receipt time here makes deployed clients trail the
-      // server by their network latency, which shows up as correction jitter.
+      // Rebase extrapolation to the server's `movedAt` on the local monotonic clock,
+      // not receipt time, so a deployed client doesn't trail the server by its network
+      // latency (which would show as correction jitter).
       entry.player = p;
       entry.baseMs = timestampBaseMs(p.movedAt);
     }
