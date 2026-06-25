@@ -1,5 +1,5 @@
 import { Application, Container, Graphics, Sprite, Text } from "pixi.js";
-import { ANCHOR, CHAT_BUBBLE_MS, COLOR_UNSET, facingTile, FRAME_H, FRAME_W, getZone, projectMotion, snapToTile, STARTING_ZONE_SLUG, troggColorFor, zoneBounds, type Facing, type Kind } from "@trogg/shared";
+import { ANCHOR, CHAT_BUBBLE_MS, COLOR_UNSET, facingTile, FRAME_H, FRAME_W, getZone, projectMotion, snapToTile, STARTING_ZONE_SLUG, troggColorFor, zoneBounds, type Facing, type Kind, type Zone } from "@trogg/shared";
 import type { DbConnection } from "./module_bindings";
 import type { Boulder, Hog, Player } from "./module_bindings/types";
 import { attachKeyboard, type MoveIntent } from "./input.js";
@@ -461,13 +461,13 @@ export function mountWorld(app: Application, conn: DbConnection) {
     }
   }, canRun);
 
-  // Cosmetic join easter egg. Each launch has a chance of a haunt.
-  if (isFeatureEnabled("ghost-trogg") && Math.random() < GHOST_CHANCE) hauntGhost(stage);
+  // Cosmetic join easter egg. Each launch has a chance of a haunt at the origin.
+  if (isFeatureEnabled("ghost-trogg") && Math.random() < GHOST_CHANCE) hauntGhost(stage, { x: 0, y: 0 });
 
   // Live once the initial rows have been delivered: backlog chat fills the
   // history panel silently, while later inserts also pop a bubble.
   const sub = { live: false };
-  if (isFeatureEnabled("chat-enabled")) setupChat(conn, tracked, slug, sub, myId);
+  if (isFeatureEnabled("chat-enabled")) setupChat(conn, tracked, zone, sub, myId, stage);
 
   const queries = [
     `SELECT * FROM player WHERE zone_id = '${slug}' AND online = true`,
@@ -492,19 +492,25 @@ export function mountWorld(app: Application, conn: DbConnection) {
 function setupChat(
   conn: DbConnection,
   tracked: Map<string, Tracked>,
-  slug: string,
+  zone: Zone,
   sub: { live: boolean },
   myId: string | undefined,
+  stage: Container,
 ) {
+  const slug = zone.slug;
   // The `/spawn` debug command is typed in the chat box but isn't a chat line —
   // it spawns an entity at the caller's tile (server-authoritative) instead of
   // broadcasting. It has an optional flag; off → it's sent as plain chat.
   // Defaults on in local dev, off in a production build (PostHog can flip it on).
   const spawnEnabled = isFeatureEnabled("spawn-command", import.meta.env.DEV);
   const resetEnabled = isFeatureEnabled("boulder-reset");
+  // `/ghost` flickers the cosmetic ghost at a random tile; same flag as the launch
+  // haunt (fallback on, so anyone can summon it), kept client-only.
+  const ghostEnabled = isFeatureEnabled("ghost-trogg");
   const chat = mountChat((text) => {
     if (spawnEnabled && handleSpawnCommand(conn, chat, text)) return;
     if (resetEnabled && handleResetCommand(conn, slug, text)) return;
+    if (ghostEnabled && handleGhostCommand(text, stage, zone)) return;
     conn.reducers.chat({ text });
   });
 
@@ -574,6 +580,20 @@ function handleResetCommand(conn: DbConnection, zone: string, text: string): boo
   if (!/^\/reset\s*$/i.test(text)) return false;
   conn.reducers.resetBoulders({});
   captureEvent("boulders_reset", { zone });
+  return true;
+}
+
+/**
+ * Handle a chat line as the `/ghost` command: flicker the cosmetic ghost trogg at a
+ * random tile in the zone. Purely a client render (touches no table or reducer), so
+ * only the caller sees it. Returns true if it was the command; anything else falls
+ * through to chat.
+ */
+function handleGhostCommand(text: string, stage: Container, zone: Zone): boolean {
+  if (!/^\/ghost\s*$/i.test(text)) return false;
+  const x = Math.floor(Math.random() * zone.width);
+  const y = Math.floor(Math.random() * zone.height);
+  hauntGhost(stage, { x, y });
   return true;
 }
 
@@ -734,12 +754,13 @@ const GHOST_CHANCE = 1 / 20;
 const GHOST_FLICKER_MS = 500;
 
 /**
- * Cosmetic easter egg (behind `ghost-trogg`): on launch, a pale trogg sometimes
- * materialises at the origin tile for a heartbeat, then fades. Purely a client
- * render — it touches no table and no reducer (invariant 3), so it's never seen
- * by anyone but the haunted player.
+ * Cosmetic easter egg (behind `ghost-trogg`): a pale trogg materialises on the
+ * given tile for a heartbeat, then fades — on launch by chance at the origin, or on
+ * demand at a random tile via the `/ghost` command. Purely a client render: it
+ * touches no table and no reducer (invariant 3), so it's never seen by anyone but
+ * the player who summoned it.
  */
-function hauntGhost(stage: Container) {
+function hauntGhost(stage: Container, tile: { x: number; y: number }) {
   const ghost = new Container();
   const sprite = new Sprite(ghostTexture("down", "idle"));
   sprite.anchor.set(ANCHOR.x / FRAME_W, ANCHOR.y / FRAME_H);
@@ -747,7 +768,7 @@ function hauntGhost(stage: Container) {
   sprite.position.set(TILE / 2, feetY());
   sprite.alpha = 0.5;
   ghost.addChild(sprite);
-  place(ghost, 0, 0);
+  place(ghost, tile.x, tile.y);
   stage.addChild(ghost);
 
   setTimeout(() => ghost.destroy({ children: true }), GHOST_FLICKER_MS);
