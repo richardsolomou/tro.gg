@@ -1,6 +1,16 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { assertZones, getZone, isGeneratedName, isValidName, isWalkable, STARTING_ZONE_SLUG } from "./constants";
+import {
+  assertZones,
+  getZone,
+  isGeneratedName,
+  isValidName,
+  isWalkable,
+  STARTING_ZONE_SLUG,
+  TILE_GLYPHS,
+  WALL_TILE,
+  ZONES,
+} from "./constants";
 
 test("the starting zone resolves from the registry", () => {
   const zone = getZone(STARTING_ZONE_SLUG);
@@ -39,6 +49,34 @@ test("a generated guest name is trogg- plus four hex of the identity", () => {
 
 test("every zone's tilemap matches its declared dimensions", () => {
   assert.doesNotThrow(assertZones);
+});
+
+test("only the wall glyph is unwalkable; decorative floor glyphs stay walkable", () => {
+  const zone = getZone(STARTING_ZONE_SLUG)!;
+  for (const [y, row] of zone.tiles.entries()) {
+    for (let x = 0; x < row.length; x++) {
+      assert.equal(isWalkable(zone, x, y), row[x] !== WALL_TILE, `tile (${x}, ${y}) glyph ${row[x]}`);
+    }
+  }
+});
+
+test("the starting zone uses several decorative tile glyphs for variety", () => {
+  const zone = getZone(STARTING_ZONE_SLUG)!;
+  const used = new Set([...zone.tiles.join("")]);
+  // wall, plain floor, plus at least three decorative variants in the mix.
+  assert.ok(used.size >= 5, `expected a varied tilemap, saw glyphs: ${[...used].join("")}`);
+  for (const glyph of used) assert.ok(TILE_GLYPHS.has(glyph), `unknown glyph ${JSON.stringify(glyph)}`);
+});
+
+test("assertZones rejects an unknown tile glyph", () => {
+  const zone = getZone(STARTING_ZONE_SLUG)!;
+  // Inject a zone whose tilemap has a stray glyph, then assert the guard catches it.
+  ZONES["__broken__"] = { ...zone, slug: "__broken__", tiles: zone.tiles.map((r, i) => (i === 1 ? "Z" + r.slice(1) : r)) };
+  try {
+    assert.throws(assertZones, /unknown tile glyph/);
+  } finally {
+    delete ZONES["__broken__"];
+  }
 });
 
 test("the zone rim is walled and the interior is floor", () => {

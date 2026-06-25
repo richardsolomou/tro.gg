@@ -31,8 +31,32 @@ export const CHAT_RATE_LIMIT_MS = 1_000;
 /** Recent messages kept in zone state for the side-panel history. (initial) */
 export const CHAT_HISTORY_MAX = 50;
 
-/** Tilemap character for an unwalkable tile (wall, rock, void). Anything else is floor. */
+/**
+ * Tilemap glyphs (GDD "Zones"). Each character in a zone's `tiles` rows is one
+ * tile. `WALL_TILE` (`#`) is the only unwalkable glyph — `isWalkable` treats it,
+ * and only it, as solid; every other glyph is walkable floor. The non-wall glyphs
+ * are cosmetic floor variants (gravel, moss, shallow water, glowmoss) so a zone
+ * reads as varied terrain rather than one flat stone fill — they change how a tile
+ * is drawn (`src/terrain.ts`), never how it collides. Water is a shallow puddle
+ * the trogg wades through, so it stays walkable; an impassable pool would be a
+ * `#`-class glyph instead. `assertZones` rejects any glyph not listed here.
+ */
 export const WALL_TILE = "#";
+export const FLOOR_TILE = ".";
+export const GRAVEL_TILE = ",";
+export const MOSS_TILE = '"';
+export const WATER_TILE = "~";
+export const GLOWMOSS_TILE = "*";
+
+/** Every recognised tilemap glyph. A character outside this set is a typo, not a tile. */
+export const TILE_GLYPHS: ReadonlySet<string> = new Set([
+  WALL_TILE,
+  FLOOR_TILE,
+  GRAVEL_TILE,
+  MOSS_TILE,
+  WATER_TILE,
+  GLOWMOSS_TILE,
+]);
 
 /** An integer tile coordinate within a zone. */
 export interface Coord {
@@ -78,11 +102,14 @@ export function isGeneratedName(name: string): boolean {
  * a `zones` table, deferred until tilemaps need editable storage. width/height
  * are in tiles. (initial dims)
  *
- * `tiles` is the per-tile walkability tilemap (GDD "Zones"): one string per row,
- * each character a tile — `WALL_TILE` (`#`) is unwalkable, everything else is
- * floor. Movement is confined to walkable tiles, both client and server reading
- * it through `isWalkable` (invariant 3). Scenery beyond walkability is deferred.
- * The grid must be `width × height`; `assertZones` checks it.
+ * `tiles` is the per-tile tilemap (GDD "Zones"): one string per row, each
+ * character a tile glyph (see `TILE_GLYPHS`). `WALL_TILE` (`#`) is unwalkable;
+ * every other glyph is walkable floor, with the non-`.` glyphs (gravel, moss,
+ * shallow water, glowmoss) selecting a cosmetic floor variant so a zone looks
+ * varied rather than uniform. Movement is confined to walkable tiles, both client
+ * and server reading it through `isWalkable` (invariant 3), which keys only off
+ * `#` — so decorative glyphs never change collision. The grid must be
+ * `width × height` and use only known glyphs; `assertZones` checks both.
  *
  * `boulders` lists the starting tiles of the zone's pushable boulders — dynamic
  * obstacles seeded into the `boulder` table on first connect, then mutated only
@@ -108,11 +135,15 @@ export interface Zone {
  * later zones, starting areas, and gates are added here when they serve the game.
  *
  * `hog-town` is a 24×16 cave: a one-tile rock wall around the rim with two rock
- * pillars inside, so the playable floor is a real non-rectangular shape. Edit
- * `tiles` to carve new layouts — walkability and rendering both read from it.
- * Two boulders flank the spawn (zone centre, 12×8) so a fresh trogg can push one
- * left and one right straight away. A handful of Hogs are scattered around the
- * floor and roam on their own (GDD "Hogs").
+ * pillars inside, so the playable floor is a real non-rectangular shape. The floor
+ * is dressed with cosmetic tile variants (see `TILE_GLYPHS`) — gravel scree (`,`)
+ * spilling around the rock pillars, moss (`"`) in the damp corners, a shallow
+ * water puddle (`~`) in the low corner, and glowmoss (`*`) accents scattered
+ * about — so the cave reads as varied terrain. They are all walkable; only `#`
+ * blocks. Edit `tiles` to carve new layouts — walkability and rendering both read
+ * from it. Two boulders flank the spawn (zone centre, 12×8) so a fresh trogg can
+ * push one left and one right straight away. A handful of Hogs are scattered
+ * around the floor and roam on their own (GDD "Hogs").
  */
 export const ZONES: Record<string, Zone> = {
   "hog-town": {
@@ -122,20 +153,20 @@ export const ZONES: Record<string, Zone> = {
     height: 16,
     tiles: [
       "########################",
+      "#\"\"....................#",
+      "#\"\"......*.............#",
+      "#\"..,,,,.............\".#",
+      "#...,##,.............\"\"#",
+      "#...,##,...\"\".........\"#",
+      "#...,,,,............*..#",
       "#......................#",
       "#......................#",
-      "#......................#",
-      "#....##................#",
-      "#....##................#",
-      "#......................#",
-      "#......................#",
-      "#......................#",
-      "#......................#",
-      "#................##....#",
-      "#................##....#",
-      "#......................#",
-      "#......................#",
-      "#......................#",
+      "#.......*......,,,,....#",
+      "#..............,##,....#",
+      "#\"\".......,,...,##,....#",
+      "#.~~\"........*.,,,,....#",
+      "#~~~~\".........*...*...#",
+      "#~~~~\".................#",
       "########################",
     ],
     boulders: [
@@ -186,6 +217,11 @@ export function assertZones(): void {
     for (const [y, row] of zone.tiles.entries()) {
       if (row.length !== zone.width) {
         throw new Error(`zone ${zone.slug}: row ${y} is ${row.length} wide, expected width ${zone.width}`);
+      }
+      for (const glyph of row) {
+        if (!TILE_GLYPHS.has(glyph)) {
+          throw new Error(`zone ${zone.slug}: row ${y} has unknown tile glyph ${JSON.stringify(glyph)}`);
+        }
       }
     }
     for (const b of zone.boulders) {
