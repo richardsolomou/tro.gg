@@ -33,7 +33,8 @@ snake_case. Low-volume by design — anything that could fire more than ~once/se
 | `xp_gained` | `skill, amount, level` | XP granted (batch if volume demands) |
 | `level_up` | `skill, level` | Derived level increases |
 | `chat_sent` | `zone` | Message sent — **no content** |
-| `boulders_reset` | `zone` | Player runs the in-chat `/reset` command |
+| `boulders_reset` | `zone` | Player runs the in-chat `/reset` (or `/reset boulders`) command |
+| `hedgehogs_reset` | `zone` | Player runs the in-chat `/reset hedgehogs` command |
 | `object_picked_up` | `zone, kind` | Player picks up a tile-sized object — `kind` is `boulder` or `hog` |
 | `object_dropped` | `zone, kind` | Player puts down what they were carrying |
 | `item_crafted` | `recipe, qty` | Item crafting succeeds |
@@ -59,11 +60,12 @@ Code currently reads these flag keys:
 | `roaming-hogs` | Hog rendering and subscription | On |
 | `running` | Hold-shift-to-run input | On |
 | `spawn-command` | `/spawn` debug command | On in local dev, off in production builds |
-| `boulder-reset` | `/reset` boulder layout command | On |
+| `boulder-reset` | `/reset` (or `/reset boulders`) boulder layout command | On |
+| `hog-reset` | `/reset hedgehogs` Hog population reset command | On |
 | `chat-enabled` | Chat panel and bubbles | On |
 | `trogg-recolor` | Colour swatches in the account panel | On |
 
-PostHog project audit (2026-06-25): all code-read flags above are configured in PostHog project 314596 and active at 100% rollout (`interact` created 2026-06-25 with the carry mechanic). Planned future flags should be added here, and created in PostHog, when code starts reading them.
+PostHog project audit (2026-06-25): all code-read flags above are configured in PostHog project 314596 and active at 100% rollout (`interact` created 2026-06-25 with the carry mechanic; `hog-reset` created 2026-06-25 with the `/reset hedgehogs` command). Planned future flags should be added here, and created in PostHog, when code starts reading them.
 
 ## Rules
 

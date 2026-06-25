@@ -76,7 +76,7 @@ Boulders are pushable rocks — dynamic obstacles, the same block-pushing gramma
 - **No tick** (invariant 1) and **server-authoritative** (invariant 3). The client fires `push` off its own prediction — the moment the trogg, moving in a committed direction (not merely facing one), becomes flush against a boulder (a motion transition, once per tile — never per frame, invariant 2). The server re-derives the trogg's position from its stored intent, validates alignment + a clear destination, moves the boulder one tile, and re-bases the trogg's motion to the flush tile.
 - **Cadence falls out of walk speed.** Re-basing leaves the boulder one tile ahead, and the trogg follows into the vacated tile before it's flush again — so the boulder advances at most one tile per tile walked, and a held key gives a steady slide at walk speed, never faster. Spamming `push` can't help: the boulder isn't faced again until the trogg catches up.
 - Boulders start from the zone's `boulders` registry entry, seeded into the `boulder` table on first connect, then moved only by `push`. The optional `boulder-pushing` flag can turn this off remotely: off → immovable rocks; on → pushable. Playable either way (invariant 6).
-- **Resetting:** the in-chat `/reset` command snaps the player's current zone back to its registry boulder layout (the `resetBoulders` reducer clears and reseeds the zone). Behind the `boulder-reset` flag — off, `/reset` is just an ordinary chat line.
+- **Resetting:** the in-chat `/reset` (or `/reset boulders`) command snaps the player's current zone back to its registry boulder layout (the `resetBoulders` reducer clears and reseeds the zone). Behind the `boulder-reset` flag — off, bare `/reset` is just an ordinary chat line. The same command resets Hogs (`/reset hedgehogs`, GDD "Hogs").
 
 ### Interacting (pick up and carry)
 
@@ -98,12 +98,13 @@ Ambient **Hog** NPCs (the glossary's friendly hedgehogs) roam the zone on their 
 - **Empty zone, no work.** The timer re-arms only while a player is online; when the last player leaves, the next tick settles every Hog to rest and stops, so an empty world produces no diffs and no work (invariant 1).
 - **Server-owned, seeded from the registry.** Hogs have no identity. Their starting tiles come from the zone's `hogs` registry entry (`ZONES` in `shared`), seeded into the `hog` table on first connect (idempotent, like boulders), then moved only by `wanderHogs`.
 - Wander cadence: the tick fires every `HOG_WANDER_INTERVAL_MS` *(initial)* to re-route arrived Hogs; each walks its route at the shared move speed, so a longer route spans several ticks. Destinations stay within `HOG_WANDER_RADIUS` *(initial)* tiles so Hogs amble near where they spawned rather than ranging the whole zone.
+- **Resetting:** the in-chat `/reset hedgehogs` command snaps the player's current zone Hogs back to their registry population (the `resetHogs` reducer clears and reseeds the zone, the mirror of `resetBoulders`) — the cull for a zone overrun with `/spawn`ed Hogs. A Hog a trogg is carrying rides the player row, not the `hog` table, so it survives the cull and re-materialises on put-down. Behind the `hog-reset` flag — off, `/reset hedgehogs` is just an ordinary chat line.
 
 ### Camera and rendering
 
 - 3/4 top-down (RuneScape-2004 / Stardew view), pixel art tiles and sprites.
 - Rendered with **PixiJS** (WebGL/WebGPU canvas) on a Vite + TypeScript client, nearest-neighbour scaled for crisp pixels. The client subscribes to the zone's SpacetimeDB tables and draws them; all authority stays server-side (invariant 3).
-- Visible in-game HUD surfaces — chat history/input, account claim/rename controls, and avatar colour swatches — render inside the PixiJS scene above the world so layout is owned by the game renderer on small screens. Browser-native text input is still used as an invisible bridge while typing, because mobile keyboards, paste, and IME composition are platform controls.
+- Visible in-game HUD surfaces — chat history/input, account claim/rename controls, avatar colour swatches, and the help panel (a top-left "?" toggle listing the controls and chat commands a player can use) — render inside the PixiJS scene above the world so layout is owned by the game renderer on small screens. Browser-native text input is still used as an invisible bridge while typing, because mobile keyboards, paste, and IME composition are platform controls. The help panel lists only the controls and commands whose feature flags are enabled this session, so it never advertises a disabled key or command.
 
 ### Audio
 
@@ -125,7 +126,8 @@ Ambient **Hog** NPCs (the glossary's friendly hedgehogs) roam the zone on their 
 ### Zones
 
 - A zone has a slug, display name, integer width/height in tiles, and a tilemap: per-tile walkability plus scenery. Nodes and obstacles sit on unwalkable tiles.
-- **Zone definitions are a static code registry** (`ZONES` in `shared`, keyed by slug) — static design data like the item and node registries, not the durable `zones` table the data model lists. The table is deferred until tilemaps need editable storage; until then a zone is a registry entry. A client subscribes to one zone's rows by slug (`WHERE zone_id = …`); zone dimensions and the per-tile walkability tilemap (`tiles`, read through `isWalkable`) come from the shared `ZONES` registry (imported by both the client and the module), so the grid is shared design data, not a per-session value. The client renders walls from the same tilemap it collides against, so what's drawn is what blocks you.
+- **Tile glyphs.** Each character of a zone's `tiles` rows is a tile glyph (`TILE_GLYPHS` in `shared`). `WALL_TILE` (`#`) is the only unwalkable glyph — `isWalkable` keys solely off `#`, so collision and pathfinding ignore the rest. The other glyphs are **cosmetic floor variants** that dress the stone so a zone reads as varied terrain instead of one flat fill: `.` plain floor, `,` gravel scree, `"` moss, `~` shallow water (walkable — a puddle the trogg wades through; an impassable pool would be a `#`-class glyph), `*` glowmoss. The client paints a tile-sized overlay per variant (`src/terrain.ts`); they change rendering only, never movement. `assertZones` rejects any glyph not in `TILE_GLYPHS`. Add a new variant by registering its glyph and an overlay painter together.
+- **Zone definitions are a static code registry** (`ZONES` in `shared`, keyed by slug) — static design data like the item and node registries, not the durable `zones` table the data model lists. The table is deferred until tilemaps need editable storage; until then a zone is a registry entry. A client subscribes to one zone's rows by slug (`WHERE zone_id = …`); zone dimensions and the tilemap (`tiles`, walkability read through `isWalkable`) come from the shared `ZONES` registry (imported by both the client and the module), so the grid is shared design data, not a per-session value. The client renders walls and floor variants from the same tilemap it collides against, so what's drawn is what blocks you.
 - **Spawn and the hub gate:** new players spawn in a shared **starting zone** (working name: the cave) and must reach a checkpoint to unlock the hub, `hog-town`. The hub isn't available until the checkpoint is crossed — a per-player progression gate, not an instance; the starting zone is shared like any other.
 - The current world ships a single shared zone *(working slug `hog-town`, 24×16 (initial))*; additional zones, starting areas, and gates can be added when they help the current gameplay.
 - Clients subscribe to players/nodes/chat **in their current zone only**. Within a zone, sync is deliberately naive (whole-zone queries) — see invariant 10.
@@ -229,11 +231,14 @@ boulder        id (PK, auto-inc), zoneId, x, y     (tile coords)
                (or reset to the registry by the `resetBoulders` reducer, fired by the in-chat `/reset` command).
                Removed while a trogg carries it and re-inserted on put-down (see "Interacting").
                index: by_zone (zoneId)
-hog            id (PK, auto-inc), zoneId, x, y, dirX, dirY, movedAt
+hog            id (PK, auto-inc), zoneId, x, y, dirX, dirY, movedAt, path, homeX, homeY
                an ambient roaming Hog NPC (see "Hogs"). Intent-based motion like a player (position
-               derived with projectMotion); server-owned, no identity. Seeded from the ZONES registry
-               on first connect, dropped by the `/spawn` debug command, moved only by the scheduled
-               `wanderHogs`. Removed while a trogg carries it and re-inserted on put-down (see "Interacting").
+               derived with projectMotion); server-owned, no identity. path is the click-to-move route
+               wanderHogs sends it along; homeX/homeY is the tile it roams around (destinations stay within
+               HOG_WANDER_RADIUS of it). Seeded from the ZONES registry
+               on first connect, spawned by the `/spawn` debug command, moved only by the scheduled
+               `wanderHogs` (or reset to the registry population by the `resetHogs` reducer, fired by the
+               in-chat `/reset hedgehogs` command). Removed while a trogg carries it and re-inserted on put-down (see "Interacting").
                index: by_zone (zoneId)
 hog_wander     scheduledId (PK, auto-inc), scheduledAt     (scheduled table)
                the Hog wander timer — SpacetimeDB's deterministic scheduler (invariant 1). Fires
@@ -284,7 +289,7 @@ Roadmap notes are planning context, not permission gates. Pick work by current p
 
 Current playable foundation: durable SpacetimeDB tables are the store, anonymous SpacetimeDB Identity gives each browser a persistent trogg, and optional SpacetimeAuth OIDC lets a guest claim an account with `startClaim`/`redeemClaim`, `rename`, `player_named`, and `posthog.identify()`. Identity is issued by the connection and reducers authorize by `ctx.sender`; it is never client-asserted.
 
-Implemented world systems: a static shared `ZONES` registry, zone-scoped subscriptions, per-tile walkability, cardinal grid-locked WASD movement, boulder pushing, pick-up-and-carry interaction (`E`), roaming Hogs, hold-shift-to-run, sprite avatars, chat bubbles/history, trogg recolouring, a small ghost-trogg cosmetic (launch haunt + `/ghost`), `/spawn`, and `/reset`. Some of these have optional client-side flag gates for remote rollout or kill-switch use; the current code-read flags are configured in PostHog and still have code fallbacks for local or unconfigured environments.
+Implemented world systems: a static shared `ZONES` registry, zone-scoped subscriptions, per-tile walkability, cardinal grid-locked WASD movement, boulder pushing, pick-up-and-carry interaction (`E`), roaming Hogs, hold-shift-to-run, sprite avatars, chat bubbles/history, trogg recolouring, a small ghost-trogg cosmetic (launch haunt + `/ghost`), `/spawn`, `/reset` (boulders and Hogs), and a help panel listing the live controls and commands. Some of these have optional client-side flag gates for remote rollout or kill-switch use; the current code-read flags are configured in PostHog and still have code fallbacks for local or unconfigured environments.
 
 Likely next work areas include starting-zone onboarding, click-to-move pathfinding around obstacles, gathering and XP, inventory/equipment, crafting, communal projects, Hog merchants, load events, LLM-driven Hogs, and optional PvE defense. These are intentionally fluid; implement the slice that best serves the current task.
 
