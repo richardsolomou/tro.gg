@@ -17,12 +17,14 @@ export const RUN_SPEED_TILES_PER_SEC = 7;
 
 /**
  * Roaming Hogs (GDD "Hogs"). Ambient hedgehog NPCs wander on their own: when a Hog
- * reaches the end of its route, the scheduled reducer routes it to a random
- * reachable tile within `HOG_WANDER_RADIUS` (the same `findPath` click-to-move uses)
- * or, with `HOG_IDLE_CHANCE`, pauses instead so they don't march nonstop. Picking a
- * destination retries up to `HOG_WANDER_TRIES` times before giving up and idling, so
- * a Hog boxed in by walls or boulders doesn't stall on one unreachable roll. Hogs
- * ride the same intent-based motion as troggs, so there's no per-frame sync. (initial)
+ * reaches the end of its route, the scheduled reducer routes it to a random reachable
+ * tile within `HOG_WANDER_RADIUS` of its home tile (the same `findPath` click-to-move
+ * uses) or, with `HOG_IDLE_CHANCE`, pauses instead so they don't march nonstop.
+ * Anchoring on home rather than the current spot keeps a Hog in its patch instead of
+ * drifting off over many hops. Picking a destination retries up to `HOG_WANDER_TRIES`
+ * times before giving up and idling, so a Hog boxed in by walls or boulders doesn't
+ * stall on one unreachable roll. Hogs ride the same intent-based motion as troggs, so
+ * there's no per-frame sync. (initial)
  */
 export const HOG_WANDER_INTERVAL_MS = 1_500;
 export const HOG_IDLE_CHANCE = 0.25;
