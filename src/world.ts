@@ -438,6 +438,9 @@ export function mountWorld(app: Application, conn: DbConnection) {
   // Whether we were flush against a pushable boulder last frame, so `push` fires once
   // per tile (on the rising edge), not every frame.
   let pushBlocked = false;
+  // Whether we've already re-routed the current click-to-move stall, so a route blocked
+  // by a Hog re-plans once (not every frame while the new route is in flight).
+  let stallReplanned = false;
   let lastFootstepTile = "";
   // A click-to-move target waiting for the trogg to reach a tile centre before it
   // re-paths. Click-to-move is grid-locked like WASD (GDD "Movement"): re-basing
@@ -619,17 +622,22 @@ export function mountWorld(app: Application, conn: DbConnection) {
       if (entry.player.identity.toHexString() !== myId) continue;
 
       playFootstepAtCentre(x, y, { dirX: motion.dirX, dirY: motion.dirY, running: entry.player.running });
+      // A click-to-move route stalls when a Hog (or a shoved boulder) lands on a tile
+      // ahead of it: `projectPathMotion` stops with no heading and `arrived` false.
+      const stalled = entry.player.path !== "" && !motion.arrived && motion.dirX === 0 && motion.dirY === 0;
+      if (!stalled) stallReplanned = false;
       if (!pendingMoveTo && motion.arrived && entry.player.path !== "") clearDestination();
       if (pendingMoveTo) {
         flushPendingMoveTo(entry, motion, x, y);
-      } else if (entry.player.path !== "" && !motion.arrived && motion.dirX === 0 && motion.dirY === 0) {
-        // Click-to-move route stalled against a Hog (or boulder) that moved onto it.
-        // Stop flush here rather than holding the path: a held route banks elapsed
-        // travel against the obstacle, and the instant it clears the projection would
-        // fling the trogg forward along the banked path. Stopping leaves a fresh click
-        // to resume; the server settles onto this whole tile, so nothing is banked.
-        sendMove(entry, { dirX: 0, dirY: 0, running: entry.player.running }, x, y, now);
-        clearDestination();
+      } else if (stalled && isIdle(desired) && destinationTile) {
+        // Re-route around the obstacle to the same destination rather than stopping:
+        // `moveTo` re-settles to this stall tile (a whole tile, so nothing is banked)
+        // and runs findPath fresh against where the Hogs are now, so the trogg walks
+        // around. Once per stall; a keypress falls through to `driveSelf` (WASD takes over).
+        if (!stallReplanned) {
+          stallReplanned = true;
+          conn.reducers.moveTo({ x: destinationTile.x, y: destinationTile.y, running: entry.player.running });
+        }
       } else {
         driveSelf(entry, x, y, now);
       }
