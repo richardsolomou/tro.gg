@@ -1,11 +1,10 @@
 import { Application, Container, FederatedPointerEvent, Graphics, Rectangle } from "pixi.js";
-import { CHAT_BUBBLE_MS, COLOR_UNSET, facingTile, getZone, parsePath, projectMotion, projectMotionState, snapToTile, STARTING_ZONE_SLUG, tileKey, timestampMs, troggColorFor, zoneBounds, type Coord, type ProjectedMotion, type Stamp, type Zone } from "@trogg/shared";
+import { facingTile, getZone, parsePath, projectMotion, projectMotionState, snapToTile, STARTING_ZONE_SLUG, tileKey, timestampMs, troggColorFor, zoneBounds, type Coord, type ProjectedMotion, type Stamp, type Zone } from "@trogg/shared";
 import type { DbConnection } from "./module_bindings";
 import type { Boulder, Hog, Player } from "./module_bindings/types";
 import { attachKeyboard, type MoveIntent } from "./input.js";
-import { mountChat } from "./chat.js";
-import { handleChatCommand } from "./chat_commands.js";
-import { ART, createEntities, GHOST_CHANCE, type BoulderView, type Entities, type HogView, type Tracked } from "./entities.js";
+import { setupChat } from "./chat.js";
+import { ART, createEntities, GHOST_CHANCE, type BoulderView, type HogView, type Tracked } from "./entities.js";
 import { mountHelp } from "./help.js";
 import { createTerrain } from "./terrain.js";
 import { facingFromDir } from "./avatars.js";
@@ -691,91 +690,3 @@ export function mountWorld(app: Application, conn: DbConnection) {
     .subscribe(queries);
 }
 
-/**
- * Wires zone chat: every `chat_message` row feeds the side-panel history (the
- * subscription replays recent lines on join), and once live, a new row also pops
- * a bubble over the speaker's head — so bubbles fire only for present players,
- * not the backlog. Own messages emit `chat_sent` — never content (invariant 4 /
- * docs/analytics.md).
- */
-function setupChat(
-  app: Application,
-  conn: DbConnection,
-  entities: Entities,
-  tracked: Map<string, Tracked>,
-  zone: Zone,
-  sub: { live: boolean },
-  myId: string | undefined,
-  stage: Container,
-) {
-  const slug = zone.slug;
-  // The `/spawn` debug command is typed in the chat box but isn't a chat line —
-  // it spawns an entity at the caller's tile (server-authoritative) instead of
-  // broadcasting. It has an optional flag; off → it's sent as plain chat.
-  // Defaults on in local dev, off in a production build (PostHog can flip it on).
-  const spawnEnabled = isFeatureEnabled("spawn-command", import.meta.env.DEV);
-  // `/reset` snaps the zone's boulders (`boulder-reset`) or Hogs (`hog-reset`) back
-  // to their registry layout; each target is independently gated, so bare `/reset`
-  // and `/reset boulders` need boulders on, `/reset hedgehogs` needs Hogs on.
-  const resetBouldersEnabled = isFeatureEnabled("boulder-reset");
-  const resetHogsEnabled = isFeatureEnabled("hog-reset");
-  // `/ghost` flickers the cosmetic ghost at a random tile; same flag as the launch
-  // haunt (fallback on, so anyone can summon it), kept client-only.
-  const ghostEnabled = isFeatureEnabled("ghost-trogg");
-  const chat = mountChat(app, (text) => {
-    const flags = { spawn: spawnEnabled, resetBoulders: resetBouldersEnabled, resetHogs: resetHogsEnabled, ghost: ghostEnabled };
-    if (handleChatCommand(text, { conn, chat, zone, flags, onGhost: (tile) => entities.hauntGhost(stage, tile) })) return;
-    audio.playChatSend();
-    conn.reducers.chat({ text });
-  });
-
-  const senderColor = (sender: Player["identity"]) =>
-    troggColorFor(conn.db.player.identity.find(sender)?.color ?? COLOR_UNSET, sender.toHexString());
-
-  conn.db.chatMessage.onInsert((_ctx, message) => {
-    const senderId = message.sender.toHexString();
-    chat.addMessage(senderId, message.name, message.text, senderColor(message.sender));
-    // Bubble only for fresh lines: a reconnect replays the zone's recent history,
-    // and those rows can arrive after the subscription goes live — without this an
-    // old message would pop a stale bubble over its sender on every refresh.
-    const ageMs = Date.now() - timestampMs(message.createdAt);
-    if (ageMs > CHAT_BUBBLE_MS) return;
-    showBubble(entities, tracked, senderId, message.text);
-    if (!sub.live) return;
-    if (senderId === myId) captureEvent("chat_sent", { zone: slug });
-    else audio.playChatReceive();
-  });
-
-  // A rename rewrites the denormalised name on the sender's past lines; reflect it
-  // in the history panel so it doesn't show their old name until a reload.
-  conn.db.chatMessage.onUpdate((_ctx, _old, message) => {
-    chat.renameSender(message.sender.toHexString(), message.name);
-  });
-
-  // Colour isn't denormalised onto chat rows (it's derived from the live player
-  // row), so a recolour surfaces as a player-row update — retint the sender's
-  // history lines so they match the avatar without a reload.
-  conn.db.player.onUpdate((_ctx, _old, p) => {
-    if (_old.color !== p.color) chat.recolorSender(p.identity.toHexString(), troggColorFor(p.color, p.identity.toHexString()));
-  });
-}
-
-/** Pop a speech bubble over a trogg's head, replacing any current one. */
-function showBubble(entities: Entities, tracked: Map<string, Tracked>, id: string, text: string) {
-  const entry = tracked.get(id);
-  if (!entry) return;
-
-  if (entry.bubbleTimer) clearTimeout(entry.bubbleTimer);
-  entry.bubble?.destroy({ children: true });
-
-  const bubble = entities.makeBubble(text, entry.sprite ? entities.headTopY() : 0);
-  entry.marker.addChild(bubble);
-  entry.bubble = bubble;
-  entry.bubbleTimer = setTimeout(() => {
-    bubble.destroy({ children: true });
-    if (entry.bubble === bubble) {
-      entry.bubble = undefined;
-      entry.bubbleTimer = undefined;
-    }
-  }, CHAT_BUBBLE_MS);
-}
