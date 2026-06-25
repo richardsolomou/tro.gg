@@ -43,6 +43,7 @@ export const Hog = __t.object("Hog", {
   dirX: __t.i32(),
   dirY: __t.i32(),
   movedAt: __t.timestamp(),
+  path: __t.string(),
 });
 export type Hog = __Infer<typeof Hog>;
 

@@ -87,21 +87,6 @@ export const CARDINALS: readonly { dirX: number; dirY: number }[] = [
   { dirX: 1, dirY: 0 },
 ];
 
-/**
- * The cardinal directions whose next tile a Hog at (x, y) could step onto —
- * walkable floor inside the zone (GDD "Hogs"). The scheduled wander reducer picks
- * a Hog's new heading from these, so it ambles around walls and boulders instead
- * of pressing into them. (x, y) are tile coordinates.
- */
-export function walkableCardinals(zone: ZoneBounds, x: number, y: number): { dirX: number; dirY: number }[] {
-  return CARDINALS.filter(({ dirX, dirY }) => {
-    const nx = x + dirX;
-    const ny = y + dirY;
-    if (nx < 0 || ny < 0 || nx >= zone.width || ny >= zone.height) return false;
-    return zone.isWalkable ? zone.isWalkable(nx, ny) : true;
-  });
-}
-
 /** Serialize click-to-move waypoints into the player row's path string. */
 export function serializePath(path: readonly Coord[]): string {
   return path.map((p) => `${p.x},${p.y}`).join(";");

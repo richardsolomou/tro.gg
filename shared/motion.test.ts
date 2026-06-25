@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { MOVE_SPEED_TILES_PER_SEC, RUN_SPEED_TILES_PER_SEC, type Zone } from "./constants";
-import { facingTile, findPath, projectMotion, projectMotionState, serializePath, snapToTile, walkableCardinals, spawnTile, zoneBounds } from "./motion";
+import { facingTile, findPath, projectMotion, projectMotionState, serializePath, snapToTile, spawnTile, zoneBounds } from "./motion";
 
 // No isWalkable → open floor, clamped only to the rectangular bounds.
 const open = { width: 24, height: 16 };
@@ -135,6 +135,20 @@ test("path motion follows serialized waypoints and idles on arrival", () => {
   assert.deepEqual(projectMotion({ x: 1, y: 1, dirX: 1, dirY: 0, path }, 10_000, open), { x: 3, y: 2 });
 });
 
+test("path motion stalls at a blocked waypoint without reporting arrival", () => {
+  // A boulder dropped onto (3,1) after the route was planned. The Hog walks up to
+  // the last clear tile and stops with no heading — `arrived` stays false, the
+  // signal `wanderHogs` keys off to re-route rather than re-decide on arrival.
+  const blocked = zoneBounds(openRoom, (x, y) => x === 3 && y === 1);
+  const path = serializePath([
+    { x: 2, y: 1 },
+    { x: 3, y: 1 },
+    { x: 4, y: 1 },
+  ]);
+  const stalled = projectMotionState({ x: 1, y: 1, dirX: 1, dirY: 0, path }, 10_000, blocked);
+  assert.deepEqual(stalled, { x: 2, y: 1, dirX: 0, dirY: 0, arrived: false });
+});
+
 test("the same tile is walkable once nothing occupies it", () => {
   const open = zoneBounds(openRoom);
   const at = projectMotion({ x: 1, y: 1, dirX: 1, dirY: 0 }, 10_000, open);
@@ -153,18 +167,6 @@ test("settling a mid-step slide lands the trogg on a whole tile", () => {
   const mid = projectMotion({ x: 2, y: 5, dirX: 1, dirY: 0 }, 600, open);
   assert.equal(mid.x, 2 + MOVE_SPEED_TILES_PER_SEC * 0.6);
   assert.deepEqual(snapToTile(mid), { x: 4, y: 5 });
-});
-
-const dirKeys = (dirs: { dirX: number; dirY: number }[]) => new Set(dirs.map((d) => `${d.dirX},${d.dirY}`));
-
-test("a hog's walkable headings exclude walls and the zone edge", () => {
-  // (1,1) in the corner room: floor below and to the right, walls above and left.
-  assert.deepEqual(dirKeys(walkableCardinals(cornered, 1, 1)), new Set(["0,1", "1,0"]));
-});
-
-test("a hog's walkable headings treat a boulder like a wall", () => {
-  // (3,1) in the 1-tile-tall corridor with a boulder at (4,1): only left is open.
-  assert.deepEqual(dirKeys(walkableCardinals(withBoulder, 3, 1)), new Set(["-1,0"]));
 });
 
 test("facingTile names the adjacent tile only when squarely aligned", () => {

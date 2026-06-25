@@ -550,9 +550,9 @@ export function mountWorld(app: Application, conn: DbConnection) {
     // Hogs ride the same intent extrapolation — derived locally, never per-frame
     // sync (invariant 2). They collide against the same walls and boulders.
     for (const view of hogs.values()) {
-      const { x, y } = projectMotion(view.row, now - view.baseMs, bounds);
-      place(view.marker, x, y);
-      driveSprite(view.sprite, "hog", view.row.dirX, view.row.dirY, false, view, now);
+      const motion = projectMotionState(view.row, now - view.baseMs, bounds);
+      place(view.marker, motion.x, motion.y);
+      driveSprite(view.sprite, "hog", motion.dirX, motion.dirY, false, view, now);
     }
   });
 
