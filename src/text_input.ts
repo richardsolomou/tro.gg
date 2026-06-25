@@ -1,7 +1,8 @@
 type TextInputSession = {
   value: string;
   maxLength: number;
-  onChange(value: string): void;
+  /** `caret` is the insertion-point index, so callers can render their own cursor. */
+  onChange(value: string, caret: number): void;
   onSubmit(value: string): void;
   onCancel(): void;
   onBlur(): void;
@@ -36,9 +37,16 @@ function ensureInput(): HTMLInputElement {
     } satisfies Partial<CSSStyleDeclaration>);
     document.body.appendChild(input);
 
-    input.addEventListener("input", () => {
+    const notify = () => {
       if (!active) return;
-      active.onChange(input!.value);
+      active.onChange(input!.value, input!.selectionStart ?? input!.value.length);
+    };
+
+    input.addEventListener("input", notify);
+    // The caret also moves on arrow keys, Home/End and selection without firing
+    // "input"; selectionchange catches those so the rendered cursor keeps up.
+    document.addEventListener("selectionchange", () => {
+      if (document.activeElement === input) notify();
     });
     input.addEventListener("keydown", (e) => {
       if (!active) return;
