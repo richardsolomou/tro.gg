@@ -59,13 +59,32 @@ export function mountChat(send: (text: string) => void): ChatUI {
   root.append(log, input);
   document.body.appendChild(root);
 
+  // Shell-style recall of sent messages. `cursor` indexes `sent`; when it
+  // equals sent.length the input holds the live draft (preserved across recall).
+  const sent: string[] = [];
+  let cursor = 0;
+  let draft = "";
+
+  const recall = (delta: number) => {
+    if (!sent.length) return;
+    if (cursor === sent.length) draft = input.value;
+    cursor = Math.max(0, Math.min(sent.length, cursor + delta));
+    input.value = cursor === sent.length ? draft : sent[cursor]!;
+    input.setSelectionRange(input.value.length, input.value.length);
+  };
+
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key === "Enter") {
       if (document.activeElement === input) {
         const text = input.value.trim();
         input.value = "";
         input.blur();
-        if (text) send(text);
+        if (text) {
+          if (sent[sent.length - 1] !== text) sent.push(text);
+          cursor = sent.length;
+          draft = "";
+          send(text);
+        }
       } else {
         e.preventDefault();
         input.focus();
@@ -73,6 +92,12 @@ export function mountChat(send: (text: string) => void): ChatUI {
     } else if (e.key === "Escape" && document.activeElement === input) {
       input.value = "";
       input.blur();
+    } else if (e.key === "ArrowUp" && document.activeElement === input) {
+      e.preventDefault();
+      recall(-1);
+    } else if (e.key === "ArrowDown" && document.activeElement === input) {
+      e.preventDefault();
+      recall(1);
     }
   };
   window.addEventListener("keydown", onKeyDown);
