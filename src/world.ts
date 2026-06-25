@@ -21,6 +21,9 @@ let TILE = 28;
  *  turning in place — the tap-vs-hold window (GDD "Movement"). Tune for feel. */
 const TURN_TAP_MS = 130;
 
+/** Size of a carried object's overlay relative to a full tile (GDD "Interacting"). */
+const CARRY_SCALE = 0.62;
+
 /** A player's sprite plus the client-clock instant its current intent arrived. */
 interface Tracked {
   marker: Container;
@@ -34,6 +37,10 @@ interface Tracked {
   frameKey: string;
   bubble?: Container;
   bubbleTimer?: ReturnType<typeof setTimeout>;
+  /** The overlay sprite for what the trogg carries (GDD "Interacting"), if any. */
+  carried?: Container;
+  /** Which kind the overlay shows ("" = none), so it only rebuilds on change. */
+  carriedKind: string;
 }
 
 type TimestampLike = { microsSinceUnixEpoch: bigint };
@@ -143,6 +150,9 @@ export function mountWorld(app: Application, conn: DbConnection) {
   // Hold-shift-to-run has an optional rollout flag; off → shift is ignored and
   // movement stays at walk speed.
   const canRun = isFeatureEnabled("running");
+  // The interact key (E) — pick up / put down tile-sized objects — behind its
+  // optional kill-switch; off → E does nothing.
+  const useInteract = isFeatureEnabled("interact");
 
   // Tiles boulders currently occupy. Folded into the collision context below so
   // troggs stop flush against boulders exactly as they do against walls — and so
@@ -203,9 +213,13 @@ export function mountWorld(app: Application, conn: DbConnection) {
     entry.frameKey = built.frameKey;
     entry.bubble = undefined;
     entry.bubbleTimer = undefined;
+    // The carried overlay was a child of the old marker, so it's gone too; re-add it.
+    entry.carried = undefined;
+    entry.carriedKind = "";
     const { x, y } = projectMotion(entry.player, performance.now() - entry.baseMs, bounds);
     place(entry.marker, x, y);
     stage.addChild(entry.marker);
+    applyCarry(entry);
   };
 
   app.renderer.on("resize", layout);
@@ -216,11 +230,12 @@ export function mountWorld(app: Application, conn: DbConnection) {
     if (tracked.has(id)) return;
     const facing = facingFromDir(p.dirX, p.dirY, "down");
     const { marker, sprite, frameKey } = makeMarker(p.name, troggColorFor(p.color, id), id === myId, facing, useSprites);
-    const entry: Tracked = { marker, sprite, player: p, baseMs: timestampBaseMs(p.movedAt), facing, frameKey };
+    const entry: Tracked = { marker, sprite, player: p, baseMs: timestampBaseMs(p.movedAt), facing, frameKey, carriedKind: "" };
     const { x, y } = projectMotion(p, performance.now() - entry.baseMs, bounds);
     place(marker, x, y);
     tracked.set(id, entry);
     stage.addChild(marker);
+    applyCarry(entry);
   };
 
   const removePlayer = (id: string) => {
@@ -262,8 +277,17 @@ export function mountWorld(app: Application, conn: DbConnection) {
     }
 
     // The nameplate and tint are baked into the marker at build time, so a rename
-    // or recolour only shows once the marker is rebuilt from the updated row.
+    // or recolour only shows once the marker is rebuilt from the updated row (which
+    // also re-applies the carried overlay). A bare carrying change just retargets
+    // the overlay.
     if (_old.name !== p.name || _old.color !== p.color) rebuildMarker(id, entry);
+    else if (_old.carrying !== p.carrying) applyCarry(entry);
+
+    // Pick-up / put-down are low-volume, so emit on the authoritative carrying
+    // transition of your own trogg (GDD analytics: observe server truth).
+    if (id === myId && _old.carrying !== p.carrying) {
+      captureEvent(p.carrying ? "object_picked_up" : "object_dropped", { zone: slug, kind: p.carrying || _old.carrying });
+    }
   });
   conn.db.player.onDelete((_ctx, p) => removePlayer(p.identity.toHexString()));
 
@@ -489,6 +513,12 @@ export function mountWorld(app: Application, conn: DbConnection) {
         conn.reducers.move(intent);
       }
     }
+  }, () => {
+    // Interact with the faced tile (GDD "Interacting"): pick up / put down. The
+    // server has no synced standing facing, so pass the trogg's current heading;
+    // it re-derives the tile and acts only on what's actually adjacent (invariant 3).
+    if (!useInteract) return;
+    conn.reducers.interact({ dirX: facing.dirX, dirY: facing.dirY });
   }, canRun);
 
   // Cosmetic join easter egg. Each launch has a chance of a haunt at the origin.
@@ -771,6 +801,46 @@ function makeBoulder() {
   body.roundRect(inset + px, inset + px, size * 0.4, size * 0.4, radius * 0.6).fill(0x8a7257);
   sprite.addChild(body);
   return sprite;
+}
+
+/**
+ * The overlay for what a trogg carries (GDD "Interacting"): the held object drawn
+ * small, on the trogg's person above its head — a boulder, a hog, and (later) any
+ * tile-sized thing all read the same held way. `topY` is the head top in sprite
+ * mode, the cell top for the placeholder marker. Unknown kind → no overlay.
+ */
+function makeCarried(kind: string, topY: number): Container | undefined {
+  const wrap = new Container();
+  if (kind === "boulder") {
+    const b = makeBoulder();
+    b.pivot.set(TILE / 2, TILE / 2);
+    b.scale.set(CARRY_SCALE);
+    wrap.addChild(b);
+  } else if (kind === "hog") {
+    const sprite = new Sprite(avatarTexture("hog", "down", "idle"));
+    sprite.anchor.set(0.5, 0.85);
+    sprite.scale.set((TILE / ART) * CARRY_SCALE);
+    wrap.addChild(sprite);
+  } else {
+    return undefined;
+  }
+  wrap.position.set(TILE / 2, topY - 2);
+  return wrap;
+}
+
+/** Sync a trogg's carried overlay to its `carrying` kind, rebuilding only on change. */
+function applyCarry(entry: Tracked): void {
+  const kind = entry.player.carrying;
+  if (kind === entry.carriedKind) return;
+  entry.carried?.destroy({ children: true });
+  entry.carried = undefined;
+  entry.carriedKind = "";
+  const overlay = makeCarried(kind, entry.sprite ? headTopY() : 0);
+  if (overlay) {
+    entry.marker.addChild(overlay);
+    entry.carried = overlay;
+    entry.carriedKind = kind;
+  }
 }
 
 /** A roaming Hog: the shared avatar sprite in its hedgehog skin, feet centred on the

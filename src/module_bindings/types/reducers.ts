@@ -7,6 +7,7 @@ import { type Infer as __Infer } from "spacetimedb";
 
 // Import all reducer arg schemas
 import ChatReducer from "../chat_reducer";
+import InteractReducer from "../interact_reducer";
 import MoveReducer from "../move_reducer";
 import PushReducer from "../push_reducer";
 import RecolorReducer from "../recolor_reducer";
@@ -17,6 +18,7 @@ import SpawnReducer from "../spawn_reducer";
 import StartClaimReducer from "../start_claim_reducer";
 
 export type ChatParams = __Infer<typeof ChatReducer>;
+export type InteractParams = __Infer<typeof InteractReducer>;
 export type MoveParams = __Infer<typeof MoveReducer>;
 export type PushParams = __Infer<typeof PushReducer>;
 export type RecolorParams = __Infer<typeof RecolorReducer>;

@@ -33,9 +33,15 @@ const KEY_VECTORS: Record<string, Dir> = {
  * shift is ignored and the trogg always walks. `immediate` is set on focus loss, where
  * the step can't finish (a backgrounded tab's ticker is frozen) and the trogg must stop
  * where it is. Reports only on transitions (invariant 2: input-driven, never per-frame).
+ * `onInteract` fires on the interact key (`E`) — a discrete press (auto-repeat ignored),
+ * the generic action key the world layer uses to pick up / put down (GDD "Interacting").
  * Returns a teardown that detaches the listeners.
  */
-export function attachKeyboard(onIntent: (intent: MoveIntent, immediate?: boolean) => void, canRun: boolean): () => void {
+export function attachKeyboard(
+  onIntent: (intent: MoveIntent, immediate?: boolean) => void,
+  onInteract: () => void,
+  canRun: boolean,
+): () => void {
   const held = new Set<string>();
   let shiftHeld = false;
   let current: MoveIntent = { dirX: 0, dirY: 0, running: false };
@@ -65,6 +71,12 @@ export function attachKeyboard(onIntent: (intent: MoveIntent, immediate?: boolea
 
   const onKeyDown = (e: KeyboardEvent) => {
     if (isTyping(e.target)) return;
+    if (e.code === "KeyE") {
+      if (e.repeat) return; // discrete press, not auto-repeat
+      e.preventDefault();
+      onInteract();
+      return;
+    }
     if (SHIFT_CODES.has(e.code)) {
       if (shiftHeld) return; // ignore auto-repeat
       shiftHeld = true;
