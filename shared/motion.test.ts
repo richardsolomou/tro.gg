@@ -135,18 +135,34 @@ test("path motion follows serialized waypoints and idles on arrival", () => {
   assert.deepEqual(projectMotion({ x: 1, y: 1, dirX: 1, dirY: 0, path }, 10_000, open), { x: 3, y: 2 });
 });
 
-test("path motion stalls at a blocked waypoint without reporting arrival", () => {
-  // A boulder dropped onto (3,1) after the route was planned. The Hog walks up to
-  // the last clear tile and stops with no heading — `arrived` stays false, the
-  // signal `wanderHogs` keys off to re-route rather than re-decide on arrival.
+test("path motion stalls at the tile it's entering when that tile is blocked", () => {
+  // Something landed on (3,1) ahead of the route. Reaching it (500ms ≈ 2 tiles), the
+  // trogg stops on the last clear tile with no heading — `arrived` stays false, the
+  // signal the client keys off to re-route rather than re-decide on arrival.
   const blocked = zoneBounds(openRoom, (x, y) => x === 3 && y === 1);
   const path = serializePath([
     { x: 2, y: 1 },
     { x: 3, y: 1 },
     { x: 4, y: 1 },
   ]);
-  const stalled = projectMotionState({ x: 1, y: 1, dirX: 1, dirY: 0, path }, 10_000, blocked);
+  const stalled = projectMotionState({ x: 1, y: 1, dirX: 1, dirY: 0, path }, 500, blocked);
   assert.deepEqual(stalled, { x: 2, y: 1, dirX: 0, dirY: 0, arrived: false });
+});
+
+test("path motion never rewinds onto a blocked tile it has already crossed", () => {
+  // A Hog wanders onto (2,1) — a tile the trogg already walked over — after the route
+  // was planned. The projection must keep going forward (it's past that tile), not
+  // snap back to it; a held route re-derived from its origin used to teleport the
+  // trogg backward here. At ~750ms (3 tiles) it's stepping into (4,1), still ahead.
+  const passedBlock = zoneBounds(openRoom, (x, y) => x === 2 && y === 1);
+  const path = serializePath([
+    { x: 2, y: 1 },
+    { x: 3, y: 1 },
+    { x: 4, y: 1 },
+    { x: 5, y: 1 },
+  ]);
+  const ahead = projectMotionState({ x: 1, y: 1, dirX: 1, dirY: 0, path }, 750, passedBlock);
+  assert.deepEqual(ahead, { x: 4, y: 1, dirX: 1, dirY: 0, arrived: false });
 });
 
 test("the same tile is walkable once nothing occupies it", () => {

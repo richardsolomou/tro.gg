@@ -259,10 +259,15 @@ function projectPathMotion(motion: Motion, path: readonly Coord[], elapsedMs: nu
     }
     const dirX = Math.sign(dx);
     const dirY = Math.sign(dy);
-    if (!tileWalkable(zone, next.x, next.y)) {
-      return { ...current, dirX: 0, dirY: 0, arrived: false };
-    }
     if (remaining <= 1) {
+      // Stepping into `next`: block only on the tile we're entering. Tiles already
+      // traversed (consumed in the branch below) are behind us, so an obstacle that
+      // lands on one never rewinds us — it can only stop us going further. This is
+      // what keeps a Hog wandering onto a tile you've already crossed from snapping
+      // you back to it (forward-only projection; re-route handled by the client).
+      if (!tileWalkable(zone, next.x, next.y)) {
+        return { ...current, dirX: 0, dirY: 0, arrived: false };
+      }
       return { x: current.x + dirX * remaining, y: current.y + dirY * remaining, dirX, dirY, arrived: false };
     }
     remaining -= 1;
