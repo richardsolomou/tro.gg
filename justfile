@@ -19,12 +19,21 @@ publish:
     {{spacetime}} publish --module-path spacetimedb trogg -y
     just generate
 
+# Delete the local development database so branch/schema switches start cleanly.
+reset-local-db:
+    @dbs="$({{spacetime}} list --server local -y)" || exit $$?; \
+    if printf '%s\n' "$$dbs" | awk 'NR > 2 {print $$1}' | grep -qx trogg; then \
+        {{spacetime}} delete --server local trogg -y; \
+    else \
+        echo "No local trogg database to clear."; \
+    fi
+
 # Regenerate the TypeScript client bindings from the module schema.
 generate:
     {{spacetime}} generate --lang typescript --out-dir src/module_bindings --module-path spacetimedb -y
 
-# Publish the module, regenerate bindings, then run the client on :5173.
-dev: publish
+# Clear the local database, publish the module, regenerate bindings, then run the client on :5173.
+dev: reset-local-db publish
     pnpm dev
 
 # Deploy the module to the hosted production instance (spacetime.tro.gg).

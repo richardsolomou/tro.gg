@@ -38,7 +38,7 @@ pnpm install
 just spacetime-install # only if spacetime is not already installed
 cp .env.example .env   # VITE_SPACETIMEDB_HOST / _DB_NAME, PostHog key — defaults are local
 just start             # local SpacetimeDB instance — leave running in its own terminal
-just dev               # publish the module + generate bindings, then client on :5173
+just dev               # clear local trogg data, publish + generate bindings, then client on :5173
 ```
 
 Fresh cloud task environments often do not have `spacetime` on `PATH`. Use `just spacetime-install`, then either add `/root/.local/bin` to `PATH` or pass the binary explicitly:
@@ -49,7 +49,7 @@ SPACETIME=/root/.local/bin/spacetime just generate
 
 Generating bindings does not require SpacetimeDB login; it only needs `node_modules` and the CLI. In this pnpm layout, the Spacetime CLI may warn that `tsc` is not in `spacetimedb/node_modules`; the generate step is still healthy if it finishes successfully. Publishing to a local or hosted database does require the normal `spacetime login`/token setup for the target server.
 
-Dev mirrors prod: `just start` runs a local SpacetimeDB instance, and `just dev` publishes the same `spacetimedb/` module that production runs and regenerates the client bindings, so state persists exactly as it does in prod — players and chat resume across reloads and restarts. No Docker, no database to provision. The `.env.example` defaults point at the local instance and the `trogg` module, so a fresh `cp` works as-is.
+Dev mirrors prod's module while keeping local data disposable: `just start` runs a local SpacetimeDB instance, and `just dev` deletes the local `trogg` database, publishes the current `spacetimedb/` module, regenerates client bindings, then starts Vite. This keeps branch and migration switches clean. Use `just publish` when you intentionally want to preserve local state while republishing, or `just reset-local-db` to clear only the local database without starting the client. No Docker, no database to provision. The `.env.example` defaults point at the local instance and the `trogg` module, so a fresh `cp` works as-is.
 
 Identity is issued by SpacetimeDB: each browser gets an anonymous Identity and stores its connection token, so a returning visitor resumes the same trogg. Optionally, players can **sign in** to claim an account and log back in on any device — via [SpacetimeAuth](https://spacetimedb.com/docs/core-concepts/authentication/spacetimeauth/) (OIDC, with Discord), run as a browser Authorization-Code-**+-PKCE** flow, so there's still **no auth secret in the repo or bundle**. Accounts are disabled (guest-only) when `VITE_SPACETIMEAUTH_CLIENT_ID` is unset, so a local loop needs no auth setup. The account UI also reads the optional `auth-enabled` flag.
 
