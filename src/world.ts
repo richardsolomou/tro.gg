@@ -1,5 +1,5 @@
-import { Application, Container, Graphics, Sprite, Text } from "pixi.js";
-import { ANCHOR, CHAT_BUBBLE_MS, COLOR_UNSET, facingTile, FRAME_H, FRAME_W, getZone, projectMotion, snapToTile, STARTING_ZONE_SLUG, troggColorFor, zoneBounds, type Facing, type Kind, type Zone } from "@trogg/shared";
+import { Application, Container, FederatedPointerEvent, Graphics, Rectangle, Sprite, Text } from "pixi.js";
+import { ANCHOR, CHAT_BUBBLE_MS, COLOR_UNSET, facingTile, FRAME_H, FRAME_W, getZone, parsePath, projectMotion, projectMotionState, snapToTile, STARTING_ZONE_SLUG, troggColorFor, zoneBounds, type Coord, type Facing, type Kind, type ProjectedMotion, type Zone } from "@trogg/shared";
 import type { DbConnection } from "./module_bindings";
 import type { Boulder, Hog, Player } from "./module_bindings/types";
 import { attachKeyboard, type MoveIntent } from "./input.js";
@@ -48,6 +48,7 @@ type TimestampLike = { microsSinceUnixEpoch: bigint };
 interface MotionSnapshot extends MoveIntent {
   x: number;
   y: number;
+  path: string;
 }
 
 /**
@@ -98,20 +99,21 @@ function playerIntent(p: Pick<Player, "dirX" | "dirY" | "running">): MoveIntent 
   return { dirX: p.dirX, dirY: p.dirY, running: p.running };
 }
 
-function playerMotion(p: Pick<Player, "x" | "y" | "dirX" | "dirY" | "running">): MotionSnapshot {
-  return { x: p.x, y: p.y, dirX: p.dirX, dirY: p.dirY, running: p.running };
+function playerMotion(p: Pick<Player, "x" | "y" | "dirX" | "dirY" | "running" | "path">): MotionSnapshot {
+  return { x: p.x, y: p.y, dirX: p.dirX, dirY: p.dirY, running: p.running, path: p.path };
 }
 
 function sameMotion(a: MotionSnapshot, b: MotionSnapshot): boolean {
   return (
     Math.abs(a.x - b.x) < motionTol &&
     Math.abs(a.y - b.y) < motionTol &&
-    sameMoveIntent(a, b)
+    sameMoveIntent(a, b) &&
+    a.path === b.path
   );
 }
 
 function withMotion(p: Player, motion: MotionSnapshot): Player {
-  return { ...p, x: motion.x, y: motion.y, dirX: motion.dirX, dirY: motion.dirY, running: motion.running };
+  return { ...p, x: motion.x, y: motion.y, dirX: motion.dirX, dirY: motion.dirY, running: motion.running, path: motion.path };
 }
 
 /**
@@ -166,23 +168,68 @@ export function mountWorld(app: Application, conn: DbConnection) {
   // + walls + boulders + markers and is centred; the vignette darkens edges on top.
   app.stage.addChild(terrain.background, stage, terrain.vignette);
   stage.addChild(terrain.ground);
+  const destinationLayer = new Container();
   const boulderLayer = new Container();
   const hogLayer = new Container();
-  stage.addChild(boulderLayer, hogLayer);
+  const clickLayer = new Graphics();
+  clickLayer.eventMode = "static";
+  stage.addChild(destinationLayer, boulderLayer, hogLayer, clickLayer);
 
   const tracked = new Map<string, Tracked>();
   const boulders = new Map<string, BoulderView>();
   const hogs = new Map<string, HogView>();
   const pendingSelfMoves: MotionSnapshot[] = [];
+  let destinationTile: Coord | undefined;
+  let destinationPath = "";
   // Subscription bootstrap guard. Row handlers can receive the initial snapshot;
   // sounds should only fire for live gameplay diffs after that snapshot is applied.
   const sub = { live: false };
+
+  const drawDestination = () => {
+    destinationLayer.removeChildren().forEach((child) => child.destroy({ children: true }));
+    if (!destinationTile) return;
+    const px = Math.max(1, Math.round(TILE / ART));
+    const inset = Math.max(2, Math.round(TILE * 0.1));
+    const marker = new Graphics()
+      .rect(inset, inset, TILE - inset * 2, TILE - inset * 2)
+      .fill(0xe8dcc4)
+      .rect(inset, inset, TILE - inset * 2, TILE - inset * 2)
+      .stroke({ width: px * 2, color: 0xf2c94c, alignment: 0 });
+    marker.alpha = 0.28;
+    place(marker, destinationTile.x, destinationTile.y);
+    destinationLayer.addChild(marker);
+  };
+
+  const setDestination = (tile: Coord | undefined) => {
+    destinationTile = tile;
+    drawDestination();
+  };
+
+  const syncDestinationFromPath = (path: string) => {
+    if (path === "") {
+      destinationPath = "";
+      setDestination(undefined);
+      return;
+    }
+    if (path === destinationPath) return;
+    destinationPath = path;
+    const waypoints = parsePath(path);
+    setDestination(waypoints.at(-1));
+  };
+
+  const clearDestination = () => {
+    destinationTile = undefined;
+    drawDestination();
+  };
 
   const layout = () => {
     const { width: vw, height: vh } = app.renderer;
     const fit = Math.min((vw * ZONE_FILL) / bounds.width, (vh * ZONE_FILL) / bounds.height);
     TILE = Math.max(ART, Math.floor(fit));
     terrain.layout(TILE, vw, vh);
+    clickLayer.clear();
+    clickLayer.hitArea = new Rectangle(0, 0, bounds.width * TILE, bounds.height * TILE);
+    drawDestination();
     centre(app, stage, bounds.width, bounds.height);
     // Markers and boulder sprites bake TILE into their size, so resize redraws them.
     for (const [id, entry] of tracked) rebuildMarker(id, entry);
@@ -268,6 +315,7 @@ export function mountWorld(app: Application, conn: DbConnection) {
         prevY = Number.NaN;
         pushBlocked = false;
       }
+      syncDestinationFromPath(p.path);
     } else {
       // Rebase extrapolation to the server's `movedAt`, mapped onto the local
       // monotonic clock. Using receipt time here makes deployed clients trail the
@@ -387,7 +435,7 @@ export function mountWorld(app: Application, conn: DbConnection) {
 
   const sendMove = (entry: Tracked, intent: MoveIntent, x: number, y: number, now: number) => {
     const origin = snapToTile({ x, y });
-    const motion: MotionSnapshot = { ...intent, x: origin.x, y: origin.y };
+    const motion: MotionSnapshot = { ...intent, x: origin.x, y: origin.y, path: "" };
     const wasIdle = isIdle(sent);
     sent = intent;
     pendingSelfMoves.push(motion);
@@ -404,13 +452,13 @@ export function mountWorld(app: Application, conn: DbConnection) {
     conn.reducers.move(intent);
   };
 
-  const playFootstepAtCentre = (x: number, y: number) => {
-    if (isIdle(sent) || Number.isNaN(prevX) || !reachedCentre(sent, prevX, prevY, x, y)) return;
+  const playFootstepAtCentre = (x: number, y: number, intent: MoveIntent) => {
+    if (isIdle(intent) || Number.isNaN(prevX) || !reachedCentre(intent, prevX, prevY, x, y)) return;
     const tile = snapToTile({ x, y });
     const key = tileKey(tile.x, tile.y);
     if (key === lastFootstepTile) return;
     lastFootstepTile = key;
-    audio.playFootstep(sent.running);
+    audio.playFootstep(intent.running);
   };
 
   // Push (GDD "Pushing", gated by its optional flag) fires while the trogg is
@@ -442,6 +490,16 @@ export function mountWorld(app: Application, conn: DbConnection) {
   const driveSelf = (entry: Tracked, x: number, y: number, now: number) => {
     const fresh = !sameIntent(desired, lastDesired);
     lastDesired = desired;
+    const pathing = entry.player.path !== "";
+
+    if (pathing) {
+      if (isIdle(desired)) return;
+      const pathIntent = { dirX: entry.player.dirX, dirY: entry.player.dirY, running: entry.player.running };
+      if (!reachedCentre(pathIntent, prevX, prevY, x, y)) return;
+      sendMove(entry, desired, x, y, now);
+      if (!isIdle(desired)) facing = desired;
+      return;
+    }
 
     if (!isIdle(sent)) {
       // Walking: change direction, speed (shift→run), or stop at the next tile centre
@@ -474,13 +532,15 @@ export function mountWorld(app: Application, conn: DbConnection) {
   app.ticker.add(() => {
     const now = performance.now();
     for (const entry of tracked.values()) {
-      const { x, y } = projectMotion(entry.player, now - entry.baseMs, bounds);
+      const motion = projectMotionState(entry.player, now - entry.baseMs, bounds);
+      const { x, y } = motion;
       place(entry.marker, x, y);
-      animate(entry, now);
+      animate(entry, now, motion);
 
       if (entry.player.identity.toHexString() !== myId) continue;
 
-      playFootstepAtCentre(x, y);
+      playFootstepAtCentre(x, y, { dirX: motion.dirX, dirY: motion.dirY, running: entry.player.running });
+      if (motion.arrived && entry.player.path !== "") clearDestination();
       driveSelf(entry, x, y, now);
       pushStep(x, y);
       prevX = x;
@@ -498,6 +558,8 @@ export function mountWorld(app: Application, conn: DbConnection) {
 
   attachKeyboard((intent, immediate) => {
     desired = intent;
+    destinationPath = "";
+    clearDestination();
     // Focus loss: stop now instead of finishing the step — a backgrounded tab's
     // ticker is frozen, so a buffered stop would never flush and the trogg would
     // keep sliding until it hit a wall. The server settles it onto a whole tile.
@@ -520,6 +582,21 @@ export function mountWorld(app: Application, conn: DbConnection) {
     if (!useInteract) return;
     conn.reducers.interact({ dirX: facing.dirX, dirY: facing.dirY });
   }, canRun);
+
+  clickLayer.on("pointertap", (e: FederatedPointerEvent) => {
+    const local = e.getLocalPosition(stage);
+    const x = Math.floor(local.x / TILE);
+    const y = Math.floor(local.y / TILE);
+    if (x < 0 || y < 0 || x >= bounds.width || y >= bounds.height) return;
+    desired = { dirX: 0, dirY: 0, running: false };
+    lastDesired = desired;
+    walkAfter = Number.POSITIVE_INFINITY;
+    pushBlocked = false;
+    pendingSelfMoves.length = 0;
+    destinationPath = "";
+    setDestination({ x, y });
+    conn.reducers.moveTo({ x, y, running: false });
+  });
 
   // Cosmetic join easter egg. Each launch has a chance of a haunt at the origin.
   if (isFeatureEnabled("ghost-trogg") && Math.random() < GHOST_CHANCE) hauntGhost(stage, { x: 0, y: 0 });
@@ -757,9 +834,9 @@ function makeMarker(name: string, color: number, self: boolean, facing: Facing, 
 
 /** Drive a trogg's facing and walk cycle from its synced motion intent. No-op
  *  for the placeholder marker (no sprite to swap). */
-function animate(entry: Tracked, now: number) {
+function animate(entry: Tracked, now: number, motion: ProjectedMotion) {
   if (!entry.sprite) return;
-  driveSprite(entry.sprite, "trogg", entry.player.dirX, entry.player.dirY, entry.player.running, entry, now);
+  driveSprite(entry.sprite, "trogg", motion.dirX, motion.dirY, entry.player.running, entry, now);
 }
 
 /**
