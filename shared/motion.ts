@@ -21,10 +21,21 @@ export interface Motion {
   y: number;
   dirX: number;
   dirY: number;
+  /** Serialized or parsed path waypoints for click-to-move. Waypoints exclude the
+   *  current origin; an empty/missing path means direct WASD-style motion. */
+  path?: string | readonly Coord[];
   /** Holding shift runs at `RUN_SPEED_TILES_PER_SEC` instead of walking (GDD
    *  "Movement"). Part of the intent so every client derives the same speed;
    *  absent/false = walk. Hogs never set it, so they always walk. */
   running?: boolean;
+}
+
+export interface ProjectedMotion {
+  x: number;
+  y: number;
+  dirX: number;
+  dirY: number;
+  arrived: boolean;
 }
 
 /**
@@ -91,6 +102,78 @@ export function walkableCardinals(zone: ZoneBounds, x: number, y: number): { dir
   });
 }
 
+/** Serialize click-to-move waypoints into the player row's path string. */
+export function serializePath(path: readonly Coord[]): string {
+  return path.map((p) => `${p.x},${p.y}`).join(";");
+}
+
+/** Parse the player row's path string. Malformed waypoints are ignored. */
+export function parsePath(path: string | readonly Coord[] | undefined): Coord[] {
+  if (!path) return [];
+  if (typeof path !== "string") return path.map((p) => ({ x: Math.round(p.x), y: Math.round(p.y) }));
+  const points: Coord[] = [];
+  for (const part of path.split(";")) {
+    const [rawX, rawY] = part.split(",");
+    if (rawX == null || rawY == null) continue;
+    const x = Number(rawX);
+    const y = Number(rawY);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    points.push({ x: Math.round(x), y: Math.round(y) });
+  }
+  return points;
+}
+
+/**
+ * Server-side click-to-move pathfinding (GDD "Movement"). Finds the shortest
+ * cardinal route from `start` to `target` over the zone's current walkable tiles,
+ * returning waypoints after `start`. If the target tile is blocked, it routes to
+ * the nearest reachable cardinal neighbour instead, so obstacle clicks still get
+ * the trogg as close as possible.
+ */
+export function findPath(zone: ZoneBounds, start: Coord, target: Coord): Coord[] {
+  if (!inBounds(zone, target.x, target.y)) return [];
+
+  const sx = Math.round(start.x);
+  const sy = Math.round(start.y);
+  if (!tileWalkable(zone, sx, sy)) return [];
+
+  const candidates = candidateTargets(zone, target);
+  if (candidates.length === 0) return [];
+
+  const candidateKeys = new Set(candidates.map((p) => tileKey(p.x, p.y)));
+  if (candidateKeys.has(tileKey(sx, sy))) return [];
+
+  const open: PathNode[] = [{ x: sx, y: sy, g: 0, f: heuristicToAny({ x: sx, y: sy }, candidates), from: "" }];
+  const best = new Map<string, PathNode>();
+  best.set(tileKey(sx, sy), open[0]!);
+  const closed = new Set<string>();
+
+  while (open.length > 0) {
+    open.sort((a, b) => a.f - b.f || a.g - b.g);
+    const current = open.shift()!;
+    const currentKey = tileKey(current.x, current.y);
+    if (closed.has(currentKey)) continue;
+    if (candidateKeys.has(currentKey)) return reconstructPath(best, currentKey, tileKey(sx, sy));
+    closed.add(currentKey);
+
+    for (const { dirX, dirY } of CARDINALS) {
+      const nx = current.x + dirX;
+      const ny = current.y + dirY;
+      if (!tileWalkable(zone, nx, ny)) continue;
+      const nextKey = tileKey(nx, ny);
+      if (closed.has(nextKey)) continue;
+      const g = current.g + 1;
+      const existing = best.get(nextKey);
+      if (existing && existing.g <= g) continue;
+      const next: PathNode = { x: nx, y: ny, g, f: g + heuristicToAny({ x: nx, y: ny }, candidates), from: currentKey };
+      best.set(nextKey, next);
+      open.push(next);
+    }
+  }
+
+  return [];
+}
+
 /**
  * The tile centre nearest a position — a trogg's grid-locked resting place.
  * Movement is tile-to-tile (GDD "Movement", Pokémon/Zelda style), so a settled
@@ -137,8 +220,16 @@ export function spawnTile(
 const EPS = 1e-6;
 
 export function projectMotion(motion: Motion, elapsedMs: number, zone: ZoneBounds): { x: number; y: number } {
+  const projected = projectMotionState(motion, elapsedMs, zone);
+  return { x: projected.x, y: projected.y };
+}
+
+export function projectMotionState(motion: Motion, elapsedMs: number, zone: ZoneBounds): ProjectedMotion {
+  const path = parsePath(motion.path);
+  if (path.length > 0) return projectPathMotion(motion, path, elapsedMs, zone);
+
   const { dirX, dirY } = motion;
-  if (dirX === 0 && dirY === 0) return { x: motion.x, y: motion.y };
+  if (dirX === 0 && dirY === 0) return { x: motion.x, y: motion.y, dirX: 0, dirY: 0, arrived: true };
 
   const speed = motion.running ? RUN_SPEED_TILES_PER_SEC : MOVE_SPEED_TILES_PER_SEC;
   const dist = (speed * Math.max(elapsedMs, 0)) / 1000;
@@ -147,11 +238,88 @@ export function projectMotion(motion: Motion, elapsedMs: number, zone: ZoneBound
   if (dirX !== 0) {
     const step = Math.sign(dirX);
     const target = clamp(motion.x + step * dist, 0, zone.width - 1);
-    return { x: zone.isWalkable ? wallX(zone, motion.x, motion.y, target, step) : target, y: motion.y };
+    return { x: zone.isWalkable ? wallX(zone, motion.x, motion.y, target, step) : target, y: motion.y, dirX, dirY, arrived: false };
   }
   const step = Math.sign(dirY);
   const target = clamp(motion.y + step * dist, 0, zone.height - 1);
-  return { x: motion.x, y: zone.isWalkable ? wallY(zone, motion.x, motion.y, target, step) : target };
+  return { x: motion.x, y: zone.isWalkable ? wallY(zone, motion.x, motion.y, target, step) : target, dirX, dirY, arrived: false };
+}
+
+function projectPathMotion(motion: Motion, path: readonly Coord[], elapsedMs: number, zone: ZoneBounds): ProjectedMotion {
+  const speed = motion.running ? RUN_SPEED_TILES_PER_SEC : MOVE_SPEED_TILES_PER_SEC;
+  let remaining = (speed * Math.max(elapsedMs, 0)) / 1000;
+  let current = { x: motion.x, y: motion.y };
+
+  for (const next of path) {
+    const dx = next.x - current.x;
+    const dy = next.y - current.y;
+    if (Math.abs(dx) + Math.abs(dy) !== 1) {
+      return { ...current, dirX: 0, dirY: 0, arrived: true };
+    }
+    const dirX = Math.sign(dx);
+    const dirY = Math.sign(dy);
+    if (!tileWalkable(zone, next.x, next.y)) {
+      return { ...current, dirX: 0, dirY: 0, arrived: false };
+    }
+    if (remaining <= 1) {
+      return { x: current.x + dirX * remaining, y: current.y + dirY * remaining, dirX, dirY, arrived: false };
+    }
+    remaining -= 1;
+    current = { x: next.x, y: next.y };
+  }
+
+  return { ...current, dirX: 0, dirY: 0, arrived: true };
+}
+
+interface PathNode extends Coord {
+  g: number;
+  f: number;
+  from: string;
+}
+
+function candidateTargets(zone: ZoneBounds, target: Coord): Coord[] {
+  const tx = Math.round(target.x);
+  const ty = Math.round(target.y);
+  if (tileWalkable(zone, tx, ty)) return [{ x: tx, y: ty }];
+
+  return CARDINALS.map(({ dirX, dirY }) => ({ x: tx + dirX, y: ty + dirY }))
+    .filter((p) => tileWalkable(zone, p.x, p.y))
+    .sort((a, b) => heuristic(a, target) - heuristic(b, target));
+}
+
+function reconstructPath(nodes: Map<string, PathNode>, endKey: string, startKey: string): Coord[] {
+  const path: Coord[] = [];
+  let key = endKey;
+  while (key !== startKey) {
+    const node = nodes.get(key);
+    if (!node) return [];
+    path.push({ x: node.x, y: node.y });
+    key = node.from;
+  }
+  path.reverse();
+  return path;
+}
+
+function heuristicToAny(from: Coord, targets: readonly Coord[]): number {
+  let best = Number.POSITIVE_INFINITY;
+  for (const target of targets) best = Math.min(best, heuristic(from, target));
+  return best;
+}
+
+function heuristic(a: Coord, b: Coord): number {
+  return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+}
+
+function tileWalkable(zone: ZoneBounds, x: number, y: number): boolean {
+  return inBounds(zone, x, y) && (zone.isWalkable ? zone.isWalkable(x, y) : true);
+}
+
+function inBounds(zone: ZoneBounds, x: number, y: number): boolean {
+  return x >= 0 && y >= 0 && x < zone.width && y < zone.height;
+}
+
+function tileKey(x: number, y: number): string {
+  return `${x},${y}`;
 }
 
 /**

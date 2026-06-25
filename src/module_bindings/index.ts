@@ -37,6 +37,7 @@ import {
 import ChatReducer from "./chat_reducer";
 import InteractReducer from "./interact_reducer";
 import MoveReducer from "./move_reducer";
+import MoveToReducer from "./move_to_reducer";
 import PushReducer from "./push_reducer";
 import RecolorReducer from "./recolor_reducer";
 import RedeemClaimReducer from "./redeem_claim_reducer";
@@ -120,6 +121,7 @@ const reducersSchema = __reducers(
   __reducerSchema("chat", ChatReducer),
   __reducerSchema("interact", InteractReducer),
   __reducerSchema("move", MoveReducer),
+  __reducerSchema("move_to", MoveToReducer),
   __reducerSchema("push", PushReducer),
   __reducerSchema("recolor", RecolorReducer),
   __reducerSchema("redeem_claim", RedeemClaimReducer),

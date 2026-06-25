@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { MOVE_SPEED_TILES_PER_SEC, RUN_SPEED_TILES_PER_SEC, type Zone } from "./constants";
-import { facingTile, projectMotion, snapToTile, walkableCardinals, spawnTile, zoneBounds } from "./motion";
+import { facingTile, findPath, projectMotion, projectMotionState, serializePath, snapToTile, walkableCardinals, spawnTile, zoneBounds } from "./motion";
 
 // No isWalkable → open floor, clamped only to the rectangular bounds.
 const open = { width: 24, height: 16 };
@@ -88,6 +88,51 @@ const withBoulder = zoneBounds(openRoom, (x, y) => x === 4 && y === 1);
 test("a boulder occupies its tile and stops a trogg flush like a wall", () => {
   const at = projectMotion({ x: 1, y: 1, dirX: 1, dirY: 0 }, 10_000, withBoulder);
   assert.equal(at.x, 3); // flush against the boulder at column 4
+});
+
+test("findPath routes around walls using cardinal waypoints", () => {
+  const maze: Zone = {
+    slug: "maze",
+    name: "Maze",
+    width: 7,
+    height: 5,
+    tiles: ["#######", "#.....#", "#.###.#", "#.....#", "#######"],
+    boulders: [],
+    hogs: [],
+  };
+  const bounds = zoneBounds(maze);
+  const path = findPath(bounds, { x: 1, y: 1 }, { x: 5, y: 3 });
+  assert.equal(path.length, 6);
+  assert.deepEqual(path.at(-1), { x: 5, y: 3 });
+
+  let prev = { x: 1, y: 1 };
+  for (const step of path) {
+    assert.equal(Math.abs(step.x - prev.x) + Math.abs(step.y - prev.y), 1);
+    assert.equal(bounds.isWalkable?.(step.x, step.y), true);
+    prev = step;
+  }
+});
+
+test("findPath targets a reachable neighbour when the clicked tile is blocked", () => {
+  const path = findPath(withBoulder, { x: 1, y: 1 }, { x: 4, y: 1 });
+  assert.deepEqual(path, [
+    { x: 2, y: 1 },
+    { x: 3, y: 1 },
+  ]);
+});
+
+test("path motion follows serialized waypoints and idles on arrival", () => {
+  const path = serializePath([
+    { x: 2, y: 1 },
+    { x: 3, y: 1 },
+    { x: 3, y: 2 },
+  ]);
+  const halfway = projectMotionState({ x: 1, y: 1, dirX: 1, dirY: 0, path }, 250, open);
+  assert.deepEqual(halfway, { x: 2, y: 1, dirX: 1, dirY: 0, arrived: false });
+
+  const arrived = projectMotionState({ x: 1, y: 1, dirX: 1, dirY: 0, path }, 10_000, open);
+  assert.deepEqual(arrived, { x: 3, y: 2, dirX: 0, dirY: 0, arrived: true });
+  assert.deepEqual(projectMotion({ x: 1, y: 1, dirX: 1, dirY: 0, path }, 10_000, open), { x: 3, y: 2 });
 });
 
 test("the same tile is walkable once nothing occupies it", () => {

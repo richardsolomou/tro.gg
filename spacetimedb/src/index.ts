@@ -7,6 +7,7 @@ import {
   CLAIM_CODE_TTL_MS,
   COLOR_UNSET,
   facingTile,
+  findPath,
   getZone,
   HOG_IDLE_CHANCE,
   HOG_WANDER_INTERVAL_MS,
@@ -15,6 +16,7 @@ import {
   isValidName,
   isWalkable,
   projectMotion,
+  serializePath,
   snapToTile,
   SPACETIMEAUTH_ISSUER,
   spawnTile,
@@ -73,6 +75,9 @@ const player = table(
     // entity. Boulders/hogs are fungible (no identity, seeded from the registry), so
     // the kind is all the client needs to draw the carry overlay — no id to keep.
     carrying: t.string().default(""),
+    // Click-to-move waypoints, serialized as "x,y;x,y;..." and interpreted by
+    // shared `projectMotion` (GDD "Movement"). Empty = no path / direct WASD.
+    path: t.string().default(""),
   },
 );
 
@@ -203,7 +208,7 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
     const zone = getZone(existing.zoneId);
     const stuck = zone && !isWalkable(zone, Math.round(existing.x), Math.round(existing.y));
     const pos = stuck ? spawnAt(zone) : { x: existing.x, y: existing.y };
-    ctx.db.player.identity.update({ ...existing, x: pos.x, y: pos.y, dirX: 0, dirY: 0, running: false, online: true, movedAt: ctx.timestamp });
+    ctx.db.player.identity.update({ ...existing, x: pos.x, y: pos.y, dirX: 0, dirY: 0, running: false, path: "", online: true, movedAt: ctx.timestamp });
     return;
   }
 
@@ -236,6 +241,7 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
     lastChatAt: undefined,
     color: COLOR_UNSET,
     carrying: "",
+    path: "",
   });
 });
 
@@ -279,7 +285,7 @@ export const onDisconnect = spacetimedb.clientDisconnected((ctx) => {
     const occupied = boulderTiles(ctx, p.zoneId);
     if (zone && placeCarried(ctx, zone, carrying, occupied, settled.x, settled.y, p.dirX, p.dirY)) carrying = "";
   }
-  ctx.db.player.identity.update({ ...p, x: settled.x, y: settled.y, dirX: 0, dirY: 0, running: false, online: false, carrying });
+  ctx.db.player.identity.update({ ...p, x: settled.x, y: settled.y, dirX: 0, dirY: 0, running: false, path: "", online: false, carrying });
 });
 
 /**
@@ -305,6 +311,37 @@ export const move = spacetimedb.reducer({ dirX: t.i32(), dirY: t.i32(), running:
     dirX: dir.dirX,
     dirY: dir.dirY,
     running,
+    path: "",
+    movedAt: ctx.timestamp,
+  });
+});
+
+/**
+ * Click-to-move (GDD "Movement"). The server computes the route over the zone's
+ * walkable tiles plus current boulder occupancy, stores the path as the synced
+ * motion intent, and every client derives animation from that row. If the clicked
+ * tile is blocked, `findPath` routes to the nearest reachable cardinal neighbour.
+ */
+export const moveTo = spacetimedb.reducer({ x: t.i32(), y: t.i32(), running: t.bool() }, (ctx, target) => {
+  const p = ctx.db.player.identity.find(ctx.sender);
+  if (!p) return;
+  const zone = getZone(p.zoneId);
+  if (!zone) return;
+
+  const occupied = boulderTiles(ctx, p.zoneId);
+  const bounds = zoneBounds(zone, (x, y) => occupied.has(tileKey(x, y)));
+  const start = settle(ctx, p, ctx.timestamp);
+  const path = findPath(bounds, start, { x: target.x, y: target.y });
+  const first = path[0];
+
+  ctx.db.player.identity.update({
+    ...p,
+    x: start.x,
+    y: start.y,
+    dirX: first ? first.x - start.x : 0,
+    dirY: first ? first.y - start.y : 0,
+    running: target.running,
+    path: serializePath(path),
     movedAt: ctx.timestamp,
   });
 });
@@ -641,7 +678,7 @@ function nameTaken(ctx: Ctx, name: string, self: Ctx["sender"]): boolean {
 type Stamp = { microsSinceUnixEpoch: bigint };
 
 /** The motion-bearing slice of a player row that `settle` derives position from. */
-type Settleable = { x: number; y: number; dirX: number; dirY: number; running: boolean; zoneId: string; movedAt: Stamp };
+type Settleable = { x: number; y: number; dirX: number; dirY: number; running: boolean; path?: string; zoneId: string; movedAt: Stamp };
 
 /**
  * Derive the trogg's position at `now` from its stored motion intent, colliding

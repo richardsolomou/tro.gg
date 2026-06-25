@@ -204,10 +204,11 @@ One layer. **SpacetimeDB** is the durable store *and* the live feed: the tables 
 Dev mirrors prod: a local `spacetime start` instance runs the very module production runs — `just dev` publishes to it and regenerates the client bindings — so persistence is exercised the same way it runs in production. No Docker, no separate database to provision.
 
 ```text
-player         identity (PK), name, isGuest, zoneId, x, y, dirX, dirY, movedAt, online, lastChatAt, running, color, carrying
+player         identity (PK), name, isGuest, zoneId, x, y, dirX, dirY, movedAt, online, lastChatAt, running, color, carrying, path
                keyed by the connection's Identity. motion derived from origin (x,y) + movedAt: WASD uses
                dirX/dirY (0,0 = idle); running (shift held) picks run speed over walk speed in projectMotion,
-               so it rides the intent like direction; click-to-move can add `path` (waypoint tiles). online: in-zone
+               so it rides the intent like direction; click-to-move stores `path` as serialized waypoint tiles
+               (`"x,y;x,y;..."`, empty = no path). online: in-zone
                presence — clients subscribe to online players, so a disconnect settles the row and drops it
                from view without losing progress. lastChatAt: per-player chat rate limit. color: chosen
                TROGG_COLORS palette index (COLOR_UNSET = -1 → colour derived from id; see "Avatars").

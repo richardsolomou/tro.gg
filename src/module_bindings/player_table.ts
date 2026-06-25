@@ -25,4 +25,5 @@ export default __t.row({
   running: __t.bool(),
   color: __t.i32(),
   carrying: __t.string(),
+  path: __t.string(),
 });
