@@ -1,5 +1,5 @@
 import { Application, Container, FederatedPointerEvent, Graphics, Rectangle, Sprite, Text } from "pixi.js";
-import { ANCHOR, CHAT_BUBBLE_MS, COLOR_UNSET, facingTile, FRAME_H, FRAME_W, getZone, parsePath, projectMotion, projectMotionState, snapToTile, STARTING_ZONE_SLUG, troggColorFor, zoneBounds, type Coord, type Facing, type Kind, type ProjectedMotion, type Zone } from "@trogg/shared";
+import { ANCHOR, CHAT_BUBBLE_MS, COLOR_UNSET, facingTile, FRAME_H, FRAME_W, getZone, parsePath, projectMotion, projectMotionState, snapToTile, STARTING_ZONE_SLUG, tileKey, timestampMs, troggColorFor, zoneBounds, type Coord, type Facing, type Kind, type ProjectedMotion, type Stamp, type Zone } from "@trogg/shared";
 import type { DbConnection } from "./module_bindings";
 import type { Boulder, Hog, Player } from "./module_bindings/types";
 import { attachKeyboard, type MoveIntent } from "./input.js";
@@ -49,7 +49,6 @@ interface Tracked {
   carriedKind: string;
 }
 
-type TimestampLike = { microsSinceUnixEpoch: bigint };
 
 interface MotionSnapshot extends MoveIntent {
   x: number;
@@ -87,17 +86,13 @@ interface HogView {
   frameKey: string;
 }
 
-/** "x,y" key for a tile, matching the server's occupancy keys. */
-const tileKey = (x: number, y: number) => `${x},${y}`;
-
 const sameIntent = (a: MoveIntent, b: MoveIntent) => a.dirX === b.dirX && a.dirY === b.dirY;
 const sameMoveIntent = (a: MoveIntent, b: MoveIntent) => sameIntent(a, b) && a.running === b.running;
 const isIdle = (i: MoveIntent) => i.dirX === 0 && i.dirY === 0;
 const motionTol = 1e-6;
 
-function timestampBaseMs(movedAt: TimestampLike): number {
-  const movedAtMs = Number(movedAt.microsSinceUnixEpoch / 1000n);
-  const elapsedMs = Math.max(0, Date.now() - movedAtMs);
+function timestampBaseMs(movedAt: Stamp): number {
+  const elapsedMs = Math.max(0, Date.now() - timestampMs(movedAt));
   return performance.now() - elapsedMs;
 }
 
@@ -795,7 +790,7 @@ function setupChat(
     // Bubble only for fresh lines: a reconnect replays the zone's recent history,
     // and those rows can arrive after the subscription goes live — without this an
     // old message would pop a stale bubble over its sender on every refresh.
-    const ageMs = Date.now() - Number(message.createdAt.microsSinceUnixEpoch / 1000n);
+    const ageMs = Date.now() - timestampMs(message.createdAt);
     if (ageMs > CHAT_BUBBLE_MS) return;
     showBubble(tracked, senderId, message.text);
     if (!sub.live) return;

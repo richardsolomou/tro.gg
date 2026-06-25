@@ -324,7 +324,9 @@ function inBounds(zone: ZoneBounds, x: number, y: number): boolean {
   return x >= 0 && y >= 0 && x < zone.width && y < zone.height;
 }
 
-function tileKey(x: number, y: number): string {
+/** The "x,y" occupancy key for a tile. Client and server must agree on this format —
+ *  it keys the `zoneBounds` occupied predicate on both sides — so it lives here, once. */
+export function tileKey(x: number, y: number): string {
   return `${x},${y}`;
 }
 

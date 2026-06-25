@@ -6,6 +6,7 @@ import {
   CHAT_RATE_LIMIT_MS,
   CLAIM_CODE_TTL_MS,
   COLOR_UNSET,
+  elapsedMs,
   facingTile,
   findPath,
   getZone,
@@ -22,6 +23,7 @@ import {
   SPACETIMEAUTH_ISSUER,
   spawnTile,
   STARTING_ZONE_SLUG,
+  tileKey,
   walkableCardinals,
   type Zone,
   type ZoneBounds,
@@ -785,11 +787,6 @@ function settle(ctx: Ctx, p: Settleable, now: Stamp): { x: number; y: number } {
   return snapToTile(projectMotion(p, elapsedMs(p.movedAt, now), bounds));
 }
 
-/** "x,y" key for a tile, used to test occupancy in O(1). */
-function tileKey(x: number, y: number): string {
-  return `${x},${y}`;
-}
-
 /** The set of tiles occupied by boulders in a zone, keyed by `tileKey`. */
 function boulderTiles(ctx: Ctx, zoneId: string): Set<string> {
   const tiles = new Set<string>();
@@ -898,11 +895,6 @@ function placeCarried(
     return false;
   }
   return true;
-}
-
-/** Milliseconds between two timestamps. */
-function elapsedMs(from: Stamp, to: Stamp): number {
-  return Number(to.microsSinceUnixEpoch - from.microsSinceUnixEpoch) / 1000;
 }
 
 /** Coerce an untrusted axis input to -1, 0, or 1. */
