@@ -92,6 +92,13 @@ Ambient **Hog** NPCs (the glossary's friendly hedgehogs) roam the zone on their 
 - Rendered with **PixiJS** (WebGL/WebGPU canvas) on a Vite + TypeScript client, nearest-neighbour scaled for crisp pixels. The client subscribes to the zone's SpacetimeDB tables and draws them; all authority stays server-side (invariant 3).
 - Visible in-game HUD surfaces — chat history/input, account claim/rename controls, and avatar colour swatches — render inside the PixiJS scene above the world so layout is owned by the game renderer on small screens. Browser-native text input is still used as an invisible bridge while typing, because mobile keyboards, paste, and IME composition are platform controls.
 
+### Audio
+
+- Sound effects are client-side feedback only; they never affect reducers, synced state, or analytics.
+- The current audio surface is event-driven: local trogg footsteps fire when movement starts and when the trogg crosses tile centres; boulder push attempts play a scrape and confirmed boulder row movement plays a settle hit; Hog heading changes may play a sparse, low-volume Hog sound after the initial subscription snapshot; chat, commands, command errors, and the ghost flicker play short UI/ghost cues.
+- Browsers can block playback before the first user gesture, so rejected play attempts are ignored and retried on the next cue.
+- Source files and license notes live under `assets/audio/ATTRIBUTION.md`. Do not wire entire packs wholesale; pick short cues, keep volume conservative, and trim/normalize before promoting a candidate into `src/audio.ts`.
+
 ### Avatars and equipment
 
 - A trogg (and a Hog) is a **layered sprite**: a base body plus composable overlay layers, drawn per facing (down/up/left/right) and per animation frame (idle/walk). Troggs and Hogs share the rig, so equipment renders the same on either.

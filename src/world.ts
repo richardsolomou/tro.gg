@@ -8,6 +8,7 @@ import { createTerrain } from "./terrain.js";
 import { avatarFrame, avatarTexture, facingFromDir, ghostTexture } from "./avatars.js";
 import { captureEvent, isFeatureEnabled } from "./analytics.js";
 import { TEXT_RESOLUTION } from "./ui_text.js";
+import { audio } from "./audio.js";
 
 /** Art pixels per tile — terrain tiles are drawn at this and scaled up crisply. */
 const ART = 16;
@@ -163,6 +164,9 @@ export function mountWorld(app: Application, conn: DbConnection) {
   const boulders = new Map<string, BoulderView>();
   const hogs = new Map<string, HogView>();
   const pendingSelfMoves: MotionSnapshot[] = [];
+  // Subscription bootstrap guard. Row handlers can receive the initial snapshot;
+  // sounds should only fire for live gameplay diffs after that snapshot is applied.
+  const sub = { live: false };
 
   const layout = () => {
     const { width: vw, height: vh } = app.renderer;
@@ -288,7 +292,10 @@ export function mountWorld(app: Application, conn: DbConnection) {
   };
 
   conn.db.boulder.onInsert((_ctx, b) => upsertBoulder(b));
-  conn.db.boulder.onUpdate((_ctx, _old, b) => upsertBoulder(b));
+  conn.db.boulder.onUpdate((_ctx, _old, b) => {
+    if (sub.live && (_old.x !== b.x || _old.y !== b.y)) audio.playBoulderSettle();
+    upsertBoulder(b);
+  });
   conn.db.boulder.onDelete((_ctx, b) => removeBoulder(b));
 
   const addHog = (h: Hog) => {
@@ -318,7 +325,12 @@ export function mountWorld(app: Application, conn: DbConnection) {
   // Roaming Hogs render behind their optional kill-switch.
   if (useHogs) {
     conn.db.hog.onInsert((_ctx, h) => addHog(h));
-    conn.db.hog.onUpdate((_ctx, _old, h) => updateHog(h));
+    conn.db.hog.onUpdate((_ctx, _old, h) => {
+      updateHog(h);
+      if (!sub.live) return;
+      const changedHeading = _old.dirX !== h.dirX || _old.dirY !== h.dirY;
+      if (changedHeading && Math.random() < 0.35) audio.playHog();
+    });
     conn.db.hog.onDelete((_ctx, h) => removeHog(h));
   }
 
@@ -347,21 +359,34 @@ export function mountWorld(app: Application, conn: DbConnection) {
   // Whether we were flush against a pushable boulder last frame, so `push` fires once
   // per tile (on the rising edge), not every frame.
   let pushBlocked = false;
+  let lastFootstepTile = "";
 
   const sendMove = (entry: Tracked, intent: MoveIntent, x: number, y: number, now: number) => {
     const origin = snapToTile({ x, y });
     const motion: MotionSnapshot = { ...intent, x: origin.x, y: origin.y };
+    const wasIdle = isIdle(sent);
     sent = intent;
     pendingSelfMoves.push(motion);
     entry.player = withMotion(entry.player, motion);
     entry.baseMs = now;
     prevX = Number.NaN;
     prevY = Number.NaN;
+    lastFootstepTile = tileKey(origin.x, origin.y);
     if (!isIdle(intent)) {
       facing = intent;
       entry.facing = facingFromDir(intent.dirX, intent.dirY, entry.facing);
+      if (wasIdle) audio.playFootstep(intent.running);
     }
     conn.reducers.move(intent);
+  };
+
+  const playFootstepAtCentre = (x: number, y: number) => {
+    if (isIdle(sent) || Number.isNaN(prevX) || !reachedCentre(sent, prevX, prevY, x, y)) return;
+    const tile = snapToTile({ x, y });
+    const key = tileKey(tile.x, tile.y);
+    if (key === lastFootstepTile) return;
+    lastFootstepTile = key;
+    audio.playFootstep(sent.running);
   };
 
   // Push (GDD "Pushing", gated by its optional flag) fires while the trogg is
@@ -377,7 +402,10 @@ export function mountWorld(app: Application, conn: DbConnection) {
     const into = pushEnabled && !isIdle(sent) && sameIntent(desired, sent);
     const ahead = into ? facingTile(x, y, sent.dirX, sent.dirY) : null;
     const intoBoulder = ahead != null && boulderTiles.has(tileKey(ahead.x, ahead.y));
-    if (intoBoulder && !pushBlocked) conn.reducers.push({});
+    if (intoBoulder && !pushBlocked) {
+      audio.playBoulderPush();
+      conn.reducers.push({});
+    }
     pushBlocked = intoBoulder;
   };
 
@@ -428,6 +456,7 @@ export function mountWorld(app: Application, conn: DbConnection) {
 
       if (entry.player.identity.toHexString() !== myId) continue;
 
+      playFootstepAtCentre(x, y);
       driveSelf(entry, x, y, now);
       pushStep(x, y);
       prevX = x;
@@ -467,7 +496,6 @@ export function mountWorld(app: Application, conn: DbConnection) {
 
   // Live once the initial rows have been delivered: backlog chat fills the
   // history panel silently, while later inserts also pop a bubble.
-  const sub = { live: false };
   if (isFeatureEnabled("chat-enabled")) setupChat(app, conn, tracked, zone, sub, myId, stage);
 
   const queries = [
@@ -513,6 +541,7 @@ function setupChat(
     if (spawnEnabled && handleSpawnCommand(conn, chat, text)) return;
     if (resetEnabled && handleResetCommand(conn, slug, text)) return;
     if (ghostEnabled && handleGhostCommand(text, stage, zone)) return;
+    audio.playChatSend();
     conn.reducers.chat({ text });
   });
 
@@ -528,7 +557,9 @@ function setupChat(
     const ageMs = Date.now() - Number(message.createdAt.microsSinceUnixEpoch / 1000n);
     if (ageMs > CHAT_BUBBLE_MS) return;
     showBubble(tracked, senderId, message.text);
-    if (sub.live && senderId === myId) captureEvent("chat_sent", { zone: slug });
+    if (!sub.live) return;
+    if (senderId === myId) captureEvent("chat_sent", { zone: slug });
+    else audio.playChatReceive();
   });
 
   // A rename rewrites the denormalised name on the sender's past lines; reflect it
@@ -561,14 +592,17 @@ function handleSpawnCommand(conn: DbConnection, chat: ChatUI, text: string): boo
   const hint = (msg: string) => chat.addMessage("spawn", "spawn", msg, 0x9a8c70);
   const arg = m[1]?.toLowerCase();
   if (!arg) {
+    audio.playError();
     hint("usage: /spawn boulder | hedgehog");
     return true;
   }
   const kind = SPAWNABLE[arg];
   if (!kind) {
+    audio.playError();
     hint(`unknown entity "${arg}" — try boulder or hedgehog`);
     return true;
   }
+  audio.playCommand();
   conn.reducers.spawn({ kind });
   return true;
 }
@@ -580,6 +614,7 @@ function handleSpawnCommand(conn: DbConnection, chat: ChatUI, text: string): boo
  */
 function handleResetCommand(conn: DbConnection, zone: string, text: string): boolean {
   if (!/^\/reset\s*$/i.test(text)) return false;
+  audio.playCommand();
   conn.reducers.resetBoulders({});
   captureEvent("boulders_reset", { zone });
   return true;
@@ -765,6 +800,7 @@ const GHOST_FLICKER_MS = 500;
  * the player who summoned it.
  */
 function hauntGhost(stage: Container, tile: { x: number; y: number }) {
+  audio.playGhost();
   const ghost = new Container();
   const sprite = new Sprite(ghostTexture("down", "idle"));
   sprite.anchor.set(ANCHOR.x / FRAME_W, ANCHOR.y / FRAME_H);
