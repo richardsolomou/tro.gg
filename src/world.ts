@@ -22,6 +22,11 @@ let TILE = 28;
  *  turning in place — the tap-vs-hold window (GDD "Movement"). Tune for feel. */
 const TURN_TAP_MS = 130;
 
+/** Min gap between click-to-move route (re)issues while a path is blocked or no route
+ *  exists yet, so re-routing around a Hog — or waiting for one to clear the only way —
+ *  retries steadily without firing the reducer every frame. */
+const MOVETO_RETRY_MS = 250;
+
 /** Size of a carried object's overlay relative to a full tile (GDD "Interacting"). */
 const CARRY_SCALE = 0.62;
 
@@ -214,8 +219,10 @@ export function mountWorld(app: Application, conn: DbConnection) {
 
   const syncDestinationFromPath = (path: string) => {
     if (path === "") {
+      // Keep the marker. An empty path can mean "no route right now" — a Hog has sealed
+      // the only way — and we keep trying toward the clicked tile rather than abandoning
+      // it. The marker clears on arrival, on a keypress, or when a new tile is clicked.
       destinationPath = "";
-      setDestination(undefined);
       return;
     }
     if (path === destinationPath) return;
@@ -442,9 +449,10 @@ export function mountWorld(app: Application, conn: DbConnection) {
   // Whether we were flush against a pushable boulder last frame, so `push` fires once
   // per tile (on the rising edge), not every frame.
   let pushBlocked = false;
-  // Whether we've already re-routed the current click-to-move stall, so a route blocked
-  // by a Hog re-plans once (not every frame while the new route is in flight).
-  let stallReplanned = false;
+  // When we last (re)issued a click-to-move route, so re-routing a blocked path — or
+  // retrying when no route exists yet — is throttled (`MOVETO_RETRY_MS`) instead of
+  // fired every frame.
+  let lastMoveToAt = 0;
   let lastFootstepTile = "";
   // A click-to-move target waiting for the trogg to reach a tile centre before it
   // re-paths. Click-to-move is grid-locked like WASD (GDD "Movement"): re-basing
@@ -590,7 +598,7 @@ export function mountWorld(app: Application, conn: DbConnection) {
   // centred and routes at once; a moving one finishes its current step first. The
   // server then settles onto that whole tile (a no-op snap), so no sub-tile distance
   // is banked no matter how fast the clicks come.
-  const flushPendingMoveTo = (entry: Tracked, motion: ProjectedMotion, x: number, y: number) => {
+  const flushPendingMoveTo = (entry: Tracked, motion: ProjectedMotion, x: number, y: number, now: number) => {
     if (!pendingMoveTo) return;
     const dir = { dirX: motion.dirX, dirY: motion.dirY, running: entry.player.running };
     if (!isIdle(dir) && !reachedCentre(dir, prevX, prevY, x, y)) return;
@@ -598,6 +606,7 @@ export function mountWorld(app: Application, conn: DbConnection) {
     pendingMoveTo = null;
     sent = { dirX: 0, dirY: 0, running: false };
     pendingSelfMoves.length = 0;
+    lastMoveToAt = now;
     conn.reducers.moveTo({ x: target.x, y: target.y, running: false });
   };
 
@@ -629,18 +638,18 @@ export function mountWorld(app: Application, conn: DbConnection) {
       // A click-to-move route stalls when a Hog (or a shoved boulder) lands on a tile
       // ahead of it: `projectPathMotion` stops with no heading and `arrived` false.
       const stalled = entry.player.path !== "" && !motion.arrived && motion.dirX === 0 && motion.dirY === 0;
-      if (!stalled) stallReplanned = false;
       if (!pendingMoveTo && motion.arrived && entry.player.path !== "") clearDestination();
       if (pendingMoveTo) {
-        flushPendingMoveTo(entry, motion, x, y);
-      } else if (stalled && isIdle(desired) && destinationTile) {
-        // Re-route around the obstacle to the same destination rather than stopping:
-        // `moveTo` re-settles to this stall tile (a whole tile, so nothing is banked)
-        // and runs findPath fresh against where the Hogs are now, so the trogg walks
-        // around. Once per stall; a keypress falls through to `driveSelf` (WASD takes over).
-        if (!stallReplanned) {
-          stallReplanned = true;
-          conn.reducers.moveTo({ x: destinationTile.x, y: destinationTile.y, running: entry.player.running });
+        flushPendingMoveTo(entry, motion, x, y, now);
+      } else if (destinationTile && isIdle(desired) && (stalled || entry.player.path === "")) {
+        // Heading for the clicked tile but not making progress: the route stalled on a Hog
+        // ahead, or there's no route at all right now (a Hog has sealed the only way). Re-issue
+        // the route to the clicked tile — bending around Hogs, or just waiting and retrying
+        // until a way opens — rather than giving up halfway. Throttled (`MOVETO_RETRY_MS`) so
+        // it isn't fired every frame; a keypress falls through to `driveSelf` (WASD takes over).
+        if (now - lastMoveToAt >= MOVETO_RETRY_MS) {
+          lastMoveToAt = now;
+          conn.reducers.moveTo({ x: destinationTile.x, y: destinationTile.y, running: false });
         }
       } else {
         driveSelf(entry, x, y, now);
