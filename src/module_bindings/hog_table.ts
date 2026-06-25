@@ -18,4 +18,7 @@ export default __t.row({
   dirX: __t.i32().name("dir_x"),
   dirY: __t.i32().name("dir_y"),
   movedAt: __t.timestamp().name("moved_at"),
+  path: __t.string(),
+  homeX: __t.i32().name("home_x"),
+  homeY: __t.i32().name("home_y"),
 });
