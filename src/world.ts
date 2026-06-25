@@ -220,8 +220,12 @@ export function mountWorld(app: Application, conn: DbConnection) {
     }
     if (path === destinationPath) return;
     destinationPath = path;
-    const waypoints = parsePath(path);
-    setDestination(waypoints.at(-1));
+    // Keep the marker on the tile you clicked, not the route's (possibly truncated) end.
+    // A Hog taking the target tile — or one near it — before you arrive shouldn't drag
+    // where you pointed to a different tile; the re-route also aims at the clicked tile
+    // (`destinationTile`), not the truncated end, so the destination can't drift. We
+    // only adopt the route's end when there's no marker yet (resuming after a reconnect).
+    if (!destinationTile) setDestination(parsePath(path).at(-1));
   };
 
   const clearDestination = () => {
