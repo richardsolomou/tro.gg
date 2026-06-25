@@ -43,9 +43,8 @@ import {
  * held) rides the intent so every client derives the same speed (GDD "Movement").
  * `color` is the chosen avatar palette index (GDD "Avatars"), set by `recolor`; it
  * defaults to `COLOR_UNSET` (-1) so an unchosen trogg falls back to its id-derived
- * colour. Both `running` and `color` carry defaults so adding them to the
- * already-published `player` table is an in-place migration, not a breaking one.
- * `hubUnlocked`/`equipment` are reserved for onboarding and equipment systems.
+ * colour. `carrying` is a legacy string slot retained for migration compatibility
+ * until the equipment model replaces it.
  */
 const player = table(
   { name: "player", public: true },
@@ -68,6 +67,7 @@ const player = table(
     // these trailing columns is free; never wedge one in above `movedAt`.
     running: t.bool().default(false),
     color: t.i32().default(COLOR_UNSET),
+    carrying: t.string().default(""),
   },
 );
 
@@ -230,6 +230,7 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
     online: true,
     lastChatAt: undefined,
     color: COLOR_UNSET,
+    carrying: "",
   });
 });
 

@@ -24,4 +24,5 @@ export default __t.row({
   lastChatAt: __t.option(__t.timestamp()).name("last_chat_at"),
   running: __t.bool(),
   color: __t.i32(),
+  carrying: __t.string(),
 });

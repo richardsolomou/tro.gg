@@ -14,6 +14,8 @@ async function main() {
   await app.init({
     background: "#0a0806",
     resizeTo: window,
+    resolution: Math.min(window.devicePixelRatio || 1, 2),
+    autoDensity: true,
     antialias: false,
     roundPixels: true,
   });
@@ -49,9 +51,9 @@ async function main() {
     }
 
     mountWorld(app, conn);
-    // Account UI (rename + claim) reads an optional rollout flag and only mounts
-    // when SpacetimeAuth is configured for this build.
-    if (authConfigured() && isFeatureEnabled("auth-enabled")) mountAccount(conn, { signedIn });
+    // Account UI owns rename/recolour for every player. Claim/sign-in controls only
+    // appear when SpacetimeAuth is configured for this build.
+    if (isFeatureEnabled("auth-enabled")) mountAccount(app, conn, { signedIn, authAvailable: authConfigured() });
   } catch (err) {
     console.error("Failed to connect to SpacetimeDB:", err);
   }
