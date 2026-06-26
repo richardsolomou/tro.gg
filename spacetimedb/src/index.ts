@@ -734,12 +734,16 @@ export const redeemClaim = spacetimedb.reducer({ code: t.string() }, (ctx, { cod
     }
   }
 
+  // Remove the guest row before checking name availability, so the name it's handing over
+  // isn't counted as taken by the guest itself — otherwise a guest that renamed before
+  // signing up could never carry that chosen name onto its account.
+  const guestName = guest.name;
+  ctx.db.player.identity.delete(guest.identity);
+
   // Carry the guest's chosen name onto a freshly-named account (never clobber a
   // returning account's own name), staying within the uniqueness rule.
-  const inheritName =
-    !isGeneratedName(guest.name) && isGeneratedName(account.name) && !nameTaken(ctx, guest.name, ctx.sender);
-  ctx.db.player.identity.update({ ...account, name: inheritName ? guest.name : account.name, carrying, isGuest: false });
-  ctx.db.player.identity.delete(guest.identity);
+  const inheritName = !isGeneratedName(guestName) && isGeneratedName(account.name) && !nameTaken(ctx, guestName, ctx.sender);
+  ctx.db.player.identity.update({ ...account, name: inheritName ? guestName : account.name, carrying, isGuest: false });
 });
 
 /** Whether any player is currently online — the Hogs only roam while someone is
