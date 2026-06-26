@@ -3,10 +3,29 @@ import { test } from "node:test";
 import {
   CHAT_HISTORY_MAX,
   CLAIM_CODE_TTL_MS,
+  getZone,
   MAX_BOULDERS_PER_ZONE,
+  MAX_HOGS_PER_ZONE,
+  parsePath,
   SPACETIMEAUTH_ISSUER,
 } from "@trogg/shared";
-import { chat, interact, move, push, redeemClaim, spawn, wanderHogs } from "../spacetimedb/src/index.ts";
+import {
+  chat,
+  interact,
+  move,
+  moveTo,
+  onConnect,
+  onDisconnect,
+  push,
+  recolor,
+  redeemClaim,
+  rename,
+  resetBoulders,
+  resetHogs,
+  spawn,
+  startClaim,
+  wanderHogs,
+} from "../spacetimedb/src/index.ts";
 import { id, makeCtx, playerRow, type FakeCtx } from "./spacetime.ts";
 
 const ZONE = "hog-town";
@@ -146,4 +165,206 @@ test("chat trims zone history to the cap, dropping the oldest line", () => {
   const rows = ctx.db.chatMessage.rows();
   assert.equal(rows.length, CHAT_HISTORY_MAX);
   assert.equal(rows.find((r: any) => r.id === oldestId), undefined); // oldest dropped
+});
+
+// --- helpers for the entity tables ---
+const hogAt_ = (ctx: FakeCtx, x: number, y: number) =>
+  ctx.db.hog.insert({ id: 0n, zoneId: ZONE, x, y, dirX: 0, dirY: 0, movedAt: { microsSinceUnixEpoch: 0n }, path: "", homeX: x, homeY: y });
+
+// --- Connect / disconnect lifecycle ---
+
+test("connecting as a guest inserts an online guest and lazily seeds the zone", () => {
+  const me = id("newguest");
+  const ctx = makeCtx({ sender: me });
+  onConnect(ctx);
+  const p = ctx.db.player.identity.find(me);
+  assert.ok(p);
+  assert.equal(p.isGuest, true);
+  assert.equal(p.online, true);
+  assert.equal(ctx.db.boulder.rows().length, getZone(ZONE)!.boulders.length);
+  assert.equal(ctx.db.hog.rows().length, getZone(ZONE)!.hogs.length);
+});
+
+test("connecting with a SpacetimeAuth token inserts an account, not a guest", () => {
+  const me = id("acct");
+  const ctx = makeCtx({ sender: me, issuer: SPACETIMEAUTH_ISSUER, jwtPayload: { preferred_username: "Spike" } });
+  onConnect(ctx);
+  const p = ctx.db.player.identity.find(me);
+  assert.equal(p.isGuest, false);
+  assert.equal(p.name, "Spike"); // valid, free provider username adopted
+});
+
+test("reconnecting flips an existing trogg back online without duplicating it", () => {
+  const me = id("ret");
+  const ctx = makeCtx({ sender: me });
+  ctx.db.player.insert(playerRow(me, { online: false, x: 5, y: 8, name: "Keepme" }));
+  onConnect(ctx);
+  const mine = ctx.db.player.rows().filter((r: any) => r.identity.isEqual(me));
+  assert.equal(mine.length, 1);
+  assert.equal(mine[0].online, true);
+  assert.equal(mine[0].name, "Keepme");
+});
+
+test("a returning trogg embedded in a wall is nudged to spawn", () => {
+  const me = id("stuck");
+  const ctx = makeCtx({ sender: me });
+  ctx.db.player.insert(playerRow(me, { online: false, x: 0, y: 0 })); // (0,0) is a rim wall
+  onConnect(ctx);
+  const p = ctx.db.player.identity.find(me);
+  assert.deepEqual({ x: p.x, y: p.y }, { x: 12, y: 8 }); // zone centre (spawnAt)
+});
+
+test("disconnecting drops the carried entity into the world and marks the trogg offline", () => {
+  const me = id("leaver");
+  const ctx = makeCtx({ sender: me });
+  ctx.db.player.insert(playerRow(me, { carrying: "boulder", x: 5, y: 8, online: true }));
+  onDisconnect(ctx);
+  const p = ctx.db.player.identity.find(me);
+  assert.equal(p.online, false);
+  assert.equal(p.carrying, "");
+  assert.equal(ctx.db.boulder.rows().length, 1);
+});
+
+// --- Click-to-move pathfinding ---
+
+test("moveTo stores a cardinal route toward a reachable tile", () => {
+  const { ctx, me } = withPlayer({ x: 5, y: 8 });
+  moveTo(ctx, { x: 8, y: 8, running: false });
+  const p = ctx.db.player.identity.find(me);
+  assert.equal(parsePath(p.path).at(-1)?.x, 8); // route ends at the target column
+  assert.deepEqual({ dirX: p.dirX, dirY: p.dirY }, { dirX: 1, dirY: 0 });
+});
+
+// --- Interacting: put-down, the cap on drop, and Hog pickup ---
+
+test("interact puts a carried boulder down on the faced tile", () => {
+  const { ctx, me } = withPlayer({ x: 5, y: 8, carrying: "boulder" });
+  interact(ctx, { dirX: 1, dirY: 0 });
+  assert.equal(ctx.db.player.identity.find(me).carrying, "");
+  assert.equal(ctx.db.boulder.rows().length, 1);
+});
+
+test("a drop is refused at the entity cap, so the trogg keeps carrying", () => {
+  const { ctx, me } = withPlayer({ x: 5, y: 8, carrying: "hog" });
+  for (let i = 0; i < MAX_HOGS_PER_ZONE; i++) hogAt_(ctx, 1, 1);
+  interact(ctx, { dirX: 1, dirY: 0 });
+  assert.equal(ctx.db.player.identity.find(me).carrying, "hog"); // still carrying
+  assert.equal(ctx.db.hog.rows().length, MAX_HOGS_PER_ZONE); // no overflow
+});
+
+test("interact picks up a Hog on the faced tile", () => {
+  const { ctx, me } = withPlayer({ x: 5, y: 8 });
+  hogAt_(ctx, 6, 8);
+  interact(ctx, { dirX: 1, dirY: 0 });
+  assert.equal(ctx.db.hog.rows().length, 0);
+  assert.equal(ctx.db.player.identity.find(me).carrying, "hog");
+});
+
+// --- Reset commands restore the registry layout ---
+
+test("resetBoulders restores the zone's registry boulder layout", () => {
+  const { ctx } = withPlayer({});
+  ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 1, y: 1 }); // a shoved/extra boulder
+  resetBoulders(ctx);
+  const reg = getZone(ZONE)!.boulders;
+  const keys = new Set(ctx.db.boulder.rows().map((b: any) => `${b.x},${b.y}`));
+  assert.deepEqual(keys, new Set(reg.map((c) => `${c.x},${c.y}`)));
+});
+
+test("resetHogs restores the zone's registry Hog population", () => {
+  const { ctx } = withPlayer({});
+  hogAt_(ctx, 1, 1);
+  hogAt_(ctx, 2, 2);
+  resetHogs(ctx);
+  assert.equal(ctx.db.hog.rows().length, getZone(ZONE)!.hogs.length);
+});
+
+// --- Rename / recolor (validation + uniqueness) ---
+
+test("rename to a free valid name updates the trogg and rewrites its chat lines", () => {
+  const { ctx, me } = withPlayer({ name: "trogg-aaaa" });
+  ctx.db.chatMessage.insert({ id: 0n, zoneId: ZONE, sender: me, name: "trogg-aaaa", text: "hi", createdAt: { microsSinceUnixEpoch: 0n } });
+  rename(ctx, { name: "Mossy" });
+  assert.equal(ctx.db.player.identity.find(me).name, "Mossy");
+  assert.equal(ctx.db.chatMessage.rows()[0].name, "Mossy"); // denormalised name rewritten
+});
+
+test("rename to a name another trogg holds (case-insensitive) is rejected", () => {
+  const { ctx, me } = withPlayer({ name: "trogg-aaaa" });
+  ctx.db.player.insert(playerRow(id("other"), { name: "Taken" }));
+  rename(ctx, { name: "taken" });
+  assert.equal(ctx.db.player.identity.find(me).name, "trogg-aaaa");
+});
+
+test("rename to an invalid name is rejected", () => {
+  const { ctx, me } = withPlayer({ name: "trogg-aaaa" });
+  rename(ctx, { name: "no" }); // too short
+  assert.equal(ctx.db.player.identity.find(me).name, "trogg-aaaa");
+});
+
+test("recolor to a valid palette index updates the colour", () => {
+  const { ctx, me } = withPlayer({ color: -1 });
+  recolor(ctx, { color: 0 });
+  assert.equal(ctx.db.player.identity.find(me).color, 0);
+});
+
+test("recolor to an out-of-range index is rejected", () => {
+  const { ctx, me } = withPlayer({ color: 0 });
+  recolor(ctx, { color: 999 });
+  assert.equal(ctx.db.player.identity.find(me).color, 0);
+});
+
+// --- startClaim (the nonce side of the upgrade) ---
+
+const UUID = "11111111-1111-1111-1111-111111111111";
+const UUID2 = "22222222-2222-2222-2222-222222222222";
+
+test("startClaim registers a UUID nonce under the guest", () => {
+  const { ctx, me } = withPlayer({ isGuest: true });
+  startClaim(ctx, { code: UUID });
+  const row = ctx.db.claimCode.code.find(UUID);
+  assert.ok(row);
+  assert.ok(row.guest.isEqual(me));
+});
+
+test("startClaim rejects a non-UUID code", () => {
+  const { ctx } = withPlayer({ isGuest: true });
+  startClaim(ctx, { code: "not-a-uuid" });
+  assert.equal(ctx.db.claimCode.iter().length, 0);
+});
+
+test("startClaim replaces the guest's previous pending nonce", () => {
+  const { ctx } = withPlayer({ isGuest: true });
+  startClaim(ctx, { code: UUID });
+  startClaim(ctx, { code: UUID2 });
+  assert.equal(ctx.db.claimCode.code.find(UUID), undefined);
+  assert.ok(ctx.db.claimCode.code.find(UUID2));
+});
+
+test("startClaim is a no-op for a non-guest", () => {
+  const { ctx } = withPlayer({ isGuest: false });
+  startClaim(ctx, { code: UUID });
+  assert.equal(ctx.db.claimCode.iter().length, 0);
+});
+
+// --- redeemClaim (name inherit + caller authorisation) ---
+
+test("redeemClaim carries the guest's chosen name onto a freshly-named account", () => {
+  const guest = id("guest");
+  const account = id("account");
+  const ctx = makeCtx({ sender: account, now: micros(1000), issuer: SPACETIMEAUTH_ISSUER });
+  ctx.db.player.insert(playerRow(guest, { isGuest: true, name: "Pebble" })); // chosen, non-generated
+  ctx.db.player.insert(playerRow(account, { isGuest: false, name: "trogg-bbbb" })); // still generated
+  ctx.db.claimCode.insert({ code: "c", guest, createdAt: { microsSinceUnixEpoch: 0n } });
+  redeemClaim(ctx, { code: "c" });
+  assert.equal(ctx.db.player.identity.find(account).name, "Pebble");
+});
+
+test("redeemClaim ignores a caller without a SpacetimeAuth token", () => {
+  const guest = id("guest");
+  const account = id("account");
+  const ctx = makeCtx({ sender: account, now: micros(1000) }); // no issuer
+  ctx.db.claimCode.insert({ code: "c", guest, createdAt: { microsSinceUnixEpoch: 0n } });
+  redeemClaim(ctx, { code: "c" });
+  assert.ok(ctx.db.claimCode.code.find("c")); // nonce untouched
 });
