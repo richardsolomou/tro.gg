@@ -10,20 +10,19 @@ import {
   findPath,
   getZone,
   HOG_IDLE_CHANCE,
-  HOG_WANDER_INTERVAL_MS,
-  HOG_WANDER_RADIUS,
-  HOG_WANDER_TRIES,
+  HOG_STEP_INTERVAL_MS,
+  HOG_TURN_CHANCE,
   isColorIndex,
   isGeneratedName,
   isValidName,
   isWalkable,
   projectMotion,
-  projectMotionState,
   serializePath,
   snapToTile,
   SPACETIMEAUTH_ISSUER,
   spawnTile,
   STARTING_ZONE_SLUG,
+  walkableCardinals,
   type Zone,
   type ZoneBounds,
   zoneBounds,
@@ -295,7 +294,7 @@ export const onDisconnect = spacetimedb.clientDisconnected((ctx) => {
   let carrying = p.carrying;
   if (carrying !== "") {
     const zone = getZone(p.zoneId);
-    const occupied = boulderTiles(ctx, p.zoneId);
+    const occupied = solidTiles(ctx, p.zoneId, ctx.timestamp, p.identity);
     if (zone && placeCarried(ctx, zone, carrying, occupied, settled.x, settled.y, p.dirX, p.dirY)) carrying = "";
   }
   ctx.db.player.identity.update({ ...p, x: settled.x, y: settled.y, dirX: 0, dirY: 0, running: false, path: "", online: false, carrying });
@@ -341,8 +340,8 @@ export const moveTo = spacetimedb.reducer({ x: t.i32(), y: t.i32(), running: t.b
   const zone = getZone(p.zoneId);
   if (!zone) return;
 
-  const occupied = boulderTiles(ctx, p.zoneId);
-  const bounds = zoneBounds(zone, (x, y) => occupied.has(tileKey(x, y)));
+  const blockers = troggBlockers(ctx, p.zoneId, ctx.timestamp);
+  const bounds = zoneBounds(zone, (x, y) => blockers.has(tileKey(x, y)));
   const start = settle(ctx, p, ctx.timestamp);
   const path = findPath(bounds, start, { x: target.x, y: target.y });
   const first = path[0];
@@ -375,17 +374,17 @@ export const push = spacetimedb.reducer((ctx) => {
   const zone = getZone(p.zoneId);
   if (!zone) return;
 
-  const occupied = boulderTiles(ctx, p.zoneId);
-  const pos = projectMotion(p, elapsedMs(p.movedAt, ctx.timestamp), zoneBounds(zone, (x, y) => occupied.has(tileKey(x, y))));
+  const blockers = troggBlockers(ctx, p.zoneId, ctx.timestamp);
+  const pos = projectMotion(p, elapsedMs(p.movedAt, ctx.timestamp), zoneBounds(zone, (x, y) => blockers.has(tileKey(x, y))));
 
   const ahead = facingTile(pos.x, pos.y, p.dirX, p.dirY);
   if (!ahead) return; // not squarely facing a tile
 
   const b = boulderAt(ctx, p.zoneId, ahead.x, ahead.y);
-  if (!b) return; // nothing to push
+  if (!b) return; // nothing to push (a Hog in the way is flush-blocking, not pushable)
 
   const dest = { x: ahead.x + Math.sign(p.dirX), y: ahead.y + Math.sign(p.dirY) };
-  if (!isWalkable(zone, dest.x, dest.y) || occupied.has(tileKey(dest.x, dest.y))) return; // blocked
+  if (!isWalkable(zone, dest.x, dest.y) || blockers.has(tileKey(dest.x, dest.y))) return; // wall, boulder, or Hog
 
   // `facingTile` already proved the trogg is on a tile centre; re-base its motion
   // to that whole tile so the grid-lock holds (GDD "Movement").
@@ -412,12 +411,12 @@ export const interact = spacetimedb.reducer({ dirX: t.i32(), dirY: t.i32() }, (c
   if (!zone) return;
 
   const dir = cardinal(dirX, dirY);
-  const occupied = boulderTiles(ctx, p.zoneId);
   const pos = settle(ctx, p, ctx.timestamp);
 
   if (p.carrying !== "") {
     // Put down: place the held entity on the faced tile, or the nearest free
     // neighbour (spawnTile). A boxed-in trogg can't drop, so it keeps carrying.
+    const occupied = solidTiles(ctx, p.zoneId, ctx.timestamp, p.identity);
     const place = placeCarried(ctx, zone, p.carrying, occupied, pos.x, pos.y, dir?.dirX ?? 0, dir?.dirY ?? 0);
     if (place) ctx.db.player.identity.update({ ...p, carrying: "" });
     return;
@@ -442,52 +441,79 @@ export const interact = spacetimedb.reducer({ dirX: t.i32(), dirY: t.i32() }, (c
 });
 
 /**
- * The Hog wander tick (GDD "Hogs"). A Hog walks a `findPath` route to a random
- * nearby tile; its row holds that route while clients glide along it, untouched, so
- * a Hog still en route costs the tick nothing. The tick only acts on Hogs that have
- * arrived (or stalled on a boulder dropped across the route): re-base at the tile
- * they ended on, then route them somewhere new with `planWander` — or, while the
- * zone is empty, just settle them to rest. Randomness is the context RNG, seeded from
- * the tick's timestamp, so the schedule replays deterministically (invariant 3). The
- * timer re-arms only while a player is online, so an empty zone does no further work
- * (invariant 1).
+ * The Hog wander tick (GDD "Hogs"), fired once per tile-crossing. Settle each Hog to
+ * the tile it's on now — flush against everything solid: walls, boulders, troggs, and
+ * other Hogs — then give it a heading for the next tile. Because the tick fires every
+ * tile, a Hog only ever commits to one tile at a time and stops dead in front of a
+ * trogg (or anything) instead of gliding through it; and a Hog freed from a block
+ * never banks more than a tile of travel. A moving Hog keeps its heading unless that
+ * tile is now blocked or a `HOG_TURN_CHANCE` roll turns it; a fresh heading idles with
+ * `HOG_IDLE_CHANCE` so Hogs pause. Troggs block Hogs, but troggs never block each
+ * other (GDD "Hogs"). Randomness is the context RNG, seeded from the tick's timestamp,
+ * so the schedule replays deterministically (invariant 3). The timer re-arms only
+ * while a player is online: with the zone empty, every Hog is left at rest and the
+ * timer stops, so an empty zone does no further work (invariant 1).
  */
 export const wanderHogs = spacetimedb.reducer({ timer: hogWander.rowType }, (ctx) => {
   const online = anyPlayerOnline(ctx);
-  const occupiedByZone = new Map<string, Set<string>>();
+  const now = ctx.timestamp;
 
-  for (const h of ctx.db.hog.iter()) {
+  // Per-zone obstacles every Hog must avoid: boulders + troggs. Memoised across Hogs in
+  // the same zone; each Hog's own tile and the other Hogs' tiles are layered on in pass 2.
+  const blockersByZone = new Map<string, Set<string>>();
+  const blockersFor = (zoneId: string): Set<string> => {
+    let set = blockersByZone.get(zoneId);
+    if (!set) {
+      set = boulderTiles(ctx, zoneId);
+      addPlayerTiles(ctx, zoneId, now, set);
+      blockersByZone.set(zoneId, set);
+    }
+    return set;
+  };
+
+  // Pass 1: settle every Hog to the tile it's on now, so the tiles other Hogs settle
+  // onto are known before any heading is picked (Hogs are solid to each other). A Hog
+  // re-bases each tile, so its stored intent is at most one tile old.
+  const hogList = [...ctx.db.hog.iter()];
+  type HogRow = (typeof hogList)[number];
+  const settled: { hog: HogRow; x: number; y: number; zone: Zone; blockers: Set<string> }[] = [];
+  const hogTilesByZone = new Map<string, Set<string>>();
+  for (const h of hogList) {
     const zone = getZone(h.zoneId);
     if (!zone) continue;
-    let occupied = occupiedByZone.get(h.zoneId);
-    if (!occupied) {
-      occupied = boulderTiles(ctx, h.zoneId);
-      occupiedByZone.set(h.zoneId, occupied);
+    const blockers = blockersFor(h.zoneId);
+    const bounds = zoneBounds(zone, (x, y) => blockers.has(tileKey(x, y)));
+    // Round the in-between position to the tile it ended on: a Hog steps tile-to-tile
+    // over walkable floor, so rounding stays on walkable floor (the `hog` origin is i32).
+    const pos = projectMotion(h, elapsedMs(h.movedAt, now), bounds);
+    const x = Math.round(pos.x);
+    const y = Math.round(pos.y);
+    settled.push({ hog: h, x, y, zone, blockers });
+    let tiles = hogTilesByZone.get(h.zoneId);
+    if (!tiles) {
+      tiles = new Set<string>();
+      hogTilesByZone.set(h.zoneId, tiles);
     }
-    const bounds = zoneBounds(zone, (x, y) => occupied!.has(tileKey(x, y)));
-    const settled = projectMotionState(h, elapsedMs(h.movedAt, ctx.timestamp), bounds);
+    tiles.add(tileKey(x, y));
+  }
 
-    // Still walking its route: leave the row alone so clients keep extrapolating.
-    // `arrived` is false only while a non-zero heading remains; a path stalled at a
-    // boulder reports no heading, so it falls through to be re-routed below.
-    if (online && !settled.arrived && (settled.dirX !== 0 || settled.dirY !== 0)) continue;
-
-    // Re-base at the tile it ended on: the route runs tile-to-tile over walkable
-    // floor, so rounding the in-between position lands on walkable floor (the `hog`
-    // origin is i32 — see the table definition).
-    const x = Math.round(settled.x);
-    const y = Math.round(settled.y);
-    // A pre-migration row has no home (-1 sentinel); it adopts its current tile.
-    const homeX = h.homeX < 0 ? x : h.homeX;
-    const homeY = h.homeY < 0 ? y : h.homeY;
-    const plan = online ? planWander(ctx, bounds, { x, y }, { x: homeX, y: homeY }) : { dirX: 0, dirY: 0, path: "" };
+  // Pass 2: pick each Hog's heading against walls, boulders, troggs, and the other
+  // Hogs' settled tiles — its own tile excepted, so it isn't blocked by itself. While
+  // the zone is empty, leave every Hog at rest.
+  for (const s of settled) {
+    const hogTiles = hogTilesByZone.get(s.hog.zoneId)!;
+    const ownTile = tileKey(s.x, s.y);
+    const bounds = zoneBounds(s.zone, (x, y) => {
+      const k = tileKey(x, y);
+      return k !== ownTile && (s.blockers.has(k) || hogTiles.has(k));
+    });
+    const dir = online ? pickWanderDir(ctx, bounds, s.hog, { x: s.x, y: s.y }) : { dirX: 0, dirY: 0 };
 
     // Skip the write when nothing changed — a resting Hog that re-rolls idle, or any
     // Hog once the zone has emptied — so an idle world produces no diffs (invariant 1).
-    const unchanged =
-      x === h.x && y === h.y && homeX === h.homeX && homeY === h.homeY && plan.dirX === h.dirX && plan.dirY === h.dirY && plan.path === h.path;
+    const unchanged = s.x === s.hog.x && s.y === s.hog.y && dir.dirX === s.hog.dirX && dir.dirY === s.hog.dirY && s.hog.path === "";
     if (unchanged) continue;
-    ctx.db.hog.id.update({ ...h, x, y, homeX, homeY, dirX: plan.dirX, dirY: plan.dirY, path: plan.path, movedAt: ctx.timestamp });
+    ctx.db.hog.id.update({ ...s.hog, x: s.x, y: s.y, dirX: dir.dirX, dirY: dir.dirY, path: "", movedAt: now });
   }
 
   // Clear first so exactly one timer is pending regardless of whether the firing
@@ -511,9 +537,9 @@ export const spawn = spacetimedb.reducer({ kind: t.string() }, (ctx, { kind }) =
   const zone = getZone(p.zoneId);
   if (!zone) return;
 
-  // Boulders are the only collision obstacles; Hogs are non-colliding, so both
-  // avoid spawning into a wall or onto an existing boulder, never onto a Hog.
-  const occupied = boulderTiles(ctx, p.zoneId);
+  // Drop the entity on free floor — never inside a wall or on top of anything solid
+  // (a boulder, a Hog, or another trogg), now that Hogs and troggs collide.
+  const occupied = solidTiles(ctx, p.zoneId, ctx.timestamp, p.identity);
   const pos = settle(ctx, p, ctx.timestamp);
   const tile = spawnTile(zone, (x, y) => occupied.has(tileKey(x, y)), pos.x, pos.y, p.dirX, p.dirY);
   if (!tile) return;
@@ -684,38 +710,35 @@ function anyPlayerOnline(ctx: Ctx): boolean {
   return false;
 }
 
-/** Arm a single one-shot Hog wander tick, unless one is already pending. */
+/** Arm a single one-shot Hog wander tick, unless one is already pending. The tick
+ *  fires once per tile-crossing so a Hog re-bases (and re-checks collision) every tile
+ *  (GDD "Hogs"). */
 function armWander(ctx: Ctx): void {
   if (ctx.db.hogWander.count() > 0n) return;
-  const at = ctx.timestamp.microsSinceUnixEpoch + BigInt(HOG_WANDER_INTERVAL_MS) * 1000n;
+  const at = ctx.timestamp.microsSinceUnixEpoch + BigInt(Math.round(HOG_STEP_INTERVAL_MS)) * 1000n;
   ctx.db.hogWander.insert({ scheduledId: 0n, scheduledAt: ScheduleAt.time(at) });
 }
 
 /**
- * A Hog's next move: a route from `pos` to a random reachable tile within
- * `HOG_WANDER_RADIUS` of `home` — anchoring on home, not the current spot, keeps the
- * Hog in its patch instead of drifting as each hop re-centres. Idles
- * (`HOG_IDLE_CHANCE`, or after `HOG_WANDER_TRIES` unreachable rolls) so it pauses
- * rather than marching nonstop. `dirX/dirY` is the first step of the route, matching
- * the trogg motion intent; `path` is the serialized remainder.
+ * A Hog's heading for the next tile (GDD "Hogs"). A Hog ambling in a direction keeps
+ * going so long as that tile is open and a `HOG_TURN_CHANCE` roll doesn't turn it — so
+ * it walks in gentle runs rather than jittering every tile. Otherwise (blocked ahead,
+ * or it turned, or it was idle) it picks fresh: idle with `HOG_IDLE_CHANCE` so it
+ * pauses, else a random walkable cardinal. `bounds` already treats walls, boulders,
+ * troggs, and other Hogs as unwalkable, so a picked tile is always clear.
  */
-function planWander(
+function pickWanderDir(
   ctx: Ctx,
   bounds: ZoneBounds,
+  hog: { dirX: number; dirY: number },
   pos: { x: number; y: number },
-  home: { x: number; y: number },
-): { dirX: number; dirY: number; path: string } {
-  const idle = { dirX: 0, dirY: 0, path: "" };
-  if (ctx.random() < HOG_IDLE_CHANCE) return idle;
-
-  for (let attempt = 0; attempt < HOG_WANDER_TRIES; attempt++) {
-    const tx = home.x + ctx.random.integerInRange(-HOG_WANDER_RADIUS, HOG_WANDER_RADIUS);
-    const ty = home.y + ctx.random.integerInRange(-HOG_WANDER_RADIUS, HOG_WANDER_RADIUS);
-    const route = findPath(bounds, pos, { x: tx, y: ty });
-    const first = route[0];
-    if (first) return { dirX: first.x - pos.x, dirY: first.y - pos.y, path: serializePath(route) };
-  }
-  return idle;
+): { dirX: number; dirY: number } {
+  const options = walkableCardinals(bounds, pos.x, pos.y);
+  const ahead = options.find((d) => d.dirX === hog.dirX && d.dirY === hog.dirY);
+  if (ahead && ctx.random() > HOG_TURN_CHANCE) return ahead;
+  if (ctx.random() < HOG_IDLE_CHANCE) return { dirX: 0, dirY: 0 };
+  if (options.length === 0) return { dirX: 0, dirY: 0 };
+  return options[ctx.random.integerInRange(0, options.length - 1)]!;
 }
 
 /** Whether the caller authenticated with a SpacetimeAuth OIDC token (an account, not a guest). */
@@ -749,17 +772,19 @@ type Settleable = { x: number; y: number; dirX: number; dirY: number; running: b
 
 /**
  * Derive the trogg's position at `now` from its stored motion intent, colliding
- * against the zone's walls *and* its boulders (so a trogg settles flush against a
- * boulder, never inside it), then snap it to a whole tile: movement is grid-locked
- * (GDD "Movement"), so a stored origin is always a tile centre. The client only
- * sends `move` when the trogg is tile-aligned, so the snap is a no-op in the normal
- * case and a guard against a misbehaving client in the rest (invariant 3).
+ * against everything solid to a trogg — walls, boulders, and Hogs — so it settles
+ * flush against an obstacle, never inside one, then snap it to a whole tile:
+ * movement is grid-locked (GDD "Movement"), so a stored origin is always a tile
+ * centre. Troggs do *not* collide with each other (GDD "Hogs"), so other players
+ * are absent here. The client only sends `move` when the trogg is tile-aligned, so
+ * the snap is a no-op in the normal case and a guard against a misbehaving client
+ * in the rest (invariant 3).
  */
 function settle(ctx: Ctx, p: Settleable, now: Stamp): { x: number; y: number } {
   const zone = getZone(p.zoneId);
   if (!zone) return { x: p.x, y: p.y };
-  const occupied = boulderTiles(ctx, p.zoneId);
-  const bounds = zoneBounds(zone, (x, y) => occupied.has(tileKey(x, y)));
+  const blockers = troggBlockers(ctx, p.zoneId, now);
+  const bounds = zoneBounds(zone, (x, y) => blockers.has(tileKey(x, y)));
   return snapToTile(projectMotion(p, elapsedMs(p.movedAt, now), bounds));
 }
 
@@ -772,6 +797,54 @@ function tileKey(x: number, y: number): string {
 function boulderTiles(ctx: Ctx, zoneId: string): Set<string> {
   const tiles = new Set<string>();
   for (const b of ctx.db.boulder.zoneId.filter(zoneId)) tiles.add(tileKey(b.x, b.y));
+  return tiles;
+}
+
+/** The tiles solid to a trogg in a zone: boulders + Hogs (GDD "Hogs"). Not other
+ *  troggs — trogg↔trogg has no collision. Hogs re-base every tile, so their stored
+ *  intent is at most one tile old; projecting against walls + boulders puts each Hog
+ *  within a tile of its real spot, enough to block a trogg flush. */
+function troggBlockers(ctx: Ctx, zoneId: string, now: Stamp): Set<string> {
+  const tiles = boulderTiles(ctx, zoneId);
+  addHogTiles(ctx, zoneId, now, tiles);
+  return tiles;
+}
+
+/** Add each Hog's current tile (projected to `now`, against walls + boulders) to `set`. */
+function addHogTiles(ctx: Ctx, zoneId: string, now: Stamp, set: Set<string>): void {
+  const zone = getZone(zoneId);
+  if (!zone) return;
+  const boulders = boulderTiles(ctx, zoneId);
+  const bounds = zoneBounds(zone, (x, y) => boulders.has(tileKey(x, y)));
+  for (const h of ctx.db.hog.zoneId.filter(zoneId)) {
+    const pos = projectMotion(h, elapsedMs(h.movedAt, now), bounds);
+    set.add(tileKey(Math.round(pos.x), Math.round(pos.y)));
+  }
+}
+
+/** Add each online trogg's current tile (projected to `now`, against walls + boulders
+ *  + Hogs) to `set`, skipping `exclude` (a trogg never blocks itself). Lets Hogs and
+ *  dropped objects avoid the tiles troggs stand on. */
+function addPlayerTiles(ctx: Ctx, zoneId: string, now: Stamp, set: Set<string>, exclude?: Ctx["sender"]): void {
+  const zone = getZone(zoneId);
+  if (!zone) return;
+  const blockers = troggBlockers(ctx, zoneId, now);
+  const bounds = zoneBounds(zone, (x, y) => blockers.has(tileKey(x, y)));
+  for (const p of ctx.db.player.zoneId.filter(zoneId)) {
+    if (!p.online) continue;
+    if (exclude && p.identity.isEqual(exclude)) continue;
+    const pos = projectMotion(p, elapsedMs(p.movedAt, now), bounds);
+    set.add(tileKey(Math.round(pos.x), Math.round(pos.y)));
+  }
+}
+
+/** Every solid tile a freshly placed entity must avoid — boulders, Hogs, and other
+ *  troggs — so a spawn or drop never lands on top of something. `exclude` skips the
+ *  acting trogg's own tile, leaving it as a last-resort fallback when boxed in. */
+function solidTiles(ctx: Ctx, zoneId: string, now: Stamp, exclude?: Ctx["sender"]): Set<string> {
+  const tiles = boulderTiles(ctx, zoneId);
+  addHogTiles(ctx, zoneId, now, tiles);
+  addPlayerTiles(ctx, zoneId, now, tiles, exclude);
   return tiles;
 }
 

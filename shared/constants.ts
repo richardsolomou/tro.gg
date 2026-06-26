@@ -16,20 +16,20 @@ export const MOVE_SPEED_TILES_PER_SEC = 4;
 export const RUN_SPEED_TILES_PER_SEC = 7;
 
 /**
- * Roaming Hogs (GDD "Hogs"). Ambient hedgehog NPCs wander on their own: when a Hog
- * reaches the end of its route, the scheduled reducer routes it to a random reachable
- * tile within `HOG_WANDER_RADIUS` of its home tile (the same `findPath` click-to-move
- * uses) or, with `HOG_IDLE_CHANCE`, pauses instead so they don't march nonstop.
- * Anchoring on home rather than the current spot keeps a Hog in its patch instead of
- * drifting off over many hops. Picking a destination retries up to `HOG_WANDER_TRIES`
- * times before giving up and idling, so a Hog boxed in by walls or boulders doesn't
- * stall on one unreachable roll. Hogs ride the same intent-based motion as troggs, so
- * there's no per-frame sync. (initial)
+ * Roaming Hogs (GDD "Hogs"). Ambient hedgehog NPCs amble tile by tile: a scheduled
+ * reducer re-bases every Hog once per tile (`HOG_STEP_INTERVAL_MS`, the time to cross
+ * one tile at walk speed), so a Hog only ever commits to one tile at a time and stops
+ * flush against whatever's solid — walls, boulders, troggs, and other Hogs. Each step a
+ * moving Hog keeps its heading unless that tile is blocked or a `HOG_TURN_CHANCE` roll
+ * turns it; a fresh heading lands on idle with `HOG_IDLE_CHANCE` so they pause rather
+ * than march nonstop. They ride the same intent-based motion as troggs, so there's no
+ * per-frame sync. Stepping one tile at a time (rather than routing a multi-tile path)
+ * keeps a Hog's banked travel to at most one tile, so a Hog freed from a block never
+ * lurches more than a tile. (initial)
  */
-export const HOG_WANDER_INTERVAL_MS = 1_500;
+export const HOG_STEP_INTERVAL_MS = 1_000 / MOVE_SPEED_TILES_PER_SEC;
+export const HOG_TURN_CHANCE = 0.15;
 export const HOG_IDLE_CHANCE = 0.25;
-export const HOG_WANDER_RADIUS = 7;
-export const HOG_WANDER_TRIES = 6;
 
 /** Chat. (initial) */
 export const CHAT_MAX_CHARS = 200;

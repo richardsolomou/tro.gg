@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { MOVE_SPEED_TILES_PER_SEC, RUN_SPEED_TILES_PER_SEC, type Zone } from "./constants";
-import { facingTile, findPath, projectMotion, projectMotionState, serializePath, snapToTile, spawnTile, zoneBounds } from "./motion";
+import { facingTile, findPath, projectMotion, projectMotionState, serializePath, snapToTile, spawnTile, walkableCardinals, zoneBounds } from "./motion";
 
 // No isWalkable → open floor, clamped only to the rectangular bounds.
 const open = { width: 24, height: 16 };
@@ -135,18 +135,34 @@ test("path motion follows serialized waypoints and idles on arrival", () => {
   assert.deepEqual(projectMotion({ x: 1, y: 1, dirX: 1, dirY: 0, path }, 10_000, open), { x: 3, y: 2 });
 });
 
-test("path motion stalls at a blocked waypoint without reporting arrival", () => {
-  // A boulder dropped onto (3,1) after the route was planned. The Hog walks up to
-  // the last clear tile and stops with no heading — `arrived` stays false, the
-  // signal `wanderHogs` keys off to re-route rather than re-decide on arrival.
+test("path motion stalls at the tile it's entering when that tile is blocked", () => {
+  // Something landed on (3,1) ahead of the route. Reaching it (500ms ≈ 2 tiles), the
+  // trogg stops on the last clear tile with no heading — `arrived` stays false, the
+  // signal the client keys off to re-route rather than re-decide on arrival.
   const blocked = zoneBounds(openRoom, (x, y) => x === 3 && y === 1);
   const path = serializePath([
     { x: 2, y: 1 },
     { x: 3, y: 1 },
     { x: 4, y: 1 },
   ]);
-  const stalled = projectMotionState({ x: 1, y: 1, dirX: 1, dirY: 0, path }, 10_000, blocked);
+  const stalled = projectMotionState({ x: 1, y: 1, dirX: 1, dirY: 0, path }, 500, blocked);
   assert.deepEqual(stalled, { x: 2, y: 1, dirX: 0, dirY: 0, arrived: false });
+});
+
+test("path motion never rewinds onto a blocked tile it has already crossed", () => {
+  // A Hog wanders onto (2,1) — a tile the trogg already walked over — after the route
+  // was planned. The projection must keep going forward (it's past that tile), not
+  // snap back to it; a held route re-derived from its origin used to teleport the
+  // trogg backward here. At ~750ms (3 tiles) it's stepping into (4,1), still ahead.
+  const passedBlock = zoneBounds(openRoom, (x, y) => x === 2 && y === 1);
+  const path = serializePath([
+    { x: 2, y: 1 },
+    { x: 3, y: 1 },
+    { x: 4, y: 1 },
+    { x: 5, y: 1 },
+  ]);
+  const ahead = projectMotionState({ x: 1, y: 1, dirX: 1, dirY: 0, path }, 750, passedBlock);
+  assert.deepEqual(ahead, { x: 4, y: 1, dirX: 1, dirY: 0, arrived: false });
 });
 
 test("the same tile is walkable once nothing occupies it", () => {
@@ -206,4 +222,16 @@ test("spawnTile returns null when the player is boxed in", () => {
   assert.deepEqual(spawnTile(cell, none, 1, 1, 0, 0), { x: 1, y: 1 });
   // Now mark even that tile occupied: nothing free anywhere → null.
   assert.equal(spawnTile(cell, () => true, 1, 1, 0, 0), null);
+});
+
+const dirKeys = (dirs: { dirX: number; dirY: number }[]) => new Set(dirs.map((d) => `${d.dirX},${d.dirY}`));
+
+test("a hog's walkable headings exclude walls and the zone edge", () => {
+  // (1,1) in the corner room: floor below and to the right, walls above and left.
+  assert.deepEqual(dirKeys(walkableCardinals(cornered, 1, 1)), new Set(["0,1", "1,0"]));
+});
+
+test("a hog's walkable headings treat an occupied tile (boulder/hog/trogg) like a wall", () => {
+  // (3,1) in the 1-tile-tall corridor with the tile at (4,1) occupied: only left is open.
+  assert.deepEqual(dirKeys(walkableCardinals(withBoulder, 3, 1)), new Set(["-1,0"]));
 });

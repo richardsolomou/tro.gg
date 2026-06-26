@@ -22,6 +22,11 @@ let TILE = 28;
  *  turning in place — the tap-vs-hold window (GDD "Movement"). Tune for feel. */
 const TURN_TAP_MS = 130;
 
+/** Min gap between click-to-move route (re)issues while a path is blocked or no route
+ *  exists yet, so re-routing around a Hog — or waiting for one to clear the only way —
+ *  retries steadily without firing the reducer every frame. */
+const MOVETO_RETRY_MS = 250;
+
 /** Size of a carried object's overlay relative to a full tile (GDD "Interacting"). */
 const CARRY_SCALE = 0.62;
 
@@ -157,11 +162,17 @@ export function mountWorld(app: Application, conn: DbConnection) {
   // optional kill-switch; off → E does nothing.
   const useInteract = isFeatureEnabled("interact");
 
-  // Tiles boulders currently occupy. Folded into the collision context below so
-  // troggs stop flush against boulders exactly as they do against walls — and so
-  // client prediction confines them to the same tiles the server does.
+  // Tiles boulders occupy, and tiles Hogs occupy (rebuilt each frame from their
+  // projected positions — Hogs move, so their tiles shift between row updates).
+  // Troggs are solid against boulders *and* Hogs (`troggBounds`); Hogs are rendered
+  // against walls + boulders only (`hogBounds`), since the server already chose each
+  // Hog's one-tile step clear of troggs and other Hogs (GDD "Hogs"). Troggs never
+  // collide with each other, so player tiles are in neither set. The same builders
+  // run server-side, so prediction confines entities to the same tiles authority does.
   const boulderTiles = new Set<string>();
-  const bounds = zoneBounds(zone, (x, y) => boulderTiles.has(tileKey(x, y)));
+  const hogTiles = new Set<string>();
+  const hogBounds = zoneBounds(zone, (x, y) => boulderTiles.has(tileKey(x, y)));
+  const troggBounds = zoneBounds(zone, (x, y) => boulderTiles.has(tileKey(x, y)) || hogTiles.has(tileKey(x, y)));
 
   const terrain = createTerrain(zone);
   const stage = new Container();
@@ -208,14 +219,20 @@ export function mountWorld(app: Application, conn: DbConnection) {
 
   const syncDestinationFromPath = (path: string) => {
     if (path === "") {
+      // Keep the marker. An empty path can mean "no route right now" — a Hog has sealed
+      // the only way — and we keep trying toward the clicked tile rather than abandoning
+      // it. The marker clears on arrival, on a keypress, or when a new tile is clicked.
       destinationPath = "";
-      setDestination(undefined);
       return;
     }
     if (path === destinationPath) return;
     destinationPath = path;
-    const waypoints = parsePath(path);
-    setDestination(waypoints.at(-1));
+    // Keep the marker on the tile you clicked, not the route's (possibly truncated) end.
+    // A Hog taking the target tile — or one near it — before you arrive shouldn't drag
+    // where you pointed to a different tile; the re-route also aims at the clicked tile
+    // (`destinationTile`), not the truncated end, so the destination can't drift. We
+    // only adopt the route's end when there's no marker yet (resuming after a reconnect).
+    if (!destinationTile) setDestination(parsePath(path).at(-1));
   };
 
   const clearDestination = () => {
@@ -225,13 +242,13 @@ export function mountWorld(app: Application, conn: DbConnection) {
 
   const layout = () => {
     const { width: vw, height: vh } = app.renderer;
-    const fit = Math.min((vw * ZONE_FILL) / bounds.width, (vh * ZONE_FILL) / bounds.height);
+    const fit = Math.min((vw * ZONE_FILL) / zone.width, (vh * ZONE_FILL) / zone.height);
     TILE = Math.max(ART, Math.floor(fit));
     terrain.layout(TILE, vw, vh);
     clickLayer.clear();
-    clickLayer.hitArea = new Rectangle(0, 0, bounds.width * TILE, bounds.height * TILE);
+    clickLayer.hitArea = new Rectangle(0, 0, zone.width * TILE, zone.height * TILE);
     drawDestination();
-    centre(app, stage, bounds.width, bounds.height);
+    centre(app, stage, zone.width, zone.height);
     // Markers and boulder sprites bake TILE into their size, so resize redraws them.
     for (const [id, entry] of tracked) rebuildMarker(id, entry);
     for (const view of boulders.values()) {
@@ -264,7 +281,7 @@ export function mountWorld(app: Application, conn: DbConnection) {
     // The carried overlay was a child of the old marker, so it's gone too; re-add it.
     entry.carried = undefined;
     entry.carriedKind = "";
-    const { x, y } = projectMotion(entry.player, performance.now() - entry.baseMs, bounds);
+    const { x, y } = projectMotion(entry.player, performance.now() - entry.baseMs, troggBounds);
     place(entry.marker, x, y);
     stage.addChild(entry.marker);
     applyCarry(entry);
@@ -279,7 +296,7 @@ export function mountWorld(app: Application, conn: DbConnection) {
     const facing = facingFromDir(p.dirX, p.dirY, "down");
     const { marker, sprite, frameKey } = makeMarker(p.name, troggColorFor(p.color, id), id === myId, facing, useSprites);
     const entry: Tracked = { marker, sprite, player: p, baseMs: timestampBaseMs(p.movedAt), facing, frameKey, carriedKind: "" };
-    const { x, y } = projectMotion(p, performance.now() - entry.baseMs, bounds);
+    const { x, y } = projectMotion(p, performance.now() - entry.baseMs, troggBounds);
     place(marker, x, y);
     tracked.set(id, entry);
     stage.addChild(marker);
@@ -377,7 +394,7 @@ export function mountWorld(app: Application, conn: DbConnection) {
     const facing = facingFromDir(h.dirX, h.dirY, "down");
     const { marker, sprite, frameKey } = makeHog(facing);
     const baseMs = timestampBaseMs(h.movedAt);
-    const { x, y } = projectMotion(h, performance.now() - baseMs, bounds);
+    const { x, y } = projectMotion(h, performance.now() - baseMs, hogBounds);
     place(marker, x, y);
     hogs.set(id, { marker, sprite, row: h, baseMs, facing, frameKey });
     hogLayer.addChild(marker);
@@ -432,7 +449,17 @@ export function mountWorld(app: Application, conn: DbConnection) {
   // Whether we were flush against a pushable boulder last frame, so `push` fires once
   // per tile (on the rising edge), not every frame.
   let pushBlocked = false;
+  // When we last (re)issued a click-to-move route, so re-routing a blocked path — or
+  // retrying when no route exists yet — is throttled (`MOVETO_RETRY_MS`) instead of
+  // fired every frame.
+  let lastMoveToAt = 0;
   let lastFootstepTile = "";
+  // The tile our motion origin currently sits on. A straight run re-bases the origin to
+  // each tile centre it crosses (`driveSelf`), so position is only ever derived over the
+  // last tile — a Hog wandering onto a tile we've already passed is behind the origin and
+  // can't rewind us (the WASD analogue of forward-only path projection). Dedupes the
+  // per-tile re-base so it fires once per crossing, not every frame.
+  let lastRebaseTile = "";
   // A click-to-move target waiting for the trogg to reach a tile centre before it
   // re-paths. Click-to-move is grid-locked like WASD (GDD "Movement"): re-basing
   // the path mid-step would let the server snap the trogg's fractional position
@@ -453,6 +480,7 @@ export function mountWorld(app: Application, conn: DbConnection) {
     prevX = Number.NaN;
     prevY = Number.NaN;
     lastFootstepTile = tileKey(origin.x, origin.y);
+    lastRebaseTile = tileKey(origin.x, origin.y);
     if (!isIdle(intent)) {
       facing = intent;
       entry.facing = facingFromDir(intent.dirX, intent.dirY, entry.facing);
@@ -496,6 +524,17 @@ export function mountWorld(app: Application, conn: DbConnection) {
     walkAfter = now + TURN_TAP_MS;
   };
 
+  // Is a Hog flush on the tile directly ahead in `dir`? `facingTile` returns that tile
+  // only when we're squarely on a centre (within tol), so a trogg still sliding mid-tile
+  // never reads as blocked. Hogs are the moving obstacle a trogg stops against; boulders
+  // are handled by `push` (which re-bases each shove, so its intent never goes stale) and
+  // walls never move, so neither needs the stop-and-resume below.
+  const blockedByHog = (x: number, y: number, dir: MoveIntent) => {
+    if (isIdle(dir)) return false;
+    const ahead = facingTile(x, y, dir.dirX, dir.dirY);
+    return ahead != null && hogTiles.has(tileKey(ahead.x, ahead.y));
+  };
+
   const driveSelf = (entry: Tracked, x: number, y: number, now: number) => {
     const fresh = !sameIntent(desired, lastDesired);
     lastDesired = desired;
@@ -513,8 +552,32 @@ export function mountWorld(app: Application, conn: DbConnection) {
     if (!isIdle(sent)) {
       // Walking: change direction, speed (shift→run), or stop at the next tile centre
       // (grid-lock). A new direction mid-walk corners fluidly — no turn-in-place beat.
-      if (sameIntent(desired, sent) && desired.running === sent.running) return;
+      const keepGoing = sameIntent(desired, sent) && desired.running === sent.running;
+      if (keepGoing && !blockedByHog(x, y, sent)) {
+        // Running straight on. Re-base the origin to each tile centre we cross so position
+        // is only ever derived over the last tile: a Hog stepping onto a tile we've already
+        // passed sits behind the origin and can no longer rewind us (stateless re-derivation
+        // from a stale origin would otherwise yank us flush against it). The tile-key guard
+        // keeps this to one re-base per crossing — `reachedCentre`'s 1e-3 slack can read true
+        // on two adjacent frames straddling the same centre, which would re-base it twice.
+        const tile = snapToTile({ x, y });
+        const key = tileKey(tile.x, tile.y);
+        if (key !== lastRebaseTile && reachedCentre(sent, prevX, prevY, x, y)) sendMove(entry, sent, x, y, now);
+        return;
+      }
       if (!reachedCentre(sent, prevX, prevY, x, y)) return;
+      if (keepGoing) {
+        // Flush against a Hog while still holding this way. Stop here instead of keeping
+        // a walking intent that goes stale: a held intent banks elapsed travel against
+        // the Hog, and the moment the Hog ambles off the server re-derives the position
+        // from that stale origin with nothing left to clamp it — flinging the trogg to
+        // where the uninterrupted walk would have reached. An idle intent can't overshoot.
+        // We resume below the instant the tile frees (`desired` still holds the way).
+        sendMove(entry, { dirX: 0, dirY: 0, running: sent.running }, x, y, now);
+        facing = sent;
+        entry.facing = facingFromDir(sent.dirX, sent.dirY, entry.facing);
+        return;
+      }
       sendMove(entry, desired, x, y, now);
       if (!isIdle(desired)) facing = desired;
       return;
@@ -523,6 +586,15 @@ export function mountWorld(app: Application, conn: DbConnection) {
     // Stopped (on a tile centre).
     if (isIdle(desired)) {
       walkAfter = Number.POSITIVE_INFINITY;
+      return;
+    }
+    if (blockedByHog(x, y, desired)) {
+      // Want to go, but a Hog is flush ahead. Wait facing it — no stale walking intent to
+      // overshoot — and keep `walkAfter` in the past so the frame it clears we walk at
+      // once (no turn-in-place beat: we were already committed to this direction).
+      facing = desired;
+      entry.facing = facingFromDir(desired.dirX, desired.dirY, entry.facing);
+      walkAfter = now;
       return;
     }
     if (fresh) {
@@ -544,7 +616,7 @@ export function mountWorld(app: Application, conn: DbConnection) {
   // centred and routes at once; a moving one finishes its current step first. The
   // server then settles onto that whole tile (a no-op snap), so no sub-tile distance
   // is banked no matter how fast the clicks come.
-  const flushPendingMoveTo = (entry: Tracked, motion: ProjectedMotion, x: number, y: number) => {
+  const flushPendingMoveTo = (entry: Tracked, motion: ProjectedMotion, x: number, y: number, now: number) => {
     if (!pendingMoveTo) return;
     const dir = { dirX: motion.dirX, dirY: motion.dirY, running: entry.player.running };
     if (!isIdle(dir) && !reachedCentre(dir, prevX, prevY, x, y)) return;
@@ -552,13 +624,28 @@ export function mountWorld(app: Application, conn: DbConnection) {
     pendingMoveTo = null;
     sent = { dirX: 0, dirY: 0, running: false };
     pendingSelfMoves.length = 0;
+    lastMoveToAt = now;
     conn.reducers.moveTo({ x: target.x, y: target.y, running: false });
   };
 
   app.ticker.add(() => {
     const now = performance.now();
+
+    // Hogs first: derive each Hog's position (intent extrapolation, never per-frame
+    // sync — invariant 2) and rebuild the Hog tile set so trogg collision this frame
+    // sees where the Hogs actually are. Hogs collide against walls and boulders only;
+    // the server already kept their one-tile step clear of troggs and other Hogs.
+    hogTiles.clear();
+    for (const view of hogs.values()) {
+      const motion = projectMotionState(view.row, now - view.baseMs, hogBounds);
+      place(view.marker, motion.x, motion.y);
+      driveSprite(view.sprite, "hog", motion.dirX, motion.dirY, false, view, now);
+      const tile = snapToTile({ x: motion.x, y: motion.y });
+      hogTiles.add(tileKey(tile.x, tile.y));
+    }
+
     for (const entry of tracked.values()) {
-      const motion = projectMotionState(entry.player, now - entry.baseMs, bounds);
+      const motion = projectMotionState(entry.player, now - entry.baseMs, troggBounds);
       const { x, y } = motion;
       place(entry.marker, x, y);
       animate(entry, now, motion);
@@ -566,20 +653,28 @@ export function mountWorld(app: Application, conn: DbConnection) {
       if (entry.player.identity.toHexString() !== myId) continue;
 
       playFootstepAtCentre(x, y, { dirX: motion.dirX, dirY: motion.dirY, running: entry.player.running });
+      // A click-to-move route stalls when a Hog (or a shoved boulder) lands on a tile
+      // ahead of it: `projectPathMotion` stops with no heading and `arrived` false.
+      const stalled = entry.player.path !== "" && !motion.arrived && motion.dirX === 0 && motion.dirY === 0;
       if (!pendingMoveTo && motion.arrived && entry.player.path !== "") clearDestination();
-      if (pendingMoveTo) flushPendingMoveTo(entry, motion, x, y);
-      else driveSelf(entry, x, y, now);
+      if (pendingMoveTo) {
+        flushPendingMoveTo(entry, motion, x, y, now);
+      } else if (destinationTile && isIdle(desired) && (stalled || entry.player.path === "")) {
+        // Heading for the clicked tile but not making progress: the route stalled on a Hog
+        // ahead, or there's no route at all right now (a Hog has sealed the only way). Re-issue
+        // the route to the clicked tile — bending around Hogs, or just waiting and retrying
+        // until a way opens — rather than giving up halfway. Throttled (`MOVETO_RETRY_MS`) so
+        // it isn't fired every frame; a keypress falls through to `driveSelf` (WASD takes over).
+        if (now - lastMoveToAt >= MOVETO_RETRY_MS) {
+          lastMoveToAt = now;
+          conn.reducers.moveTo({ x: destinationTile.x, y: destinationTile.y, running: false });
+        }
+      } else {
+        driveSelf(entry, x, y, now);
+      }
       pushStep(x, y);
       prevX = x;
       prevY = y;
-    }
-
-    // Hogs ride the same intent extrapolation — derived locally, never per-frame
-    // sync (invariant 2). They collide against the same walls and boulders.
-    for (const view of hogs.values()) {
-      const motion = projectMotionState(view.row, now - view.baseMs, bounds);
-      place(view.marker, motion.x, motion.y);
-      driveSprite(view.sprite, "hog", motion.dirX, motion.dirY, false, view, now);
     }
   });
 
@@ -597,7 +692,7 @@ export function mountWorld(app: Application, conn: DbConnection) {
       const self = myId ? tracked.get(myId) : undefined;
       walkAfter = Number.POSITIVE_INFINITY;
       if (self) {
-        const { x, y } = projectMotion(self.player, now - self.baseMs, bounds);
+        const { x, y } = projectMotion(self.player, now - self.baseMs, troggBounds);
         sendMove(self, intent, x, y, now);
       } else {
         sent = intent;
@@ -616,7 +711,7 @@ export function mountWorld(app: Application, conn: DbConnection) {
     const local = e.getLocalPosition(stage);
     const x = Math.floor(local.x / TILE);
     const y = Math.floor(local.y / TILE);
-    if (x < 0 || y < 0 || x >= bounds.width || y >= bounds.height) return;
+    if (x < 0 || y < 0 || x >= zone.width || y >= zone.height) return;
     desired = { dirX: 0, dirY: 0, running: false };
     lastDesired = desired;
     walkAfter = Number.POSITIVE_INFINITY;
