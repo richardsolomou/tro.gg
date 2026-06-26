@@ -25,6 +25,7 @@ import {
   SPACETIMEAUTH_ISSUER,
   spawnTile,
   STARTING_ZONE_SLUG,
+  type Stamp,
   tileKey,
   walkableCardinals,
   type Zone,
@@ -718,11 +719,26 @@ export const redeemClaim = spacetimedb.reducer({ code: t.string() }, (ctx, { cod
   const account = ctx.db.player.identity.find(ctx.sender);
   if (!guest || !account || guest.identity.isEqual(account.identity)) return;
 
+  // Fold the guest's carried entity into the account too — it exists only as the guest
+  // row's `carrying` (its world row was deleted on pickup), so deleting the guest without
+  // this would destroy it (GDD "Interacting": nothing is orphaned). If the account is
+  // already carrying, drop the guest's into the world where it stood instead.
+  let carrying = account.carrying;
+  if (guest.carrying !== "") {
+    if (carrying === "") {
+      carrying = guest.carrying;
+    } else {
+      const zone = getZone(guest.zoneId);
+      const occupied = solidTiles(ctx, guest.zoneId, ctx.timestamp, guest.identity);
+      if (zone) placeCarried(ctx, zone, guest.carrying, occupied, guest.x, guest.y, guest.dirX, guest.dirY);
+    }
+  }
+
   // Carry the guest's chosen name onto a freshly-named account (never clobber a
   // returning account's own name), staying within the uniqueness rule.
   const inheritName =
     !isGeneratedName(guest.name) && isGeneratedName(account.name) && !nameTaken(ctx, guest.name, ctx.sender);
-  ctx.db.player.identity.update({ ...account, name: inheritName ? guest.name : account.name, isGuest: false });
+  ctx.db.player.identity.update({ ...account, name: inheritName ? guest.name : account.name, carrying, isGuest: false });
   ctx.db.player.identity.delete(guest.identity);
 });
 
@@ -786,9 +802,6 @@ function nameTaken(ctx: Ctx, name: string, self: Ctx["sender"]): boolean {
   }
   return false;
 }
-
-/** A Timestamp, narrowed to the field this module reads. */
-type Stamp = { microsSinceUnixEpoch: bigint };
 
 /** The motion-bearing slice of a player row that `settle` derives position from. */
 type Settleable = { x: number; y: number; dirX: number; dirY: number; running: boolean; path?: string; zoneId: string; movedAt: Stamp };

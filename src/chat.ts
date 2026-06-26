@@ -20,12 +20,12 @@ export interface ChatUI {
   destroy(): void;
 }
 
-type ChatLine = {
+interface ChatLine {
   senderId: string;
   name: string;
   text: string;
   color: number;
-};
+}
 
 const PAD = 12;
 const FONT = "monospace";
@@ -301,13 +301,14 @@ export function setupChat(
   conn.db.chatMessage.onInsert((_ctx, message) => {
     const senderId = message.sender.toHexString();
     chat.addMessage(senderId, message.name, message.text, senderColor(message.sender));
-    // Bubble only for fresh lines: a reconnect replays the zone's recent history,
-    // and those rows can arrive after the subscription goes live — without this an
-    // old message would pop a stale bubble over its sender on every refresh.
+    // Bubbles, the sound, and the analytics event are all for *fresh* lines only: the
+    // subscription replays the zone's recent history on join, so suppress everything until
+    // the snapshot is applied (`sub.live`), then also skip a line older than a bubble's
+    // lifetime (a late-arriving diff right after going live).
+    if (!sub.live) return;
     const ageMs = Date.now() - timestampMs(message.createdAt);
     if (ageMs > CHAT_BUBBLE_MS) return;
     showBubble(entities, tracked, senderId, message.text);
-    if (!sub.live) return;
     if (senderId === myId) captureEvent("chat_sent", { zone: slug });
     else audio.playChatReceive();
   });
