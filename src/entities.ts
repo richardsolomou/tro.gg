@@ -79,11 +79,10 @@ export function createEntities(getTile: () => number) {
 
   /**
    * A trogg. With the `avatar-sprites` flag on, it's the layered avatar sprite
-   * (GDD "Avatars and equipment") tinted by the player's stable colour, feet at
-   * the centre of the tile cell and head extending up out of it — so the
-   * per-player colour, formerly the whole marker, now rides as a tint, keeping
-   * "the same trogg is the same colour for everyone". With the flag off it's the
-   * placeholder colour marker (a tile-filling rect). Both carry a name label.
+   * (GDD "Avatars and equipment") tinted by the player's stable colour (so the same
+   * trogg reads the same colour for everyone), feet at the centre of the tile cell and
+   * head extending up out of it. With the flag off it's the placeholder colour marker
+   * (a tile-filling rect). Both carry a name label.
    */
   const makeMarker = (name: string, color: number, self: boolean, facing: Facing, sprites: boolean) => {
     const tile = getTile();
@@ -274,7 +273,7 @@ export function createEntities(getTile: () => number) {
     return bubble;
   };
 
-  return { feetY, headTopY, place, centre, makeMarker, animate, driveSprite, makeBoulder, makeCarried, applyCarry, makeHog, hauntGhost, makeBubble };
+  return { headTopY, place, centre, makeMarker, animate, driveSprite, makeBoulder, applyCarry, makeHog, hauntGhost, makeBubble };
 }
 
 export type Entities = ReturnType<typeof createEntities>;

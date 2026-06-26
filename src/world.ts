@@ -1,5 +1,5 @@
 import { Application, Container, FederatedPointerEvent, Graphics, Rectangle } from "pixi.js";
-import { getZone, projectMotion, projectMotionState, snapToTile, STARTING_ZONE_SLUG, tileKey, timestampMs, troggColorFor, zoneBounds, type Coord, type Stamp, type Zone } from "@trogg/shared";
+import { getZone, projectMotion, projectMotionState, snapToTile, STARTING_ZONE_SLUG, tileKey, timestampMs, troggColorFor, zoneBounds, type Coord, type Stamp } from "@trogg/shared";
 import type { DbConnection } from "./module_bindings";
 import type { Boulder, Hog, Player } from "./module_bindings/types";
 import { attachKeyboard } from "./input.js";
@@ -274,7 +274,6 @@ export function mountWorld(app: Application, conn: DbConnection) {
     hogs.delete(h.id.toString());
   };
 
-  // Roaming Hogs render behind their optional kill-switch.
   if (useHogs) {
     conn.db.hog.onInsert((_ctx, h) => addHog(h));
     conn.db.hog.onUpdate((_ctx, _old, h) => {

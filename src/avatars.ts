@@ -71,9 +71,6 @@ export function ghostTexture(facing: Facing, frame: FrameName): Texture {
   return frameTexture(ghostSheet, ghostCache, `${facing}_${frame}`, "trogg", facing, frame);
 }
 
-/** Native frame size in art pixels — callers scale this to the tile. */
-export const AVATAR_FRAME = { width: FRAME_W, height: FRAME_H } as const;
-
 /**
  * The facing a movement intent reads as. WASD/path motion sets `(dirX, dirY)`;
  * the dominant axis wins so a diagonal still picks a cardinal sprite. Idle

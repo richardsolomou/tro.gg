@@ -242,7 +242,7 @@ export function createSelfController(deps: SelfControllerDeps) {
 
     if (pathing) {
       if (isIdle(desired)) return;
-      const pathIntent = { dirX: entry.player.dirX, dirY: entry.player.dirY, running: entry.player.running };
+      const pathIntent = playerIntent(entry.player);
       if (!reachedCentre(pathIntent, prevX, prevY, x, y)) return;
       sendMove(entry, desired, x, y, now);
       if (!isIdle(desired)) facing = desired;
