@@ -1,4 +1,5 @@
 import {
+  candidateTargets,
   facingTile,
   parsePath,
   projectMotion,
@@ -356,12 +357,16 @@ export function createSelfController(deps: SelfControllerDeps) {
     if (pendingMoveTo) {
       flushPendingMoveTo(entry, motion, x, y, now);
     } else if (destinationTile && isIdle(desired) && (stalled || entry.player.path === "")) {
-      // Heading for the clicked tile but not making progress: the route stalled on a Hog
-      // ahead, or there's no route at all right now (a Hog has sealed the only way). Re-issue
-      // the route to the clicked tile — bending around Hogs, or just waiting and retrying
-      // until a way opens — rather than giving up halfway. Throttled (`MOVETO_RETRY_MS`) so
-      // it isn't fired every frame; a keypress falls through to `driveSelf` (WASD takes over).
-      if (now - lastMoveToAt >= MOVETO_RETRY_MS) {
+      // Heading for the clicked tile but not making progress. If we're already on a tile the
+      // route could ever end on (the target itself, or a neighbour when it's blocked) we're as
+      // close as we'll get — clicking our own tile, or a wall we're beside — so clear the marker
+      // and stop. Otherwise the route stalled on a Hog ahead or none exists right now (a Hog
+      // sealed the only way): re-issue toward the clicked tile, bending around or waiting for it
+      // to clear, throttled (`MOVETO_RETRY_MS`) rather than every frame.
+      const here = snapToTile({ x, y });
+      if (candidateTargets(bounds, destinationTile).some((c) => c.x === here.x && c.y === here.y)) {
+        setDestination(undefined);
+      } else if (now - lastMoveToAt >= MOVETO_RETRY_MS) {
         lastMoveToAt = now;
         conn.reducers.moveTo({ x: destinationTile.x, y: destinationTile.y, running: false });
       }

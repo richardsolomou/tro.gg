@@ -147,3 +147,16 @@ test("a click queues a destination and routes from a tile centre", () => {
   h.self.update(h.entry, h.motion(0, 0, 0, 0, true), 0); // idle, already centred → routes now
   assert.deepEqual(h.moveTos.at(-1), { x: 4, y: 2 });
 });
+
+test("clicking a tile we're already on clears the marker instead of retrying forever", () => {
+  const h = harness();
+  h.self.onClick({ x: 0, y: 0 }); // our own tile
+  h.self.update(h.entry, h.motion(0, 0, 0, 0, true), 0); // flushes the (no-op) moveTo
+  // Server answers with an empty path (findPath returns [] for the current tile).
+  const server = { x: 0, y: 0, dirX: 0, dirY: 0, running: false, path: "", movedAt: { microsSinceUnixEpoch: 1n } } as unknown as Player;
+  h.self.reconcile(h.entry, server);
+  const before = h.moveTos.length;
+  h.self.update(h.entry, h.motion(0, 0, 0, 0, true), 1000); // well past the retry throttle
+  assert.equal(h.destinations.at(-1), undefined); // marker cleared
+  assert.equal(h.moveTos.length, before); // no further moveTo spam
+});

@@ -498,17 +498,26 @@ export const wanderHogs = spacetimedb.reducer({ timer: hogWander.rowType }, (ctx
     tiles.add(tileKey(x, y));
   }
 
-  // Pass 2: pick each Hog's heading against walls, boulders, troggs, and the other
-  // Hogs' settled tiles — its own tile excepted, so it isn't blocked by itself. While
-  // the zone is empty, leave every Hog at rest.
+  // Pass 2: pick each Hog's heading against walls, boulders, troggs, the other Hogs'
+  // settled tiles, and the tiles Hogs earlier this tick have *claimed* to step onto — its
+  // own tile excepted, so it isn't blocked by itself. Pass 1's settled set keeps two Hogs
+  // from resting on the same tile; the per-tick `claimed` set keeps two from heading onto
+  // the same empty tile (GDD: two Hogs never share a tile). While the zone is empty, rest.
+  const claimedByZone = new Map<string, Set<string>>();
   for (const s of settled) {
     const hogTiles = hogTilesByZone.get(s.hog.zoneId)!;
+    let claimed = claimedByZone.get(s.hog.zoneId);
+    if (!claimed) {
+      claimed = new Set<string>();
+      claimedByZone.set(s.hog.zoneId, claimed);
+    }
     const ownTile = tileKey(s.x, s.y);
     const bounds = zoneBounds(s.zone, (x, y) => {
       const k = tileKey(x, y);
-      return k !== ownTile && (s.blockers.has(k) || hogTiles.has(k));
+      return k !== ownTile && (s.blockers.has(k) || hogTiles.has(k) || claimed!.has(k));
     });
     const dir = online ? pickWanderDir(ctx, bounds, s.hog, { x: s.x, y: s.y }) : { dirX: 0, dirY: 0 };
+    if (dir.dirX !== 0 || dir.dirY !== 0) claimed.add(tileKey(s.x + dir.dirX, s.y + dir.dirY));
 
     // Skip the write when nothing changed — a resting Hog that re-rolls idle, or any
     // Hog once the zone has emptied — so an idle world produces no diffs (invariant 1).
@@ -909,9 +918,14 @@ function placeCarried(
 ): boolean {
   const tile = spawnTile(zone, (tx, ty) => occupied.has(tileKey(tx, ty)), x, y, dirX, dirY);
   if (!tile) return false;
+  // Honour the per-zone cap on the put-down too, so picking up, spawning to the cap, then
+  // dropping can't push a zone past its ceiling. Refusing keeps the trogg carrying — the
+  // same outcome as a boxed-in drop — so nothing is lost.
   if (kind === "boulder") {
+    if (countRows(ctx.db.boulder.zoneId.filter(zone.slug)) >= MAX_BOULDERS_PER_ZONE) return false;
     ctx.db.boulder.insert({ id: 0n, zoneId: zone.slug, x: tile.x, y: tile.y });
   } else if (kind === "hog") {
+    if (countRows(ctx.db.hog.zoneId.filter(zone.slug)) >= MAX_HOGS_PER_ZONE) return false;
     ctx.db.hog.insert({ id: 0n, zoneId: zone.slug, x: tile.x, y: tile.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, path: "", homeX: tile.x, homeY: tile.y });
   } else {
     return false;

@@ -21,9 +21,9 @@ export interface Motion {
   y: number;
   dirX: number;
   dirY: number;
-  /** Serialized or parsed path waypoints for click-to-move. Waypoints exclude the
-   *  current origin; an empty/missing path means direct WASD-style motion. */
-  path?: string | readonly Coord[];
+  /** Serialized click-to-move path waypoints (`"x,y;x,y"`), excluding the current
+   *  origin; an empty/missing path means direct WASD-style motion. */
+  path?: string;
   /** Holding shift runs at `RUN_SPEED_TILES_PER_SEC` instead of walking (GDD
    *  "Movement"). Part of the intent so every client derives the same speed;
    *  absent/false = walk. Hogs never set it, so they always walk. */
@@ -109,9 +109,8 @@ export function serializePath(path: readonly Coord[]): string {
 }
 
 /** Parse the player row's path string. Malformed waypoints are ignored. */
-export function parsePath(path: string | readonly Coord[] | undefined): Coord[] {
+export function parsePath(path: string | undefined): Coord[] {
   if (!path) return [];
-  if (typeof path !== "string") return path.map((p) => ({ x: Math.round(p.x), y: Math.round(p.y) }));
   const points: Coord[] = [];
   for (const part of path.split(";")) {
     const [rawX, rawY] = part.split(",");
@@ -283,7 +282,13 @@ interface PathNode extends Coord {
   from: string;
 }
 
-function candidateTargets(zone: ZoneBounds, target: Coord): Coord[] {
+/**
+ * The tiles a click-to-move route may end on for `target`: the target itself if it's
+ * walkable, otherwise its walkable cardinal neighbours (nearest first). Exported so the
+ * client can tell "as close as I can get" from "still blocked en route" and stop a
+ * retry loop once the trogg sits on one of these.
+ */
+export function candidateTargets(zone: ZoneBounds, target: Coord): Coord[] {
   const tx = Math.round(target.x);
   const ty = Math.round(target.y);
   if (tileWalkable(zone, tx, ty)) return [{ x: tx, y: ty }];
