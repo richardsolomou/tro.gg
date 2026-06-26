@@ -53,7 +53,7 @@ Dev mirrors prod's module while keeping local data disposable: `just start` runs
 
 Identity is issued by SpacetimeDB: each browser gets an anonymous Identity and stores its connection token, so a returning visitor resumes the same trogg. Optionally, players can **sign in** to claim an account and log back in on any device — via [SpacetimeAuth](https://spacetimedb.com/docs/core-concepts/authentication/spacetimeauth/) (OIDC, with Discord), run as a browser Authorization-Code-**+-PKCE** flow, so there's still **no auth secret in the repo or bundle**. Accounts are disabled (guest-only) when `VITE_SPACETIMEAUTH_CLIENT_ID` is unset, so a local loop needs no auth setup. The account UI also reads the optional `auth-enabled` flag.
 
-`just build` builds the client; `just typecheck` checks the client and the module; `just test` runs the shared unit tests.
+`just build` builds the client; `just typecheck` checks the client and the module; `just test` runs the unit tests — shared pure logic (`shared/`), the client prediction controller (`src/movement.test.ts`), and the server reducers (`test/`, which call the real reducers against an in-memory `ctx` since the module can't load under node).
 
 ### Deploy
 

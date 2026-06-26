@@ -38,20 +38,22 @@ async function main() {
     // (network-isolated), so session events fire client-side (docs/analytics.md).
     captureEvent("player_joined", { zone: STARTING_ZONE_SLUG, is_guest: !signedIn });
 
-    // Complete a pending claim: we signed in to upgrade a guest, so redeem the
-    // nonce now that we're connected as the account. This folds the guest trogg in
-    // and marks the account named — fire `player_named` alongside `identify()` so
-    // PostHog merges the guest's history onto the account (docs/analytics.md).
     if (signedIn) {
+      // Complete a pending claim: we signed in to upgrade a guest, so redeem the nonce now
+      // that we're connected as the account. This folds the guest trogg in and marks the
+      // account named (docs/analytics.md).
       const pending = getPendingClaim();
       if (pending) {
         await conn.reducers.redeemClaim({ code: pending });
         clearPendingClaim();
         clearStoredToken(); // the guest row is absorbed; never resume it
-        const subject = await accountSubject();
-        if (subject) identifyUser(subject);
         captureEvent("player_named");
       }
+      // Associate this session with the account's stable subject whether or not a claim
+      // was pending — a fresh-device sign-in (no guest to claim) must still `identify()`
+      // so PostHog merges the account's sessions across devices (docs/analytics.md).
+      const subject = await accountSubject();
+      if (subject) identifyUser(subject);
     }
 
     mountWorld(app, conn);

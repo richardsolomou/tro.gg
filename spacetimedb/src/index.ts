@@ -6,6 +6,7 @@ import {
   CHAT_RATE_LIMIT_MS,
   CLAIM_CODE_TTL_MS,
   COLOR_UNSET,
+  elapsedMs,
   facingTile,
   findPath,
   getZone,
@@ -16,12 +17,16 @@ import {
   isGeneratedName,
   isValidName,
   isWalkable,
+  MAX_BOULDERS_PER_ZONE,
+  MAX_HOGS_PER_ZONE,
   projectMotion,
   serializePath,
   snapToTile,
   SPACETIMEAUTH_ISSUER,
   spawnTile,
   STARTING_ZONE_SLUG,
+  type Stamp,
+  tileKey,
   walkableCardinals,
   type Zone,
   type ZoneBounds,
@@ -145,14 +150,13 @@ const boulder = table(
  * connect, dropped by the `/spawn` debug command, then moved only by the scheduled
  * `wanderHogs` reducer. Merchant/dialogue Hog roles are separate later work.
  *
- * Unlike a trogg, a Hog's origin is an integer tile (`i32`): it re-bases at a whole
- * tile when it reaches the end of its route (clients still glide between via
- * `projectMotion`), and it never pushes, so it needs no sub-tile precision. Like a
- * trogg it carries a `path` of click-to-move waypoints — `wanderHogs` routes it to a
- * random tile near its `home` and the row holds that route until it arrives. The
- * motion columns carry defaults so adding them to the already-published `hog` table is an
- * in-place migration, not a breaking one (appended at the end — invariant: shipped
- * columns are never reordered). dirX/dirY/movedAt default to idle-at-epoch, path to none.
+ * Unlike a trogg, a Hog's origin is an integer tile (`i32`): it ambles tile-to-tile,
+ * re-based to each whole tile it reaches (clients still glide between via
+ * `projectMotion`), and it never pushes, so it needs no sub-tile precision. The
+ * `path`/`homeX`/`homeY` columns are unused by the amble — retained from an earlier
+ * home-anchored pathfinding wander, kept only so the shipped schema isn't reordered
+ * (columns are appended at the end, never moved — see the migration note above).
+ * dirX/dirY/movedAt default to idle-at-epoch, path to none.
  */
 const hog = table(
   { name: "hog", public: true },
@@ -165,11 +169,8 @@ const hog = table(
     dirY: t.i32().default(0),
     movedAt: t.timestamp().default(Timestamp.UNIX_EPOCH),
     path: t.string().default(""),
-    // The tile the Hog roams around — `wanderHogs` keeps its destinations within
-    // `HOG_WANDER_RADIUS` of here, so a Hog stays in its patch instead of drifting
-    // off as each hop's radius re-centres on its latest spot. Set to the spawn tile
-    // on insert; the -1 sentinel marks a pre-migration row, which adopts its current
-    // tile as home on the next tick.
+    // Unused by the tile-by-tile amble; retained from the earlier home-anchored wander
+    // (the -1 default is its pre-migration sentinel). Kept only to avoid a column reorder.
     homeX: t.i32().default(-1),
     homeY: t.i32().default(-1),
   },
@@ -178,9 +179,10 @@ const hog = table(
 /**
  * The Hog wander timer (GDD "Hogs"). A scheduled table is SpacetimeDB's
  * deterministic timer — the only way state changes outside player input (invariant
- * 1: no simulation tick). Each tick fires `wanderHogs`, which re-routes arrived Hogs
- * and then re-arms this timer *only while a player is online*, so an empty zone
- * settles its Hogs to rest and then does no further work (invariant 1).
+ * 1: no simulation tick). Each tick fires `wanderHogs`, which re-bases every Hog to
+ * the tile it reached and picks its next heading, then re-arms this timer *only while
+ * a player is online*, so an empty zone settles its Hogs to rest and then does no
+ * further work (invariant 1).
  */
 const hogWander = table(
   { name: "hog_wander", scheduled: (): any => wanderHogs },
@@ -497,17 +499,26 @@ export const wanderHogs = spacetimedb.reducer({ timer: hogWander.rowType }, (ctx
     tiles.add(tileKey(x, y));
   }
 
-  // Pass 2: pick each Hog's heading against walls, boulders, troggs, and the other
-  // Hogs' settled tiles — its own tile excepted, so it isn't blocked by itself. While
-  // the zone is empty, leave every Hog at rest.
+  // Pass 2: pick each Hog's heading against walls, boulders, troggs, the other Hogs'
+  // settled tiles, and the tiles Hogs earlier this tick have *claimed* to step onto — its
+  // own tile excepted, so it isn't blocked by itself. Pass 1's settled set keeps two Hogs
+  // from resting on the same tile; the per-tick `claimed` set keeps two from heading onto
+  // the same empty tile (GDD: two Hogs never share a tile). While the zone is empty, rest.
+  const claimedByZone = new Map<string, Set<string>>();
   for (const s of settled) {
     const hogTiles = hogTilesByZone.get(s.hog.zoneId)!;
+    let claimed = claimedByZone.get(s.hog.zoneId);
+    if (!claimed) {
+      claimed = new Set<string>();
+      claimedByZone.set(s.hog.zoneId, claimed);
+    }
     const ownTile = tileKey(s.x, s.y);
     const bounds = zoneBounds(s.zone, (x, y) => {
       const k = tileKey(x, y);
-      return k !== ownTile && (s.blockers.has(k) || hogTiles.has(k));
+      return k !== ownTile && (s.blockers.has(k) || hogTiles.has(k) || claimed!.has(k));
     });
     const dir = online ? pickWanderDir(ctx, bounds, s.hog, { x: s.x, y: s.y }) : { dirX: 0, dirY: 0 };
+    if (dir.dirX !== 0 || dir.dirY !== 0) claimed.add(tileKey(s.x + dir.dirX, s.y + dir.dirY));
 
     // Skip the write when nothing changed — a resting Hog that re-rolls idle, or any
     // Hog once the zone has emptied — so an idle world produces no diffs (invariant 1).
@@ -527,7 +538,9 @@ export const wanderHogs = spacetimedb.reducer({ timer: hogWander.rowType }, (ctx
  * (optionally gated client-side by `spawn-command`). The server re-derives the
  * trogg's tile authoritatively (invariant 3) and places the entity on the tile
  * it faces, falling back to a free neighbour, so nothing lands inside a wall or
- * on another boulder. An unknown kind or a boxed-in trogg is a silent no-op.
+ * on another boulder. Refused once the zone is at its entity cap, so a scripted
+ * client can't flood it (the client flag only gates the UI). An unknown kind, a
+ * full zone, or a boxed-in trogg is a silent no-op.
  */
 export const spawn = spacetimedb.reducer({ kind: t.string() }, (ctx, { kind }) => {
   if (kind !== "boulder" && kind !== "hog") return;
@@ -536,6 +549,9 @@ export const spawn = spacetimedb.reducer({ kind: t.string() }, (ctx, { kind }) =
   if (!p) return;
   const zone = getZone(p.zoneId);
   if (!zone) return;
+
+  if (kind === "boulder" && countRows(ctx.db.boulder.zoneId.filter(p.zoneId)) >= MAX_BOULDERS_PER_ZONE) return;
+  if (kind === "hog" && countRows(ctx.db.hog.zoneId.filter(p.zoneId)) >= MAX_HOGS_PER_ZONE) return;
 
   // Drop the entity on free floor — never inside a wall or on top of anything solid
   // (a boulder, a Hog, or another trogg), now that Hogs and troggs collide.
@@ -612,12 +628,16 @@ export const chat = spacetimedb.reducer({ text: t.string() }, (ctx, { text }) =>
     createdAt: ctx.timestamp,
   });
 
-  // Keep only the most recent CHAT_HISTORY_MAX lines per zone; auto-inc id is the
-  // insertion order, so the lowest ids are the oldest.
-  const lines = [...ctx.db.chatMessage.zoneId.filter(p.zoneId)].sort((a, b) => Number(a.id - b.id));
-  for (let i = 0; i < lines.length - CHAT_HISTORY_MAX; i++) {
-    ctx.db.chatMessage.id.delete(lines[i]!.id);
+  // Cap the zone's history. We trim on every insert, so the backlog is over by at most
+  // one — drop the single oldest row (lowest auto-inc id) in a single pass, rather than
+  // materializing and sorting the whole zone history on each message.
+  let count = 0;
+  let oldest: bigint | undefined;
+  for (const line of ctx.db.chatMessage.zoneId.filter(p.zoneId)) {
+    count++;
+    if (oldest === undefined || line.id < oldest) oldest = line.id;
   }
+  if (count > CHAT_HISTORY_MAX && oldest !== undefined) ctx.db.chatMessage.id.delete(oldest);
 });
 
 /**
@@ -657,6 +677,9 @@ export const recolor = spacetimedb.reducer({ color: t.i32() }, (ctx, { color }) 
   ctx.db.player.identity.update({ ...p, color });
 });
 
+/** A claim nonce is a v4 UUID minted by the client (`crypto.randomUUID`). */
+const CLAIM_CODE_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * Step 1 of the guest → account upgrade (GDD "Identity"). Called while connected
  * as a guest: register the browser-minted nonce under the guest's own identity so
@@ -667,6 +690,7 @@ export const recolor = spacetimedb.reducer({ color: t.i32() }, (ctx, { color }) 
 export const startClaim = spacetimedb.reducer({ code: t.string() }, (ctx, { code }) => {
   const p = ctx.db.player.identity.find(ctx.sender);
   if (!p || !p.isGuest) return;
+  if (!CLAIM_CODE_RE.test(code)) return; // client mints a UUID (crypto.randomUUID); reject anything else
 
   for (const existing of ctx.db.claimCode.iter()) {
     if (existing.guest.isEqual(ctx.sender)) ctx.db.claimCode.code.delete(existing.code);
@@ -695,12 +719,31 @@ export const redeemClaim = spacetimedb.reducer({ code: t.string() }, (ctx, { cod
   const account = ctx.db.player.identity.find(ctx.sender);
   if (!guest || !account || guest.identity.isEqual(account.identity)) return;
 
+  // Fold the guest's carried entity into the account too — it exists only as the guest
+  // row's `carrying` (its world row was deleted on pickup), so deleting the guest without
+  // this would destroy it (GDD "Interacting": nothing is orphaned). If the account is
+  // already carrying, drop the guest's into the world where it stood instead.
+  let carrying = account.carrying;
+  if (guest.carrying !== "") {
+    if (carrying === "") {
+      carrying = guest.carrying;
+    } else {
+      const zone = getZone(guest.zoneId);
+      const occupied = solidTiles(ctx, guest.zoneId, ctx.timestamp, guest.identity);
+      if (zone) placeCarried(ctx, zone, guest.carrying, occupied, guest.x, guest.y, guest.dirX, guest.dirY);
+    }
+  }
+
+  // Remove the guest row before checking name availability, so the name it's handing over
+  // isn't counted as taken by the guest itself — otherwise a guest that renamed before
+  // signing up could never carry that chosen name onto its account.
+  const guestName = guest.name;
+  ctx.db.player.identity.delete(guest.identity);
+
   // Carry the guest's chosen name onto a freshly-named account (never clobber a
   // returning account's own name), staying within the uniqueness rule.
-  const inheritName =
-    !isGeneratedName(guest.name) && isGeneratedName(account.name) && !nameTaken(ctx, guest.name, ctx.sender);
-  ctx.db.player.identity.update({ ...account, name: inheritName ? guest.name : account.name, isGuest: false });
-  ctx.db.player.identity.delete(guest.identity);
+  const inheritName = !isGeneratedName(guestName) && isGeneratedName(account.name) && !nameTaken(ctx, guestName, ctx.sender);
+  ctx.db.player.identity.update({ ...account, name: inheritName ? guestName : account.name, carrying, isGuest: false });
 });
 
 /** Whether any player is currently online — the Hogs only roam while someone is
@@ -764,9 +807,6 @@ function nameTaken(ctx: Ctx, name: string, self: Ctx["sender"]): boolean {
   return false;
 }
 
-/** A Timestamp, narrowed to the field this module reads. */
-type Stamp = { microsSinceUnixEpoch: bigint };
-
 /** The motion-bearing slice of a player row that `settle` derives position from. */
 type Settleable = { x: number; y: number; dirX: number; dirY: number; running: boolean; path?: string; zoneId: string; movedAt: Stamp };
 
@@ -788,9 +828,11 @@ function settle(ctx: Ctx, p: Settleable, now: Stamp): { x: number; y: number } {
   return snapToTile(projectMotion(p, elapsedMs(p.movedAt, now), bounds));
 }
 
-/** "x,y" key for a tile, used to test occupancy in O(1). */
-function tileKey(x: number, y: number): string {
-  return `${x},${y}`;
+/** Count rows in a table iterable without materializing an array. */
+function countRows(rows: Iterable<unknown>): number {
+  let n = 0;
+  for (const _ of rows) n++;
+  return n;
 }
 
 /** The set of tiles occupied by boulders in a zone, keyed by `tileKey`. */
@@ -893,19 +935,19 @@ function placeCarried(
 ): boolean {
   const tile = spawnTile(zone, (tx, ty) => occupied.has(tileKey(tx, ty)), x, y, dirX, dirY);
   if (!tile) return false;
+  // Honour the per-zone cap on the put-down too, so picking up, spawning to the cap, then
+  // dropping can't push a zone past its ceiling. Refusing keeps the trogg carrying — the
+  // same outcome as a boxed-in drop — so nothing is lost.
   if (kind === "boulder") {
+    if (countRows(ctx.db.boulder.zoneId.filter(zone.slug)) >= MAX_BOULDERS_PER_ZONE) return false;
     ctx.db.boulder.insert({ id: 0n, zoneId: zone.slug, x: tile.x, y: tile.y });
   } else if (kind === "hog") {
+    if (countRows(ctx.db.hog.zoneId.filter(zone.slug)) >= MAX_HOGS_PER_ZONE) return false;
     ctx.db.hog.insert({ id: 0n, zoneId: zone.slug, x: tile.x, y: tile.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, path: "", homeX: tile.x, homeY: tile.y });
   } else {
     return false;
   }
   return true;
-}
-
-/** Milliseconds between two timestamps. */
-function elapsedMs(from: Stamp, to: Stamp): number {
-  return Number(to.microsSinceUnixEpoch - from.microsSinceUnixEpoch) / 1000;
 }
 
 /** Coerce an untrusted axis input to -1, 0, or 1. */

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { MOVE_SPEED_TILES_PER_SEC, RUN_SPEED_TILES_PER_SEC, type Zone } from "./constants";
-import { facingTile, findPath, projectMotion, projectMotionState, serializePath, snapToTile, spawnTile, walkableCardinals, zoneBounds } from "./motion";
+import { candidateTargets, facingTile, findPath, parsePath, projectMotion, projectMotionState, serializePath, snapToTile, spawnTile, walkableCardinals, zoneBounds } from "./motion";
 
 // No isWalkable → open floor, clamped only to the rectangular bounds.
 const open = { width: 24, height: 16 };
@@ -234,4 +234,38 @@ test("a hog's walkable headings exclude walls and the zone edge", () => {
 test("a hog's walkable headings treat an occupied tile (boulder/hog/trogg) like a wall", () => {
   // (3,1) in the 1-tile-tall corridor with the tile at (4,1) occupied: only left is open.
   assert.deepEqual(dirKeys(walkableCardinals(withBoulder, 3, 1)), new Set(["-1,0"]));
+});
+
+// --- candidateTargets: where a click-to-move route may end (drives the client's
+// "as close as I can get" stop in src/movement.ts) ---
+
+test("candidateTargets returns the clicked tile itself when it's walkable", () => {
+  assert.deepEqual(candidateTargets(walled, { x: 1, y: 1 }), [{ x: 1, y: 1 }]);
+});
+
+test("candidateTargets falls back to the walkable neighbours of a blocked tile", () => {
+  // The pillar at (2,1): its only walkable cardinal neighbours are (1,1) and (3,1).
+  const keys = new Set(candidateTargets(walled, { x: 2, y: 1 }).map((c) => `${c.x},${c.y}`));
+  assert.deepEqual(keys, new Set(["1,1", "3,1"]));
+});
+
+test("candidateTargets is empty when the clicked tile and all its neighbours are blocked", () => {
+  // A corner wall (0,0): the tile and every cardinal neighbour are wall or out of bounds.
+  assert.deepEqual(candidateTargets(walled, { x: 0, y: 0 }), []);
+});
+
+// --- parsePath / serializePath: the click-to-move wire format ---
+
+test("serializePath and parsePath round-trip a route", () => {
+  const path = [{ x: 1, y: 2 }, { x: 1, y: 3 }, { x: 2, y: 3 }];
+  assert.deepEqual(parsePath(serializePath(path)), path);
+});
+
+test("parsePath drops malformed waypoints and keeps the valid ones", () => {
+  assert.deepEqual(parsePath("1,2;nope;3,x;4,5"), [{ x: 1, y: 2 }, { x: 4, y: 5 }]);
+});
+
+test("parsePath treats empty or missing input as no path", () => {
+  assert.deepEqual(parsePath(""), []);
+  assert.deepEqual(parsePath(undefined), []);
 });
