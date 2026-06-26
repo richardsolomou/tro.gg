@@ -12,7 +12,7 @@
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "typecheck:module": "tsc -p spacetimedb/tsconfig.json --noEmit",
-    "test": "node --import tsx --test \"shared/*.test.ts\"",
+    "test": "node --import tsx --test \"shared/*.test.ts\" \"src/*.test.ts\"",
     "sprites": "tsx tools/gen-spritesheet.ts"
   },
   "dependencies": {
