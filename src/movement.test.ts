@@ -160,3 +160,27 @@ test("clicking a tile we're already on clears the marker instead of retrying for
   assert.equal(h.destinations.at(-1), undefined); // marker cleared
   assert.equal(h.moveTos.length, before); // no further moveTo spam
 });
+
+test("WASD resumes the held direction once a blocking Hog moves off", () => {
+  const h = harness();
+  h.self.onIntent(right, true); // walking right
+  h.hogTiles.add("1,0"); // Hog flush on the tile ahead
+  h.self.update(h.entry, h.motion(0, 0, 1, 0), 0); // stop flush against it (idle intent)
+  h.moves.length = 0;
+  h.self.update(h.entry, h.motion(0, 0, 0, 0), 16); // still blocked: wait, arm the resume
+  assert.equal(h.moves.length, 0);
+  h.hogTiles.clear(); // Hog ambles off
+  h.self.update(h.entry, h.motion(0, 0, 0, 0), 32); // tile clear → resume walking
+  assert.deepEqual(h.moves.at(-1), right);
+});
+
+test("a click-to-move route stalled on a Hog re-issues toward the clicked tile", () => {
+  const h = harness();
+  h.self.onClick({ x: 5, y: 0 });
+  h.self.update(h.entry, h.motion(0, 0, 0, 0, true), 0); // flush fires the initial moveTo
+  h.moveTos.length = 0;
+  // Server routed us partway, then a Hog sealed the next tile: path set, no heading, not arrived.
+  h.entry.player.path = "1,0;2,0;3,0;4,0;5,0";
+  h.self.update(h.entry, h.motion(1, 0, 0, 0, false), 1000); // stalled, throttle elapsed → re-route
+  assert.deepEqual(h.moveTos.at(-1), { x: 5, y: 0 });
+});
