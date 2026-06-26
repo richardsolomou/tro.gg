@@ -1,0 +1,52 @@
+name: PR preview cleanup
+
+# Deletes the per-PR database when the PR closes (merged or not — a closed PR's
+# preview backend is useless either way). Mirrors the slug derivation in
+# preview-module.yml. Reuses the SPACETIME_TOKEN secret.
+#
+# This runs `spacetime delete` against the production instance, so the empty-slug
+# guard below is load-bearing: without it an empty slug would target the bare
+# `trogg` (live prod) database.
+
+on:
+  pull_request:
+    types: [closed]
+
+concurrency:
+  group: preview-cleanup-${{ github.head_ref }}
+  cancel-in-progress: false
+
+jobs:
+  delete:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Derive database name
+        id: db
+        run: |
+          slug=$(printf '%s' "${{ github.head_ref }}" | tr '[:upper:]' '[:lower:]' \
+            | sed -E 's/[^a-z0-9]+/-/g' | cut -c1-40 | sed -E 's/^-+|-+$//g')
+          if [ -z "$slug" ]; then
+            echo "::error::Empty slug — refusing to delete to avoid targeting the bare 'trogg' (prod) database."
+            exit 1
+          fi
+          echo "name=trogg-$slug" >> "$GITHUB_OUTPUT"
+
+      - name: Install SpacetimeDB CLI
+        run: |
+          curl -sSf https://install.spacetimedb.com | sh -s -- --yes
+          echo "$HOME/.local/share/spacetime/bin/current" >> "$GITHUB_PATH"
+
+      - name: Pin CLI version
+        run: |
+          spacetime version install 2.6.0 || true
+          spacetime version use 2.6.0
+
+      - name: Authenticate
+        run: spacetime login --token "${{ secrets.SPACETIME_TOKEN }}"
+
+      - name: Register production server
+        run: spacetime server add trogg-prod --url https://spacetime.tro.gg || true
+
+      # `|| true`: a database that was never published (or already gone) is not a failure.
+      - name: Delete preview database
+        run: spacetime delete --server trogg-prod "${{ steps.db.outputs.name }}" -y || true
