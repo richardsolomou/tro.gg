@@ -1,0 +1,69 @@
+name: PR preview prune
+
+# Weekly sweep that deletes any `trogg-<slug>` preview database with no matching
+# open PR. Catches orphans left behind when preview-cleanup.yml didn't run (e.g.
+# the instance was unreachable at PR-close time). Only names matching `trogg-<slug>`
+# are ever candidates, so the bare `trogg` (prod) database is never touched.
+#
+# Reuses the SPACETIME_TOKEN secret. `gh` (open-PR list) uses the built-in token.
+
+on:
+  schedule:
+    - cron: "0 4 * * 1" # Mondays 04:00 UTC
+  workflow_dispatch:
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    steps:
+      - name: Install SpacetimeDB CLI
+        run: |
+          curl -sSf https://install.spacetimedb.com | sh -s -- --yes
+          echo "$HOME/.local/share/spacetime/bin/current" >> "$GITHUB_PATH"
+
+      - name: Pin CLI version
+        run: |
+          spacetime version install 2.6.0 || true
+          spacetime version use 2.6.0
+
+      - name: Authenticate
+        run: spacetime login --token "${{ secrets.SPACETIME_TOKEN }}"
+
+      - name: Register production server
+        run: spacetime server add trogg-prod --url https://spacetime.tro.gg || true
+
+      - name: Prune orphaned preview databases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          # Same slug derivation as preview-module.yml / preview-cleanup.yml.
+          slugify() {
+            printf '%s' "$1" | tr '[:upper:]' '[:lower:]' \
+              | sed -E 's/[^a-z0-9]+/-/g' | cut -c1-40 | sed -E 's/^-+|-+$//g'
+          }
+
+          active="$(mktemp)"
+          gh pr list --state open --json headRefName --jq '.[].headRefName' \
+            | while IFS= read -r branch; do
+                [ -n "$branch" ] && echo "trogg-$(slugify "$branch")"
+              done > "$active"
+
+          # Candidate preview databases on the instance: `trogg-<slug>`, never bare `trogg`.
+          # `awk 'NR > 2'` skips the two header lines (matches just reset-local-db).
+          candidates="$(mktemp)"
+          spacetime list --server trogg-prod -y \
+            | awk 'NR > 2 {print $1}' | grep -E '^trogg-.+$' > "$candidates" || true
+
+          while IFS= read -r db; do
+            [ -z "$db" ] && continue
+            if grep -qxF "$db" "$active"; then
+              echo "keep    $db (open PR)"
+            else
+              echo "delete  $db (no open PR)"
+              spacetime delete --server trogg-prod "$db" -y || true
+            fi
+          done < "$candidates"

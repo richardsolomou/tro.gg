@@ -1,0 +1,62 @@
+name: PR preview module
+
+# Publishes the SpacetimeDB module to the production instance (spacetime.tro.gg)
+# under a per-PR database (`trogg-<branch-slug>`), so each PR gets an isolated
+# backend alongside the live `trogg` database. Databases are isolated from each
+# other within the instance, so a preview cannot touch prod data. The matching
+# frontend preview is built by Cloudflare Workers Builds, which derives the same
+# slug from WORKERS_CI_BRANCH and points VITE_SPACETIMEDB_HOST at the instance.
+# preview-cleanup.yml deletes the database when the PR closes.
+#
+# Reuses the SPACETIME_TOKEN secret (the identity that owns `trogg`); that identity
+# owns the per-PR databases too, so it can publish and later delete them.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: preview-module-${{ github.head_ref }}
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Derive database name
+        id: db
+        run: |
+          slug=$(printf '%s' "${{ github.head_ref }}" | tr '[:upper:]' '[:lower:]' \
+            | sed -E 's/[^a-z0-9]+/-/g' | cut -c1-40 | sed -E 's/^-+|-+$//g')
+          echo "name=trogg-$slug" >> "$GITHUB_OUTPUT"
+
+      - name: Install SpacetimeDB CLI
+        run: |
+          curl -sSf https://install.spacetimedb.com | sh -s -- --yes
+          echo "$HOME/.local/share/spacetime/bin/current" >> "$GITHUB_PATH"
+
+      - name: Pin CLI version
+        run: |
+          spacetime version install 2.6.0 || true
+          spacetime version use 2.6.0
+
+      - name: Authenticate
+        run: spacetime login --token "${{ secrets.SPACETIME_TOKEN }}"
+
+      - name: Register production server
+        run: spacetime server add trogg-prod --url https://spacetime.tro.gg || true
+
+      - name: Publish preview database
+        run: spacetime publish --server trogg-prod --module-path spacetimedb "${{ steps.db.outputs.name }}" -y
