@@ -128,6 +128,18 @@ test("a server row that matches nothing snaps to authority", () => {
   assert.equal(h.entry.baseMs, 1000); // re-based to the server stamp via toBaseMs
 });
 
+test("a push blocked by a Hog beyond the boulder retries until it clears", () => {
+  const h = harness();
+  h.boulderTiles.add("1,0"); // boulder directly ahead
+  h.self.onIntent(right, true); // commit to walking right, flush against the boulder
+  h.self.update(h.entry, h.motion(0, 0, 1, 0), 0); // rising edge: one shove
+  assert.equal(h.pushes(), 1);
+  h.self.update(h.entry, h.motion(0, 0, 1, 0), 100); // still flush, within the retry throttle
+  assert.equal(h.pushes(), 1);
+  h.self.update(h.entry, h.motion(0, 0, 1, 0), 300); // throttle elapsed → retry (so it resumes once the Hog leaves)
+  assert.equal(h.pushes(), 2);
+});
+
 test("a click queues a destination and routes from a tile centre", () => {
   const h = harness();
   h.self.onClick({ x: 4, y: 2 });

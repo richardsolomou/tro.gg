@@ -24,6 +24,11 @@ const TURN_TAP_MS = 130;
  *  retries steadily without firing the reducer every frame. */
 const MOVETO_RETRY_MS = 250;
 
+/** Min gap between push retries while held flush against a boulder, so a shove the server
+ *  rejected (a Hog stood beyond the boulder) keeps retrying until the way clears, without
+ *  firing every frame. */
+const PUSH_RETRY_MS = 250;
+
 const motionTol = 1e-6;
 
 const sameIntent = (a: MoveIntent, b: MoveIntent) => a.dirX === b.dirX && a.dirY === b.dirY;
@@ -124,9 +129,12 @@ export function createSelfController(deps: SelfControllerDeps) {
   // walking if the key is still held past this beat — so a tap turns, a hold walks
   // (Pokémon-style). Gates that one hold; pressing the faced direction walks at once.
   let walkAfter = Number.POSITIVE_INFINITY;
-  // Whether we were flush against a pushable boulder last frame, so `push` fires once
-  // per tile (on the rising edge), not every frame.
+  // Whether we were flush against a pushable boulder last frame, so the push sound and the
+  // first shove fire once per tile (on the rising edge), not every frame.
   let pushBlocked = false;
+  // When we last fired `push`, so a shove blocked by a transient obstacle (a Hog beyond the
+  // boulder) retries on a throttle instead of every frame.
+  let lastPushAt = 0;
   // When we last (re)issued a click-to-move route, so re-routing a blocked path — or
   // retrying when no route exists yet — is throttled (`MOVETO_RETRY_MS`).
   let lastMoveToAt = 0;
@@ -191,16 +199,20 @@ export function createSelfController(deps: SelfControllerDeps) {
   // boulder it's squarely on a centre against. Requiring the key still be held is
   // what stops a mere approach from pushing — let go and `desired` goes idle at
   // once, so coasting the last fraction of a tile to a stop beside a boulder never
-  // shoves it. Edge-triggered, so holding into a boulder slides it one tile per tile
-  // as the trogg catches up (cadence falls out of walk speed). The server
+  // shoves it. The rising edge slides the boulder one tile per tile as the trogg
+  // catches up (cadence falls out of walk speed) and plays the shove sound. While the
+  // trogg stays flush we also retry on a throttle (`PUSH_RETRY_MS`, silent): a shove the
+  // server rejected because a Hog stood beyond the boulder then resumes the instant the
+  // Hog ambles off, rather than latching the trogg in place until it lets go. The server
   // re-validates and re-bases motion (invariant 3).
-  const pushStep = (x: number, y: number) => {
+  const pushStep = (x: number, y: number, now: number) => {
     const into = pushEnabled && !isIdle(sent) && sameIntent(desired, sent);
     const ahead = into ? facingTile(x, y, sent.dirX, sent.dirY) : null;
     const intoBoulder = ahead != null && boulderTiles.has(tileKey(ahead.x, ahead.y));
-    if (intoBoulder && !pushBlocked) {
-      audio.playBoulderPush();
+    if (intoBoulder && (!pushBlocked || now - lastPushAt >= PUSH_RETRY_MS)) {
+      if (!pushBlocked) audio.playBoulderPush();
       conn.reducers.push({});
+      lastPushAt = now;
     }
     pushBlocked = intoBoulder;
   };
@@ -356,7 +368,7 @@ export function createSelfController(deps: SelfControllerDeps) {
     } else {
       driveSelf(entry, x, y, now);
     }
-    pushStep(x, y);
+    pushStep(x, y, now);
     prevX = x;
     prevY = y;
   };
