@@ -9,10 +9,12 @@ import {
   elapsedMs,
   facingTile,
   findPath,
+  footprintTiles,
   getZone,
   HOG_IDLE_CHANCE,
   HOG_STEP_INTERVAL_MS,
   HOG_TURN_CHANCE,
+  hogSize,
   isColorIndex,
   isGeneratedName,
   isTroggStyleIndex,
@@ -496,25 +498,26 @@ export const wanderHogs = spacetimedb.reducer({ timer: hogWander.rowType }, (ctx
   // re-bases each tile, so its stored intent is at most one tile old.
   const hogList = [...ctx.db.hog.iter()];
   type HogRow = (typeof hogList)[number];
-  const settled: { hog: HogRow; x: number; y: number; zone: Zone; blockers: Set<string> }[] = [];
+  const settled: { hog: HogRow; x: number; y: number; size: number; zone: Zone; blockers: Set<string> }[] = [];
   const hogTilesByZone = new Map<string, Set<string>>();
   for (const h of hogList) {
     const zone = getZone(h.zoneId);
     if (!zone) continue;
+    const size = hogSize(h.style);
     const blockers = blockersFor(h.zoneId);
     const bounds = zoneBounds(zone, (x, y) => blockers.has(tileKey(x, y)));
-    // Round the in-between position to the tile it ended on: a Hog steps tile-to-tile
-    // over walkable floor, so rounding stays on walkable floor (the `hog` origin is i32).
-    const pos = projectMotion(h, elapsedMs(h.movedAt, now), bounds);
+    // Round the in-between position (the footprint's top-left) to the tile it ended on:
+    // a Hog steps tile-to-tile over walkable floor, so rounding stays on walkable floor.
+    const pos = projectMotion({ ...h, size }, elapsedMs(h.movedAt, now), bounds);
     const x = Math.round(pos.x);
     const y = Math.round(pos.y);
-    settled.push({ hog: h, x, y, zone, blockers });
+    settled.push({ hog: h, x, y, size, zone, blockers });
     let tiles = hogTilesByZone.get(h.zoneId);
     if (!tiles) {
       tiles = new Set<string>();
       hogTilesByZone.set(h.zoneId, tiles);
     }
-    tiles.add(tileKey(x, y));
+    for (const tile of footprintTiles(x, y, size)) tiles.add(tileKey(tile.x, tile.y));
   }
 
   // Pass 2: pick each Hog's heading against walls, boulders, troggs, the other Hogs'
@@ -530,13 +533,19 @@ export const wanderHogs = spacetimedb.reducer({ timer: hogWander.rowType }, (ctx
       claimed = new Set<string>();
       claimedByZone.set(s.hog.zoneId, claimed);
     }
-    const ownTile = tileKey(s.x, s.y);
+    // A Hog's own footprint is excepted, so its next step — which overlaps where it
+    // stands (more so for a 2×2) — isn't read as blocked by itself.
+    const own = new Set(footprintTiles(s.x, s.y, s.size).map((t) => tileKey(t.x, t.y)));
     const bounds = zoneBounds(s.zone, (x, y) => {
       const k = tileKey(x, y);
-      return k !== ownTile && (s.blockers.has(k) || hogTiles.has(k) || claimed!.has(k));
+      return !own.has(k) && (s.blockers.has(k) || hogTiles.has(k) || claimed!.has(k));
     });
-    const dir = online ? pickWanderDir(ctx, bounds, s.hog, { x: s.x, y: s.y }) : { dirX: 0, dirY: 0 };
-    if (dir.dirX !== 0 || dir.dirY !== 0) claimed.add(tileKey(s.x + dir.dirX, s.y + dir.dirY));
+    const dir = online ? pickWanderDir(ctx, bounds, s.hog, { x: s.x, y: s.y }, s.size) : { dirX: 0, dirY: 0 };
+    // Claim the whole footprint the Hog steps into, so no other Hog this tick heads
+    // onto any tile of it (GDD: Hogs never overlap).
+    if (dir.dirX !== 0 || dir.dirY !== 0) {
+      for (const t of footprintTiles(s.x + dir.dirX, s.y + dir.dirY, s.size)) claimed.add(tileKey(t.x, t.y));
+    }
 
     // Skip the write when nothing changed — a resting Hog that re-rolls idle, or any
     // Hog once the zone has emptied — so an idle world produces no diffs (invariant 1).
@@ -814,8 +823,9 @@ function pickWanderDir(
   bounds: ZoneBounds,
   hog: { dirX: number; dirY: number },
   pos: { x: number; y: number },
+  size: number,
 ): { dirX: number; dirY: number } {
-  const options = walkableCardinals(bounds, pos.x, pos.y);
+  const options = walkableCardinals(bounds, pos.x, pos.y, size);
   const ahead = options.find((d) => d.dirX === hog.dirX && d.dirY === hog.dirY);
   if (ahead && ctx.random() > HOG_TURN_CHANCE) return ahead;
   if (ctx.random() < HOG_IDLE_CHANCE) return { dirX: 0, dirY: 0 };
@@ -891,15 +901,17 @@ function troggBlockers(ctx: Ctx, zoneId: string, now: Stamp): Set<string> {
   return tiles;
 }
 
-/** Add each Hog's current tile (projected to `now`, against walls + boulders) to `set`. */
+/** Add each Hog's current footprint (projected to `now`, against walls + boulders) to
+ *  `set` — one tile for a common Hog, the whole 2×2 for a big one (GDD "Hogs"). */
 function addHogTiles(ctx: Ctx, zoneId: string, now: Stamp, set: Set<string>): void {
   const zone = getZone(zoneId);
   if (!zone) return;
   const boulders = boulderTiles(ctx, zoneId);
   const bounds = zoneBounds(zone, (x, y) => boulders.has(tileKey(x, y)));
   for (const h of ctx.db.hog.zoneId.filter(zoneId)) {
-    const pos = projectMotion(h, elapsedMs(h.movedAt, now), bounds);
-    set.add(tileKey(Math.round(pos.x), Math.round(pos.y)));
+    const size = hogSize(h.style);
+    const pos = projectMotion({ ...h, size }, elapsedMs(h.movedAt, now), bounds);
+    for (const tile of footprintTiles(Math.round(pos.x), Math.round(pos.y), size)) set.add(tileKey(tile.x, tile.y));
   }
 }
 
@@ -949,6 +961,9 @@ function hogAt(ctx: Ctx, zoneId: string, x: number, y: number, now: Stamp) {
   const occupied = boulderTiles(ctx, zoneId);
   const bounds = zoneBounds(zone, (tx, ty) => occupied.has(tileKey(tx, ty)));
   for (const h of ctx.db.hog.zoneId.filter(zoneId)) {
+    // A big 2×2 Hog is a fixture, not liftable — the carry overlay is one tile, and
+    // a giant on your head makes no sense — so only common Hogs answer here.
+    if (hogSize(h.style) > 1) continue;
     const pos = projectMotion(h, elapsedMs(h.movedAt, now), bounds);
     if (Math.round(pos.x) === x && Math.round(pos.y) === y) return h;
   }

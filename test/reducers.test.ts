@@ -4,6 +4,7 @@ import {
   CHAT_HISTORY_MAX,
   CLAIM_CODE_TTL_MS,
   getZone,
+  isWalkable,
   MAX_BOULDERS_PER_ZONE,
   MAX_HOGS_PER_ZONE,
   parsePath,
@@ -77,6 +78,40 @@ test("two Hogs heading at the same tile do not both claim it", () => {
 
   const dests = ctx.db.hog.rows().map((h: any) => `${h.x + h.dirX},${h.y + h.dirY}`);
   assert.notEqual(dests[0], dests[1]); // distinct destinations — no shared tile
+});
+
+// --- Big (2×2) Hogs block their whole footprint (the size-aware wander) ---
+
+test("a common Hog won't step onto a big Hog's 2x2 footprint", () => {
+  const me = id("watcher");
+  const ctx = makeCtx({ sender: me, now: 0n, random: 0.99, integerInRange: (lo) => lo });
+  ctx.db.player.insert(playerRow(me, { x: 12, y: 12, online: true }));
+  // A buff giant anchored at (3,7) covers (3,7),(4,7),(3,8),(4,8).
+  ctx.db.hog.insert({ id: 0n, zoneId: ZONE, x: 3, y: 7, dirX: 0, dirY: 0, movedAt: { microsSinceUnixEpoch: 0n }, path: "", homeX: 3, homeY: 7, style: "buff" });
+  // A common hog just right of it, heading left toward footprint tile (4,7).
+  ctx.db.hog.insert({ id: 0n, zoneId: ZONE, x: 5, y: 7, dirX: -1, dirY: 0, movedAt: { microsSinceUnixEpoch: 0n }, path: "", homeX: 5, homeY: 7, style: "" });
+
+  wanderHogs(ctx, {});
+
+  const footprint = new Set(["3,7", "4,7", "3,8", "4,8"]);
+  const common = ctx.db.hog.rows().find((h: any) => h.style === "");
+  // Whatever heading it took, the tile it steps to next is outside the giant's footprint.
+  assert.ok(!footprint.has(`${common.x + common.dirX},${common.y + common.dirY}`));
+});
+
+test("a big Hog keeps its whole 2x2 footprint on walkable floor as it wanders", () => {
+  const me = id("watcher");
+  const ctx = makeCtx({ sender: me, now: micros(10_000), random: 0.99, integerInRange: (lo) => lo });
+  ctx.db.player.insert(playerRow(me, { x: 12, y: 12, online: true }));
+  // Heading right from (3,7); after a tile-crossing it re-bases and keeps its footprint clear.
+  ctx.db.hog.insert({ id: 0n, zoneId: ZONE, x: 3, y: 7, dirX: 1, dirY: 0, movedAt: { microsSinceUnixEpoch: 0n }, path: "", homeX: 3, homeY: 7, style: "buff" });
+
+  wanderHogs(ctx, {});
+
+  const h = ctx.db.hog.rows().find((r: any) => r.style === "buff");
+  for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) {
+    assert.ok(isWalkable(getZone(ZONE)!, h.x + dx, h.y + dy), `footprint tile (${h.x + dx}, ${h.y + dy}) off floor`);
+  }
 });
 
 // --- Guest -> account upgrade never destroys a carried entity (the redeemClaim fix) ---
