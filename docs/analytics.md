@@ -34,8 +34,8 @@ snake_case. Low-volume by design — anything that could fire more than ~once/se
 | `xp_gained` | `skill, amount, level` | XP granted (batch if volume demands) |
 | `level_up` | `skill, level` | Derived level increases |
 | `chat_sent` | `zone` | Message sent — **no content** |
-| `boulders_reset` | `zone` | Player resets boulders via the in-chat `/reset` (or `/reset boulders`) command or Commands panel |
-| `hedgehogs_reset` | `zone` | Player resets Hogs via the in-chat `/reset hedgehogs` command or Commands panel |
+| `boulders_reset` | `zone` | Player resets boulders via the Commands panel |
+| `hedgehogs_reset` | `zone` | Player resets Hogs via the Commands panel |
 | `object_picked_up` | `zone, kind` | Player picks up a tile-sized object — `kind` is `boulder` or `hog` |
 | `object_dropped` | `zone, kind` | Player puts down what they were carrying |
 | `item_crafted` | `recipe, qty` | Item crafting succeeds |
@@ -55,19 +55,19 @@ Code currently reads these flag keys:
 | ---- | -------- | -------- |
 | `auth-enabled` | Account sign-in / claim panel (the top-right claim/sign-out control) | On, but the UI still requires `VITE_SPACETIMEAUTH_CLIENT_ID` |
 | `avatar-sprites` | Trogg sprite avatars vs the placeholder colour marker | On |
-| `ghost-trogg` | Zone-synced cosmetic ghost easter egg (`/ghost` command + Commands panel ghost buttons) | On |
+| `ghost-trogg` | Zone-synced cosmetic ghost easter egg (Commands panel ghost button) | On |
 | `boulder-pushing` | Client push input for boulders | On |
 | `interact` | Interact key (`E`) — pick up / put down tile-sized objects | On |
 | `roaming-hogs` | Hog rendering and subscription | On |
 | `running` | Hold-shift-to-run input | On |
-| `spawn-command` | `/spawn` debug command and Commands panel spawn controls | On outside production (local dev + preview builds, which ship no PostHog key); flag-governed in production |
-| `boulder-reset` | `/reset` (or `/reset boulders`) boulder layout command and Commands panel reset control | On |
-| `hog-reset` | `/reset hedgehogs` Hog population reset command and Commands panel reset control | On |
+| `spawn-command` | Commands panel spawn controls | On outside production (local dev + preview builds, which ship no PostHog key); flag-governed in production |
+| `boulder-reset` | Commands panel boulder layout reset control | On |
+| `hog-reset` | Commands panel Hog population reset control | On |
 | `chat-enabled` | Chat panel and bubbles | On |
 | `trogg-recolor` | Colour swatches in the Appearance panel | On |
 | `trogg-restyle` | Body-style buttons in the Appearance panel | On |
 
-PostHog project audit (2026-06-27): all code-read flags above are configured in PostHog project 314596 and active at 100% rollout (`interact` created 2026-06-25 with the carry mechanic; `hog-reset` created 2026-06-25 with the `/reset hedgehogs` command; `trogg-restyle` created 2026-06-27 with avatar body styles). Planned future flags should be added here, and created in PostHog, when code starts reading them.
+PostHog project audit (2026-06-27): all code-read flags above are configured in PostHog project 314596 and active at 100% rollout (`interact` created 2026-06-25 with the carry mechanic; `hog-reset` created 2026-06-25 with the Hog reset tool; `trogg-restyle` created 2026-06-27 with avatar body styles). Planned future flags should be added here, and created in PostHog, when code starts reading them.
 
 ## Rules
 

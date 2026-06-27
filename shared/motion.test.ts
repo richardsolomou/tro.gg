@@ -223,7 +223,7 @@ test("spawnTile returns null when the player is boxed in", () => {
   assert.equal(spawnTile(cell, () => true, 1, 1, 0, 0), null);
 });
 
-test("spawnTiles fills nearby free tiles for batch debug spawns", () => {
+test("spawnTiles fills nearby free tiles in spawn/drop order", () => {
   assert.deepEqual(spawnTiles(openRoom, none, 3, 1, 1, 0, 5), [
     { x: 4, y: 1 },
     { x: 2, y: 1 },

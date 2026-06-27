@@ -187,13 +187,13 @@ export function snapToTile(pos: { x: number; y: number }): { x: number; y: numbe
 }
 
 /**
- * Pick tiles to drop spawned entities on (the debug `/spawn` command): the tile
- * the player faces if it's free, then nearby free tiles around them, with their
- * own tile after the immediate neighbours. "Free" is a walkable floor tile the
- * `occupied` predicate doesn't claim. Idle players skip the facing preference and
- * take neighbours first, so entities land beside them rather than underfoot.
- * Returned tiles are unique. Server-authoritative (invariant 3); position is
- * rounded to the player's current tile first.
+ * Pick nearby free tiles in the same order the Commands panel spawn/drop helpers use:
+ * the tile the player faces if it's free, then nearby free tiles around them, with
+ * their own tile after the immediate neighbours. "Free" is a walkable floor tile
+ * the `occupied` predicate doesn't claim. Idle players skip the facing preference and
+ * take neighbours first, so entities land beside them rather than underfoot. Returned
+ * tiles are unique. Server-authoritative (invariant 3); position is rounded to the
+ * player's current tile first.
  */
 export function spawnTiles(
   zone: Zone,
@@ -242,7 +242,7 @@ export function spawnTiles(
   return tiles;
 }
 
-/** Single-tile compatibility wrapper for the original `/spawn <entity>` command. */
+/** Pick the first free tile for one spawned or dropped thing. */
 export function spawnTile(
   zone: Zone,
   occupied: (tileX: number, tileY: number) => boolean,

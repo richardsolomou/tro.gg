@@ -3,13 +3,13 @@ import { closeHudMenus, hudLeft } from "./hud.js";
 import { registerKeybind } from "./keybinds.js";
 import { currentCommandFlags } from "./chat_commands.js";
 
-/** One control or command line: the key/command and what it does. */
+/** One control line: the key/control and what it does. */
 interface Row {
   key: string;
   desc: string;
 }
 
-/** A titled block of rows in the help panel (Controls, Commands). */
+/** A titled block of rows in the help panel. */
 interface Section {
   title: string;
   rows: Row[];
@@ -17,9 +17,9 @@ interface Section {
 
 /**
  * The help panel as an HTML overlay: a top-left "? Help" toggle that opens a list
- * of controls and chat commands (GDD HUD note). The listed controls and commands
- * mirror the feature flags actually enabled this session, so the panel never
- * advertises a key or command that's switched off. Static reference, built once.
+ * of controls (GDD HUD note). The listed controls mirror the feature flags actually
+ * enabled this session, so the panel never advertises a key that's switched off.
+ * Static reference, built once.
  */
 export function mountHelp(): void {
   const root = document.createElement("div");
@@ -76,7 +76,7 @@ export function mountHelp(): void {
   hudLeft().appendChild(root);
 }
 
-/** The controls and commands to show, filtered to this session's enabled flags. */
+/** The controls to show, filtered to this session's enabled flags. */
 function buildSections(): Section[] {
   const canRun = isFeatureEnabled("running");
   const useInteract = isFeatureEnabled("interact");
@@ -100,17 +100,5 @@ function buildSections(): Section[] {
   if (commandPanelEnabled) controls.push({ key: "`", desc: "Open Commands" });
   if (chatEnabled) controls.push({ key: "Enter", desc: "Open chat" });
 
-  const sections: Section[] = [{ title: "Controls", rows: controls }];
-
-  // Commands are typed into the chat box, so they only matter when chat is on.
-  if (chatEnabled) {
-    const commands: Row[] = [];
-    if (commandFlags.spawn) commands.push({ key: "/spawn boulder [count] | hedgehog [count]", desc: "Spawn objects" });
-    const resetTargets = [commandFlags.resetBoulders && "boulders", commandFlags.resetHogs && "hedgehogs"].filter(Boolean);
-    if (resetTargets.length) commands.push({ key: `/reset ${resetTargets.join(" | ")}`, desc: "Reset to the default layout" });
-    if (commandFlags.ghost) commands.push({ key: "/ghost", desc: "Summon a ghost" });
-    if (commands.length) sections.push({ title: "Commands", rows: commands });
-  }
-
-  return sections;
+  return [{ title: "Controls", rows: controls }];
 }

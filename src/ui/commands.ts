@@ -1,20 +1,22 @@
-import { MAX_BOULDERS_PER_ZONE, MAX_HOGS_PER_ZONE, type Zone } from "@trogg/shared";
+import avatarUrl from "../../assets/sprites/troggs-and-hogs.png";
+import { FRAME_H, FRAME_W, frameRect, HOG_STYLES, ITEMS, SHEET_H, SHEET_W, SPAWNABLE_ITEM_IDS, type HogStyle, type SpawnableItemId, type Zone } from "@trogg/shared";
 import type { DbConnection } from "../net/module_bindings";
 import { captureEvent } from "../analytics.js";
 import { audio } from "../audio.js";
 import { hudLeft } from "./hud.js";
 import { registerKeybind } from "./keybinds.js";
 import { currentCommandFlags, type ChatCommandFlags } from "./chat_commands.js";
+import { itemIcon } from "./inventory.js";
 
-type SpawnKind = "boulder" | "hog";
+type SpawnRequest = { kind: "boulder" } | { kind: "hog"; style: HogStyle } | { kind: "item"; item: SpawnableItemId };
 
 export interface CommandPanelContext {
   conn: DbConnection;
   zone: Zone;
 }
 
-/** Mount the pre-alpha command panel beside Help. It exposes the same debug
- * commands as chat, but as bounded controls for stress testing. */
+/** Mount the pre-alpha Commands panel beside Help. It exposes bounded debug
+ * controls for stress testing without using chat slash commands. */
 export function mountCommands({ conn, zone }: CommandPanelContext): void {
   const flags = currentCommandFlags();
   if (!flags.spawn && !flags.resetBoulders && !flags.resetHogs && !flags.ghost) return;
@@ -84,53 +86,29 @@ function commandIcon(): SVGSVGElement {
 }
 
 function spawnSection(conn: DbConnection, status: HTMLElement): HTMLElement {
-  let kind: SpawnKind = "boulder";
   const section = commandSection("Spawn");
+  const grid = document.createElement("div");
+  grid.className = "command-spawn-grid";
 
-  const chooser = document.createElement("div");
-  chooser.className = "command-segment";
-  const boulder = segmentButton("Boulder", true);
-  const hog = segmentButton("Hog", false);
-  const choose = (next: SpawnKind) => {
-    kind = next;
-    boulder.setAttribute("aria-pressed", String(kind === "boulder"));
-    hog.setAttribute("aria-pressed", String(kind === "hog"));
-  };
-  boulder.addEventListener("click", () => choose("boulder"));
-  hog.addEventListener("click", () => choose("hog"));
-  chooser.append(boulder, hog);
-
-  const row = document.createElement("div");
-  row.className = "command-row";
-  const count = document.createElement("input");
-  count.className = "field command-count";
-  count.type = "number";
-  count.min = "1";
-  count.max = String(Math.max(MAX_BOULDERS_PER_ZONE, MAX_HOGS_PER_ZONE));
-  count.step = "1";
-  count.value = "5";
-  count.setAttribute("aria-label", "Spawn count");
-  const spawn = commandButton("Spawn selected");
-  spawn.addEventListener("click", () => requestSpawn(conn, status, kind, readCount(count, capFor(kind))));
-  row.append(count, spawn);
-
-  const quick = document.createElement("div");
-  quick.className = "command-grid";
-  for (const n of [1, 5, 10, 25]) {
-    const button = commandButton(`Spawn ${n}`);
-    button.addEventListener("click", () => requestSpawn(conn, status, kind, n));
-    quick.appendChild(button);
+  grid.appendChild(spawnButton("Boulder", boulderIcon(), () => requestSpawn(conn, status, { kind: "boulder" })));
+  for (const style of HOG_STYLES) {
+    const label = `${titleCaseWords(style)} Hog`;
+    grid.appendChild(spawnButton(label, hogIcon(style), () => requestSpawn(conn, status, { kind: "hog", style })));
+  }
+  for (const item of SPAWNABLE_ITEM_IDS) {
+    grid.appendChild(spawnButton(ITEMS[item].name, itemIcon(item), () => requestSpawn(conn, status, { kind: "item", item })));
   }
 
-  section.append(chooser, row, quick);
+  section.appendChild(grid);
   return section;
 }
 
-function requestSpawn(conn: DbConnection, status: HTMLElement, kind: SpawnKind, count: number) {
-  const label = kind === "hog" ? "Hogs" : "boulders";
-  conn.reducers.spawn({ kind, count });
+function requestSpawn(conn: DbConnection, status: HTMLElement, request: SpawnRequest) {
+  const item = request.kind === "hog" ? request.style : request.kind === "item" ? request.item : "";
+  const label = request.kind === "boulder" ? "boulder" : request.kind === "hog" ? `${titleCaseWords(request.style)} Hog` : ITEMS[request.item].name;
+  conn.reducers.spawn({ kind: request.kind, item });
   audio.playCommand();
-  status.textContent = `requested ${count} ${label}`;
+  status.textContent = `spawned ${label}`;
 }
 
 function resetSection(conn: DbConnection, zone: string, flags: ChatCommandFlags, status: HTMLElement): HTMLElement {
@@ -182,25 +160,16 @@ function ghostSection(conn: DbConnection, status: HTMLElement): HTMLElement {
   const grid = document.createElement("div");
   grid.className = "command-grid";
 
-  const once = commandButton("Ghost once");
+  const once = commandButton("Summon ghost");
   once.addEventListener("click", () => {
-    haunt(conn, 1);
-    status.textContent = "requested one ghost";
+    conn.reducers.hauntGhost({});
+    audio.playCommand();
+    status.textContent = "summoned ghost";
   });
 
-  const burst = commandButton("Ghost burst");
-  burst.addEventListener("click", () => {
-    haunt(conn, 8);
-    status.textContent = "requested eight ghosts";
-  });
-
-  grid.append(once, burst);
+  grid.appendChild(once);
   section.appendChild(grid);
   return section;
-}
-
-function haunt(conn: DbConnection, count: number) {
-  for (let i = 0; i < count; i++) conn.reducers.hauntGhost({});
 }
 
 function commandSection(title: string): HTMLElement {
@@ -221,18 +190,43 @@ function commandButton(label: string): HTMLButtonElement {
   return button;
 }
 
-function segmentButton(label: string, pressed: boolean): HTMLButtonElement {
-  const button = commandButton(label);
-  button.setAttribute("aria-pressed", String(pressed));
+function spawnButton(label: string, icon: HTMLElement | SVGSVGElement, onClick: () => void): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "command-spawn-button";
+  button.setAttribute("aria-label", `Spawn ${label}`);
+  button.title = `Spawn ${label}`;
+  button.appendChild(icon);
+  button.addEventListener("click", onClick);
   return button;
 }
 
-function readCount(input: HTMLInputElement, cap: number): number {
-  const value = Number(input.value);
-  if (!Number.isSafeInteger(value)) return 1;
-  return Math.max(1, Math.min(cap, value));
+function boulderIcon(): SVGSVGElement {
+  const icon = svg(32, 32);
+  icon.classList.add("command-svg-icon");
+  icon.append(
+    el("path", { d: "M6 19c0-7 5-12 12-12 5 0 9 4 9 10 0 7-5 11-12 11-6 0-9-4-9-9Z", fill: "#6b5640", stroke: "#2a2118", "stroke-width": 2, "stroke-linejoin": "round" }),
+    el("path", { d: "M10 15c3-4 8-5 13-3", fill: "none", stroke: "#8a7257", "stroke-width": 2, "stroke-linecap": "round" }),
+  );
+  return icon;
 }
 
-function capFor(kind: SpawnKind): number {
-  return kind === "boulder" ? MAX_BOULDERS_PER_ZONE : MAX_HOGS_PER_ZONE;
+function hogIcon(style: HogStyle): HTMLSpanElement {
+  const frame = frameRect("hog", style, "down", "idle");
+  const scale = 2;
+  const icon = document.createElement("span");
+  icon.className = "command-avatar-icon";
+  icon.style.width = `${FRAME_W * scale}px`;
+  icon.style.height = `${FRAME_H * scale}px`;
+  icon.style.backgroundImage = `url("${avatarUrl}")`;
+  icon.style.backgroundSize = `${SHEET_W * scale}px ${SHEET_H * scale}px`;
+  icon.style.backgroundPosition = `-${frame.x * scale}px -${frame.y * scale}px`;
+  return icon;
+}
+
+function titleCaseWords(value: string): string {
+  return value
+    .split("-")
+    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
+    .join(" ");
 }

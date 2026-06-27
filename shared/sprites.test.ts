@@ -76,3 +76,21 @@ test("every frame paints at least some pixels", () => {
   }
   for (const [name, n] of counts) assert.ok(n > 0, `${name} painted nothing`);
 });
+
+test("big Hog styles paint a larger sprite than their regular skins", () => {
+  const paintedPixels = (style: string) => {
+    const f = frameRect("hog", style, "down", "idle");
+    const pixels = new Set<string>();
+    const sink: PixelSink = {
+      set(x, y) {
+        if (x >= f.x && x < f.x + FRAME_W && y >= f.y && y < f.y + FRAME_H) pixels.add(`${x},${y}`);
+      },
+    };
+    paintSheet(sink);
+    return pixels.size;
+  };
+
+  assert.ok(paintedPixels("classic-big") > paintedPixels("classic"));
+  assert.ok(paintedPixels("snow-big") > paintedPixels("snow"));
+  assert.ok(paintedPixels("ember-big") > paintedPixels("ember"));
+});
