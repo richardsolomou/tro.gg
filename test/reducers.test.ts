@@ -20,6 +20,7 @@ import {
   recolor,
   redeemClaim,
   rename,
+  restyle,
   resetBoulders,
   resetHogs,
   spawn,
@@ -319,6 +320,18 @@ test("recolor to an out-of-range index is rejected", () => {
   const { ctx, me } = withPlayer({ color: 0 });
   recolor(ctx, { color: 999 });
   assert.equal(ctx.db.player.identity.find(me).color, 0);
+});
+
+test("restyle to a valid style index updates the style", () => {
+  const { ctx, me } = withPlayer({ style: -1 });
+  restyle(ctx, { style: 1 });
+  assert.equal(ctx.db.player.identity.find(me).style, 1);
+});
+
+test("restyle to an out-of-range index is rejected", () => {
+  const { ctx, me } = withPlayer({ style: 0 });
+  restyle(ctx, { style: 999 });
+  assert.equal(ctx.db.player.identity.find(me).style, 0);
 });
 
 // --- startClaim (the nonce side of the upgrade) ---

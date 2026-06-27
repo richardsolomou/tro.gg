@@ -26,4 +26,5 @@ export default __t.row({
   color: __t.i32(),
   carrying: __t.string(),
   path: __t.string(),
+  style: __t.i32(),
 });

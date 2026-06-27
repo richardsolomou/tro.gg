@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { getZone, projectMotion, projectMotionState, snapToTile, STARTING_ZONE_SLUG, tileKey, timestampMs, troggColorFor, zoneBounds, type Coord, type Stamp, type ZoneBounds } from "@trogg/shared";
+import { getZone, hogStyleFor, projectMotion, projectMotionState, snapToTile, STARTING_ZONE_SLUG, tileKey, timestampMs, troggColorFor, troggStyleFor, zoneBounds, type Coord, type Stamp, type ZoneBounds } from "@trogg/shared";
 import type { DbConnection } from "../../net/module_bindings";
 import type { Boulder, Hog, Player } from "../../net/module_bindings/types";
 import { attachKeyboard } from "../../input.js";
@@ -207,7 +207,7 @@ export class WorldScene extends Phaser.Scene {
     for (const view of this.hogs.values()) {
       const motion = projectMotionState(view.row, now - view.baseMs, this.hogBounds);
       this.entities.place(view.marker, motion.x, motion.y);
-      this.entities.driveSprite(view.sprite, "hog", motion.dirX, motion.dirY, false, view, now);
+      this.entities.driveSprite(view.sprite, "hog", view.style, motion.dirX, motion.dirY, false, view, now);
       const tile = snapToTile({ x: motion.x, y: motion.y });
       this.hogTiles.add(tileKey(tile.x, tile.y));
     }
@@ -257,7 +257,7 @@ export class WorldScene extends Phaser.Scene {
     }
     for (const view of this.hogs.values()) {
       view.marker.destroy();
-      const built = this.entities.makeHog(view.facing);
+      const built = this.entities.makeHog(view.style, view.facing);
       view.marker = built.marker;
       view.sprite = built.sprite;
       view.frameKey = built.frameKey;
@@ -269,7 +269,8 @@ export class WorldScene extends Phaser.Scene {
   private rebuildMarker(id: string, entry: Tracked) {
     if (entry.bubbleTimer) clearTimeout(entry.bubbleTimer);
     entry.marker.destroy();
-    const built = this.entities.makeMarker(entry.player.name, troggColorFor(entry.player.color, id), id === this.myId, entry.facing, this.useSprites);
+    entry.style = troggStyleFor(entry.player.style, id);
+    const built = this.entities.makeMarker(entry.player.name, troggColorFor(entry.player.color, id), entry.style, id === this.myId, entry.facing, this.useSprites);
     entry.marker = built.marker;
     entry.sprite = built.sprite;
     entry.frameKey = built.frameKey;
@@ -302,10 +303,10 @@ export class WorldScene extends Phaser.Scene {
         entry.baseMs = timestampBaseMs(p.movedAt);
       }
 
-      // The nameplate and tint are baked into the marker at build time, so a rename or
-      // recolour only shows once the marker is rebuilt (which re-applies the carried
-      // overlay). A bare carrying change just retargets the overlay.
-      if (_old.name !== p.name || _old.color !== p.color) this.rebuildMarker(id, entry);
+      // The nameplate, tint, and body style are baked into the marker at build time, so
+      // a rename, recolour, or restyle only shows once the marker is rebuilt (which
+      // re-applies the carried overlay). A bare carrying change just retargets the overlay.
+      if (_old.name !== p.name || _old.color !== p.color || _old.style !== p.style) this.rebuildMarker(id, entry);
       else if (_old.carrying !== p.carrying) this.entities.applyCarry(entry);
 
       // Pick-up / put-down are low-volume, so emit on the authoritative carrying
@@ -321,8 +322,9 @@ export class WorldScene extends Phaser.Scene {
     const id = p.identity.toHexString();
     if (this.tracked.has(id)) return;
     const facing = facingFromDir(p.dirX, p.dirY, "down");
-    const { marker, sprite, frameKey } = this.entities.makeMarker(p.name, troggColorFor(p.color, id), id === this.myId, facing, this.useSprites);
-    const entry: Tracked = { marker, sprite, player: p, baseMs: timestampBaseMs(p.movedAt), facing, frameKey, carriedKind: "" };
+    const style = troggStyleFor(p.style, id);
+    const { marker, sprite, frameKey } = this.entities.makeMarker(p.name, troggColorFor(p.color, id), style, id === this.myId, facing, this.useSprites);
+    const entry: Tracked = { marker, sprite, player: p, baseMs: timestampBaseMs(p.movedAt), facing, style, frameKey, carriedKind: "" };
     const { x, y } = projectMotion(p, performance.now() - entry.baseMs, this.troggBounds);
     this.entities.place(marker, x, y);
     this.tracked.set(id, entry);
@@ -377,11 +379,12 @@ export class WorldScene extends Phaser.Scene {
     const id = h.id.toString();
     if (this.hogs.has(id)) return;
     const facing = facingFromDir(h.dirX, h.dirY, "down");
-    const { marker, sprite, frameKey } = this.entities.makeHog(facing);
+    const style = hogStyleFor(id);
+    const { marker, sprite, frameKey } = this.entities.makeHog(style, facing);
     const baseMs = timestampBaseMs(h.movedAt);
     const { x, y } = projectMotion(h, performance.now() - baseMs, this.hogBounds);
     this.entities.place(marker, x, y);
-    this.hogs.set(id, { marker, sprite, row: h, baseMs, facing, frameKey });
+    this.hogs.set(id, { marker, sprite, row: h, baseMs, facing, style, frameKey });
     this.hogLayer.add(marker);
   }
 

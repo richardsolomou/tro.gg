@@ -15,6 +15,8 @@ import {
   HOG_TURN_CHANCE,
   isColorIndex,
   isGeneratedName,
+  isTroggStyleIndex,
+  STYLE_UNSET,
   isValidName,
   isWalkable,
   MAX_BOULDERS_PER_ZONE,
@@ -85,6 +87,10 @@ const player = table(
     // Click-to-move waypoints, serialized as "x,y;x,y;..." and interpreted by
     // shared `projectMotion` (GDD "Movement"). Empty = no path / direct WASD.
     path: t.string().default(""),
+    // Chosen avatar body style — an index into `TROGG_STYLES` (GDD "Avatars"), set by
+    // `restyle`. Defaults to `STYLE_UNSET` (-1) so an unchosen trogg falls back to its
+    // id-derived style, the mirror of `color`. Appended last per the migration note above.
+    style: t.i32().default(STYLE_UNSET),
   },
 );
 
@@ -257,6 +263,7 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
     color: COLOR_UNSET,
     carrying: "",
     path: "",
+    style: STYLE_UNSET,
   });
 });
 
@@ -682,6 +689,21 @@ export const recolor = spacetimedb.reducer({ color: t.i32() }, (ctx, { color }) 
   if (!p) return;
   if (color === p.color || !isColorIndex(color)) return;
   ctx.db.player.identity.update({ ...p, color });
+});
+
+/**
+ * Restyle the caller's trogg (GDD "Avatars and equipment"): store a chosen index
+ * into the shared `TROGG_STYLES` list, replacing the id-derived default. The mirror
+ * of `recolor` on the other appearance axis (shape, not tint). The index is
+ * validated server-side (invariant 3); an out-of-range index or one already set is
+ * a silent no-op. The style rides the zone player sync, so the sprite swaps for
+ * everyone.
+ */
+export const restyle = spacetimedb.reducer({ style: t.i32() }, (ctx, { style }) => {
+  const p = ctx.db.player.identity.find(ctx.sender);
+  if (!p) return;
+  if (style === p.style || !isTroggStyleIndex(style)) return;
+  ctx.db.player.identity.update({ ...p, style });
 });
 
 /** A claim nonce is a v4 UUID minted by the client (`crypto.randomUUID`). */

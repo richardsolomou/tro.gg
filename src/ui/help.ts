@@ -1,5 +1,5 @@
 import { isFeatureEnabled } from "../analytics.js";
-import { hudRoot } from "./hud.js";
+import { hudLeft } from "./hud.js";
 import { currentCommandFlags } from "./chat_commands.js";
 
 /** One control or command line: the key/command and what it does. */
@@ -22,7 +22,7 @@ interface Section {
  */
 export function mountHelp(): void {
   const root = document.createElement("div");
-  root.className = "panel help";
+  root.className = "help";
 
   const toggle = document.createElement("button");
   toggle.type = "button";
@@ -58,12 +58,13 @@ export function mountHelp(): void {
     body.hidden = !opening;
     if (opening) window.dispatchEvent(new CustomEvent("hud-menu-open", { detail: "help" }));
   });
+  // Accordion: opening any left-bar menu closes the others, so two drop-downs never overlap.
   window.addEventListener("hud-menu-open", ((event: Event) => {
     if ((event as CustomEvent<string>).detail !== "help") body.hidden = true;
   }) as EventListener);
 
   root.append(toggle, body);
-  hudRoot().appendChild(root);
+  hudLeft().appendChild(root);
 }
 
 /** The controls and commands to show, filtered to this session's enabled flags. */

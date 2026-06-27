@@ -2,7 +2,7 @@ import { MAX_BOULDERS_PER_ZONE, MAX_HOGS_PER_ZONE, type Coord, type Zone } from 
 import type { DbConnection } from "../net/module_bindings";
 import { captureEvent } from "../analytics.js";
 import { audio } from "../audio.js";
-import { hudRoot } from "./hud.js";
+import { hudLeft } from "./hud.js";
 import { currentCommandFlags, type ChatCommandFlags } from "./chat_commands.js";
 
 type SpawnKind = "boulder" | "hog";
@@ -20,7 +20,7 @@ export function mountCommands({ conn, zone, onGhost }: CommandPanelContext): voi
   if (!flags.spawn && !flags.resetBoulders && !flags.resetHogs && !flags.ghost) return;
 
   const root = document.createElement("div");
-  root.className = "panel commands";
+  root.className = "commands";
 
   const toggle = document.createElement("button");
   toggle.type = "button";
@@ -49,7 +49,7 @@ export function mountCommands({ conn, zone, onGhost }: CommandPanelContext): voi
   }) as EventListener);
 
   root.append(toggle, body);
-  hudRoot().appendChild(root);
+  hudLeft().appendChild(root);
 }
 
 function spawnSection(conn: DbConnection, status: HTMLElement): HTMLElement {

@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { frameName, frames, paintSheet, rgbaSink, SHEET_H, SHEET_W, type Facing, type FrameName, type Kind, type PixelSink } from "@trogg/shared";
+import { FRAME_H, FRAME_W, frameName, frames, ghostDraw, paintSheet, rgbaSink, SHEET_H, SHEET_W, type Facing, type FrameName, type Kind, type PixelSink } from "@trogg/shared";
 
 /**
  * Client-side avatar textures. The trogg/Hog art is defined once in
@@ -11,44 +11,52 @@ import { frameName, frames, paintSheet, rgbaSink, SHEET_H, SHEET_W, type Facing,
  * not a runtime dependency).
  */
 
-/** Texture keys: the tinted base sheet and the flat-white ghost silhouette. */
+/** Texture keys: the multi-style base sheet and the standalone ghost sprite. */
 export const AVATAR_TEX = "avatars";
 export const GHOST_TEX = "avatars-ghost";
+/** The single frame carved from `GHOST_TEX` (the ghost is one drawing, not a sheet). */
+export const GHOST_FRAME = "ghost";
 
-/** Paint a full sprite sheet into an offscreen canvas. `paint` drives the pixels. */
-function paintCanvas(paint: (sink: PixelSink) => void): HTMLCanvasElement {
+/** Paint into an offscreen canvas of the given size. `paint` drives the pixels. */
+function paintCanvas(w: number, h: number, paint: (sink: PixelSink) => void): HTMLCanvasElement {
   const canvas = document.createElement("canvas");
-  canvas.width = SHEET_W;
-  canvas.height = SHEET_H;
+  canvas.width = w;
+  canvas.height = h;
   const ctx = canvas.getContext("2d")!;
-  const img = ctx.createImageData(SHEET_W, SHEET_H);
-  paint(rgbaSink(img.data, SHEET_W, SHEET_H));
+  const img = ctx.createImageData(w, h);
+  paint(rgbaSink(img.data, w, h));
   ctx.putImageData(img, 0, 0);
   return canvas;
 }
 
-/** Register a painted sheet on the texture manager and carve every frame from it. */
-function registerSheet(scene: Phaser.Scene, key: string, paint: (sink: PixelSink) => void): void {
-  if (scene.textures.exists(key)) return;
-  const tex = scene.textures.addCanvas(key, paintCanvas(paint));
+/** Register the painted base sheet on the texture manager and carve every frame from it. */
+function registerSheet(scene: Phaser.Scene): void {
+  if (scene.textures.exists(AVATAR_TEX)) return;
+  const tex = scene.textures.addCanvas(AVATAR_TEX, paintCanvas(SHEET_W, SHEET_H, paintSheet));
   if (!tex) return;
   for (const f of frames()) tex.add(f.name, 0, f.x, f.y, f.w, f.h);
 }
 
-/**
- * Register both avatar sheets on the scene's texture manager: the tinted base
- * sheet, and a flat-white silhouette (every pixel forced white, each keeping its
- * own alpha) for the ghost easter egg — white in the texture, so it needs no
- * tint. Idempotent, so it's safe to call on every scene create.
- */
-export function registerAvatarTextures(scene: Phaser.Scene): void {
-  registerSheet(scene, AVATAR_TEX, paintSheet);
-  registerSheet(scene, GHOST_TEX, (sink) => paintSheet({ set: (x, y, _colour, alpha) => sink.set(x, y, 0xffffff, alpha) }));
+/** Register the ghost as its own one-frame texture (its bespoke off-white art, GDD "Avatars and equipment"). */
+function registerGhost(scene: Phaser.Scene): void {
+  if (scene.textures.exists(GHOST_TEX)) return;
+  const tex = scene.textures.addCanvas(GHOST_TEX, paintCanvas(FRAME_W, FRAME_H, ghostDraw));
+  tex?.add(GHOST_FRAME, 0, 0, 0, FRAME_W, FRAME_H);
 }
 
-/** The frame key for one avatar frame within `AVATAR_TEX` / `GHOST_TEX`. */
-export function avatarFrameName(kind: Kind, facing: Facing, frame: FrameName): string {
-  return frameName(kind, facing, frame);
+/**
+ * Register both avatar textures on the scene's texture manager: the multi-style
+ * base sheet (every kind × style × facing × frame), and the standalone ghost
+ * sprite for the easter egg. Idempotent, so it's safe to call on every scene create.
+ */
+export function registerAvatarTextures(scene: Phaser.Scene): void {
+  registerSheet(scene);
+  registerGhost(scene);
+}
+
+/** The frame key for one avatar frame within `AVATAR_TEX`. */
+export function avatarFrameName(kind: Kind, style: string, facing: Facing, frame: FrameName): string {
+  return frameName(kind, style, facing, frame);
 }
 
 /**

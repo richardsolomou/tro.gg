@@ -126,22 +126,31 @@
   border-color: #e8dcc4;
 }
 
-/* ── Help (top-left) ─────────────────────────────────────────────────────── */
-#hud .help {
+/* ── Top-left toggle bar (Help, Commands, Appearance side by side) ────────── */
+#hud .hud-left {
+  position: fixed;
   top: 12px;
   left: 12px;
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 8px;
   align-items: flex-start;
+  max-width: calc(100vw - 24px);
+  pointer-events: none; /* the gaps stay click-through… */
 }
-#hud .commands {
-  top: 12px;
-  left: 94px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  align-items: flex-start;
+/* Each menu opts back into clicks and anchors its drop-down body, which is
+   absolutely placed below the bar so opening one toggle never shifts another. */
+#hud .hud-left > * {
+  pointer-events: auto;
+  position: relative;
+}
+#hud .help-body,
+#hud .command-body {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 6px;
 }
 #hud .help-toggle {
   width: auto;
@@ -182,7 +191,43 @@
   white-space: nowrap;
 }
 
-/* ── Commands (top-left, beside Help) ────────────────────────────────────── */
+/* ── Appearance (beside Help) ────────────────────────────────────────────── */
+#hud .appearance .help-toggle {
+  background: #e8dcc4; /* set apart from Help's amber toggle */
+}
+#hud .appearance-body {
+  width: min(248px, calc(100vw - 24px));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+#hud .appearance-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+#hud .style-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+#hud .style-option {
+  padding: 4px 10px;
+  height: 26px;
+  font-size: 12px;
+  color: #e8dcc4;
+  background: rgba(10, 8, 6, 0.82);
+  border: 1px solid #2a2118;
+  border-radius: 4px;
+  cursor: pointer;
+}
+#hud .style-option[aria-pressed="true"] {
+  color: #0a0806;
+  background: #e8dcc4;
+  border-color: #e8dcc4;
+}
+
+/* ── Commands (beside Help) ──────────────────────────────────────────────── */
 #hud .command-body {
   width: min(330px, calc(100vw - 24px));
   padding: 12px;
@@ -239,11 +284,4 @@
 #hud .command-status {
   color: #9b8a6c;
   font-size: 12px;
-}
-
-@media (max-width: 520px) {
-  #hud .commands {
-    left: 12px;
-    top: 46px;
-  }
 }
