@@ -1,5 +1,5 @@
 /**
- * Programmer pixel art for the trogg and Hog avatars (GDD "Avatars and
+ * Concept-inspired pixel art for the trogg and Hog avatars (GDD "Avatars and
  * equipment"; pillar 5 — programmer pixel art, polish deferred). Pure paint
  * logic: a single `paintSheet` walks a grid of frames and calls a `set(x, y,
  * colour, alpha?)` callback for each art pixel, exactly like `terrain.ts` paints
@@ -182,12 +182,12 @@ interface TroggSkin {
 }
 
 const TROGG_SKINS: Record<string, TroggSkin> = {
-  // Mossy hide, amber eyes, soft ear nubs — the original cave-dweller.
-  moss: { out: 0x241a10, body: 0x7e8c52, light: 0x97a566, shade: 0x5c673a, belly: 0xb8c184, eye: 0xffd34e, pupil: 0x1c140c, mouth: 0x39271a, crest: "ears" },
-  // Grey stone golem, red eyes, an earless crag — the brute out of the deep dark.
-  stone: { out: 0x1d2026, body: 0x868d96, light: 0xa7adb5, shade: 0x5b616b, belly: 0xb4b9c0, eye: 0xff5240, pupil: 0x2a0d08, mouth: 0x2b2f37, crest: "none" },
-  // Dark bog-brown, amber eyes, a pair of stubby horns — the ridge-back.
-  ridge: { out: 0x16110a, body: 0x6f5d3a, light: 0x8a7548, shade: 0x4c3f27, belly: 0x9d8a5c, eye: 0xffd34e, pupil: 0x1c140c, mouth: 0x2a2013, crest: "horns" },
+  // Moss-stained stone hide, red eyes, soft ear nubs — the default cave-dweller.
+  moss: { out: 0x211f18, body: 0x74765a, light: 0xa9a77a, shade: 0x4b4e3b, belly: 0x8d8963, eye: 0xff3b28, pupil: 0x2a0a06, mouth: 0x17140f, crest: "ears" },
+  // Cold grey stone brute with a craggy, earless skull.
+  stone: { out: 0x191b1c, body: 0x6f7168, light: 0xa7a58b, shade: 0x3f4440, belly: 0x86806b, eye: 0xff3328, pupil: 0x270806, mouth: 0x141414, crest: "none" },
+  // Dark ridge-back, heavier brow, and small horn nubs.
+  ridge: { out: 0x16120c, body: 0x625a3d, light: 0xb29d68, shade: 0x3e3928, belly: 0x806f4a, eye: 0xff442c, pupil: 0x260906, mouth: 0x15100a, crest: "horns" },
 };
 
 /** A hog skin: quill, face, and accent palette. Hogs share one shape, so the
@@ -234,6 +234,16 @@ function dot(p: PixelSink, x: number, y: number, colour: number, alpha?: number)
 
 function rect(p: PixelSink, x: number, y: number, w: number, h: number, colour: number, alpha?: number): void {
   for (let yy = 0; yy < h; yy++) for (let xx = 0; xx < w; xx++) p.set(x + xx, y + yy, colour, alpha);
+}
+
+function line(p: PixelSink, x1: number, y1: number, x2: number, y2: number, colour: number, alpha?: number): void {
+  const dx = Math.abs(x2 - x1);
+  const dy = Math.abs(y2 - y1);
+  const steps = Math.max(dx, dy, 1);
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    dot(p, x1 + (x2 - x1) * t, y1 + (y2 - y1) * t, colour, alpha);
+  }
 }
 
 /** Filled ellipse centred at (cx, cy) with radii (rx, ry). Centres may be
@@ -313,8 +323,8 @@ function hogPaint(p: PixelSink, view: View, frame: FrameName, style: string): vo
 type View = "down" | "up" | "side";
 
 /** Soft contact shadow under the feet, shared by both characters. */
-function groundShadow(p: PixelSink): void {
-  disc(p, 7.5, 21, 5, 1.6, SHADOW, 70);
+function groundShadow(p: PixelSink, rx = 5, ry = 1.6): void {
+  disc(p, 7.5, 21, rx, ry, SHADOW, 70);
 }
 
 /** Two feet, with the walk lift applied. `y` is the planted baseline. */
@@ -335,143 +345,206 @@ function feet(p: PixelSink, frame: FrameName, colour: number, out: number, y: nu
  */
 function troggCrest(p: PixelSink, c: TroggSkin, view: View, hb: number, lean: number): void {
   if (c.crest === "none") {
-    if (view !== "side") { dot(p, 3, 6 + hb, c.shade); dot(p, 12, 6 + hb, c.shade); }
+    if (view !== "side") {
+      dot(p, 3, 5 + hb, c.light);
+      dot(p, 12, 5 + hb, c.light);
+      dot(p, 4, 4 + hb, c.out);
+      dot(p, 11, 4 + hb, c.out);
+    }
     return;
   }
   const horns = c.crest === "horns";
   const fill = horns ? c.light : c.body;
-  const ry = horns ? 1.7 : 2;
+  const ry = horns ? 1.5 : 1.8;
   if (view === "side") {
-    blob(p, 2.5 + lean, 7 + hb, 1.3, ry, fill, c.out);
-    if (horns) dot(p, 2.5 + lean, 4 + hb, c.out); // a tip
+    blob(p, 3 + lean, 7 + hb, 1.2, ry, fill, c.out);
+    if (horns) dot(p, 3 + lean, 4 + hb, c.out);
     return;
   }
-  const lx = horns ? 3.4 : 2.6;
-  const rx = horns ? 11.6 : 12.4;
-  blob(p, lx, 7 + hb, 1.3, ry, fill, c.out);
-  blob(p, rx, 7 + hb, 1.3, ry, fill, c.out);
+  const lx = horns ? 3.2 : 2.8;
+  const rx = horns ? 11.8 : 12.2;
+  blob(p, lx, 6.7 + hb, 1.2, ry, fill, c.out);
+  blob(p, rx, 6.7 + hb, 1.2, ry, fill, c.out);
   if (horns) { dot(p, lx, 4 + hb, c.out); dot(p, rx, 4 + hb, c.out); }
+}
+
+function troggTexture(p: PixelSink, c: TroggSkin, ox = 0, oy = 0): void {
+  const flecks: [number, number][] = [
+    [4, 6], [8, 5], [12, 7], [5, 11], [11, 10], [3, 15], [8, 16], [12, 14],
+    [5, 19], [10, 19], [6, 13], [9, 8],
+  ];
+  for (const [x, y] of flecks) dot(p, x + ox, y + oy, (x + y) % 2 === 0 ? c.light : c.shade, 150);
+}
+
+function troggHand(p: PixelSink, x: number, y: number, c: TroggSkin): void {
+  blob(p, x, y, 1.4, 1.2, c.light, c.out);
+  dot(p, x - 1, y + 1, c.out);
+  dot(p, x, y + 1, c.out);
+  dot(p, x + 1, y + 1, c.out);
+}
+
+function troggFaceDown(p: PixelSink, c: TroggSkin, hb: number): void {
+  blob(p, 7.5, 8 + hb, 5.8, 4.6, c.body, c.out);
+  troggCrest(p, c, "down", hb, 0);
+  disc(p, 7.5, 5.5 + hb, 3.6, 1.4, c.light);
+  // heavy brow shelves above square red eyes
+  rect(p, 4, 7 + hb, 3, 1, c.out);
+  rect(p, 9, 7 + hb, 3, 1, c.out);
+  rect(p, 5, 8 + hb, 2, 2, c.eye);
+  rect(p, 10, 8 + hb, 2, 2, c.eye);
+  dot(p, 6, 8 + hb, c.pupil);
+  dot(p, 11, 8 + hb, c.pupil);
+  // broad nose bridge, open dark mouth, little teeth
+  rect(p, 7, 10 + hb, 2, 1, c.shade);
+  rect(p, 6, 12 + hb, 4, 2, c.mouth);
+  dot(p, 6, 11 + hb, c.light);
+  dot(p, 9, 11 + hb, c.light);
+  dot(p, 6, 14 + hb, 0xf0e7cf);
+  dot(p, 9, 14 + hb, 0xf0e7cf);
 }
 
 const troggDraw = (p: PixelSink, view: View, frame: FrameName, c: TroggSkin): void => {
   const b = bodyBob(frame);
   const run = isRun(frame);
-  // Running hunch: the head dips toward the body (crouch) on every facing, and the
-  // side profile also pitches forward into the run (lean, mirrored with the sprite).
   const crouch = run ? 1 : 0;
-  const hb = b + crouch; // head bob — head region only, so it ducks below the torso
+  const hb = b + crouch;
   const lean = view === "side" && run ? RUN_LEAN : 0;
-  groundShadow(p);
-  // Stance widens a touch when running.
-  feet(p, frame, c.shade, c.out, 20, run ? 5 : 5.5, run ? 10 : 9.5);
-
-  // torso
-  blob(p, 7.5, 15 + b, 4, 3.6, c.body, c.out);
-  disc(p, 7.5, 16 + b, 2.4, 2.6, c.belly);
+  groundShadow(p, run ? 5.8 : 5.2, 1.7);
+  feet(p, frame, c.shade, c.out, 20, run ? 4.8 : 5.2, run ? 10.4 : 9.8);
 
   if (view === "side") {
-    // arm swings forward (to the right), further on a run than a walk
     const swing = stride(frame) * (run ? 2 : 1);
-    blob(p, 10 + lean, 14 + b + swing, 1.4, 2, c.shade, c.out);
-    // head, nudged toward the facing direction (and forward when running)
-    blob(p, 8.5 + lean, 8 + hb, 5, 4.4, c.body, c.out);
-    disc(p, 6 + lean, 6 + hb, 2.6, 2.6, c.light); // lit crown
-    troggCrest(p, c, "side", hb, lean); // trailing crest
-    // brow + single eye looking right
-    dot(p, 11 + lean, 8 + hb, c.eye); dot(p, 12 + lean, 8 + hb, c.eye); dot(p, 11 + lean, 9 + hb, c.eye);
+    // crouched back, sunken belly, and long arms echo the reference trogg pose.
+    blob(p, 7 + lean * 0.3, 14 + b, 4.5, 5.1, c.body, c.out);
+    disc(p, 6, 15 + b, 2.4, 2.4, c.belly);
+    line(p, 4, 13 + b, 9, 13 + b, c.shade);
+    line(p, 5, 15 + b, 9, 15 + b, c.shade);
+    blob(p, 8.8 + lean, 8.5 + hb, 5.3, 4.2, c.body, c.out);
+    disc(p, 6.8 + lean, 6.3 + hb, 2.8, 1.6, c.light);
+    troggCrest(p, c, "side", hb, lean);
+    blob(p, 3.8, 12 + b, 1.8, 3.4, c.shade, c.out);
+    line(p, 3, 14 + b, 3, 18 + b + swing * 0.5, c.shade);
+    troggHand(p, 3, 18 + b + swing * 0.5, c);
+    line(p, 9, 14 + b, 12, 16 + b + swing, c.shade);
+    troggHand(p, 12, 16 + b + swing, c);
+    rect(p, 11 + lean, 8 + hb, 2, 2, c.eye);
     dot(p, 12 + lean, 8 + hb, c.pupil);
-    rect(p, 12 + lean, 11 + hb, 2, 1, c.mouth); // snout/mouth tip
+    rect(p, 12 + lean, 11 + hb, 2, 2, c.mouth);
+    dot(p, 13 + lean, 10 + hb, c.light);
+    dot(p, 13 + lean, 13 + hb, 0xf0e7cf);
+    troggTexture(p, c);
     return;
   }
+
+  // broad chest, hunched shoulders, and dangling long arms for the camera-facing views
+  blob(p, 7.5, 15 + b, 4.6, 4.4, c.body, c.out);
+  disc(p, 7.5, 16 + b, 2.6, 2.7, c.belly);
+  blob(p, 4, 13 + b, 1.8, 2.6, c.shade, c.out);
+  blob(p, 11, 13 + b, 1.8, 2.6, c.shade, c.out);
+  line(p, 3, 15 + b, 2, 18 + b + stride(frame), c.shade);
+  line(p, 12, 15 + b, 13, 18 + b - stride(frame), c.shade);
+  troggHand(p, 2, 18 + b + stride(frame), c);
+  troggHand(p, 13, 18 + b - stride(frame), c);
+  line(p, 5, 14 + b, 10, 14 + b, c.shade);
 
   if (view === "up") {
-    // back of the head: no face, lit crown, the crest, a little spine tuft
-    blob(p, 7.5, 8 + hb, 5.4, 4.6, c.body, c.out);
-    disc(p, 7.5, 6 + hb, 3.4, 2.4, c.light);
+    blob(p, 7.5, 8 + hb, 5.6, 4.4, c.body, c.out);
+    disc(p, 7.5, 6 + hb, 3.5, 1.8, c.light);
     troggCrest(p, c, "up", hb, 0);
-    rect(p, 7, 11 + hb, 1, 3, c.shade); // nape/spine
+    rect(p, 7, 10 + hb, 2, 5, c.shade);
+    troggTexture(p, c);
     return;
   }
 
-  // down: face the camera, big glowing eyes
-  blob(p, 7.5, 8 + hb, 5.6, 4.8, c.body, c.out);
-  troggCrest(p, c, "down", hb, 0);
-  disc(p, 7.5, 5.5 + hb, 3.4, 1.8, c.light); // lit brow
-  // eyes
-  for (const ex of [5, 10]) {
-    disc(p, ex, 8 + hb, 1.7, 1.9, c.eye);
-    dot(p, ex + (ex === 5 ? 0.3 : -0.3), 8 + hb, c.pupil);
-    dot(p, ex, 8.6 + hb, c.pupil);
-  }
-  // nostrils + mouth
-  dot(p, 7, 10.5 + hb, c.mouth); dot(p, 8, 10.5 + hb, c.mouth);
-  rect(p, 6, 12 + hb, 4, 1, c.mouth);
+  troggFaceDown(p, c, hb);
+  troggTexture(p, c);
 };
 
 // ── hog ──────────────────────────────────────────────────────────────────────
 // A friendly hedgehog: cream snout and belly, a spiky quill dome over the back.
 
-/** Quills: a dome of base colour, mottled light/dark, with a spiky silhouette. */
+/** Quills: a soft cloak of colour, with short dash marks like the mascot references. */
 function quillDome(p: PixelSink, cx: number, cy: number, rx: number, ry: number, h: HogSkin): void {
   blob(p, cx, cy, rx, ry, h.quill, h.out);
-  // deterministic mottling — a fixed lattice so the texture is identical
-  // everywhere (same intent as terrain's seeded rng, but no state needed).
   for (let y = Math.ceil(cy - ry); y <= Math.floor(cy + ry); y++) {
     for (let x = Math.ceil(cx - rx); x <= Math.floor(cx + rx); x++) {
       const nx = (x - cx) / rx;
       const ny = (y - cy) / ry;
       if (nx * nx + ny * ny > 1) continue;
-      const k = (x * 3 + y * 5) % 4;
-      if (k === 0) dot(p, x, y, h.quillLt);
-      else if (k === 2) dot(p, x, y, h.quillDk);
+      const k = (x * 5 + y * 3) % 7;
+      if (k === 0) line(p, x - 0.4, y, x + 0.4, y, h.quillDk);
+      else if (k === 3) dot(p, x, y, h.quillLt, 120);
     }
   }
-  // spikes poking out along the top arc
-  for (let x = Math.ceil(cx - rx + 1); x <= Math.floor(cx + rx - 1); x += 2) {
-    const nx = (x - cx) / rx;
-    const top = cy - ry * Math.sqrt(Math.max(0, 1 - nx * nx));
-    dot(p, x, top - 1, x % 4 === 0 ? h.quillLt : h.quillDk);
+}
+
+function hogEar(p: PixelSink, x: number, y: number, h: HogSkin): void {
+  blob(p, x, y, 1.3, 1.3, h.face, h.out);
+  disc(p, x, y, 0.7, 0.7, h.faceDk);
+}
+
+function hogArm(p: PixelSink, x: number, y: number, dir: -1 | 1, h: HogSkin): void {
+  line(p, x, y, x + dir * 1.8, y + 2.2, h.faceDk);
+  blob(p, x + dir * 2, y + 2.4, 0.8, 0.9, h.faceDk, h.out);
+}
+
+function hogFaceFront(p: PixelSink, h: HogSkin, y: number, mood: "open" | "smile" = "open"): void {
+  disc(p, 7.5, y, 3.4, 2.7, h.faceLt);
+  // small shiny eyes
+  for (const ex of [5.6, 9.4]) {
+    dot(p, ex, y - 1.4, h.eye);
+    dot(p, ex, y - 0.4, h.eye);
+    dot(p, ex, y - 1.8, h.glint);
+  }
+  // muzzle bridge and nose
+  line(p, 5.5, y + 1, 7.5, y, h.out);
+  line(p, 9.5, y + 1, 7.5, y, h.out);
+  dot(p, 7.5, y + 0.5, h.nose);
+  if (mood === "smile") {
+    dot(p, 6.8, y + 1.5, h.out);
+    dot(p, 8.2, y + 1.5, h.out);
+  } else {
+    rect(p, 7, y + 1.5, 1, 2, h.out);
   }
 }
 
 const hogDraw = (p: PixelSink, view: View, frame: FrameName, h: HogSkin): void => {
   const b = bodyBob(frame);
-  groundShadow(p);
-  feet(p, frame, h.faceDk, h.out, 20, 5.5, 9.5);
+  groundShadow(p, 5.6, 1.7);
+  feet(p, frame, h.faceDk, h.out, 20, 5.6, 9.4);
 
   if (view === "side") {
-    // belly/snout in front (right), quills doming over the back (left)
-    blob(p, 8, 15 + b, 4.4, 3.4, h.face, h.out);
-    quillDome(p, 6, 12 + b, 4.6, 4.2, h);
-    // pointed snout to the right
-    blob(p, 12, 14 + b, 2, 1.8, h.faceLt, h.out);
-    dot(p, 13, 14 + b, h.nose); dot(p, 14, 14 + b, h.nose);
-    // eye
-    dot(p, 10, 12 + b, h.eye); dot(p, 10, 11 + b, h.eye);
-    dot(p, 10, 11 + b, h.glint);
+    // rounded body with the quill cloak sweeping behind, snout in front.
+    quillDome(p, 5.5, 12 + b, 4.4, 6, h);
+    blob(p, 8.4, 15 + b, 4.4, 3.8, h.face, h.out);
+    disc(p, 8.5, 16 + b, 2.7, 2.3, h.faceLt);
+    hogEar(p, 9.7, 8.2 + b, h);
+    blob(p, 10, 11 + b, 3, 2.8, h.face, h.out);
+    blob(p, 12.6, 12 + b, 1.9, 1.4, h.faceLt, h.out);
+    dot(p, 14, 12 + b, h.nose);
+    rect(p, 11, 10 + b, 1, 2, h.eye);
+    dot(p, 11, 10 + b, h.glint);
+    hogArm(p, 9, 14 + b, 1, h);
     return;
   }
 
   if (view === "up") {
-    // walking away: almost all quills, a sliver of feet below
-    quillDome(p, 7.5, 12 + b, 6, 5.4, h);
-    disc(p, 7.5, 9 + b, 2.4, 1.6, h.quillDk); // crown shade
+    quillDome(p, 7.5, 12 + b, 6.5, 6.4, h);
+    hogEar(p, 4.4, 7 + b, h);
+    hogEar(p, 10.6, 7 + b, h);
+    disc(p, 7.5, 16 + b, 3.7, 2.5, h.faceDk, 90);
     return;
   }
 
-  // down: round cream face under a quill hood, beady eyes, button nose
-  quillDome(p, 7.5, 9 + b, 6.2, 5, h);
-  blob(p, 7.5, 15 + b, 4.6, 3.4, h.face, h.out); // belly
-  disc(p, 7.5, 13.5 + b, 3.6, 2.8, h.faceLt); // face
-  // eyes
-  for (const ex of [5.5, 9.5]) {
-    dot(p, ex, 13 + b, h.eye);
-    dot(p, ex, 12 + b, h.eye);
-    dot(p, ex, 12 + b, h.glint);
-  }
-  // snout + nose
-  blob(p, 7.5, 16 + b, 1.8, 1.6, h.faceLt, h.out);
-  dot(p, 7, 16 + b, h.nose); dot(p, 8, 16 + b, h.nose);
+  quillDome(p, 7.5, 10 + b, 6.4, 6.2, h);
+  hogEar(p, 4.4, 6.8 + b, h);
+  hogEar(p, 10.6, 6.8 + b, h);
+  blob(p, 7.5, 15 + b, 4.8, 3.8, h.face, h.out);
+  disc(p, 7.5, 16 + b, 3.1, 2.4, h.faceLt);
+  hogArm(p, 3.5, 13.5 + b, -1, h);
+  hogArm(p, 11.5, 13.5 + b, 1, h);
+  blob(p, 7.5, 10 + b, 3.7, 3.2, h.face, h.out);
+  hogFaceFront(p, h, 10 + b, "open");
 };
 
 // ── buff hog ────────────────────────────────────────────────────────────────────
@@ -492,41 +565,39 @@ const BUFF = {
 const buffDraw = (p: PixelSink, view: View, frame: FrameName): void => {
   const c = BUFF;
   const b = bodyBob(frame);
-  groundShadow(p);
-  feet(p, frame, c.skinDk, c.out, 20, 5.5, 9.5);
-  // thick thighs
-  blob(p, 6, 17 + b, 1.7, 2, c.skin, c.out);
-  blob(p, 9, 17 + b, 1.7, 2, c.skin, c.out);
+  groundShadow(p, 6.2, 1.9);
+  feet(p, frame, c.skinDk, c.out, 20, 5, 10);
+  blob(p, 5.6, 17 + b, 1.8, 2.4, c.skin, c.out);
+  blob(p, 9.4, 17 + b, 1.8, 2.4, c.skin, c.out);
 
   if (view === "up") {
-    // broad back: lats taper to the waist, quill ridge down the spine, raised arms
-    blob(p, 7.5, 12 + b, 5.4, 4, c.skin, c.out);
-    rect(p, 7, 9 + b, 2, 5, c.skinDk);
-    blob(p, 2.6, 8 + b, 1.7, 2.4, c.skin, c.out); // raised arms
-    blob(p, 12.4, 8 + b, 1.7, 2.4, c.skin, c.out);
-    quillDome(p, 7.5, 7 + b, 2.4, 1.8, HOG_SKINS.classic!);
+    quillDome(p, 7.5, 7 + b, 3.2, 2.5, HOG_SKINS.classic!);
+    blob(p, 7.5, 12.5 + b, 5.8, 4.6, c.skin, c.out);
+    rect(p, 7, 9 + b, 2, 6, c.skinDk);
+    blob(p, 2.2, 9 + b, 2, 3.2, c.skin, c.out);
+    blob(p, 12.8, 9 + b, 2, 3.2, c.skin, c.out);
     return;
   }
 
   const side = view === "side";
-  // barrel chest + pecs
-  blob(p, 7.5, 13 + b, side ? 4.6 : 5.2, 3.8, c.skin, c.out);
-  disc(p, 5.6, 12 + b, 1.7, 1.5, c.skinLt);
-  disc(p, 9.4, 12 + b, 1.7, 1.5, c.skinLt);
-  dot(p, 7.5, 14 + b, c.skinDk); dot(p, 7.5, 15 + b, c.skinDk); // ab seam
-
-  // raised arms, fists up by the head — the flex
+  quillDome(p, 7.5, 5.5 + b, 3, 2.4, HOG_SKINS.classic!);
+  blob(p, 7.5, 12.8 + b, side ? 4.8 : 5.6, 4.4, c.skin, c.out);
+  disc(p, 5.5, 12 + b, 1.8, 1.5, c.skinLt);
+  disc(p, 9.5, 12 + b, 1.8, 1.5, c.skinLt);
+  line(p, 7.5, 12 + b, 7.5, 17 + b, c.out);
+  line(p, 5.5, 15 + b, 9.5, 15 + b, c.skinDk);
+  dot(p, 6.7, 16 + b, c.skinDk);
+  dot(p, 8.3, 16 + b, c.skinDk);
   for (const s of [-1, 1]) {
     const sx = 7.5 + s * 4;
-    blob(p, sx, 10 + b, 1.9, 2.1, c.skin, c.out); // bicep ball
-    blob(p, sx - s * 1.2, 7.5 + b, 1.3, 1.6, c.skinLt, c.out); // forearm/fist toward head
+    blob(p, sx, 10.5 + b, 2.2, 2.6, c.skinDk, c.out);
+    blob(p, sx - s * 1, 7.2 + b, 1.6, 1.8, c.skinLt, c.out);
+    dot(p, sx - s * 1.2, 6 + b, c.out);
   }
-
-  // small head with quill hair + hedgehog face between the arms
-  quillDome(p, 7.5, 5.5 + b, 2.7, 2.1, HOG_SKINS.classic!);
-  disc(p, 7.5, 7.5 + b, 2.1, 1.8, c.face);
-  dot(p, 6.6, 7.4 + b, c.eye); dot(p, 8.4, 7.4 + b, c.eye);
-  dot(p, 7.5, 8.4 + b, c.out); // determined mouth
+  disc(p, 7.5, 7.7 + b, 2.3, 1.9, c.face);
+  dot(p, 6.6, 7.5 + b, c.eye);
+  dot(p, 8.4, 7.5 + b, c.eye);
+  line(p, 6.7, 8.7 + b, 8.3, 8.7 + b, c.out);
 };
 
 // ── dino hog ────────────────────────────────────────────────────────────────────
@@ -534,11 +605,11 @@ const buffDraw = (p: PixelSink, view: View, frame: FrameName): void => {
 // (GDD "Hogs": big showpiece, 2×2). Like buff, authored at 16×24 and rendered double.
 
 const DINO = {
-  out: 0x223315,
-  body: 0x6fa84a,
-  bodyLt: 0x8cc25e,
-  bodyDk: 0x4e7d33,
-  belly: 0xb6d188,
+  out: 0x17250f,
+  body: 0x748b32,
+  bodyLt: 0xa2ad45,
+  bodyDk: 0x465b1f,
+  belly: 0xc3bf6e,
   face: 0xf2e4c2,
   tooth: 0xf3eedf,
   eye: 0x1c140c,
@@ -546,53 +617,67 @@ const DINO = {
 
 /** Sawtooth dino ridge along an arc — the costume's spiky back. */
 function dinoRidge(p: PixelSink, cx: number, top: number, span: number, dk: number): void {
-  for (let x = cx - span; x <= cx + span; x += 2) dot(p, x, top - 1, dk);
+  for (let x = cx - span; x <= cx + span; x += 2) {
+    dot(p, x, top - 1, dk);
+    dot(p, x, top, dk);
+  }
+}
+
+function dinoScales(p: PixelSink, c: typeof DINO, x0: number, y0: number, x1: number, y1: number): void {
+  for (let y = y0; y <= y1; y += 2) {
+    for (let x = x0 + (y % 4 === 0 ? 0 : 1); x <= x1; x += 3) {
+      dot(p, x, y, c.out, 150);
+      dot(p, x, y - 1, c.bodyLt, 120);
+    }
+  }
 }
 
 const dinoDraw = (p: PixelSink, view: View, frame: FrameName): void => {
   const c = DINO;
   const b = bodyBob(frame);
-  groundShadow(p);
+  groundShadow(p, 6.4, 1.9);
   feet(p, frame, c.bodyDk, c.out, 20, 5, 10);
 
   if (view === "up") {
-    blob(p, 7.5, 13 + b, 5.4, 4.4, c.body, c.out);
+    blob(p, 7.5, 13 + b, 5.8, 4.8, c.body, c.out);
     rect(p, 7, 9 + b, 2, 6, c.bodyDk); // spine
     dinoRidge(p, 7.5, 9 + b, 4, c.bodyDk);
-    blob(p, 2.4, 16 + b, 1.6, 1.2, c.bodyDk, c.out); // tail stub
+    dinoScales(p, c, 4, 11 + b, 11, 17 + b);
+    blob(p, 2.2, 16 + b, 2.4, 1.4, c.bodyDk, c.out);
     return;
   }
 
   if (view === "side") {
-    // tail left, big jaw right, the classic T-rex profile
-    blob(p, 2.4, 15 + b, 2.4, 1.4, c.body, c.out); // tail
-    blob(p, 7.5, 13 + b, 4.4, 3.8, c.body, c.out); // body
+    blob(p, 2.2, 15.5 + b, 3, 1.6, c.body, c.out);
+    dot(p, 0.5, 15 + b, c.out);
+    blob(p, 7.5, 13 + b, 4.8, 4.1, c.body, c.out);
     disc(p, 8, 14.5 + b, 2.6, 2.2, c.belly);
-    blob(p, 4, 12 + b, 1, 1.4, c.bodyDk, c.out); // little arm
-    dinoRidge(p, 6.5, 9 + b, 3, c.bodyDk);
-    // head + open jaw to the right
-    blob(p, 11.5, 11 + b, 2.8, 2.4, c.body, c.out);
-    rect(p, 10, 11 + b, 5, 1, c.out); // mouth gap
-    for (let x = 10; x <= 14; x += 2) { dot(p, x, 10 + b, c.tooth); dot(p, x + 1, 12 + b, c.tooth); }
-    disc(p, 11.5, 11.6 + b, 1.1, 1, c.face); // hog face in the maw
-    dot(p, 12, 11.4 + b, c.eye);
-    dot(p, 12.6, 8.6 + b, c.eye); // dino eye on the snout
+    dinoScales(p, c, 4, 11 + b, 10, 16 + b);
+    blob(p, 4, 12 + b, 1, 1.5, c.bodyDk, c.out);
+    dinoRidge(p, 6.5, 9 + b, 4, c.bodyDk);
+    blob(p, 11.3, 10.5 + b, 3.4, 2.8, c.body, c.out);
+    rect(p, 9, 11 + b, 6, 1, c.out);
+    for (let x = 9; x <= 14; x += 2) {
+      dot(p, x, 10 + b, c.tooth);
+      dot(p, x + 1, 12 + b, c.tooth);
+    }
+    disc(p, 11.3, 11.7 + b, 1.2, 1, c.face);
+    dot(p, 12, 11.5 + b, c.eye);
+    dot(p, 12.6, 8.4 + b, c.eye);
     return;
   }
 
-  // down: facing camera — toothy green hood, hog face peeking from the jaw
-  blob(p, 7.5, 14 + b, 5.4, 4.2, c.body, c.out);
+  blob(p, 7.5, 14 + b, 5.7, 4.6, c.body, c.out);
   disc(p, 7.5, 15 + b, 3, 2.6, c.belly);
-  blob(p, 3.4, 13 + b, 1, 1.4, c.bodyDk, c.out); // arms
+  dinoScales(p, c, 4, 12 + b, 11, 17 + b);
+  blob(p, 3.4, 13 + b, 1, 1.4, c.bodyDk, c.out);
   blob(p, 11.6, 13 + b, 1, 1.4, c.bodyDk, c.out);
-  // hood + eyes up top
-  blob(p, 7.5, 8 + b, 4.2, 3.2, c.body, c.out);
-  dinoRidge(p, 7.5, 5.5 + b, 3, c.bodyDk);
+  blob(p, 7.5, 7.8 + b, 4.5, 3.4, c.body, c.out);
+  dinoRidge(p, 7.5, 5.3 + b, 4, c.bodyDk);
   dot(p, 5.6, 6.6 + b, c.eye); dot(p, 9.4, 6.6 + b, c.eye);
-  // open mouth with teeth, hog face inside
-  rect(p, 5, 9 + b, 6, 1, c.out);
-  for (let x = 5; x <= 10; x += 2) dot(p, x, 8 + b, c.tooth);
-  disc(p, 7.5, 10.5 + b, 2, 1.7, c.face);
+  rect(p, 4, 9 + b, 7, 1, c.out);
+  for (let x = 4; x <= 11; x += 2) dot(p, x, 8 + b, c.tooth);
+  disc(p, 7.5, 10.6 + b, 2.2, 1.7, c.face);
   dot(p, 6.7, 10.4 + b, c.eye); dot(p, 8.3, 10.4 + b, c.eye);
   dot(p, 7.5, 11.4 + b, c.out);
 };
@@ -605,41 +690,57 @@ const CHICK = {
   out: 0x2a2018,
   body: 0xf0e9da,
   bodyDk: 0xd8cfbc,
-  comb: 0xc0392b,
-  beak: 0xe08a2b,
+  comb: 0xd44a2b,
+  beak: 0xe6a62d,
   face: 0xf2e4c2,
   eye: 0x1c140c,
 } as const;
 
+function featherMarks(p: PixelSink, c: typeof CHICK, b: number): void {
+  const marks: [number, number][] = [[5, 12], [8, 13], [10, 15], [6, 16], [9, 17]];
+  for (const [x, y] of marks) {
+    dot(p, x, y + b, c.out, 160);
+    dot(p, x + 0.5, y + 0.5 + b, c.bodyDk);
+  }
+}
+
 const chickenDraw = (p: PixelSink, view: View, frame: FrameName): void => {
   const c = CHICK;
   const b = bodyBob(frame);
-  groundShadow(p);
+  groundShadow(p, 5.3, 1.7);
   // orange feet
   blob(p, 6.5, 20, 1, 0.9, c.beak, c.out);
   blob(p, 9, 20, 1, 0.9, c.beak, c.out);
 
   if (view === "up") {
     blob(p, 7.5, 13 + b, 5, 4.4, c.body, c.out);
-    blob(p, 4, 17 + b, 1.6, 1.4, c.comb, c.out); // tail feathers
+    disc(p, 7.5, 15 + b, 3, 2.5, c.bodyDk);
+    featherMarks(p, c, b);
+    blob(p, 3.7, 16.5 + b, 1.4, 1.2, c.comb, c.out);
+    blob(p, 2.8, 15.4 + b, 1.1, 1, c.comb, c.out);
     dot(p, 7, 5 + b, c.comb); dot(p, 7.5, 4.5 + b, c.comb); dot(p, 8, 5 + b, c.comb);
     return;
   }
 
-  // plump round body + stubby wings
   blob(p, 7.5, 14 + b, 5, 4.2, c.body, c.out);
   disc(p, 7.5, 15 + b, 3, 2.6, c.bodyDk);
-  blob(p, 3.4, 13.5 + b, 1.3, 1.8, c.body, c.out);
-  blob(p, 11.6, 13.5 + b, 1.3, 1.8, c.body, c.out);
-  // red tail feathers (one side)
-  blob(p, 3, 12 + b, 1.2, 1.4, c.comb, c.out);
-  // comb on top
-  dot(p, 6.6, 5 + b, c.comb); dot(p, 7.5, 4.4 + b, c.comb); dot(p, 8.4, 5 + b, c.comb);
-  // hog face under a beak
-  disc(p, 7.5, 9.5 + b, 2.3, 2, c.face);
-  dot(p, 6.5, 9.3 + b, c.eye); dot(p, 8.5, 9.3 + b, c.eye);
-  rect(p, 7, 10.6 + b, 2, 1, c.beak); // beak
-  if (view === "side") dot(p, 10, 9.3 + b, c.eye); // profile eye nudge
+  featherMarks(p, c, b);
+  blob(p, 3.2, 13.8 + b, 1.5, 2, c.body, c.out);
+  blob(p, 11.8, 13.8 + b, 1.5, 2, c.body, c.out);
+  line(p, 3, 14 + b, 2, 12 + b, c.out);
+  line(p, 12, 14 + b, 13, 12 + b, c.out);
+  blob(p, 3, 12 + b, 1.2, 1.5, c.comb, c.out);
+  dot(p, 6.5, 5 + b, c.comb);
+  blob(p, 7.5, 4.8 + b, 1, 1.3, c.comb, c.out);
+  dot(p, 8.6, 5 + b, c.comb);
+  disc(p, 7.5, 9.5 + b, 2.5, 2, c.face);
+  dot(p, 6.4, 9.2 + b, c.eye);
+  dot(p, 8.6, 9.2 + b, c.eye);
+  blob(p, 7.5, 10.6 + b, 1.4, 0.8, c.beak, c.out);
+  if (view === "side") {
+    dot(p, 10, 9.2 + b, c.eye);
+    blob(p, 10.5, 10.5 + b, 1.3, 0.8, c.beak, c.out);
+  }
 };
 
 // ── ghost ──────────────────────────────────────────────────────────────────────
@@ -649,30 +750,38 @@ const chickenDraw = (p: PixelSink, view: View, frame: FrameName): void => {
 // One frame, feet-anchored like every avatar.
 
 const GHOST = {
-  sheet: 0xf3efe6,
-  shade: 0xd7d2c5,
-  out: 0x2a2620,
+  sheet: 0xf7f5ec,
+  shade: 0xcfcfc9,
+  out: 0x181818,
   eye: 0x1c140c,
   foot: 0x7a5b3c,
+  face: 0xf2c99f,
 } as const;
 
 export function ghostDraw(p: PixelSink): void {
   const g = GHOST;
-  groundShadow(p);
-  // stubby feet peeking under the hem
-  blob(p, 6, 20, 1.1, 1, g.foot, g.out);
-  blob(p, 9.5, 20, 1.1, 1, g.foot, g.out);
-  // draped body + crown, with two ear bumps
-  blob(p, 7.5, 13, 5.6, 6.2, g.sheet, g.out);
-  disc(p, 7.5, 8, 4.4, 3.4, g.sheet);
-  blob(p, 5, 5.5, 1.7, 1.9, g.sheet, g.out);
-  blob(p, 10, 5.5, 1.7, 1.9, g.sheet, g.out);
-  // shaded underfolds either side
-  disc(p, 4.4, 15, 1.5, 2.3, g.shade);
-  disc(p, 10.6, 15, 1.5, 2.3, g.shade);
-  // scalloped hem
-  for (let x = 3; x <= 12; x += 3) { dot(p, x, 18, g.out); dot(p, x, 19, g.shade); }
-  // eye holes
-  disc(p, 6, 11, 1, 1.5, g.eye);
-  disc(p, 9.5, 11, 1, 1.5, g.eye);
+  groundShadow(p, 5.8, 1.8);
+  blob(p, 5.8, 20, 1.1, 1, g.foot, g.out);
+  blob(p, 9.4, 20, 1.1, 1, g.foot, g.out);
+  blob(p, 7.5, 13, 5.8, 6.1, g.sheet, g.out);
+  disc(p, 7.5, 8, 4.7, 3.8, g.sheet);
+  // hidden Hog ears peeking through the sheet.
+  blob(p, 4.5, 6.1, 1.3, 1.5, g.face, g.out);
+  blob(p, 10.5, 6.1, 1.3, 1.5, g.face, g.out);
+  disc(p, 4.5, 6.4, 0.7, 0.8, 0xd99d72);
+  disc(p, 10.5, 6.4, 0.7, 0.8, 0xd99d72);
+  // face windows, sheet folds, and side drapes.
+  blob(p, 5.9, 10.4, 1.5, 2.2, g.face, g.out);
+  blob(p, 9.3, 10.4, 1.5, 2.2, g.face, g.out);
+  dot(p, 6, 10, g.eye); dot(p, 6, 9, g.eye); dot(p, 6, 9, 0xffffff);
+  dot(p, 9.4, 10, g.eye); dot(p, 9.4, 9, g.eye); dot(p, 9.4, 9, 0xffffff);
+  line(p, 7.2, 12.5, 8, 12.2, g.out);
+  disc(p, 4, 15, 1.3, 3, g.shade);
+  disc(p, 11, 15, 1.3, 3, g.shade);
+  line(p, 3, 9, 2, 18, g.out);
+  line(p, 12, 9, 13, 18, g.out);
+  for (let x = 3; x <= 12; x += 3) {
+    dot(p, x, 18, g.out);
+    dot(p, x + 1, 19, g.shade);
+  }
 }
