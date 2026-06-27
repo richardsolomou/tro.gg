@@ -10,6 +10,7 @@ import {
   elapsedMs,
   facingTile,
   findPath,
+  footprintTiles,
   getZone,
   GHOST_HAUNT_HISTORY_MAX,
   HOG_IDLE_CHANCE,
@@ -17,6 +18,7 @@ import {
   HOG_STEP_INTERVAL_MS,
   HOG_TURN_CHANCE,
   INVENTORY_SLOT_COUNT,
+  hogSize,
   isColorIndex,
   isEquippableItem,
   isGeneratedName,
@@ -28,15 +30,22 @@ import {
   STYLE_UNSET,
   isValidName,
   isWalkable,
+  HOG_MAX_HEALTH,
   MAX_BOULDERS_PER_ZONE,
   MAX_GROUND_ITEMS_PER_ZONE,
   MAX_HOGS_PER_ZONE,
+  PLAYER_MAX_HEALTH,
+  PLAYER_RESPAWN_MS,
   projectMotion,
   serializePath,
   snapToTile,
   SPACETIMEAUTH_ISSUER,
   spawnTile,
+  spawnTiles,
   STARTING_ZONE_SLUG,
+  SWORD_DAMAGE,
+  THROWN_OBJECT_DAMAGE,
+  THROWN_OBJECT_RANGE,
   type Stamp,
   tileKey,
   TROGG_STYLES,
@@ -76,7 +85,10 @@ import {
  * duplicate swords/picks are distinct in the HUD even though everyone else only
  * needs the item id to render the held sprite. `equipmentAction` +
  * `equipmentActionAt` are the last visible equipment use impulse, so every client
- * can briefly animate a swing or chop from synced player state.
+ * can briefly animate a swing or chop from synced player state. `health`, `dead`,
+ * and `respawnAt` are the pre-alpha combat state: damage reduces health, a dead
+ * trogg stays online and inert for a visible countdown, then a scheduled reducer
+ * returns it to spawn.
  */
 const player = table(
   { name: "player", public: true },
@@ -123,6 +135,9 @@ const player = table(
     // Visual variant for carried entities that need one. Currently only Hogs use it:
     // pickup copies the Hog row's effective style here, and put-down copies it back.
     carryingStyle: t.string().default(""),
+    health: t.i32().default(PLAYER_MAX_HEALTH),
+    dead: t.bool().default(false),
+    respawnAt: t.option(t.timestamp()).default(undefined),
   },
 );
 
@@ -201,7 +216,8 @@ const boulder = table(
  * An ambient Hog NPC (GDD "Hogs"): a friendly hedgehog that roams the zone on its
  * own. It carries the same intent-based motion as a trogg — an origin (x, y), a
  * cardinal direction, and `movedAt` — so clients derive its position with
- * `projectMotion` and there's no per-frame sync (invariant 2). Hogs are
+ * `projectMotion` and there's no per-frame sync (invariant 2). `health` makes
+ * Hogs damageable by the same tile-based combat actions as troggs. Hogs are
  * server-owned (no identity): seeded per zone from the `ZONES` registry on first
  * connect, spawned by the Commands panel, then moved only by the scheduled
  * `wanderHogs` reducer. Merchant/dialogue Hog roles are separate later work.
@@ -231,7 +247,12 @@ const hog = table(
     // (the -1 default is its pre-migration sentinel). Kept only to avoid a column reorder.
     homeX: t.i32().default(-1),
     homeY: t.i32().default(-1),
+    // Explicit hedgehog style (GDD "Hogs"): "" = a common roamer whose skin the client
+    // derives from the id; "buff"/"dino" = a 2×2 showpiece; "chicken" = the easter egg.
+    // The server reads `hogSize(style)` for the footprint, so the style alone carries the
+    // size. Appended last per the migration note on the player table.
     style: t.string().default(""),
+    health: t.i32().default(HOG_MAX_HEALTH),
   },
 );
 
@@ -248,6 +269,7 @@ const groundItem = table(
     item: t.string(),
     x: t.i32(),
     y: t.i32(),
+    qty: t.i32().default(1),
   },
 );
 
@@ -298,7 +320,21 @@ const hogWander = table(
   },
 );
 
-const spacetimedb = schema({ player, chatMessage, ghostHaunt, claimCode, boulder, hog, groundItem, inventory, playerConnection, hogWander });
+/**
+ * One-shot player respawn timers. Each death inserts one row scheduled for
+ * `respawnAt`; the reducer re-checks the player row before respawning so stale
+ * timer rows are harmless.
+ */
+const playerRespawn = table(
+  { name: "player_respawn", scheduled: (): any => respawnPlayers },
+  {
+    scheduledId: t.u64().primaryKey().autoInc(),
+    playerId: t.identity().index("btree"),
+    scheduledAt: t.scheduleAt(),
+  },
+);
+
+const spacetimedb = schema({ player, chatMessage, ghostHaunt, claimCode, boulder, hog, groundItem, inventory, playerConnection, hogWander, playerRespawn });
 export default spacetimedb;
 
 /** The reducer context, typed against this module's schema (db view + sender). */
@@ -335,7 +371,7 @@ function captureProcedureEvents(ctx: ProcCtx, posthogKey: string, events: Analyt
   }
 }
 
-function sourceProp(source: string): { source?: string } {
+function sourceProp(source: string): Record<string, string> {
   const trimmed = source.trim();
   return trimmed ? { source: trimmed.slice(0, 64) } : {};
 }
@@ -422,6 +458,9 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
     equipmentAction: "",
     equipmentActionAt: Timestamp.UNIX_EPOCH,
     equippedMainHandInventoryId: 0n,
+    health: PLAYER_MAX_HEALTH,
+    dead: false,
+    respawnAt: undefined,
   });
 });
 
@@ -438,11 +477,16 @@ function seedBoulders(ctx: Ctx, zone: Zone): void {
   }
 }
 
-/** Seed a zone's roaming Hogs from the registry, unless it already has some. */
+/** Seed a zone's Hogs from the registry, unless it already has some — the common
+ *  roamers (style "" → client-derived skin) and the rare 2×2 showpieces (explicit
+ *  style, so `hogSize` makes them big). */
 function seedHogs(ctx: Ctx, zone: Zone): void {
   if ([...ctx.db.hog.zoneId.filter(zone.slug)].length > 0) return;
   for (const h of zone.hogs) {
-    ctx.db.hog.insert({ id: 0n, zoneId: zone.slug, x: h.x, y: h.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, path: "", homeX: h.x, homeY: h.y, style: "" });
+    ctx.db.hog.insert({ id: 0n, zoneId: zone.slug, x: h.x, y: h.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, path: "", homeX: h.x, homeY: h.y, style: "", health: HOG_MAX_HEALTH });
+  }
+  for (const h of zone.bigHogs) {
+    ctx.db.hog.insert({ id: 0n, zoneId: zone.slug, x: h.x, y: h.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, path: "", homeX: h.x, homeY: h.y, style: h.style, health: HOG_MAX_HEALTH });
   }
 }
 
@@ -450,7 +494,7 @@ function seedHogs(ctx: Ctx, zone: Zone): void {
 function seedGroundItems(ctx: Ctx, zone: Zone): void {
   if ([...ctx.db.groundItem.zoneId.filter(zone.slug)].length > 0) return;
   for (const item of zone.items) {
-    ctx.db.groundItem.insert({ id: 0n, zoneId: zone.slug, item: item.item, x: item.x, y: item.y });
+    ctx.db.groundItem.insert({ id: 0n, zoneId: zone.slug, item: item.item, x: item.x, y: item.y, qty: 1 });
   }
 }
 
@@ -498,6 +542,7 @@ export const onDisconnect = spacetimedb.clientDisconnected((ctx) => {
 export const move = spacetimedb.reducer({ dirX: t.i32(), dirY: t.i32(), running: t.bool() }, (ctx, { dirX, dirY, running }) => {
   const p = ctx.db.player.identity.find(ctx.sender);
   if (!p) return;
+  if (p.dead) return;
   const dir = cardinal(dirX, dirY);
   if (!dir) return;
   const settled = settle(ctx, p, ctx.timestamp);
@@ -524,6 +569,7 @@ export const move = spacetimedb.reducer({ dirX: t.i32(), dirY: t.i32(), running:
 export const face = spacetimedb.reducer({ dirX: t.i32(), dirY: t.i32() }, (ctx, { dirX, dirY }) => {
   const p = ctx.db.player.identity.find(ctx.sender);
   if (!p) return;
+  if (p.dead) return;
   const dir = cardinal(dirX, dirY);
   if (!dir || (dir.dirX === 0 && dir.dirY === 0)) return;
   const settled = settle(ctx, p, ctx.timestamp);
@@ -550,6 +596,7 @@ export const face = spacetimedb.reducer({ dirX: t.i32(), dirY: t.i32() }, (ctx, 
 export const moveTo = spacetimedb.reducer({ x: t.i32(), y: t.i32(), running: t.bool() }, (ctx, target) => {
   const p = ctx.db.player.identity.find(ctx.sender);
   if (!p) return;
+  if (p.dead) return;
   const zone = getZone(p.zoneId);
   if (!zone) return;
 
@@ -586,6 +633,7 @@ export const moveTo = spacetimedb.reducer({ x: t.i32(), y: t.i32(), running: t.b
 export const push = spacetimedb.reducer((ctx) => {
   const p = ctx.db.player.identity.find(ctx.sender);
   if (!p) return;
+  if (p.dead) return;
   const zone = getZone(p.zoneId);
   if (!zone) return;
 
@@ -621,6 +669,7 @@ export const push = spacetimedb.reducer((ctx) => {
 function runInteract(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; dirY: number; source?: string }): AnalyticsEvent[] {
   const p = ctx.db.player.identity.find(ctx.sender);
   if (!p) return [];
+  if (p.dead) return [];
   const zone = getZone(p.zoneId);
   if (!zone) return [];
 
@@ -644,9 +693,10 @@ function runInteract(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; dirY
   const target = pickupTarget(ctx, p.zoneId, Math.round(pos.x), Math.round(pos.y), dir, ctx.timestamp);
   if (target?.kind === "item") {
     if (!isItemId(target.row.item)) return [];
-    if (!addInventory(ctx, p.identity, target.row.item, 1)) return [];
+    const qty = target.row.qty ?? 1;
+    if (!addInventory(ctx, p.identity, target.row.item, qty)) return [];
     ctx.db.groundItem.id.delete(target.row.id);
-    return [{ distinctId: distinctId(ctx), event: "inventory_item_acquired", properties: { ...props, item: target.row.item, qty: 1 } }];
+    return [{ distinctId: distinctId(ctx), event: "inventory_item_acquired", properties: { ...props, item: target.row.item, qty } }];
   }
   if (target?.kind === "boulder") {
     ctx.db.boulder.id.delete(target.row.id);
@@ -712,25 +762,26 @@ export const wanderHogs = spacetimedb.reducer({ timer: hogWander.rowType }, (ctx
   // re-bases each tile, so its stored intent is at most one tile old.
   const hogList = [...ctx.db.hog.iter()];
   type HogRow = (typeof hogList)[number];
-  const settled: { hog: HogRow; x: number; y: number; zone: Zone; blockers: Set<string> }[] = [];
+  const settled: { hog: HogRow; x: number; y: number; size: number; zone: Zone; blockers: Set<string> }[] = [];
   const hogTilesByZone = new Map<string, Set<string>>();
   for (const h of hogList) {
     const zone = getZone(h.zoneId);
     if (!zone) continue;
+    const size = hogSize(h.style);
     const blockers = blockersFor(h.zoneId);
     const bounds = zoneBounds(zone, (x, y) => blockers.has(tileKey(x, y)));
-    // Round the in-between position to the tile it ended on: a Hog steps tile-to-tile
-    // over walkable floor, so rounding stays on walkable floor (the `hog` origin is i32).
-    const pos = projectMotion(h, elapsedMs(h.movedAt, now), bounds);
+    // Round the in-between position (the footprint's top-left) to the tile it ended on:
+    // a Hog steps tile-to-tile over walkable floor, so rounding stays on walkable floor.
+    const pos = projectMotion({ ...h, size }, elapsedMs(h.movedAt, now), bounds);
     const x = Math.round(pos.x);
     const y = Math.round(pos.y);
-    settled.push({ hog: h, x, y, zone, blockers });
+    settled.push({ hog: h, x, y, size, zone, blockers });
     let tiles = hogTilesByZone.get(h.zoneId);
     if (!tiles) {
       tiles = new Set<string>();
       hogTilesByZone.set(h.zoneId, tiles);
     }
-    tiles.add(tileKey(x, y));
+    for (const tile of footprintTiles(x, y, size)) tiles.add(tileKey(tile.x, tile.y));
   }
 
   // Pass 2: pick each Hog's heading against walls, boulders, troggs, the other Hogs'
@@ -746,13 +797,19 @@ export const wanderHogs = spacetimedb.reducer({ timer: hogWander.rowType }, (ctx
       claimed = new Set<string>();
       claimedByZone.set(s.hog.zoneId, claimed);
     }
-    const ownTile = tileKey(s.x, s.y);
+    // A Hog's own footprint is excepted, so its next step — which overlaps where it
+    // stands (more so for a 2×2) — isn't read as blocked by itself.
+    const own = new Set(footprintTiles(s.x, s.y, s.size).map((t) => tileKey(t.x, t.y)));
     const bounds = zoneBounds(s.zone, (x, y) => {
       const k = tileKey(x, y);
-      return k !== ownTile && (s.blockers.has(k) || hogTiles.has(k) || claimed!.has(k));
+      return !own.has(k) && (s.blockers.has(k) || hogTiles.has(k) || claimed!.has(k));
     });
-    const dir = online ? pickWanderDir(ctx, bounds, s.hog, { x: s.x, y: s.y }) : { dirX: 0, dirY: 0 };
-    if (dir.dirX !== 0 || dir.dirY !== 0) claimed.add(tileKey(s.x + dir.dirX, s.y + dir.dirY));
+    const dir = online ? pickWanderDir(ctx, bounds, s.hog, { x: s.x, y: s.y }, s.size) : { dirX: 0, dirY: 0 };
+    // Claim the whole footprint the Hog steps into, so no other Hog this tick heads
+    // onto any tile of it (GDD: Hogs never overlap).
+    if (dir.dirX !== 0 || dir.dirY !== 0) {
+      for (const t of footprintTiles(s.x + dir.dirX, s.y + dir.dirY, s.size)) claimed.add(tileKey(t.x, t.y));
+    }
 
     // Skip the write when nothing changed — a resting Hog that re-rolls idle, or any
     // Hog once the zone has emptied — so an idle world produces no diffs (invariant 1).
@@ -765,6 +822,18 @@ export const wanderHogs = spacetimedb.reducer({ timer: hogWander.rowType }, (ctx
   // row was auto-deleted, then re-arm only while someone is watching.
   ctx.db.hogWander.clear();
   if (online) armWander(ctx);
+});
+
+/** Respawn a dead trogg whose one-shot death timer has elapsed. */
+export const respawnPlayers = spacetimedb.reducer({ timer: playerRespawn.rowType }, (ctx, { timer }) => {
+  ctx.db.playerRespawn.scheduledId.delete(timer.scheduledId);
+  const p = ctx.db.player.identity.find(timer.playerId);
+  if (!p || !p.dead) return;
+  if (!respawnDue(p, ctx.timestamp)) {
+    if (p.respawnAt) scheduleRespawnAt(ctx, p.identity, p.respawnAt);
+    return;
+  }
+  respawnPlayer(ctx, p);
 });
 
 /**
@@ -784,6 +853,7 @@ function runSpawn(ctx: Ctx, { kind, item = "", source = "" }: { kind: string; it
 
   const p = ctx.db.player.identity.find(ctx.sender);
   if (!p) return [];
+  if (p.dead) return [];
   const zone = getZone(p.zoneId);
   if (!zone) return [];
 
@@ -810,9 +880,9 @@ function runSpawn(ctx: Ctx, { kind, item = "", source = "" }: { kind: string; it
   } else if (kind === "hog") {
     // A spawned Hog starts at rest and joins the roamers — the next wander tick
     // gives it a heading like any other. `item` carries an explicit sprite style.
-    ctx.db.hog.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, path: "", homeX: tile.x, homeY: tile.y, style: item });
+    ctx.db.hog.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, path: "", homeX: tile.x, homeY: tile.y, style: item, health: HOG_MAX_HEALTH });
   } else {
-    ctx.db.groundItem.insert({ id: 0n, zoneId: p.zoneId, item, x: tile.x, y: tile.y });
+    ctx.db.groundItem.insert({ id: 0n, zoneId: p.zoneId, item, x: tile.x, y: tile.y, qty: 1 });
   }
 
   const properties: Record<string, string | number | boolean> = { zone: p.zoneId, kind, count: 1, ...sourceProp(source) };
@@ -1217,22 +1287,43 @@ export const discardItemAction = spacetimedb.procedure(
 /**
  * Use the equipped main-hand item (GDD "Avatars and equipment"). The row update
  * is a visible, low-volume impulse every client can animate. It preserves the
- * current movement intent — using a tool never turns into a stop. Pickaxes also
- * mine the faced boulder into one Stone inventory item; sword and shovel
- * currently have no world effect beyond the synced use animation.
+ * current movement intent — using a tool never turns into a stop. If the trogg is
+ * carrying a boulder or Hog, `F` throws it as a tile-based impact weapon. Otherwise
+ * pickaxes mine the faced boulder into one Stone inventory item, and swords damage
+ * the faced adjacent online trogg or Hog; at zero health the target dies.
  */
 function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; dirY: number; source?: string }): AnalyticsEvent[] {
   const p = ctx.db.player.identity.find(ctx.sender);
   if (!p) return [];
-  const equipped = equippedInventoryRow(ctx, p);
-  if (!equipped) return [];
+  if (p.dead) return [];
   const dir = cardinal(dirX, dirY);
   if (!dir || (dir.dirX === 0 && dir.dirY === 0)) return [];
 
   const zone = getZone(p.zoneId);
   if (!zone) return [];
   const pos = settle(ctx, p, ctx.timestamp);
+  const props = { zone: p.zoneId, ...sourceProp(source) };
   const events: AnalyticsEvent[] = [];
+
+  if (p.carrying !== "") {
+    const thrown = throwCarried(ctx, p, zone, pos, dir);
+    if (!thrown) return [];
+    const throwProps: Record<string, string | number | boolean> = { ...props, kind: thrown.kind, range: thrown.range };
+    if (thrown.hitTarget) throwProps.hit_target = thrown.hitTarget;
+    events.push({ distinctId: distinctId(ctx), event: "object_thrown", properties: throwProps });
+    if (thrown.hitTarget && thrown.damage) {
+      events.push({
+        distinctId: distinctId(ctx),
+        event: "combat_hit",
+        properties: { ...props, weapon: `thrown_${thrown.kind}`, target: thrown.hitTarget, damage: thrown.damage, killed: thrown.killed },
+      });
+    }
+    if (thrown.playerDeath) events.push(playerDiedEvent(thrown.playerDeath.distinctId, props, `thrown_${thrown.kind}`, thrown.playerDeath));
+    return events;
+  }
+
+  const equipped = equippedInventoryRow(ctx, p);
+  if (!equipped) return [];
 
   if (equipped.item === "pickaxe") {
     const ax = Math.round(pos.x) + dir.dirX;
@@ -1242,6 +1333,21 @@ function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; d
       if (addInventory(ctx, p.identity, "stone", 1)) {
         ctx.db.boulder.id.delete(b.id);
         events.push({ distinctId: distinctId(ctx), event: "inventory_item_acquired", properties: { zone: p.zoneId, item: "stone", qty: 1, ...sourceProp(source) } });
+      }
+    }
+  } else if (equipped.item === "sword") {
+    const ax = Math.round(pos.x) + dir.dirX;
+    const ay = Math.round(pos.y) + dir.dirY;
+    const target = playerAt(ctx, p.zoneId, ax, ay, ctx.timestamp, p.identity);
+    if (target) {
+      const result = damagePlayer(ctx, target, SWORD_DAMAGE);
+      events.push({ distinctId: distinctId(ctx), event: "combat_hit", properties: { ...props, weapon: "sword", target: "trogg", damage: SWORD_DAMAGE, killed: result.killed } });
+      if (result.killed) events.push(playerDiedEvent(target.identity.toHexString(), props, "sword", result));
+    } else {
+      const h = hogAt(ctx, p.zoneId, ax, ay, ctx.timestamp);
+      if (h) {
+        const result = damageHog(ctx, h, SWORD_DAMAGE);
+        events.push({ distinctId: distinctId(ctx), event: "combat_hit", properties: { ...props, weapon: "sword", target: "hog", damage: SWORD_DAMAGE, killed: result.killed } });
       }
     }
   }
@@ -1259,6 +1365,15 @@ function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; d
 
 export const useEquipped = spacetimedb.reducer({ dirX: t.i32(), dirY: t.i32() }, (ctx, args) => {
   runUseEquipped(ctx, args);
+});
+
+/** Manual compatibility hook: respawn only when the death timer is already due. */
+export const respawn = spacetimedb.reducer((ctx) => {
+  const p = ctx.db.player.identity.find(ctx.sender);
+  if (!p || !p.dead) return;
+  if (!respawnDue(p, ctx.timestamp)) return;
+  for (const timer of [...ctx.db.playerRespawn.playerId.filter(p.identity)]) ctx.db.playerRespawn.scheduledId.delete(timer.scheduledId);
+  respawnPlayer(ctx, p);
 });
 
 export const useEquippedAction = spacetimedb.procedure(
@@ -1421,8 +1536,9 @@ function pickWanderDir(
   bounds: ZoneBounds,
   hog: { dirX: number; dirY: number },
   pos: { x: number; y: number },
+  size: number,
 ): { dirX: number; dirY: number } {
-  const options = walkableCardinals(bounds, pos.x, pos.y);
+  const options = walkableCardinals(bounds, pos.x, pos.y, size);
   const ahead = options.find((d) => d.dirX === hog.dirX && d.dirY === hog.dirY);
   if (ahead && ctx.random() > HOG_TURN_CHANCE) return ahead;
   if (ctx.random() < HOG_IDLE_CHANCE) return { dirX: 0, dirY: 0 };
@@ -1498,15 +1614,17 @@ function troggBlockers(ctx: Ctx, zoneId: string, now: Stamp): Set<string> {
   return tiles;
 }
 
-/** Add each Hog's current tile (projected to `now`, against walls + boulders) to `set`. */
+/** Add each Hog's current footprint (projected to `now`, against walls + boulders) to
+ *  `set` — one tile for a common Hog, the whole 2×2 for a big one (GDD "Hogs"). */
 function addHogTiles(ctx: Ctx, zoneId: string, now: Stamp, set: Set<string>): void {
   const zone = getZone(zoneId);
   if (!zone) return;
   const boulders = boulderTiles(ctx, zoneId);
   const bounds = zoneBounds(zone, (x, y) => boulders.has(tileKey(x, y)));
   for (const h of ctx.db.hog.zoneId.filter(zoneId)) {
-    const pos = projectMotion(h, elapsedMs(h.movedAt, now), bounds);
-    set.add(tileKey(Math.round(pos.x), Math.round(pos.y)));
+    const size = hogSize(h.style);
+    const pos = projectMotion({ ...h, size }, elapsedMs(h.movedAt, now), bounds);
+    for (const tile of footprintTiles(Math.round(pos.x), Math.round(pos.y), size)) set.add(tileKey(tile.x, tile.y));
   }
 }
 
@@ -1661,10 +1779,244 @@ function hogAt(ctx: Ctx, zoneId: string, x: number, y: number, now: Stamp) {
   const occupied = boulderTiles(ctx, zoneId);
   const bounds = zoneBounds(zone, (tx, ty) => occupied.has(tileKey(tx, ty)));
   for (const h of ctx.db.hog.zoneId.filter(zoneId)) {
+    // A big 2×2 Hog is a fixture, not liftable — the carry overlay is one tile, and
+    // a giant on your head makes no sense — so only common Hogs answer here.
+    if (hogSize(h.style) > 1) continue;
     const pos = projectMotion(h, elapsedMs(h.movedAt, now), bounds);
     if (Math.round(pos.x) === x && Math.round(pos.y) === y) return h;
   }
   return undefined;
+}
+
+function hogTile(ctx: Ctx, h: NonNullable<ReturnType<typeof hogAt>>, now: Stamp): { x: number; y: number } {
+  const zone = getZone(h.zoneId);
+  if (!zone) return { x: h.x, y: h.y };
+  const occupied = boulderTiles(ctx, h.zoneId);
+  const bounds = zoneBounds(zone, (tx, ty) => occupied.has(tileKey(tx, ty)));
+  const pos = projectMotion(h, elapsedMs(h.movedAt, now), bounds);
+  return { x: Math.round(pos.x), y: Math.round(pos.y) };
+}
+
+/**
+ * The online, living trogg currently on a tile in a zone, or undefined. Troggs do
+ * not collide with each other, but sword attacks need a server-authoritative target
+ * under the faced adjacent tile. Project each candidate at `now` with the same
+ * bounds a trogg uses for movement, then round to its rendered tile.
+ */
+function playerAt(ctx: Ctx, zoneId: string, x: number, y: number, now: Stamp, exclude?: Ctx["sender"]) {
+  const zone = getZone(zoneId);
+  if (!zone) return undefined;
+  const blockers = troggBlockers(ctx, zoneId, now);
+  const bounds = zoneBounds(zone, (tx, ty) => blockers.has(tileKey(tx, ty)));
+  for (const p of ctx.db.player.zoneId.filter(zoneId)) {
+    if (!p.online || p.dead) continue;
+    if (exclude && p.identity.isEqual(exclude)) continue;
+    const pos = projectMotion(p, elapsedMs(p.movedAt, now), bounds);
+    if (Math.round(pos.x) === x && Math.round(pos.y) === y) return p;
+  }
+  return undefined;
+}
+
+function addMs(timestamp: Stamp, ms: number): Timestamp {
+  return new Timestamp(timestamp.microsSinceUnixEpoch + BigInt(Math.round(ms)) * 1000n);
+}
+
+function scheduleRespawnAt(ctx: Ctx, playerId: Ctx["sender"], at: Stamp): void {
+  ctx.db.playerRespawn.insert({ scheduledId: 0n, playerId, scheduledAt: ScheduleAt.time(at.microsSinceUnixEpoch) });
+}
+
+function respawnDue(p: { respawnAt?: Stamp }, now: Stamp): boolean {
+  return !!p.respawnAt && elapsedMs(p.respawnAt, now) >= 0;
+}
+
+function respawnPlayer(ctx: Ctx, p: { identity: Ctx["sender"]; zoneId: string }): void {
+  const current = ctx.db.player.identity.find(p.identity);
+  if (!current || !current.dead) return;
+  const zone = getZone(current.zoneId);
+  if (!zone) return;
+  const at = spawnAt(zone);
+  ctx.db.player.identity.update({
+    ...current,
+    x: at.x,
+    y: at.y,
+    dirX: 0,
+    dirY: 0,
+    running: false,
+    path: "",
+    health: PLAYER_MAX_HEALTH,
+    dead: false,
+    respawnAt: undefined,
+    movedAt: ctx.timestamp,
+  });
+}
+
+type DamageResult = { health: number; killed: boolean };
+type PlayerDamageResult = DamageResult & { droppedItemRows: number; droppedItemQty: number; respawnMs: number };
+
+function playerDiedEvent(distinctId: string, props: Record<string, string | number | boolean>, cause: string, result: PlayerDamageResult): AnalyticsEvent {
+  return {
+    distinctId,
+    event: "player_died",
+    properties: {
+      ...props,
+      cause,
+      dropped_item_rows: result.droppedItemRows,
+      dropped_item_qty: result.droppedItemQty,
+      respawn_ms: result.respawnMs,
+    },
+  };
+}
+
+function hogHealth(h: { health?: number }): number {
+  return typeof h.health === "number" ? h.health : HOG_MAX_HEALTH;
+}
+
+function damageHog(ctx: Ctx, target: NonNullable<ReturnType<typeof hogAt>>, amount: number): DamageResult {
+  const health = Math.max(0, hogHealth(target) - amount);
+  if (health > 0) {
+    ctx.db.hog.id.update({ ...target, health });
+    return { health, killed: false };
+  }
+  ctx.db.hog.id.delete(target.id);
+  return { health: 0, killed: true };
+}
+
+function dropInventory(ctx: Ctx, target: NonNullable<ReturnType<typeof playerAt>>, x: number, y: number): { rows: number; qty: number } {
+  const zone = getZone(target.zoneId);
+  if (!zone) return { rows: 0, qty: 0 };
+  const rows = [...ctx.db.inventory.playerId.filter(target.identity)].filter((row) => row.qty > 0);
+  if (rows.length === 0) return { rows: 0, qty: 0 };
+
+  const occupied = solidTiles(ctx, target.zoneId, ctx.timestamp, target.identity);
+  const face = facingDir(target);
+  const tiles = spawnTiles(zone, (tx, ty) => occupied.has(tileKey(tx, ty)), x, y, face.dirX, face.dirY, rows.length);
+  let qty = 0;
+  rows.forEach((row, i) => {
+    const tile = tiles[i] ?? { x, y };
+    occupied.add(tileKey(tile.x, tile.y));
+    ctx.db.groundItem.insert({ id: 0n, zoneId: target.zoneId, item: row.item, x: tile.x, y: tile.y, qty: row.qty });
+    qty += row.qty;
+    ctx.db.inventory.id.delete(row.id);
+  });
+  return { rows: rows.length, qty };
+}
+
+/** Apply weapon damage to a trogg; zero health kills, drops inventory, and starts respawn. */
+function damagePlayer(ctx: Ctx, target: NonNullable<ReturnType<typeof playerAt>>, amount: number): PlayerDamageResult {
+  const health = Math.max(0, target.health - amount);
+  if (health > 0) {
+    ctx.db.player.identity.update({ ...target, health });
+    return { health, killed: false, droppedItemRows: 0, droppedItemQty: 0, respawnMs: 0 };
+  }
+
+  const settled = settle(ctx, target, ctx.timestamp);
+  let carrying = target.carrying;
+  let carryingStyle = target.carryingStyle;
+  if (carrying !== "") {
+    const zone = getZone(target.zoneId);
+    const occupied = solidTiles(ctx, target.zoneId, ctx.timestamp, target.identity);
+    const face = facingDir(target);
+    if (zone && placeCarried(ctx, zone, carrying, carryingStyle, occupied, settled.x, settled.y, face.dirX, face.dirY)) {
+      carrying = "";
+      carryingStyle = "";
+    }
+  }
+  const dropped = dropInventory(ctx, target, settled.x, settled.y);
+  const respawnAt = addMs(ctx.timestamp, PLAYER_RESPAWN_MS);
+  scheduleRespawnAt(ctx, target.identity, respawnAt);
+
+  ctx.db.player.identity.update({
+    ...target,
+    x: settled.x,
+    y: settled.y,
+    dirX: 0,
+    dirY: 0,
+    running: false,
+    path: "",
+    carrying,
+    carryingStyle,
+    equippedMainHand: "",
+    equippedMainHandInventoryId: 0n,
+    health: 0,
+    dead: true,
+    respawnAt,
+    movedAt: ctx.timestamp,
+  });
+  return { health: 0, killed: true, droppedItemRows: dropped.rows, droppedItemQty: dropped.qty, respawnMs: PLAYER_RESPAWN_MS };
+}
+
+/** Throw a carried boulder or Hog in a straight cardinal line, damaging the first character hit. */
+function throwCarried(
+  ctx: Ctx,
+  p: NonNullable<ReturnType<typeof playerAt>>,
+  zone: Zone,
+  pos: { x: number; y: number },
+  dir: { dirX: number; dirY: number },
+):
+  | {
+      kind: "boulder" | "hog";
+      range: number;
+      hitTarget?: "trogg" | "hog";
+      damage?: number;
+      killed: boolean;
+      playerDeath?: PlayerDamageResult & { distinctId: string };
+    }
+  | undefined {
+  if (p.carrying !== "boulder" && p.carrying !== "hog") return undefined;
+
+  const sx = Math.round(pos.x);
+  const sy = Math.round(pos.y);
+  const pathOccupied = solidTiles(ctx, p.zoneId, ctx.timestamp, p.identity);
+  let lastFree: { x: number; y: number } | undefined;
+  let hit: NonNullable<ReturnType<typeof playerAt>> | undefined;
+  let hogHit: NonNullable<ReturnType<typeof hogAt>> | undefined;
+
+  for (let step = 1; step <= THROWN_OBJECT_RANGE; step++) {
+    const tx = sx + dir.dirX * step;
+    const ty = sy + dir.dirY * step;
+    if (!isWalkable(zone, tx, ty)) break;
+
+    hit = playerAt(ctx, p.zoneId, tx, ty, ctx.timestamp, p.identity);
+    if (hit) break;
+    hogHit = hogAt(ctx, p.zoneId, tx, ty, ctx.timestamp);
+    if (hogHit) break;
+
+    if (pathOccupied.has(tileKey(tx, ty))) break;
+    lastFree = { x: tx, y: ty };
+  }
+
+  let landing = lastFree;
+  if (hit || hogHit) {
+    const targetTile = hit ? snapToTile(settle(ctx, hit, ctx.timestamp)) : hogTile(ctx, hogHit!, ctx.timestamp);
+    const landingOccupied = solidTiles(ctx, p.zoneId, ctx.timestamp);
+    landing = spawnTile(zone, (tx, ty) => landingOccupied.has(tileKey(tx, ty)), targetTile.x, targetTile.y, dir.dirX, dir.dirY) ?? lastFree;
+  }
+
+  if (!landing || !placeCarriedAt(ctx, zone, p.carrying, p.carryingStyle, landing)) return undefined;
+  const range = Math.abs(dir.dirX !== 0 ? landing.x - sx : landing.y - sy);
+  const result: {
+    kind: "boulder" | "hog";
+    range: number;
+    hitTarget?: "trogg" | "hog";
+    damage?: number;
+    killed: boolean;
+    playerDeath?: PlayerDamageResult & { distinctId: string };
+  } = { kind: p.carrying, range, killed: false };
+  if (hit) {
+    const damage = damagePlayer(ctx, hit, THROWN_OBJECT_DAMAGE);
+    result.hitTarget = "trogg";
+    result.damage = THROWN_OBJECT_DAMAGE;
+    result.killed = damage.killed;
+    if (damage.killed) result.playerDeath = { ...damage, distinctId: hit.identity.toHexString() };
+  }
+  if (hogHit) {
+    const damage = damageHog(ctx, hogHit, THROWN_OBJECT_DAMAGE);
+    result.hitTarget = "hog";
+    result.damage = THROWN_OBJECT_DAMAGE;
+    result.killed = damage.killed;
+  }
+  ctx.db.player.identity.update({ ...p, carrying: "", carryingStyle: "" });
+  return result;
 }
 
 /** Adjacent pickup candidates, with the faced tile first when the client has a heading. */
@@ -1715,6 +2067,11 @@ function placeCarried(
 ): boolean {
   const tile = spawnTile(zone, (tx, ty) => occupied.has(tileKey(tx, ty)), x, y, dirX, dirY);
   if (!tile) return false;
+  return placeCarriedAt(ctx, zone, kind, style, tile);
+}
+
+/** Materialise a carried entity on an exact tile, enforcing the same caps as put-down. */
+function placeCarriedAt(ctx: Ctx, zone: Zone, kind: string, style: string, tile: { x: number; y: number }): boolean {
   // Honour the per-zone cap on the put-down too, so picking up, spawning to the cap, then
   // dropping can't push a zone past its ceiling. Refusing keeps the trogg carrying — the
   // same outcome as a boxed-in drop — so nothing is lost.
@@ -1723,7 +2080,7 @@ function placeCarried(
     ctx.db.boulder.insert({ id: 0n, zoneId: zone.slug, x: tile.x, y: tile.y });
   } else if (kind === "hog") {
     if (countRows(ctx.db.hog.zoneId.filter(zone.slug)) >= MAX_HOGS_PER_ZONE) return false;
-    ctx.db.hog.insert({ id: 0n, zoneId: zone.slug, x: tile.x, y: tile.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, path: "", homeX: tile.x, homeY: tile.y, style });
+    ctx.db.hog.insert({ id: 0n, zoneId: zone.slug, x: tile.x, y: tile.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, path: "", homeX: tile.x, homeY: tile.y, style, health: HOG_MAX_HEALTH });
   } else {
     return false;
   }

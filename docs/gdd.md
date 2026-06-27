@@ -83,6 +83,7 @@ Boulders are pushable rocks — dynamic obstacles, the same block-pushing gramma
 `E` is the generic **interact** key. It picks objects up from adjacent tiles and uses the faced tile first when several candidates are in reach, so later interactions (flip a switch, light a fire) can hang off the same key without adding a new control.
 
 - **Pick up / put down is a toggle for tile-sized objects.** Empty-handed, pressing `E` beside a boulder or a Hog **lifts it onto the trogg** — if several are adjacent, the one on the tile the trogg faces wins. It leaves its tile and rides on your person, drawn as a full-size held overlay above the head (the same held-item layering as [Avatars and equipment](#avatars-and-equipment)); pickup changes its position, not its scale. Pressing `E` again **puts it down** on the faced tile (or the nearest free tile), re-materialising it in the world. A trogg carries at most one thing.
+- **Throw what you carry.** Pressing `F` while carrying a boulder or Hog throws it in the faced cardinal direction as an instant, tile-based action. It travels up to `THROWN_OBJECT_RANGE` (4 tiles *(initial)*), stops at the first wall or solid object, and damages the first living trogg or Hog it hits by `THROWN_OBJECT_DAMAGE` (40 *(initial)*). The thrown object lands at the farthest clear tile, or near the target it hit.
 - **Ground items go into inventory.** Empty-handed, pressing `E` beside a ground item removes that `ground_item` row and adds the item to the trogg's inventory. Starter pickups in `hog-town` are a pickaxe, shovel, and sword. Items are not solid; pickup uses the same adjacent scan and faced-tile priority as tile-sized objects.
 - **Anything tile-sized is grabbable.** Boulders and Hogs are the same 1×1 entity to the mechanic; it doesn't care that one is scenery and one is an NPC.
 - **Carried things leave the world.** A carried boulder is no longer a collision obstacle; a carried Hog stops wandering — because the entity's row is removed while held and re-inserted on drop. Boulders and Hogs are fungible (no identity, seeded from the `ZONES` registry), but a carried Hog's skin is copied onto the player row and restored on put-down so pickup/drop never changes its look.
@@ -96,9 +97,10 @@ Ambient **Hog** NPCs (the glossary's friendly hedgehogs) roam the zone on their 
 
 - **Same motion model as troggs.** A Hog carries an intent — origin `(x, y)`, a cardinal direction, `movedAt` — and clients derive its position with `projectMotion`, so it's never per-frame synced (invariant 2).
 - **Hogs are solid.** A Hog blocks troggs and blocks other Hogs — you can't walk through one, and two Hogs never share a tile. Troggs do **not** collide with each other. A Hog collides against walls, boulders, troggs, and other Hogs; a trogg collides against walls, boulders, and Hogs (the `occupied` predicate of `zoneBounds`, the same seam boulder collision and `push` use). A trogg that walks into a Hog **settles to a standstill** flush against it and resumes when the Hog moves off (see [Movement](#movement) → Obstacles), so a held direction against a roaming Hog never banks a stale step the server would later release as a teleport.
+- **Variety and big hogs.** A common Hog's hedgehog skin is derived from its id (`COMMON_HOG_STYLES`: classic, snow, ember), so a zone reads as a varied crowd with no per-Hog field. A few **big Hogs** are placed per zone (the `bigHogs` registry list): a buff flexing hog and a dino-costume hog that occupy a **2×2 footprint** and render at double size. Their `style` is stored on the row (so they never roll from the random crowd), and the footprint span comes from `hogSize(style)` — the whole motion/collision stack (`projectMotion`, the wall clamp, `walkableCardinals`, the wander tick, and every blocker set) is footprint-aware off that one value, defaulting to 1×1. A big Hog blocks its full 2×2 and isn't liftable (the carry overlay is one tile). The chicken-costume hog is a built-but-unplaced **easter egg** (`HOG_STYLES` includes it; it's summoned, never seeded). All styles share the one rig and sheet (`shared/sprites.ts`).
 - **Tile-by-tile amble, driven by a scheduled reducer, not a tick.** A Hog only ever commits to one tile at a time. The scheduled `wanderHogs` reducer (SpacetimeDB's deterministic timer — the sanctioned exception in invariant 1, like respawns) fires once per tile-crossing (`HOG_STEP_INTERVAL_MS`, one tile at walk speed) and re-bases every Hog to the tile it reached, so it stops dead in front of whatever's solid instead of gliding through it — and a Hog freed from a block never banks more than a tile of travel. A moving Hog keeps its heading unless that tile is now blocked or a `HOG_TURN_CHANCE` roll turns it (gentle runs, not per-tile jitter); a fresh heading is a random walkable cardinal, or idle with chance `HOG_IDLE_CHANCE` so it pauses. Randomness is the context RNG (seeded from the tick timestamp), so the schedule replays deterministically (invariant 3). (Hogs don't pathfind to a home patch; a Hog ambles cardinally from wherever it is. The `hog` row keeps its `path`/`homeX`/`homeY` columns — unused by the amble — so the schema stays put.)
 - **Empty zone, no work.** The timer re-arms only while a player is online; when the last player leaves, the next tick settles every Hog to rest and stops, so an empty world produces no diffs and no work (invariant 1).
-- **Server-owned, seeded from the registry.** Hogs have no identity. Their starting tiles come from the zone's `hogs` registry entry (`ZONES` in `shared`), seeded into the `hog` table on first connect (idempotent, like boulders), then moved only by `wanderHogs`. A Hog's `style` column is usually empty, meaning its skin/size is derived from id; Commands panel spawns store an explicit `HOG_STYLES` value so clicking a skin button creates that exact sprite.
+- **Server-owned, seeded from the registry.** Hogs have no identity. Their starting tiles come from the zone's `hogs` (common) and `bigHogs` (placed 2×2 showpieces) registry entries (`ZONES` in `shared`), seeded into the `hog` table on first connect (idempotent, like boulders), then moved only by `wanderHogs`. `assertZones` checks each big Hog's 2×2 footprint is clear floor. A Hog's `style` column is usually empty, meaning its skin/size is derived from id; Commands panel spawns store an explicit `HOG_STYLES` value so clicking a skin button creates that exact sprite.
 - **Resetting:** the Commands panel can snap the player's current zone Hogs back to their registry population (the `resetHogs` reducer clears and reseeds the zone, the mirror of `resetBoulders`) — the cull for a zone overrun with extra panel-spawned Hogs (though `spawn` refuses past `MAX_HOGS_PER_ZONE` per zone, enforced server-side, so a zone can't be flooded to begin with). A Hog a trogg is carrying rides the player row, not the `hog` table, so it survives the cull and re-materialises on put-down. Behind the `hog-reset` flag — off, the panel hides the Hog reset action.
 
 ### Camera and rendering
@@ -119,13 +121,13 @@ Ambient **Hog** NPCs (the glossary's friendly hedgehogs) roam the zone on their 
 - A trogg (and a Hog) is a **layered sprite**: a base body plus composable overlay layers, drawn per facing (down/up/left/right) and per animation frame (idle/walk). Troggs and Hogs share the rig, so equipment renders the same on either.
 - **Held items** (torch, pick, axe, sword, shield) render as per-hand layers — a **main hand** and an **off hand**, so combinations like sword + shield work. Each hand has its own anchor point and z-order per direction/frame (e.g. the off-hand arm and its item sit behind the body when facing up, in front when facing down). A new holdable is a new item sprite, not a new character.
 - **Armor (later)** layers the same way over body slots (head, torso). The rig reserves the layer order now; armor sprites are added with the mechanic.
-- What's equipped rides the zone's player sync, so others see what you're holding. Pressing `F` uses the equipped main-hand item without stopping movement: a pickaxe mines a faced boulder into Stone, while sword and shovel currently show their synced use animation only. Held-item rendering is built extensibly from the first shipped tools.
+- What's equipped rides the zone's player sync, so others see what you're holding. Pressing `F` uses what the trogg is currently holding or wielding without stopping movement: a carried boulder or Hog is thrown, a pickaxe mines a faced boulder into Stone, a sword attacks a faced adjacent trogg, and a shovel currently shows its synced use animation only. Held-item rendering is built extensibly from the first shipped tools.
 - **Sprite avatars (`avatar-sprites`):** a trogg renders as the layered avatar sprite — programmer pixel art generated from `shared/sprites.ts` (per body style × 4 facings × idle/walk/run, troggs and Hogs sharing one rig), feet anchored at the centre of the tile (not its bottom edge, so a grid-locked trogg stands in the middle of its tile). The per-trogg colour rides as a sprite **tint**, so the same trogg is the same colour for everyone, every session; your own trogg gets a ground ring so you can pick it out. The committed sprite sheet asset (`assets/sprites/`) is the reviewable export; the client paints the same art into a texture at runtime.
 - **Placeholder marker (kill-switch fallback):** with `avatar-sprites` off, a trogg draws as a solid tile-filling marker in its colour (own trogg outlined) — the original placeholder, kept as the flag's fallback.
 - **Two appearance axes — style and colour.** A trogg's look is a **body style** (the sprite shape) plus a **colour tint** over it; the two are independent, so any style can wear any colour. Each is the value the trogg chose, or — until it chooses — a stable default derived from its durable id (a deterministic projection, like a level from XP; `STYLE_UNSET` / `COLOR_UNSET` = -1 are the unchosen sentinels). Both ride the zone player sync, so the sprite (and the trogg's chat-name colour) update everywhere they're shown.
 - **Trogg style (`trogg-restyle`):** styles come from a fixed list (`TROGG_STYLES` in `shared`: `moss`, `stone`, `ridge`) that vary the silhouette features (ear nubs / earless crag / horns) and base palette — same rig, different head and tone. A trogg picks one via the `restyle` reducer, which stores its chosen index on the `player` row (validated server-side, invariant 3). The optional flag controls whether the style buttons show in the Appearance panel.
 - **Trogg colour (`trogg-recolor`):** the tint comes from a fixed palette (`TROGG_COLORS` in `shared`), chosen via the `recolor` reducer (the mirror of `restyle` on the colour axis). The optional flag controls whether the palette swatches show in the Appearance panel.
-- **Hog variation.** Ambient seeded Hogs usually leave `hog.style` empty, so each skin/size is derived from entity id (`HOG_STYLES`: `classic`, `classic-big`, `snow`, `snow-big`, `ember`, `ember-big`), giving a zone a varied, stable crowd. Commands panel spawns store a concrete `hog.style` so the selected sprite is exact. Once a Hog is picked up, its effective skin/size is stored as `player.carryingStyle` and written back to `hog.style` on put-down, so the replacement row keeps the same look despite getting a new id. Big Hogs are visually larger but still occupy one tile. Hogs are never tinted.
+- **Hog variation.** Ambient seeded Hogs usually leave `hog.style` empty, so each skin is derived from entity id (`COMMON_HOG_STYLES`: `classic`, `snow`, `ember`), giving a zone a varied, stable crowd. A concrete `hog.style` pins an exact sprite: the `BIG_HOG_STYLES` showpieces (`buff`, `dino`) render at double size over a 2×2 footprint (`hogSize`), and `chicken` is a built-but-unseeded easter egg — the full set is `HOG_STYLES` (`classic`, `snow`, `ember`, `buff`, `dino`, `chicken`). Commands panel spawns store the selected style so the sprite is exact. Once a Hog is picked up, its effective style is stored as `player.carryingStyle` and written back to `hog.style` on put-down, so the replacement row keeps the same look despite getting a new id. Hogs are never tinted.
 - **Ghost (`ghost-trogg`):** the cosmetic easter egg is its own bespoke sprite (`ghostDraw` — a hog draped in a pale sheet, two eye holes, scalloped hem), painted into a standalone texture and never tinted. Summoning it inserts a zone-scoped `ghost_haunt` row; live clients in that zone render the fresh insert once as a slow materialise, gentle drift, linger, and fade-out, while late joiners ignore the replayed snapshot.
 - **Appearance panel.** Rename, recolour, and restyle are one top-left HUD icon toggle (`P`, beside Help/Inventory/Commands) — everything about how your trogg *looks* in one place. The separate top-right account panel is only the claim/sign-out control (`auth-enabled`).
 
@@ -190,6 +192,18 @@ New node types are added by extending this table — keep it the registry.
 - Equipping sets `player.equippedMainHand` and `player.equippedMainHandInventoryId` to an owned row (the item stays counted in inventory; equipment just references it). `0` unequips. See [Avatars and equipment](#avatars-and-equipment).
 - Selecting an inventory slot opens its actions: equip/unequip (equippables only), **drop**, and **delete**. Both drop and delete act on one unit — a stack decrements, a qty=1 row is removed; removing the equipped row unequips it. Drop lays that unit back into the world as a `ground_item` on the faced tile, the nearest free neighbour, or the trogg's own tile (the carried put-down placement), honouring `MAX_GROUND_ITEMS_PER_ZONE`; a full or boxed-in zone refuses the drop and keeps the item. Delete destroys the unit outright with no ground item, behind a confirm step in the panel.
 
+### Combat
+
+Pre-alpha combat is deliberately small and tile-based. Troggs and roaming Hogs are the current damageable characters; future PvE defense events use the same slow, stat-driven grammar rather than twitch mechanics.
+
+- **Health:** each trogg has `PLAYER_MAX_HEALTH` (100 *(initial)*) health points. Health rides the `player` row, so everyone sees the same health bar and death state from server truth.
+- **Hog health:** each roaming Hog has `HOG_MAX_HEALTH` (60 *(initial)*) health points on the `hog` row. Damaged Hogs show a small health bar; at zero health the Hog row is removed from the world.
+- **Sword attacks:** pressing `F` with a sword equipped damages the online, living trogg on the faced adjacent tile by `SWORD_DAMAGE` (25 *(initial)*). If no trogg is on that tile, the same swing damages the faced Hog. The client passes its current facing, but the server re-derives the attacker's tile, projects candidate targets, excludes the attacker, and only applies damage to a target actually on that adjacent tile (invariant 3).
+- **Thrown boulders and Hogs:** pressing `F` while carrying a boulder or Hog throws it in a straight cardinal line up to `THROWN_OBJECT_RANGE` (4 tiles *(initial)*). It damages the first online, living trogg or Hog it hits by `THROWN_OBJECT_DAMAGE` (40 *(initial)*) and then lands near the impact; if it hits no damageable character, it lands at the farthest clear tile before range or a blocker. This is still an input-driven reducer, not a projectile simulation.
+- **No twitch checks:** combat has no projectiles, hitboxes, physics, cursor aiming, or per-frame attack checks.
+- **Death:** when damage takes a trogg to zero health, the server marks it `dead`, stops its motion on its current tile, and leaves it online so other players can see it. Dead troggs cannot move, push, interact, spawn objects, or use equipment. If a dying trogg is carrying a tile-sized object, the server tries to drop it at the death tile so nothing is orphaned. Every inventory row, including equipped items, is removed from the trogg and dropped as `ground_item` rows nearby; stack quantities are preserved.
+- **Respawn:** death stamps `respawnAt` five seconds in the future (`PLAYER_RESPAWN_MS`, 5000 *(initial)*) and inserts a one-shot `player_respawn` scheduled row. Dead troggs show a visible respawn countdown. When the timer fires, the same `player` row returns to the zone spawn at full health with the same name, colour, and style.
+
 ### Crafting
 
 - Recipes: inputs → output, optional skill/level requirement, crafted at stations in the Hog town (e.g., torches, better picks).
@@ -207,7 +221,7 @@ New node types are added by extending this table — keep it the registry.
 
 ### Defense events
 
-- PvE only. Things come out of the dark; the tribe defends the Hogs. Event-based combat: scheduled waves, slow stat-driven resolution, click-to-engage. No projectiles, no physics, no real-time aiming — ever (invariant 7).
+- Things come out of the dark; the tribe defends the Hogs. Event-based PvE combat: scheduled waves, slow stat-driven resolution, click-to-engage. No projectiles, no physics, no real-time aiming — ever (invariant 7).
 
 ### AI inhabitants
 
@@ -220,7 +234,7 @@ One layer. **SpacetimeDB** is the durable store *and* the live feed: the tables 
 Dev mirrors prod: a local `spacetime start` instance runs the very module production runs — `just dev` publishes to it and regenerates the client bindings — so persistence is exercised the same way it runs in production. No Docker, no separate database to provision.
 
 ```text
-player         identity (PK), name, isGuest, zoneId, x, y, dirX, dirY, movedAt, online, lastChatAt, running, color, carrying, path, style, equippedMainHand, equipmentAction, equipmentActionAt, equippedMainHandInventoryId, faceX, faceY, carryingStyle
+player         identity (PK), name, isGuest, zoneId, x, y, dirX, dirY, movedAt, online, lastChatAt, running, color, carrying, path, style, equippedMainHand, equipmentAction, equipmentActionAt, equippedMainHandInventoryId, faceX, faceY, carryingStyle, health, dead, respawnAt
                keyed by the connection's Identity. motion derived from origin (x,y) + movedAt: WASD uses
                dirX/dirY (0,0 = idle); running (shift held) picks run speed over walk speed in projectMotion,
                so it rides the intent like direction; click-to-move stores `path` as serialized waypoint tiles
@@ -237,6 +251,8 @@ player         identity (PK), name, isGuest, zoneId, x, y, dirX, dirY, movedAt, 
                equippedMainHandInventoryId: the specific owned inventory row equipped (0 = none);
                equipmentAction/equipmentActionAt: last synced use impulse for animation. faceX/faceY:
                standing facing, separate from movement intent so idle turns sync without deriving position.
+               health/dead/respawnAt: combat state; dead troggs stay online but cannot act while
+               the respawn countdown is active. `player_respawn` returns them to spawn after `respawnAt`.
                Appended last (schema-migration order; see module source).
                index: by_zone (zoneId)
 zones          slug, name, width, height, tilemap (per-tile walkability + scenery), checkpoint (unlock tile, null if none)
@@ -250,24 +266,26 @@ boulder        id (PK, auto-inc), zoneId, x, y     (tile coords)
                (or reset to the registry by the `resetBoulders` reducer, fired by the Commands panel).
                Removed while a trogg carries it and re-inserted on put-down (see "Interacting").
                index: by_zone (zoneId)
-hog            id (PK, auto-inc), zoneId, x, y, dirX, dirY, movedAt, path, homeX, homeY, style
+hog            id (PK, auto-inc), zoneId, x, y, dirX, dirY, movedAt, path, homeX, homeY, style, health
                an ambient roaming Hog NPC (see "Hogs"). Intent-based motion like a player (position
                derived with projectMotion); server-owned, no identity. Solid: blocks troggs and other
                Hogs (troggs never block each other), so wanderHogs re-bases it tile by tile, stopping
                flush against anything solid. dirX/dirY is its cardinal amble heading; path/homeX/homeY are
                retained columns from the earlier pathfinding wander, unused by the tile-by-tile amble and
-               kept only so the shipped schema isn't reordered. style is empty for id-derived variation, or
-               a concrete HOG_STYLES skin/size id for exact Commands panel spawns and carried-and-dropped
-               Hogs preserving their look. Seeded from the ZONES registry
-               on first connect, spawned by the Commands panel, moved only by the scheduled `wanderHogs`
-               (or reset to the registry population by the `resetHogs` reducer, fired by the Commands panel).
-               Removed while a trogg carries it and re-inserted on put-down (see "Interacting").
+               kept only so the shipped schema isn't reordered. style: "" = common roamer (id-derived
+               skin); "buff"/"dino" = a 2×2 showpiece; "chicken" = easter egg; or any concrete HOG_STYLES
+               id for exact Commands panel spawns and carried-and-dropped Hogs preserving their look.
+               hogSize(style) gives the footprint span (appended last per the migration note). Seeded from
+               the ZONES registry on first connect, spawned by the Commands panel, moved only by the scheduled
+               `wanderHogs` (or reset to the registry population by the `resetHogs` reducer, fired by the Commands panel).
+               `health` makes Hogs damageable; zero health deletes the row. Removed while a trogg carries
+               it and re-inserted on put-down (see "Interacting").
                index: by_zone (zoneId)
-ground_item    id (PK, auto-inc), zoneId, item, x, y
+ground_item    id (PK, auto-inc), zoneId, item, x, y, qty
                a pickup item lying on the floor. Seeded from the ZONES registry on first connect, spawnable one at
                a time from the Commands panel only when its id is in SPAWNABLE_ITEM_IDS, and removed by `interact`
-               when a trogg faces it and presses `E`.
-               Items are not solid. index: by_zone (zoneId)
+               when a trogg faces it and presses `E`. `qty` preserves dropped stack counts when a dead trogg
+               drops inventory. Items are not solid. index: by_zone (zoneId)
 inventory      id (PK, auto-inc), playerId, item, qty
                player-owned items. Each row occupies one of 10 visible carry slots. Stackable rows merge
                and can grow in-place; starting a new stack or adding a non-stackable item requires a free
@@ -279,6 +297,10 @@ player_connection connectionId (PK), playerId, connectedAt
                ids behind that identity. `clientConnected` inserts the socket; `clientDisconnected`
                removes it and only settles/drops/marks the trogg offline when no connections remain.
                index: by_player (playerId)
+player_respawn scheduledId (PK), playerId, scheduledAt
+               private one-shot scheduled rows inserted on trogg death. The scheduled `respawnPlayers`
+               reducer re-checks `player.dead` and `player.respawnAt`, then returns the same `player`
+               row to zone spawn at full health while preserving name, colour, style, and identity.
 hog_wander     scheduledId (PK, auto-inc), scheduledAt     (scheduled table)
                the Hog wander timer — SpacetimeDB's deterministic scheduler (invariant 1). Fires
                `wanderHogs`, which re-arms it only while a player is online. Private (no client reads it).
@@ -321,7 +343,7 @@ projects       slug, zoneId, status, requirements, contributed
 4. Analytics events are low-volume and never contain chat content or PII beyond the player name (full rules in [analytics.md](analytics.md)).
 5. Feature flags are operational controls, not a blanket requirement. Add or configure one when a feature needs remote rollout, a kill-switch, an experiment, or live tuning; otherwise keep the code simple. Any flag key the code reads must be registered in [analytics.md](analytics.md) with its fallback behavior, and the matching PostHog flag must be created or updated in the configured project during the same task.
 6. The game is playable at the end of every session. No half-wired states on `main`.
-7. No PvP. No twitch combat: any PvE is event-based, stat-driven, and slow — no projectiles, physics, or real-time aiming. No procedural generation.
+7. No twitch combat: combat is tile-based, stat-driven, and slow — no projectiles, physics, real-time aiming, or per-frame attack checks. No procedural generation.
 8. No secrets in the repo — env vars only, `.env*` is gitignored. This repo is public.
 9. Glossary names are canonical across code, schema, events, and UI.
 10. No preemptive scaling work. Optimizations from the scaling answer key are built only when a dashboard graph justifies them. No instancing below ~1,000 concurrent in a zone.
@@ -332,7 +354,7 @@ Roadmap notes are planning context, not permission gates. Pick work by current p
 
 Current playable foundation: durable SpacetimeDB tables are the store, anonymous SpacetimeDB Identity gives each browser a persistent trogg, and optional SpacetimeAuth OIDC lets a guest claim an account with `startClaim`/`redeemClaim`, `rename`, `player_named`, and `posthog.identify()`. Identity is issued by the connection and module entrypoints authorize by `ctx.sender`; it is never client-asserted. Multiple live sockets for the same account share one trogg and are tracked through private per-connection presence.
 
-Implemented world systems: a static shared `ZONES` registry, zone-scoped subscriptions, per-tile walkability, cardinal grid-locked WASD movement, boulder pushing, pick-up-and-carry interaction (`E`), starter tool pickups, inventory/equipment with `I`, equipped-item use with `F`, roaming Hogs, hold-shift-to-run, sprite avatars, trogg recolouring/restyling via Appearance (`P`), chat bubbles/history, a small synced ghost-trogg cosmetic (Commands panel summon), a help panel listing live controls, and a pre-alpha Commands panel for one-click spawn/reset/ghost tools. Some of these have optional client-side flag gates for remote rollout or kill-switch use; the current code-read flags are configured in PostHog and still have code fallbacks for local or unconfigured environments.
+Implemented world systems: a static shared `ZONES` registry, zone-scoped subscriptions, per-tile walkability, cardinal grid-locked WASD movement, boulder pushing, pick-up-and-carry interaction (`E`), throwable boulders/Hogs, starter tool pickups, inventory/equipment with `I`, equipped-item use with `F`, sword attacks, trogg and Hog health, death drops, timed respawn, roaming Hogs, hold-shift-to-run, sprite avatars, trogg recolouring/restyling via Appearance (`P`), chat bubbles/history, a small synced ghost-trogg cosmetic (Commands panel summon), a help panel listing live controls, and a pre-alpha Commands panel for one-click spawn/reset/ghost tools. Some of these have optional client-side flag gates for remote rollout or kill-switch use; the current code-read flags are configured in PostHog and still have code fallbacks for local or unconfigured environments.
 
 Likely next work areas include starting-zone onboarding, click-to-move pathfinding around obstacles, gathering and XP, crafting, communal projects, Hog merchants, load events, LLM-driven Hogs, and optional PvE defense. These are intentionally fluid; implement the slice that best serves the current task.
 
