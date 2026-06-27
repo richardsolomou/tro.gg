@@ -35,6 +35,8 @@ snake_case. Low-volume by design — anything that could fire more than ~once/se
 | `inventory_item_acquired` | `zone?, item, qty, source?` | Player's own inventory receives a new item row or stack increase from authoritative inventory sync |
 | `item_equipped` | `zone, item, equipped, source?` | Player's own main-hand equipment changes; `equipped=false` means the item was unequipped |
 | `equipped_item_used` | `zone, item, source?` | Player's own equipped item use is accepted and appears on the authoritative player row |
+| `inventory_item_dropped` | `zone, item, source?` | Player drops one unit of an inventory item back into the world as a `ground_item` |
+| `inventory_item_discarded` | `zone, item, source?` | Player permanently destroys one unit of an inventory item (no ground item created) |
 | `zone_entered` | `zone, from_zone` | Zone transition |
 | `action_started` | `action, node_type, zone` | Action begins |
 | `resource_gathered` | `node_type, item, zone` | Action completes |

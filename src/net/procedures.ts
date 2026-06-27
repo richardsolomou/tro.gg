@@ -45,6 +45,14 @@ export function equipItem(conn: DbConnection, inventoryId: bigint, source = "inv
   return conn.procedures.equipItemAction({ inventoryId, ...telemetry(source) });
 }
 
+export function dropItem(conn: DbConnection, inventoryId: bigint, source = "inventory") {
+  return conn.procedures.dropItemAction({ inventoryId, ...telemetry(source) });
+}
+
+export function discardItem(conn: DbConnection, inventoryId: bigint, source = "inventory") {
+  return conn.procedures.discardItemAction({ inventoryId, ...telemetry(source) });
+}
+
 export function useEquipped(conn: DbConnection, dirX: number, dirY: number, source = "keyboard") {
   return conn.procedures.useEquippedAction({ dirX, dirY, ...telemetry(source) });
 }

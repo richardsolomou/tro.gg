@@ -310,6 +310,10 @@
   border-color: #f2c94c;
   background: rgba(242, 201, 76, 0.18);
 }
+#hud .inventory-item.is-selected {
+  border-color: #e8dcc4;
+  box-shadow: 0 0 0 1px #e8dcc4 inset;
+}
 #hud .inventory-item:disabled {
   opacity: 0.9;
   cursor: default;
@@ -341,6 +345,42 @@
   color: #0a0806;
   background: #e8dcc4;
   border-radius: 2px;
+}
+#hud .inventory-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid #2a2118;
+}
+#hud .inventory-actions[hidden] {
+  display: none;
+}
+#hud .inventory-action-name {
+  font-size: 12px;
+  color: #e8dcc4;
+}
+#hud .inventory-action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+#hud .inventory-action {
+  padding: 4px 10px;
+  font-size: 12px;
+  color: #e8dcc4;
+  background: rgba(232, 220, 196, 0.08);
+  border: 1px solid #2a2118;
+  border-radius: 4px;
+  cursor: pointer;
+}
+#hud .inventory-action:hover {
+  background: rgba(232, 220, 196, 0.16);
+}
+#hud .inventory-action.is-danger {
+  color: #f2b8b8;
+  border-color: #6b2a2a;
+  background: rgba(107, 42, 42, 0.25);
 }
 
 /* ── Commands ────────────────────────────────────────────────────────────── */
