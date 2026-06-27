@@ -359,22 +359,18 @@
 #hud .command-status {
   margin-top: 10px;
 }
-#hud .command-row {
-  display: grid;
-  grid-template-columns: minmax(74px, 0.6fr) 1fr;
-  gap: 6px;
-}
 #hud .command-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
   margin-top: 6px;
 }
-#hud .command-segment {
+#hud .command-spawn-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(4, 48px);
   gap: 6px;
-  margin-bottom: 6px;
+  align-items: center;
+  margin-top: 6px;
 }
 #hud .command-button {
   min-width: 0;
@@ -394,8 +390,31 @@
   background: #f2c94c;
   border-color: #f2c94c;
 }
-#hud .command-count {
-  min-width: 0;
+#hud .command-spawn-button {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  overflow: hidden;
+  background: rgba(232, 220, 196, 0.14);
+  border: 1px solid #4a3a27;
+  border-radius: 4px;
+  cursor: pointer;
+}
+#hud .command-spawn-button:hover,
+#hud .command-button:hover {
+  background: rgba(242, 201, 76, 0.24);
+  border-color: #f2c94c;
+}
+#hud .command-svg-icon,
+#hud .command-spawn-button .item-icon {
+  width: 32px;
+  height: 32px;
+}
+#hud .command-avatar-icon {
+  display: block;
+  image-rendering: pixelated;
 }
 #hud .command-status {
   color: #9b8a6c;

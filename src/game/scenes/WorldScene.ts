@@ -182,12 +182,12 @@ export class WorldScene extends Phaser.Scene {
         // it re-derives the tile and acts only on what's actually adjacent (invariant 3).
         if (!this.useInteract) return;
         void interact(conn, this.self.facing.dirX, this.self.facing.dirY).catch((err) => {
-          logError("Interact action failed", { surface: "world", action: "interact", error: err });
+          logError("Interact action failed", { surface: "world", action: "interact", zone: this.slug, error: err });
         });
       },
       () => {
         void useEquipped(conn, this.self.facing.dirX, this.self.facing.dirY).catch((err) => {
-          logError("Use equipped action failed", { surface: "world", action: "use_equipped", error: err });
+          logError("Use equipped action failed", { surface: "world", action: "use_equipped", zone: this.slug, error: err });
         });
       },
       this.canRun,
@@ -316,6 +316,7 @@ export class WorldScene extends Phaser.Scene {
     // The overlays were children of the old marker, so they're gone too; re-add them.
     entry.carried = undefined;
     entry.carriedKind = "";
+    entry.carriedStyle = "";
     entry.equipped = undefined;
     entry.equippedKind = "";
     entry.equippedFacing = undefined;
@@ -348,7 +349,7 @@ export class WorldScene extends Phaser.Scene {
       // a rename, recolour, or restyle only shows once the marker is rebuilt (which
       // re-applies overlays). Bare carrying/equipment changes just retarget overlays.
       if (_old.name !== p.name || _old.color !== p.color || _old.style !== p.style) this.rebuildMarker(id, entry);
-      else if (_old.carrying !== p.carrying) this.entities.applyCarry(entry);
+      else if (_old.carrying !== p.carrying || _old.carryingStyle !== p.carryingStyle) this.entities.applyCarry(entry);
 
       const equipmentChanged = _old.equippedMainHand !== p.equippedMainHand || _old.equippedMainHandInventoryId !== p.equippedMainHandInventoryId;
       if (equipmentChanged) {
@@ -365,7 +366,7 @@ export class WorldScene extends Phaser.Scene {
     const facing = facingFromDir(face.dirX, face.dirY, "down");
     const style = troggStyleFor(p.style, id);
     const { marker, sprite, frameKey } = this.entities.makeMarker(p.name, troggColorFor(p.color, id), style, id === this.myId, facing, this.useSprites);
-    const entry: Tracked = { marker, sprite, player: p, baseMs: timestampBaseMs(p.movedAt), facing, style, frameKey, carriedKind: "", equippedKind: "" };
+    const entry: Tracked = { marker, sprite, player: p, baseMs: timestampBaseMs(p.movedAt), facing, style, frameKey, carriedKind: "", carriedStyle: "", equippedKind: "" };
     const { x, y } = projectMotion(p, performance.now() - entry.baseMs, this.troggBounds);
     this.entities.place(marker, x, y);
     this.tracked.set(id, entry);
@@ -451,7 +452,7 @@ export class WorldScene extends Phaser.Scene {
     const id = h.id.toString();
     if (this.hogs.has(id)) return;
     const facing = facingFromDir(h.dirX, h.dirY, "down");
-    const style = hogStyleFor(id);
+    const style = hogStyleFor(id, h.style);
     const { marker, sprite, frameKey } = this.entities.makeHog(style, facing);
     const baseMs = timestampBaseMs(h.movedAt);
     const { x, y } = projectMotion(h, performance.now() - baseMs, this.hogBounds);
@@ -463,6 +464,16 @@ export class WorldScene extends Phaser.Scene {
   private updateHog(h: Hog) {
     const view = this.hogs.get(h.id.toString());
     if (!view) return this.addHog(h);
+    const style = hogStyleFor(h.id.toString(), h.style);
+    if (view.style !== style) {
+      view.marker.destroy();
+      const built = this.entities.makeHog(style, view.facing);
+      view.marker = built.marker;
+      view.sprite = built.sprite;
+      view.frameKey = built.frameKey;
+      view.style = style;
+      this.hogLayer.add(view.marker);
+    }
     // Rebase extrapolation on each new intent, like remote players.
     view.row = h;
     view.baseMs = timestampBaseMs(h.movedAt);

@@ -13,26 +13,29 @@ import {
   getZone,
   GHOST_HAUNT_HISTORY_MAX,
   HOG_IDLE_CHANCE,
+  hogStyleFor,
   HOG_STEP_INTERVAL_MS,
   HOG_TURN_CHANCE,
   INVENTORY_SLOT_COUNT,
   isColorIndex,
   isEquippableItem,
   isGeneratedName,
+  isHogStyle,
   isItemId,
+  isSpawnableItemId,
   isStackableItem,
   isTroggStyleIndex,
   STYLE_UNSET,
   isValidName,
   isWalkable,
   MAX_BOULDERS_PER_ZONE,
+  MAX_GROUND_ITEMS_PER_ZONE,
   MAX_HOGS_PER_ZONE,
   projectMotion,
   serializePath,
   snapToTile,
   SPACETIMEAUTH_ISSUER,
   spawnTile,
-  spawnTiles,
   STARTING_ZONE_SLUG,
   type Stamp,
   tileKey,
@@ -65,7 +68,8 @@ import {
  * `color` is the chosen avatar palette index (GDD "Avatars"), set by `recolor`; it
  * defaults to `COLOR_UNSET` (-1) so an unchosen trogg falls back to its id-derived
  * colour. `carrying` is the kind of tile-sized entity the trogg holds (GDD
- * "Interacting"), set by `interact`; "" when empty-handed. `style` is the chosen
+ * "Interacting"), set by `interact`; "" when empty-handed. `carryingStyle`
+ * carries a held Hog's skin while its world row is gone. `style` is the chosen
  * avatar body style. `equippedMainHand` stores the item id currently shown in the
  * trogg's main hand (GDD "Inventory" / "Avatars and equipment").
  * `equippedMainHandInventoryId` points at the specific owned inventory row, so
@@ -98,8 +102,8 @@ const player = table(
     // What the trogg is carrying (GDD "Interacting"): "" = empty-handed, else the
     // kind of the held entity ("boulder" | "hog"). Picking up deletes the entity's
     // world row and stamps its kind here; putting down clears it and re-inserts the
-    // entity. Boulders/hogs are fungible (no identity, seeded from the registry), so
-    // the kind is all the client needs to draw the carry overlay — no id to keep.
+    // entity. Boulders/Hogs are fungible (no identity, seeded from the registry);
+    // Hog skin rides separately in `carryingStyle` while the world row is gone.
     carrying: t.string().default(""),
     // Click-to-move waypoints, serialized as "x,y;x,y;..." and interpreted by
     // shared `projectMotion` (GDD "Movement"). Empty = no path / direct WASD.
@@ -116,6 +120,9 @@ const player = table(
     // fresh guests; movement reducers keep it in step with the current heading.
     faceX: t.i32().default(0),
     faceY: t.i32().default(1),
+    // Visual variant for carried entities that need one. Currently only Hogs use it:
+    // pickup copies the Hog row's effective style here, and put-down copies it back.
+    carryingStyle: t.string().default(""),
   },
 );
 
@@ -196,7 +203,7 @@ const boulder = table(
  * cardinal direction, and `movedAt` — so clients derive its position with
  * `projectMotion` and there's no per-frame sync (invariant 2). Hogs are
  * server-owned (no identity): seeded per zone from the `ZONES` registry on first
- * connect, dropped by the `/spawn` debug command, then moved only by the scheduled
+ * connect, spawned by the Commands panel, then moved only by the scheduled
  * `wanderHogs` reducer. Merchant/dialogue Hog roles are separate later work.
  *
  * Unlike a trogg, a Hog's origin is an integer tile (`i32`): it ambles tile-to-tile,
@@ -205,6 +212,8 @@ const boulder = table(
  * `path`/`homeX`/`homeY` columns are unused by the amble — retained from an earlier
  * home-anchored pathfinding wander, kept only so the shipped schema isn't reordered
  * (columns are appended at the end, never moved — see the migration note above).
+ * `style` is usually empty, meaning id-derived variation; explicitly spawned Hogs
+ * can store a sprite style so the UI button creates the exact Hog skin clicked.
  * dirX/dirY/movedAt default to idle-at-epoch, path to none.
  */
 const hog = table(
@@ -222,6 +231,7 @@ const hog = table(
     // (the -1 default is its pre-migration sentinel). Kept only to avoid a column reorder.
     homeX: t.i32().default(-1),
     homeY: t.i32().default(-1),
+    style: t.string().default(""),
   },
 );
 
@@ -403,6 +413,7 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
     lastChatAt: undefined,
     color: COLOR_UNSET,
     carrying: "",
+    carryingStyle: "",
     path: "",
     style: STYLE_UNSET,
     faceX: 0,
@@ -431,7 +442,7 @@ function seedBoulders(ctx: Ctx, zone: Zone): void {
 function seedHogs(ctx: Ctx, zone: Zone): void {
   if ([...ctx.db.hog.zoneId.filter(zone.slug)].length > 0) return;
   for (const h of zone.hogs) {
-    ctx.db.hog.insert({ id: 0n, zoneId: zone.slug, x: h.x, y: h.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, path: "", homeX: h.x, homeY: h.y });
+    ctx.db.hog.insert({ id: 0n, zoneId: zone.slug, x: h.x, y: h.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, path: "", homeX: h.x, homeY: h.y, style: "" });
   }
 }
 
@@ -459,13 +470,17 @@ export const onDisconnect = spacetimedb.clientDisconnected((ctx) => {
   // in and can't be placed, keep it on the row — it's durable and still droppable
   // when the trogg returns.
   let carrying = p.carrying;
+  let carryingStyle = p.carryingStyle;
   if (carrying !== "") {
     const zone = getZone(p.zoneId);
     const occupied = solidTiles(ctx, p.zoneId, ctx.timestamp, p.identity);
     const face = facingDir(p);
-    if (zone && placeCarried(ctx, zone, carrying, occupied, settled.x, settled.y, face.dirX, face.dirY)) carrying = "";
+    if (zone && placeCarried(ctx, zone, carrying, carryingStyle, occupied, settled.x, settled.y, face.dirX, face.dirY)) {
+      carrying = "";
+      carryingStyle = "";
+    }
   }
-  ctx.db.player.identity.update({ ...p, x: settled.x, y: settled.y, dirX: 0, dirY: 0, running: false, path: "", online: false, carrying });
+  ctx.db.player.identity.update({ ...p, x: settled.x, y: settled.y, dirX: 0, dirY: 0, running: false, path: "", online: false, carrying, carryingStyle });
 });
 
 /**
@@ -618,9 +633,12 @@ function runInteract(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; dirY
     // neighbour (spawnTile). A boxed-in trogg can't drop, so it keeps carrying.
     const kind = p.carrying;
     const occupied = solidTiles(ctx, p.zoneId, ctx.timestamp, p.identity);
-    const place = placeCarried(ctx, zone, kind, occupied, pos.x, pos.y, dir?.dirX ?? 0, dir?.dirY ?? 0);
-    if (place) ctx.db.player.identity.update({ ...p, carrying: "" });
-    return place ? [{ distinctId: distinctId(ctx), event: "object_dropped", properties: { ...props, kind } }] : [];
+    const place = placeCarried(ctx, zone, p.carrying, p.carryingStyle, occupied, pos.x, pos.y, dir?.dirX ?? 0, dir?.dirY ?? 0);
+    if (place) ctx.db.player.identity.update({ ...p, carrying: "", carryingStyle: "" });
+    if (!place) return [];
+    const properties: Record<string, string | number | boolean> = { ...props, kind };
+    if (kind === "hog" && p.carryingStyle !== "") properties.style = p.carryingStyle;
+    return [{ distinctId: distinctId(ctx), event: "object_dropped", properties }];
   }
 
   const target = pickupTarget(ctx, p.zoneId, Math.round(pos.x), Math.round(pos.y), dir, ctx.timestamp);
@@ -632,13 +650,14 @@ function runInteract(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; dirY
   }
   if (target?.kind === "boulder") {
     ctx.db.boulder.id.delete(target.row.id);
-    ctx.db.player.identity.update({ ...p, carrying: "boulder" });
+    ctx.db.player.identity.update({ ...p, carrying: "boulder", carryingStyle: "" });
     return [{ distinctId: distinctId(ctx), event: "object_picked_up", properties: { ...props, kind: "boulder" } }];
   }
   if (target?.kind === "hog") {
+    const carryingStyle = effectiveHogStyle(target.row);
     ctx.db.hog.id.delete(target.row.id);
-    ctx.db.player.identity.update({ ...p, carrying: "hog" });
-    return [{ distinctId: distinctId(ctx), event: "object_picked_up", properties: { ...props, kind: "hog" } }];
+    ctx.db.player.identity.update({ ...p, carrying: "hog", carryingStyle });
+    return [{ distinctId: distinctId(ctx), event: "object_picked_up", properties: { ...props, kind: "hog", style: carryingStyle } }];
   }
   return [];
 }
@@ -749,56 +768,65 @@ export const wanderHogs = spacetimedb.reducer({ timer: hogWander.rowType }, (ctx
 });
 
 /**
- * Spawn boulders or Hogs at the caller's location — the `/spawn` debug command
- * and the pre-alpha Commands panel (optionally gated client-side by `spawn-command`).
- * The server re-derives the trogg's tile authoritatively (invariant 3) and places
- * entities on nearby free tiles, starting with the tile it faces, so nothing lands
- * inside a wall or on another solid entity. Refused once the zone is at its entity
- * cap, so a scripted client can't flood it (the client flag only gates the UI).
- * An unknown kind, a non-positive count, a full zone, or a boxed-in trogg is a
- * silent no-op.
+ * Spawn one thing at the caller's location from the pre-alpha Commands panel
+ * (optionally gated client-side by `spawn-command`). The server re-derives the
+ * trogg's tile authoritatively (invariant 3) and places the thing on a nearby free
+ * tile, starting with the tile it faces, so nothing lands inside a wall or on
+ * another entity. Refused once the zone is at its cap, so a scripted client can't
+ * flood it (the client flag only gates the UI). An unknown kind/item, a full zone,
+ * or a boxed-in trogg is a silent no-op.
  */
-function runSpawn(ctx: Ctx, { kind, count, source = "" }: { kind: string; count: number; source?: string }): AnalyticsEvent[] {
-  if (kind !== "boulder" && kind !== "hog") return [];
-  if (!Number.isSafeInteger(count) || count <= 0) return [];
+function runSpawn(ctx: Ctx, { kind, item = "", source = "" }: { kind: string; item?: string; source?: string }): AnalyticsEvent[] {
+  if (kind !== "boulder" && kind !== "hog" && kind !== "item") return [];
+  if (kind === "boulder" && item !== "") return [];
+  if (kind === "item" && !isSpawnableItemId(item)) return [];
+  if (kind === "hog" && item !== "" && !isHogStyle(item)) return [];
 
   const p = ctx.db.player.identity.find(ctx.sender);
   if (!p) return [];
   const zone = getZone(p.zoneId);
   if (!zone) return [];
 
-  const existing = kind === "boulder" ? countRows(ctx.db.boulder.zoneId.filter(p.zoneId)) : countRows(ctx.db.hog.zoneId.filter(p.zoneId));
-  const cap = kind === "boulder" ? MAX_BOULDERS_PER_ZONE : MAX_HOGS_PER_ZONE;
-  const wanted = Math.min(Math.floor(count), Math.max(0, cap - existing));
-  if (wanted <= 0) return [];
+  const existing =
+    kind === "boulder"
+      ? countRows(ctx.db.boulder.zoneId.filter(p.zoneId))
+      : kind === "hog"
+        ? countRows(ctx.db.hog.zoneId.filter(p.zoneId))
+        : countRows(ctx.db.groundItem.zoneId.filter(p.zoneId));
+  const cap = kind === "boulder" ? MAX_BOULDERS_PER_ZONE : kind === "hog" ? MAX_HOGS_PER_ZONE : MAX_GROUND_ITEMS_PER_ZONE;
+  if (existing >= cap) return [];
 
   // Drop entities on free floor — never inside a wall or on top of anything solid
-  // (a boulder, a Hog, or another trogg), now that Hogs and troggs collide.
+  // (a boulder, a Hog, or another trogg) or another pickup item.
   const occupied = solidTiles(ctx, p.zoneId, ctx.timestamp, p.identity);
+  addGroundItemTiles(ctx, p.zoneId, occupied);
   const pos = settle(ctx, p, ctx.timestamp);
   const face = facingDir(p);
-  const tiles = spawnTiles(zone, (x, y) => occupied.has(tileKey(x, y)), pos.x, pos.y, face.dirX, face.dirY, wanted);
+  const tile = spawnTile(zone, (x, y) => occupied.has(tileKey(x, y)), pos.x, pos.y, face.dirX, face.dirY);
+  if (!tile) return [];
 
-  for (const tile of tiles) {
-    occupied.add(tileKey(tile.x, tile.y));
-    if (kind === "boulder") {
-      ctx.db.boulder.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y });
-    } else {
-      // A spawned Hog starts at rest and joins the roamers — the next wander tick
-      // gives it a heading like any other.
-      ctx.db.hog.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, path: "", homeX: tile.x, homeY: tile.y });
-    }
+  if (kind === "boulder") {
+    ctx.db.boulder.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y });
+  } else if (kind === "hog") {
+    // A spawned Hog starts at rest and joins the roamers — the next wander tick
+    // gives it a heading like any other. `item` carries an explicit sprite style.
+    ctx.db.hog.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, path: "", homeX: tile.x, homeY: tile.y, style: item });
+  } else {
+    ctx.db.groundItem.insert({ id: 0n, zoneId: p.zoneId, item, x: tile.x, y: tile.y });
   }
-  if (tiles.length === 0) return [];
-  return [{ distinctId: distinctId(ctx), event: "debug_entity_spawned", properties: { zone: p.zoneId, kind, count: tiles.length, ...sourceProp(source) } }];
+
+  const properties: Record<string, string | number | boolean> = { zone: p.zoneId, kind, count: 1, ...sourceProp(source) };
+  if (kind === "item") properties.item = item;
+  if (kind === "hog" && item !== "") properties.style = item;
+  return [{ distinctId: distinctId(ctx), event: "debug_entity_spawned", properties }];
 }
 
-export const spawn = spacetimedb.reducer({ kind: t.string(), count: t.i32() }, (ctx, args) => {
+export const spawn = spacetimedb.reducer({ kind: t.string(), item: t.string() }, (ctx, args) => {
   runSpawn(ctx, args);
 });
 
 export const spawnAction = spacetimedb.procedure(
-  { kind: t.string(), count: t.i32(), posthogKey: t.string(), source: t.string() },
+  { kind: t.string(), item: t.string(), posthogKey: t.string(), source: t.string() },
   t.unit(),
   (ctx, args) => {
     const events = ctx.withTx((tx) => runSpawn(tx, args));
@@ -810,9 +838,9 @@ export const spawnAction = spacetimedb.procedure(
 /**
  * Reset the caller's zone boulders to their `ZONES` registry positions (GDD
  * "Pushing"). Clears the zone's boulders and reseeds from the registry — the single
- * source of truth — so a layout shoved out of shape snaps back. Fired by the in-chat
- * `/reset` command; open like every reducer, with the optional `boulder-reset`
- * flag gating the client command.
+ * source of truth — so a layout shoved out of shape snaps back. Fired by the Commands
+ * panel; open like every reducer, with the optional `boulder-reset` flag gating the
+ * client control.
  */
 function runResetBoulders(ctx: Ctx, source = ""): AnalyticsEvent[] {
   const p = ctx.db.player.identity.find(ctx.sender);
@@ -841,12 +869,11 @@ export const resetBouldersAction = spacetimedb.procedure(
 /**
  * Reset the caller's zone Hogs to their `ZONES` registry population (GDD "Hogs").
  * Clears the zone's Hogs and reseeds from the registry — the single source of
- * truth — so a zone overrun with `/spawn`ed Hogs snaps back to its intended
+ * truth — so a zone overrun with extra panel-spawned Hogs snaps back to its intended
  * count. The mirror of `resetBoulders`. A Hog a trogg is carrying lives on the
  * player row, not the `hog` table, so it survives the cull and re-materialises on
- * put-down (GDD "Interacting"). Fired by the in-chat `/reset hedgehogs` command;
- * open like every reducer, with the optional `hog-reset` flag gating the client
- * command.
+ * put-down (GDD "Interacting"). Fired by the Commands panel; open like every reducer,
+ * with the optional `hog-reset` flag gating the client control.
  */
 function runResetHogs(ctx: Ctx, source = ""): AnalyticsEvent[] {
   const p = ctx.db.player.identity.find(ctx.sender);
@@ -1215,14 +1242,16 @@ export const redeemClaim = spacetimedb.reducer({ code: t.string() }, (ctx, { cod
   // this would destroy it (GDD "Interacting": nothing is orphaned). If the account is
   // already carrying, drop the guest's into the world where it stood instead.
   let carrying = account.carrying;
+  let carryingStyle = account.carryingStyle;
   if (guest.carrying !== "") {
     if (carrying === "") {
       carrying = guest.carrying;
+      carryingStyle = guest.carryingStyle;
     } else {
       const zone = getZone(guest.zoneId);
       const occupied = solidTiles(ctx, guest.zoneId, ctx.timestamp, guest.identity);
       const face = facingDir(guest);
-      if (zone) placeCarried(ctx, zone, guest.carrying, occupied, guest.x, guest.y, face.dirX, face.dirY);
+      if (zone) placeCarried(ctx, zone, guest.carrying, guest.carryingStyle, occupied, guest.x, guest.y, face.dirX, face.dirY);
     }
   }
 
@@ -1245,6 +1274,7 @@ export const redeemClaim = spacetimedb.reducer({ code: t.string() }, (ctx, { cod
     ...account,
     name: inheritName ? guestName : account.name,
     carrying,
+    carryingStyle,
     equippedMainHand,
     equippedMainHandInventoryId,
     isGuest: false,
@@ -1430,6 +1460,11 @@ function solidTiles(ctx: Ctx, zoneId: string, now: Stamp, exclude?: Ctx["sender"
   return tiles;
 }
 
+/** Mark existing pickup items as visually occupied for new debug spawns. */
+function addGroundItemTiles(ctx: Ctx, zoneId: string, set: Set<string>): void {
+  for (const item of ctx.db.groundItem.zoneId.filter(zoneId)) set.add(tileKey(item.x, item.y));
+}
+
 /** The boulder at a tile in a zone, or undefined. */
 function boulderAt(ctx: Ctx, zoneId: string, x: number, y: number) {
   for (const b of ctx.db.boulder.zoneId.filter(zoneId)) {
@@ -1561,6 +1596,12 @@ function pickupTarget(ctx: Ctx, zoneId: string, x: number, y: number, dir: { dir
   return undefined;
 }
 
+/** A Hog row's display style. Empty preserves existing id-derived rows; non-empty
+ *  is used for Hogs that were carried and put down again. */
+function effectiveHogStyle(h: { id: bigint; style?: string }): string {
+  return hogStyleFor(h.id.toString(), h.style);
+}
+
 /**
  * Drop a carried entity (GDD "Interacting") onto the faced tile, or the nearest
  * free neighbour, then the trogg's own tile (`spawnTile`) — so a boulder never
@@ -1572,6 +1613,7 @@ function placeCarried(
   ctx: Ctx,
   zone: Zone,
   kind: string,
+  style: string,
   occupied: Set<string>,
   x: number,
   y: number,
@@ -1588,7 +1630,7 @@ function placeCarried(
     ctx.db.boulder.insert({ id: 0n, zoneId: zone.slug, x: tile.x, y: tile.y });
   } else if (kind === "hog") {
     if (countRows(ctx.db.hog.zoneId.filter(zone.slug)) >= MAX_HOGS_PER_ZONE) return false;
-    ctx.db.hog.insert({ id: 0n, zoneId: zone.slug, x: tile.x, y: tile.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, path: "", homeX: tile.x, homeY: tile.y });
+    ctx.db.hog.insert({ id: 0n, zoneId: zone.slug, x: tile.x, y: tile.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, path: "", homeX: tile.x, homeY: tile.y, style });
   } else {
     return false;
   }

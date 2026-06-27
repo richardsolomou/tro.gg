@@ -12,7 +12,7 @@ import {
 
 export const params = {
   kind: __t.string(),
-  count: __t.i32(),
+  item: __t.string(),
   posthogKey: __t.string(),
   source: __t.string(),
 };

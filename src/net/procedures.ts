@@ -9,8 +9,8 @@ export function sendChat(conn: DbConnection, text: string) {
   return conn.procedures.chatAction({ text, ...telemetry("chat") });
 }
 
-export function spawnDebugEntity(conn: DbConnection, kind: "boulder" | "hog", count: number, source: string) {
-  return conn.procedures.spawnAction({ kind, count, ...telemetry(source) });
+export function spawnDebugEntity(conn: DbConnection, kind: "boulder" | "hog" | "item", item: string, source: string) {
+  return conn.procedures.spawnAction({ kind, item, ...telemetry(source) });
 }
 
 export function resetBoulders(conn: DbConnection, source: string) {

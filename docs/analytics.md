@@ -41,12 +41,12 @@ snake_case. Low-volume by design — anything that could fire more than ~once/se
 | `xp_gained` | `skill, amount, level` | XP granted (batch if volume demands) |
 | `level_up` | `skill, level` | Derived level increases |
 | `chat_sent` | `zone, source?` | Message sent — **no content** |
-| `boulders_reset` | `zone, source` | Player resets boulders via the in-chat `/reset` (or `/reset boulders`) command or Commands panel |
-| `hedgehogs_reset` | `zone, source` | Player resets Hogs via the in-chat `/reset hedgehogs` command or Commands panel |
-| `debug_entity_spawned` | `zone, kind, count, source` | Player requests `/spawn` or Commands panel spawn for a supported debug entity — `kind` is `boulder` or `hog`; the server may cap the inserted count |
-| `ghost_summoned` | `zone, source, count` | Player requests one or more synced cosmetic ghost haunts via launch chance, `/ghost`, or the Commands panel |
-| `object_picked_up` | `zone, kind, source?` | Player picks up a tile-sized object — `kind` is `boulder` or `hog` |
-| `object_dropped` | `zone, kind, source?` | Player puts down what they were carrying |
+| `boulders_reset` | `zone, source` | Player resets boulders via the Commands panel |
+| `hedgehogs_reset` | `zone, source` | Player resets Hogs via the Commands panel |
+| `debug_entity_spawned` | `zone, kind, count, source, item?, style?` | Player requests a Commands panel spawn for a supported debug entity — `kind` is `boulder`, `hog`, or `item`; `style` is present for exact Hog skin spawns and `item` for spawned pickup items |
+| `ghost_summoned` | `zone, source, count` | Player requests one or more synced cosmetic ghost haunts via the Commands panel |
+| `object_picked_up` | `zone, kind, source?, style?` | Player picks up a tile-sized object — `kind` is `boulder` or `hog`; `style` is present for Hogs |
+| `object_dropped` | `zone, kind, source?, style?` | Player puts down what they were carrying; `style` is present for Hogs |
 | `item_crafted` | `recipe, qty` | Item crafting succeeds |
 | `project_contributed` | `project, item, qty` | Player contributes to a communal project |
 | `project_completed` | `project` | Communal project completes |
@@ -66,19 +66,19 @@ Code currently reads these flag keys:
 | ---- | -------- | -------- |
 | `auth-enabled` | Account sign-in / claim panel (the top-right claim/sign-out control) | On, but the UI still requires `VITE_SPACETIMEAUTH_CLIENT_ID` |
 | `avatar-sprites` | Trogg sprite avatars vs the placeholder colour marker | On |
-| `ghost-trogg` | Zone-synced cosmetic ghost easter egg (`/ghost` command + Commands panel ghost buttons) | On |
+| `ghost-trogg` | Zone-synced cosmetic ghost easter egg (Commands panel ghost button) | On |
 | `boulder-pushing` | Client push input for boulders | On |
 | `interact` | Interact key (`E`) — pick up / put down tile-sized objects | On |
 | `roaming-hogs` | Hog rendering and subscription | On |
 | `running` | Hold-shift-to-run input | On |
-| `spawn-command` | `/spawn` debug command and Commands panel spawn controls | On outside production (local dev + preview builds, which ship no PostHog key); flag-governed in production |
-| `boulder-reset` | `/reset` (or `/reset boulders`) boulder layout command and Commands panel reset control | On |
-| `hog-reset` | `/reset hedgehogs` Hog population reset command and Commands panel reset control | On |
+| `spawn-command` | Commands panel spawn controls | On outside production (local dev + preview builds, which ship no PostHog key); flag-governed in production |
+| `boulder-reset` | Commands panel boulder layout reset control | On |
+| `hog-reset` | Commands panel Hog population reset control | On |
 | `chat-enabled` | Chat panel and bubbles | On |
 | `trogg-recolor` | Colour swatches in the Appearance panel | On |
 | `trogg-restyle` | Body-style buttons in the Appearance panel | On |
 
-PostHog project audit (2026-06-27): all code-read flags above are configured in PostHog project 314596 and active. They are intentionally still in use because they cover remote rollback, production-only debug command governance, or visible UI capabilities that should not advertise disabled controls. `interact` was created 2026-06-25 with the carry mechanic; `hog-reset` was created 2026-06-25 with the `/reset hedgehogs` command; `trogg-restyle` was created 2026-06-27 with avatar body styles. No new flag is needed for the observability pass; planned future flags should be added here, and created in PostHog, when code starts reading them.
+PostHog project audit (2026-06-27): all code-read flags above are configured in PostHog project 314596 and active. They are intentionally still in use because they cover remote rollback, production-only debug command governance, or visible UI capabilities that should not advertise disabled controls. `interact` was created 2026-06-25 with the carry mechanic; `hog-reset` was created 2026-06-25 with the Hog reset tool; `trogg-restyle` was created 2026-06-27 with avatar body styles. No new flag is needed for the observability pass; planned future flags should be added here, and created in PostHog, when code starts reading them.
 
 ## Error tracking and logs
 

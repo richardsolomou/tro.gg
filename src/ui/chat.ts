@@ -3,8 +3,7 @@ import type { DbConnection } from "../net/module_bindings";
 import type { Player } from "../net/module_bindings/types";
 import { cssColor } from "../ui_text.js";
 import { hudRoot } from "./hud.js";
-import { currentCommandFlags, handleChatCommand } from "./chat_commands.js";
-import { isFeatureEnabled, logError } from "../analytics.js";
+import { logError } from "../analytics.js";
 import { audio } from "../audio.js";
 import type { Entities, Tracked } from "../game/entities.js";
 import { sendChat } from "../net/procedures.js";
@@ -160,14 +159,10 @@ export function setupChat(
   sub: { live: boolean },
   myId: string | undefined,
 ) {
-  // Slash commands are typed in the chat box but are not chat lines. Each command is
-  // independently feature-gated and dispatches through procedure wrappers.
-  const flags = currentCommandFlags();
   const chat = mountChat((text) => {
-    if (handleChatCommand(text, { conn, chat, zone, flags })) return;
     audio.playChatSend();
     void sendChat(conn, text).catch((err) => {
-      logError("Chat action failed", { surface: "chat", action: "chat", error: err });
+      logError("Chat action failed", { surface: "chat", action: "chat", zone: zone.slug, error: err });
     });
   });
 
