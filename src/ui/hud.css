@@ -294,6 +294,7 @@
 }
 #hud .inventory-item {
   position: relative;
+  box-sizing: border-box;
   width: 40px;
   height: 40px;
   padding: 3px;
@@ -314,6 +315,10 @@
   cursor: default;
 }
 #hud .inventory-slot-empty {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  place-self: center;
   cursor: default;
   opacity: 0.65;
 }
