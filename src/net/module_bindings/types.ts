@@ -107,3 +107,10 @@ export const Player = __t.object("Player", {
   faceY: __t.i32(),
 });
 export type Player = __Infer<typeof Player>;
+
+export const PlayerConnection = __t.object("PlayerConnection", {
+  connectionId: __t.string(),
+  playerId: __t.identity(),
+  connectedAt: __t.timestamp(),
+});
+export type PlayerConnection = __Infer<typeof PlayerConnection>;

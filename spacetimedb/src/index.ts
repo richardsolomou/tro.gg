@@ -259,6 +259,22 @@ const inventory = table(
 );
 
 /**
+ * Live socket presence per trogg (private). A player row is keyed by Identity, so
+ * two tabs signed into the same account share one durable trogg. This table tracks
+ * the individual connections behind that identity so an extra tab connecting does
+ * not restart the trogg's motion, and one tab disconnecting does not mark the shared
+ * row offline while another tab is still present.
+ */
+const playerConnection = table(
+  { name: "player_connection", public: false },
+  {
+    connectionId: t.string().primaryKey(),
+    playerId: t.identity().index("btree"),
+    connectedAt: t.timestamp(),
+  },
+);
+
+/**
  * The Hog wander timer (GDD "Hogs"). A scheduled table is SpacetimeDB's
  * deterministic timer — the only way state changes outside player input (invariant
  * 1: no simulation tick). Each tick fires `wanderHogs`, which re-bases every Hog to
@@ -274,7 +290,7 @@ const hogWander = table(
   },
 );
 
-const spacetimedb = schema({ player, chatMessage, ghostHaunt, claimCode, boulder, hog, groundItem, inventory, hogWander });
+const spacetimedb = schema({ player, chatMessage, ghostHaunt, claimCode, boulder, hog, groundItem, inventory, playerConnection, hogWander });
 export default spacetimedb;
 
 /** The reducer context, typed against this module's schema (db view + sender). */
@@ -297,8 +313,17 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
   // A player is here, so make sure the Hogs are roaming (no-op if already armed).
   armWander(ctx);
 
+  const hadLiveConnection = playerConnectionCount(ctx, ctx.sender) > 0;
+  rememberPlayerConnection(ctx);
+
   const existing = ctx.db.player.identity.find(ctx.sender);
   if (existing) {
+    // The same account can have several live sockets (two tabs, or two devices).
+    // They all control and observe one trogg row. Only the first live connection
+    // should resume/reset presence; later connections must not stop an in-flight
+    // movement intent that the already-active tab is driving.
+    if (existing.online && hadLiveConnection) return;
+
     // A returning trogg is already settled (disconnect zeroes its direction), but
     // a tilemap edit could leave its resting tile inside a new wall; nudge it back
     // to spawn so it never resumes embedded in an obstacle (invariant 6).
@@ -386,6 +411,8 @@ function seedGroundItems(ctx: Ctx, zone: Zone): void {
 export const onDisconnect = spacetimedb.clientDisconnected((ctx) => {
   const p = ctx.db.player.identity.find(ctx.sender);
   if (!p) return;
+  if (forgetPlayerConnection(ctx) > 0) return;
+
   const settled = settle(ctx, p, ctx.timestamp);
   // Drop whatever the trogg was carrying where it stops, so a carried entity is
   // never orphaned while its carrier is offline (GDD "Interacting"). If it's boxed
@@ -997,6 +1024,22 @@ export const redeemClaim = spacetimedb.reducer({ code: t.string() }, (ctx, { cod
 function anyPlayerOnline(ctx: Ctx): boolean {
   for (const p of ctx.db.player.iter()) if (p.online) return true;
   return false;
+}
+
+function playerConnectionCount(ctx: Ctx, playerId: Ctx["sender"]): number {
+  return countRows(ctx.db.playerConnection.playerId.filter(playerId));
+}
+
+function rememberPlayerConnection(ctx: Ctx): void {
+  if (!ctx.connectionId) return;
+  const connectionId = ctx.connectionId.toHexString();
+  if (ctx.db.playerConnection.connectionId.find(connectionId)) return;
+  ctx.db.playerConnection.insert({ connectionId, playerId: ctx.sender, connectedAt: ctx.timestamp });
+}
+
+function forgetPlayerConnection(ctx: Ctx): number {
+  if (ctx.connectionId) ctx.db.playerConnection.connectionId.delete(ctx.connectionId.toHexString());
+  return playerConnectionCount(ctx, ctx.sender);
 }
 
 /** Pick a walkable floor tile from a zone. Used for the cosmetic ghost haunt. */

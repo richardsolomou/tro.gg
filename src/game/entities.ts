@@ -11,8 +11,6 @@ export const ART = 16;
 const CARRY_SCALE = 0.62;
 /** How long a visible equipment use impulse lasts. */
 const EQUIPMENT_ACTION_MS = 240;
-/** Odds a given launch is haunted by the ghost. */
-export const GHOST_CHANCE = 1 / 20;
 /** How long the apparition spends materialising. */
 const GHOST_FADE_IN_MS = 900;
 /** How long the apparition lingers at full presence. */
@@ -374,9 +372,9 @@ export function createEntities(scene: Phaser.Scene, getTile: () => number) {
 
   /**
    * Cosmetic easter egg (behind `ghost-trogg`): a pale draped ghost materialises on
-   * the given tile, drifts gently, lingers, then fades. The local launch chance,
-   * launch haunt and the Commands panel request `hauntGhost`; every live client in the
-   * zone renders the resulting `ghost_haunt` insert.
+   * the given tile, drifts gently, lingers, then fades. The Commands panel requests
+   * `hauntGhost`; every live client in the zone renders the resulting `ghost_haunt`
+   * insert.
    */
   const hauntGhost = (stage: Phaser.GameObjects.Container, tile: { x: number; y: number; id?: bigint }) => {
     audio.playGhost();
