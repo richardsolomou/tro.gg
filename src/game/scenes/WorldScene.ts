@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { getZone, hogStyleFor, projectMotion, projectMotionState, snapToTile, STARTING_ZONE_SLUG, tileKey, timestampMs, troggColorFor, troggStyleFor, zoneBounds, type Coord, type Stamp, type ZoneBounds } from "@trogg/shared";
+import { footprintTiles, getZone, hogSize, hogStyleFor, projectMotion, projectMotionState, snapToTile, STARTING_ZONE_SLUG, tileKey, timestampMs, troggColorFor, troggStyleFor, zoneBounds, type Coord, type Stamp, type ZoneBounds } from "@trogg/shared";
 import type { DbConnection } from "../../net/module_bindings";
 import type { Boulder, Hog, Player } from "../../net/module_bindings/types";
 import { attachKeyboard } from "../../input.js";
@@ -205,11 +205,14 @@ export class WorldScene extends Phaser.Scene {
     // walls and boulders only; the server kept their step clear of troggs and Hogs.
     this.hogTiles.clear();
     for (const view of this.hogs.values()) {
-      const motion = projectMotionState(view.row, now - view.baseMs, this.hogBounds);
+      const size = hogSize(view.style);
+      const motion = projectMotionState({ ...view.row, size }, now - view.baseMs, this.hogBounds);
       this.entities.place(view.marker, motion.x, motion.y);
       this.entities.driveSprite(view.sprite, "hog", view.style, motion.dirX, motion.dirY, false, view, now);
       const tile = snapToTile({ x: motion.x, y: motion.y });
-      this.hogTiles.add(tileKey(tile.x, tile.y));
+      // A big hog blocks its whole footprint, so troggs (and our own prediction)
+      // collide with the giant's body, not just its anchor tile.
+      for (const t of footprintTiles(tile.x, tile.y, size)) this.hogTiles.add(tileKey(t.x, t.y));
     }
 
     for (const entry of this.tracked.values()) {
@@ -379,10 +382,12 @@ export class WorldScene extends Phaser.Scene {
     const id = h.id.toString();
     if (this.hogs.has(id)) return;
     const facing = facingFromDir(h.dirX, h.dirY, "down");
-    const style = hogStyleFor(id);
+    // An explicit style (a big or easter-egg hog) wins; a common hog ("") derives its
+    // skin from its id, so the crowd is varied but stable.
+    const style = h.style || hogStyleFor(id);
     const { marker, sprite, frameKey } = this.entities.makeHog(style, facing);
     const baseMs = timestampBaseMs(h.movedAt);
-    const { x, y } = projectMotion(h, performance.now() - baseMs, this.hogBounds);
+    const { x, y } = projectMotion({ ...h, size: hogSize(style) }, performance.now() - baseMs, this.hogBounds);
     this.entities.place(marker, x, y);
     this.hogs.set(id, { marker, sprite, row: h, baseMs, facing, style, frameKey });
     this.hogLayer.add(marker);
