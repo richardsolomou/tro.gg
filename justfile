@@ -25,13 +25,13 @@ publish:
     just generate
 
 # Delete the local development database so branch/schema switches start cleanly.
+# `spacetime list` only reports databases for the current identity, but a `trogg`
+# left by another identity still exists and blocks a publish with a migration
+# error — so delete by name unconditionally (idempotent with -y) rather than
+# gating on a list match that can miss it.
 reset-local-db:
-    @dbs="$({{spacetime}} list --server {{local_server}} -y)" || exit $$?; \
-    if printf '%s\n' "$$dbs" | awk 'NR > 2 {print $$1}' | grep -qx trogg; then \
-        {{spacetime}} delete --server {{local_server}} trogg -y; \
-    else \
-        echo "No local trogg database to clear."; \
-    fi
+    @echo "Clearing local trogg database (if present)…"
+    @{{spacetime}} delete --server {{local_server}} trogg -y
 
 # Regenerate the TypeScript client bindings from the module schema.
 generate:
