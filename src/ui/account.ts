@@ -35,8 +35,10 @@ export function mountAccount(conn: DbConnection, opts: { signedIn: boolean; auth
     palette.className = "swatches";
     TROGG_COLORS.forEach((color, index) => {
       const swatch = document.createElement("button");
+      swatch.type = "button";
       swatch.className = "swatch";
       swatch.style.background = cssColor(color);
+      swatch.setAttribute("aria-label", `Trogg colour ${index + 1}`);
       swatch.addEventListener("click", () => {
         void conn.reducers.recolor({ color: index });
         captureEvent("trogg_recolored", { color: index });
@@ -49,6 +51,7 @@ export function mountAccount(conn: DbConnection, opts: { signedIn: boolean; auth
 
   if (opts.authAvailable) {
     const action = document.createElement("button");
+    action.type = "button";
     action.className = "btn";
     action.textContent = opts.signedIn ? "Sign out" : "Claim account with Discord";
     action.addEventListener("click", async () => {

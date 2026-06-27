@@ -24,6 +24,7 @@ export function mountHelp(): void {
   root.className = "panel help";
 
   const toggle = document.createElement("button");
+  toggle.type = "button";
   toggle.className = "help-toggle";
   toggle.textContent = "? Help";
 
