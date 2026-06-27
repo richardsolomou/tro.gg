@@ -35,6 +35,15 @@ export const ClaimCode = __t.object("ClaimCode", {
 });
 export type ClaimCode = __Infer<typeof ClaimCode>;
 
+export const GhostHaunt = __t.object("GhostHaunt", {
+  id: __t.u64(),
+  zoneId: __t.string(),
+  x: __t.i32(),
+  y: __t.i32(),
+  createdAt: __t.timestamp(),
+});
+export type GhostHaunt = __Infer<typeof GhostHaunt>;
+
 export const Hog = __t.object("Hog", {
   id: __t.u64(),
   zoneId: __t.string(),
@@ -74,4 +83,3 @@ export const Player = __t.object("Player", {
   style: __t.i32(),
 });
 export type Player = __Infer<typeof Player>;
-

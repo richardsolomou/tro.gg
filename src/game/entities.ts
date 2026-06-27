@@ -246,10 +246,9 @@ export function createEntities(scene: Phaser.Scene, getTile: () => number) {
 
   /**
    * Cosmetic easter egg (behind `ghost-trogg`): a pale draped ghost materialises on
-   * the given tile for a heartbeat, then fades — on launch by chance at the origin, or
-   * on demand at a random tile via the `/ghost` command. Purely a client render: it
-   * touches no table and no reducer (invariant 3), so it's never seen by anyone but
-   * the player who summoned it.
+   * the given tile for a heartbeat, then fades. The local launch chance, `/ghost`, and
+   * command panel all request `hauntGhost`; every live client in the zone renders the
+   * resulting `ghost_haunt` insert.
    */
   const hauntGhost = (stage: Phaser.GameObjects.Container, tile: { x: number; y: number }) => {
     audio.playGhost();
