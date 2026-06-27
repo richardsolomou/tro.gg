@@ -4,6 +4,8 @@
  * tuning or experiments are useful. See docs/gdd.md.
  */
 
+import { BIG_HOG_STYLES } from "./sprites";
+
 /** Movement speed shared by click-to-move and WASD. (initial) */
 export const MOVE_SPEED_TILES_PER_SEC = 4;
 
@@ -58,6 +60,15 @@ export const CHAT_HISTORY_MAX = 50;
 export const GHOST_HAUNT_HISTORY_MAX = 50;
 
 /**
+ * A `ghost_haunt` row only renders if it arrived this fresh. The initial subscription
+ * snapshot replays the zone's capped history to a joiner, so without a freshness gate
+ * every persisted row would render at once (a swarm). Live inserts arrive within a
+ * second; this window stays well clear of network latency and clock skew while
+ * excluding any backlog row. (initial)
+ */
+export const GHOST_HAUNT_FRESH_MS = 10_000;
+
+/**
  * Tilemap glyphs (GDD "Zones"). Each character in a zone's `tiles` rows is one
  * tile. `WALL_TILE` (`#`) is the only unwalkable glyph — `isWalkable` treats it,
  * and only it, as solid; every other glyph is walkable floor. The non-wall glyphs
@@ -98,6 +109,14 @@ export type SpawnableItemId = (typeof SPAWNABLE_ITEM_IDS)[number];
 
 /** Inventory capacity (GDD "Inventory"): each row occupies one visible carry slot. (initial) */
 export const INVENTORY_SLOT_COUNT = 10;
+
+/** Trogg/Hog combat health, damage, and respawn timing. (initial) */
+export const PLAYER_MAX_HEALTH = 100;
+export const HOG_MAX_HEALTH = 60;
+export const SWORD_DAMAGE = 25;
+export const THROWN_OBJECT_DAMAGE = 40;
+export const THROWN_OBJECT_RANGE = 4;
+export const PLAYER_RESPAWN_MS = 5000;
 
 export type EquipmentSlot = "mainHand";
 
@@ -141,7 +160,7 @@ export const ITEMS: Record<ItemId, ItemDef> = {
     id: "sword",
     name: "Sword",
     stackable: false,
-    blurb: "Equipped in the main hand. It swings, but combat waits for PvE events.",
+    blurb: "Equipped in the main hand. Use it to attack a faced adjacent trogg.",
     slot: "mainHand",
     sprite: "sword",
   },
@@ -225,7 +244,18 @@ export function isGeneratedName(name: string): boolean {
  *
  * `items` lists starter pickup items. A pickup has a registry item id and a tile;
  * pressing `E` while facing it moves the item into inventory and removes the row.
+ *
+ * `bigHogs` lists the zone's rare 2×2 showpiece Hogs (GDD "Hogs") — a buff or dino
+ * placed at a chosen anchor (its top-left tile), seeded with an explicit `style` so
+ * it never rolls from the random crowd. Each needs its whole 2×2 footprint clear of
+ * walls; `assertZones` checks that.
  */
+export interface BigHog {
+  x: number;
+  y: number;
+  style: string;
+}
+
 export interface Zone {
   slug: string;
   name: string;
@@ -235,6 +265,7 @@ export interface Zone {
   boulders: readonly Coord[];
   hogs: readonly Coord[];
   items: readonly GroundItemSeed[];
+  bigHogs: readonly BigHog[];
 }
 
 /**
@@ -292,6 +323,12 @@ export const ZONES: Record<string, Zone> = {
       { item: "pickaxe", x: 11, y: 7 },
       { item: "shovel", x: 12, y: 7 },
       { item: "sword", x: 13, y: 7 },
+    ],
+    // Two giants (GDD "Hogs"): a buff hog on the open left flat, a dino on the right.
+    // Each anchor's 2×2 footprint is clear floor (rows 7-8 are an open band).
+    bigHogs: [
+      { x: 3, y: 7, style: "buff" },
+      { x: 18, y: 7, style: "dino" },
     ],
   },
 };
@@ -352,6 +389,17 @@ export function assertZones(): void {
       }
       if (!isWalkable(zone, item.x, item.y)) {
         throw new Error(`zone ${zone.slug}: ground item ${item.item} at (${item.x}, ${item.y}) is not on walkable floor`);
+      }
+    }
+    for (const h of zone.bigHogs) {
+      if (!(BIG_HOG_STYLES as readonly string[]).includes(h.style)) {
+        throw new Error(`zone ${zone.slug}: big hog at (${h.x}, ${h.y}) has non-big style ${JSON.stringify(h.style)}`);
+      }
+      // Every tile of the 2×2 footprint must be clear floor.
+      for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) {
+        if (!isWalkable(zone, h.x + dx, h.y + dy)) {
+          throw new Error(`zone ${zone.slug}: big hog at (${h.x}, ${h.y}) footprint tile (${h.x + dx}, ${h.y + dy}) is not walkable`);
+        }
       }
     }
   }

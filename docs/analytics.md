@@ -47,12 +47,16 @@ snake_case. Low-volume by design — anything that could fire more than ~once/se
 | `ghost_summoned` | `zone, source, count` | Player requests one or more synced cosmetic ghost haunts via the Commands panel |
 | `object_picked_up` | `zone, kind, source?, style?` | Player picks up a tile-sized object — `kind` is `boulder` or `hog`; `style` is present for Hogs |
 | `object_dropped` | `zone, kind, source?, style?` | Player puts down what they were carrying; `style` is present for Hogs |
+| `object_thrown` | `zone, kind, range, source?, hit_target?` | Player throws a carried boulder or Hog; `hit_target` is `trogg` or `hog` when the throw damages a character |
+| `combat_hit` | `zone, weapon, target, damage, killed, source?` | An accepted server-side attack damages a trogg or Hog. `weapon` is `sword`, `thrown_boulder`, or `thrown_hog`; `target` is `trogg` or `hog` |
+| `player_died` | `zone, cause, dropped_item_rows, dropped_item_qty, respawn_ms, source?` | Server-side combat damage kills a trogg, drops its inventory, and schedules its respawn |
+| `player_respawned` | `zone, respawn_ms, source` | The local player's authoritative row transitions from dead to alive after the scheduled respawn timer |
 | `item_crafted` | `recipe, qty` | Item crafting succeeds |
 | `project_contributed` | `project, item, qty` | Player contributes to a communal project |
 | `project_completed` | `project` | Communal project completes |
 | `shop_purchase` | `item, qty, price` | Player buys from a Hog merchant |
 
-Client lifecycle events use posthog-js (plus autocapture + session replay). Gameplay actions that need trusted server-side product events should use SpacetimeDB procedure wrappers rather than calling reducers directly from the browser. Each `*Action` procedure performs the authoritative mutation inside `ctx.withTx(...)`, derives event properties from server state, and then best-effort posts the accepted event to PostHog from the module with `source=spacetimedb-procedure` unless the caller supplies a narrower source such as `chat`, `commands`, `appearance`, `inventory`, or `keyboard`. Movement still generates zero events.
+Client lifecycle events use posthog-js (plus autocapture + session replay). Gameplay actions that need trusted server-side product events should use SpacetimeDB procedure wrappers rather than calling reducers directly from the browser. Each `*Action` procedure performs the authoritative mutation inside `ctx.withTx(...)`, derives event properties from server state, and then best-effort posts the accepted event to PostHog from the module with `source=spacetimedb-procedure` unless the caller supplies a narrower source such as `chat`, `commands`, `appearance`, `inventory`, or `keyboard`. Death from combat is captured by the attacking procedure as `player_died`; respawn is captured client-side from the local authoritative row transition because it is driven by a scheduled reducer, not a procedure call. Movement still generates zero events.
 
 The procedure wrappers accept the existing public `VITE_POSTHOG_KEY` as an argument because SpacetimeDB modules do not have the browser's Vite env at runtime. The PostHog project key is already public in the client bundle; never pass private API keys, OIDC tokens, SpacetimeDB tokens, chat content, or arbitrary command text through procedure telemetry parameters.
 
@@ -84,7 +88,7 @@ PostHog project audit (2026-06-27): all code-read flags above are configured in 
 
 The browser SDK initializes with exception autocapture for unhandled errors, unhandled promise rejections, and `console.error()` calls. Handled failures in startup, account claim/sign-in, silent auth refresh, and reducer- or procedure-backed account, appearance, inventory, or command actions should go through `logError()` with stable `surface` / `action` context so they are visible in DevTools and captured by PostHog Logs without relying on console-log autocapture.
 
-Structured browser logs go through explicit `logInfo()` / `logWarn()` / `logError()` helpers with `service.name = trogg-web`, the Vite build stamp as `service.version`, and the Vite mode as `deployment.environment`. Console-log autocapture is off to avoid double-capturing helper output. Use these helpers for startup, world boot flags, account actions, deploy recovery, version prompts, validation rejections, and debug command outcomes without chat content or arbitrary command text.
+Structured browser logs go through explicit `logInfo()` / `logWarn()` / `logError()` helpers with `service.name = trogg-web`, the Vite build stamp as `service.version`, and the Vite mode as `deployment.environment`. Console-log autocapture is off to avoid double-capturing helper output. Use these helpers for startup, world boot flags, local death/respawn row transitions, account actions, deploy recovery, version prompts, validation rejections, and debug command outcomes without chat content or arbitrary command text.
 
 The SpacetimeDB module currently captures accepted gameplay events from procedures, not general backend logs. Procedure telemetry failures are swallowed so analytics cannot roll back a committed gameplay action. Do not log or capture raw player chat, arbitrary command text, credentials, OIDC tokens, or SpacetimeDB tokens.
 
