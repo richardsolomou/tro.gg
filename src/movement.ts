@@ -153,6 +153,20 @@ export function createSelfController(deps: SelfControllerDeps) {
   // speed the trogg up for everyone. Holding the click until the next centre keeps every
   // re-path on a whole tile; repeated clicks just overwrite this target.
   let pendingMoveTo: Coord | null = null;
+  // A click-to-move route has been dispatched but its row hasn't come back yet. Until
+  // it does, local state still reads "idle at the start tile" (we apply nothing
+  // optimistically), so a fresh click would re-fire `moveTo` from that same tile — the
+  // server then settles the second one from the first's in-progress motion, snaps back,
+  // and bumps `movedAt`, rewinding the animation for everyone. Hold off re-routing until
+  // the dispatched route is acked (`reconcile`).
+  let awaitingMoveTo = false;
+  // The tile the live route was actually dispatched to (set when `moveTo` fires, cleared
+  // when the route ends). A repeat click on this same tile while we're already gliding
+  // toward it would re-path for no gain — and the re-path's reconcile resets `baseMs` to
+  // a server stamp that can map a hair ahead of the local clock, projecting one frame of
+  // negative elapsed that visibly snaps the trogg backward. So a redundant re-click is
+  // dropped rather than re-dispatched.
+  let routedTarget: Coord | null = null;
   // The clicked destination we're routing toward (the re-route aims here, not the
   // route's truncated end), and the last path we adopted the marker from.
   let destinationTile: Coord | undefined;
@@ -162,6 +176,9 @@ export function createSelfController(deps: SelfControllerDeps) {
 
   const setDestination = (tile: Coord | undefined) => {
     destinationTile = tile;
+    // Marker cleared (arrived, keypress, or as-close-as-we-get) means the route is over,
+    // so a fresh click to the same tile dispatches again rather than being deduped.
+    if (!tile) routedTarget = null;
     showDestination(tile);
   };
 
@@ -317,11 +334,27 @@ export function createSelfController(deps: SelfControllerDeps) {
   // server then settles onto that whole tile (a no-op snap), so no sub-tile distance
   // is banked no matter how fast the clicks come.
   const flushPendingMoveTo = (entry: Tracked, motion: ProjectedMotion, x: number, y: number, now: number) => {
-    if (!pendingMoveTo) return;
+    if (!pendingMoveTo || awaitingMoveTo) return;
     const dir = { dirX: motion.dirX, dirY: motion.dirY, running: entry.player.running };
-    if (!isIdle(dir) && !reachedCentre(dir, prevX, prevY, x, y)) return;
+    // Already gliding along a live route to this exact tile? Re-clicking it changes
+    // nothing, so don't re-path (which would reset movedAt and snap the trogg for
+    // everyone). A stalled route (path set but no heading) falls through to re-route.
+    if (routedTarget && routedTarget.x === pendingMoveTo.x && routedTarget.y === pendingMoveTo.y && entry.player.path !== "" && !isIdle(dir)) {
+      pendingMoveTo = null;
+      return;
+    }
+    if (!isIdle(dir)) {
+      // Moving: re-route only on a real tile-centre crossing, so the server's settle is a
+      // no-op snap. A fresh reconcile leaves `prev` NaN (motion just re-based to a centre);
+      // `reachedCentre` reads NaN as "reached", so guard it — firing then would re-route
+      // off-centre and snap the position back.
+      const prev = dir.dirX !== 0 ? prevX : prevY;
+      if (Number.isNaN(prev) || !reachedCentre(dir, prevX, prevY, x, y)) return;
+    }
     const target = pendingMoveTo;
     pendingMoveTo = null;
+    awaitingMoveTo = true;
+    routedTarget = target;
     sent = { dirX: 0, dirY: 0, running: false };
     pendingSelfMoves.length = 0;
     lastMoveToAt = now;
@@ -381,6 +414,9 @@ export function createSelfController(deps: SelfControllerDeps) {
   /** Apply a server row for the local trogg: consume the matching optimistic move, or
    *  snap to authority on a mismatch (invariant 3). Mutates `entry` in place. */
   const reconcile = (entry: Tracked, p: Player) => {
+    // Any server row for us means a dispatched route (if one was in flight) has landed —
+    // re-routing is allowed again.
+    awaitingMoveTo = false;
     const serverMotion = playerMotion(p);
     const pendingIndex = pendingSelfMoves.findIndex((motion) => sameMotion(motion, serverMotion));
     if (pendingIndex >= 0) {
