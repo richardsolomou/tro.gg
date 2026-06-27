@@ -1,4 +1,5 @@
 import type { DbConnection } from "../net/module_bindings";
+import { captureEvent, logError, logInfo } from "../analytics.js";
 import { signIn, signOut } from "../auth.js";
 import { setPendingClaim } from "../identity.js";
 import { hudRoot } from "./hud.js";
@@ -25,22 +26,33 @@ export function mountAccount(conn: DbConnection, opts: { signedIn: boolean; auth
   action.textContent = opts.signedIn ? "Sign out" : "Claim account with Discord";
   action.addEventListener("click", async () => {
     if (opts.signedIn) {
+      captureEvent("account_signed_out");
+      logInfo("Account signed out", { surface: "account" });
       await signOut();
       window.location.reload();
       return;
     }
     action.disabled = true;
-    status.textContent = "Starting sign-in…";
+    status.textContent = "Starting sign-in...";
     const code = crypto.randomUUID();
     try {
       await conn.reducers.startClaim({ code });
-    } catch {
+    } catch (err) {
+      logError("Account claim start failed", { surface: "account", action: "start_claim", error: err });
       status.textContent = "Couldn't start sign-in. Try again.";
       action.disabled = false;
       return;
     }
     setPendingClaim(code);
-    await signIn();
+    captureEvent("account_claim_started");
+    logInfo("Account claim started", { surface: "account" });
+    try {
+      await signIn();
+    } catch (err) {
+      logError("Sign-in redirect failed", { surface: "account", action: "sign_in_redirect", error: err });
+      status.textContent = "Couldn't open sign-in. Try again.";
+      action.disabled = false;
+    }
   });
 
   root.append(action, status);

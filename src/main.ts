@@ -1,6 +1,6 @@
 import { STARTING_ZONE_SLUG } from "@trogg/shared";
 import { accountSubject, authConfigured, completeSignIn, currentIdToken } from "./auth.js";
-import { captureEvent, identifyUser, initAnalytics, isFeatureEnabled } from "./analytics.js";
+import { captureEvent, identifyUser, initAnalytics, isFeatureEnabled, logError, logInfo } from "./analytics.js";
 import { clearStoredToken, clearPendingClaim, getPendingClaim } from "./identity.js";
 import { connect } from "./net/net.js";
 import { mountAccount } from "./ui/account.js";
@@ -25,9 +25,10 @@ async function main() {
     const conn = await connect(idToken ?? undefined, () => startReconnect(idToken ?? undefined));
     const signedIn = idToken !== null;
 
-    // Server-authoritative events can't be emitted from inside reducers
-    // (network-isolated), so session events fire client-side (docs/analytics.md).
+    // Session lifecycle events are client-side; accepted gameplay actions emit from
+    // SpacetimeDB procedure wrappers where server state is available (docs/analytics.md).
     captureEvent("player_joined", { zone: STARTING_ZONE_SLUG, is_guest: !signedIn });
+    logInfo("Player joined world", { zone: STARTING_ZONE_SLUG, is_guest: !signedIn });
 
     if (signedIn) {
       // Complete a pending claim: we signed in to upgrade a guest, so redeem the nonce now
@@ -67,7 +68,7 @@ async function main() {
     // offer a refresh when newer assets ship (version.ts).
     watchForUpdate();
   } catch (err) {
-    console.error("Failed to connect to SpacetimeDB:", err);
+    logError("Failed to connect to SpacetimeDB", { surface: "startup", action: "connect_spacetimedb", error: err });
   }
 }
 

@@ -6,5 +6,38 @@
 import { type Infer as __Infer } from "spacetimedb";
 
 // Import all procedure arg schemas
+import * as ChatActionProcedure from "../chat_action_procedure";
+import * as EquipItemActionProcedure from "../equip_item_action_procedure";
+import * as HauntGhostActionProcedure from "../haunt_ghost_action_procedure";
+import * as InteractActionProcedure from "../interact_action_procedure";
+import * as RecolorActionProcedure from "../recolor_action_procedure";
+import * as RenameActionProcedure from "../rename_action_procedure";
+import * as ResetBouldersActionProcedure from "../reset_boulders_action_procedure";
+import * as ResetHogsActionProcedure from "../reset_hogs_action_procedure";
+import * as RestyleActionProcedure from "../restyle_action_procedure";
+import * as SpawnActionProcedure from "../spawn_action_procedure";
+import * as UseEquippedActionProcedure from "../use_equipped_action_procedure";
 
+export type ChatActionArgs = __Infer<typeof ChatActionProcedure.params>;
+export type ChatActionResult = __Infer<typeof ChatActionProcedure.returnType>;
+export type EquipItemActionArgs = __Infer<typeof EquipItemActionProcedure.params>;
+export type EquipItemActionResult = __Infer<typeof EquipItemActionProcedure.returnType>;
+export type HauntGhostActionArgs = __Infer<typeof HauntGhostActionProcedure.params>;
+export type HauntGhostActionResult = __Infer<typeof HauntGhostActionProcedure.returnType>;
+export type InteractActionArgs = __Infer<typeof InteractActionProcedure.params>;
+export type InteractActionResult = __Infer<typeof InteractActionProcedure.returnType>;
+export type RecolorActionArgs = __Infer<typeof RecolorActionProcedure.params>;
+export type RecolorActionResult = __Infer<typeof RecolorActionProcedure.returnType>;
+export type RenameActionArgs = __Infer<typeof RenameActionProcedure.params>;
+export type RenameActionResult = __Infer<typeof RenameActionProcedure.returnType>;
+export type ResetBouldersActionArgs = __Infer<typeof ResetBouldersActionProcedure.params>;
+export type ResetBouldersActionResult = __Infer<typeof ResetBouldersActionProcedure.returnType>;
+export type ResetHogsActionArgs = __Infer<typeof ResetHogsActionProcedure.params>;
+export type ResetHogsActionResult = __Infer<typeof ResetHogsActionProcedure.returnType>;
+export type RestyleActionArgs = __Infer<typeof RestyleActionProcedure.params>;
+export type RestyleActionResult = __Infer<typeof RestyleActionProcedure.returnType>;
+export type SpawnActionArgs = __Infer<typeof SpawnActionProcedure.params>;
+export type SpawnActionResult = __Infer<typeof SpawnActionProcedure.returnType>;
+export type UseEquippedActionArgs = __Infer<typeof UseEquippedActionProcedure.params>;
+export type UseEquippedActionResult = __Infer<typeof UseEquippedActionProcedure.returnType>;
 

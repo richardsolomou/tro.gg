@@ -1,11 +1,12 @@
 import avatarUrl from "../../assets/sprites/troggs-and-hogs.png";
 import { FRAME_H, FRAME_W, frameRect, HOG_STYLES, ITEMS, SHEET_H, SHEET_W, SPAWNABLE_ITEM_IDS, type HogStyle, type SpawnableItemId, type Zone } from "@trogg/shared";
 import type { DbConnection } from "../net/module_bindings";
-import { captureEvent } from "../analytics.js";
+import { logError, logInfo } from "../analytics.js";
 import { audio } from "../audio.js";
 import { hudLeft } from "./hud.js";
 import { registerKeybind } from "./keybinds.js";
 import { currentCommandFlags, type ChatCommandFlags } from "./chat_commands.js";
+import { hauntGhost, resetBoulders, resetHogs, spawnDebugEntity } from "../net/procedures.js";
 import { itemIcon } from "./inventory.js";
 
 type SpawnRequest = { kind: "boulder" } | { kind: "hog"; style: HogStyle } | { kind: "item"; item: SpawnableItemId };
@@ -39,9 +40,9 @@ export function mountCommands({ conn, zone }: CommandPanelContext): void {
   const status = document.createElement("div");
   status.className = "command-status";
 
-  if (flags.spawn) body.appendChild(spawnSection(conn, status));
+  if (flags.spawn) body.appendChild(spawnSection(conn, zone.slug, status));
   if (flags.resetBoulders || flags.resetHogs) body.appendChild(resetSection(conn, zone.slug, flags, status));
-  if (flags.ghost) body.appendChild(ghostSection(conn, status));
+  if (flags.ghost) body.appendChild(ghostSection(conn, zone.slug, status));
   body.appendChild(status);
 
   const setOpen = (open: boolean) => {
@@ -85,30 +86,35 @@ function commandIcon(): SVGSVGElement {
   return icon;
 }
 
-function spawnSection(conn: DbConnection, status: HTMLElement): HTMLElement {
+function spawnSection(conn: DbConnection, zone: string, status: HTMLElement): HTMLElement {
   const section = commandSection("Spawn");
   const grid = document.createElement("div");
   grid.className = "command-spawn-grid";
 
-  grid.appendChild(spawnButton("Boulder", boulderIcon(), () => requestSpawn(conn, status, { kind: "boulder" })));
+  grid.appendChild(spawnButton("Boulder", boulderIcon(), () => requestSpawn(conn, zone, status, { kind: "boulder" })));
   for (const style of HOG_STYLES) {
     const label = `${titleCaseWords(style)} Hog`;
-    grid.appendChild(spawnButton(label, hogIcon(style), () => requestSpawn(conn, status, { kind: "hog", style })));
+    grid.appendChild(spawnButton(label, hogIcon(style), () => requestSpawn(conn, zone, status, { kind: "hog", style })));
   }
   for (const item of SPAWNABLE_ITEM_IDS) {
-    grid.appendChild(spawnButton(ITEMS[item].name, itemIcon(item), () => requestSpawn(conn, status, { kind: "item", item })));
+    grid.appendChild(spawnButton(ITEMS[item].name, itemIcon(item), () => requestSpawn(conn, zone, status, { kind: "item", item })));
   }
 
   section.appendChild(grid);
   return section;
 }
 
-function requestSpawn(conn: DbConnection, status: HTMLElement, request: SpawnRequest) {
+function requestSpawn(conn: DbConnection, zone: string, status: HTMLElement, request: SpawnRequest) {
   const item = request.kind === "hog" ? request.style : request.kind === "item" ? request.item : "";
   const label = request.kind === "boulder" ? "boulder" : request.kind === "hog" ? `${titleCaseWords(request.style)} Hog` : ITEMS[request.item].name;
-  conn.reducers.spawn({ kind: request.kind, item });
+  void spawnDebugEntity(conn, request.kind, item, "commands").catch((err) => {
+    logError("Command spawn request failed", { surface: "commands", action: "spawn", zone, kind: request.kind, item, error: err });
+    audio.playError();
+    status.textContent = "couldn't request spawn";
+  });
+  logInfo("Debug entity spawn requested", { surface: "commands", action: "spawn", zone, kind: request.kind, item, source: "commands" });
   audio.playCommand();
-  status.textContent = `spawned ${label}`;
+  status.textContent = `requested ${label}`;
 }
 
 function resetSection(conn: DbConnection, zone: string, flags: ChatCommandFlags, status: HTMLElement): HTMLElement {
@@ -119,8 +125,12 @@ function resetSection(conn: DbConnection, zone: string, flags: ChatCommandFlags,
   if (flags.resetBoulders) {
     const button = commandButton("Reset boulders");
     button.addEventListener("click", () => {
-      conn.reducers.resetBoulders({});
-      captureEvent("boulders_reset", { zone });
+      void resetBoulders(conn, "commands").catch((err) => {
+        logError("Command reset request failed", { surface: "commands", action: "reset_boulders", zone, error: err });
+        audio.playError();
+        status.textContent = "couldn't reset boulders";
+      });
+      logInfo("Command reset requested", { surface: "commands", action: "reset_boulders", zone, source: "commands" });
       audio.playCommand();
       status.textContent = "reset boulders";
     });
@@ -130,8 +140,12 @@ function resetSection(conn: DbConnection, zone: string, flags: ChatCommandFlags,
   if (flags.resetHogs) {
     const button = commandButton("Reset Hogs");
     button.addEventListener("click", () => {
-      conn.reducers.resetHogs({});
-      captureEvent("hedgehogs_reset", { zone });
+      void resetHogs(conn, "commands").catch((err) => {
+        logError("Command reset request failed", { surface: "commands", action: "reset_hogs", zone, error: err });
+        audio.playError();
+        status.textContent = "couldn't reset Hogs";
+      });
+      logInfo("Command reset requested", { surface: "commands", action: "reset_hogs", zone, source: "commands" });
       audio.playCommand();
       status.textContent = "reset Hogs";
     });
@@ -141,10 +155,17 @@ function resetSection(conn: DbConnection, zone: string, flags: ChatCommandFlags,
   if (flags.resetBoulders && flags.resetHogs) {
     const button = commandButton("Reset both");
     button.addEventListener("click", () => {
-      conn.reducers.resetBoulders({});
-      conn.reducers.resetHogs({});
-      captureEvent("boulders_reset", { zone });
-      captureEvent("hedgehogs_reset", { zone });
+      void resetBoulders(conn, "commands").catch((err) => {
+        logError("Command reset request failed", { surface: "commands", action: "reset_boulders", zone, error: err });
+        audio.playError();
+        status.textContent = "couldn't reset boulders";
+      });
+      void resetHogs(conn, "commands").catch((err) => {
+        logError("Command reset request failed", { surface: "commands", action: "reset_hogs", zone, error: err });
+        audio.playError();
+        status.textContent = "couldn't reset Hogs";
+      });
+      logInfo("Command reset requested", { surface: "commands", action: "reset_both", zone, source: "commands" });
       audio.playCommand();
       status.textContent = "reset boulders and Hogs";
     });
@@ -155,21 +176,34 @@ function resetSection(conn: DbConnection, zone: string, flags: ChatCommandFlags,
   return section;
 }
 
-function ghostSection(conn: DbConnection, status: HTMLElement): HTMLElement {
+function ghostSection(conn: DbConnection, zone: string, status: HTMLElement): HTMLElement {
   const section = commandSection("Ghost");
   const grid = document.createElement("div");
   grid.className = "command-grid";
 
   const once = commandButton("Summon ghost");
   once.addEventListener("click", () => {
-    conn.reducers.hauntGhost({});
-    audio.playCommand();
-    status.textContent = "summoned ghost";
+    status.textContent = haunt(conn, zone, 1) ? "requested one ghost" : "couldn't request ghost";
   });
 
-  grid.appendChild(once);
+  const burst = commandButton("Ghost burst");
+  burst.addEventListener("click", () => {
+    status.textContent = haunt(conn, zone, 8) ? "requested eight ghosts" : "couldn't request ghosts";
+  });
+
+  grid.append(once, burst);
   section.appendChild(grid);
   return section;
+}
+
+function haunt(conn: DbConnection, zone: string, count: number): boolean {
+  void hauntGhost(conn, count, "commands").catch((err) => {
+    logError("Command ghost request failed", { surface: "commands", action: "haunt_ghost", zone, count, error: err });
+    audio.playError();
+  });
+  logInfo("Command ghost requested", { surface: "commands", action: "haunt_ghost", zone, count, source: "commands" });
+  audio.playCommand();
+  return true;
 }
 
 function commandSection(title: string): HTMLElement {
