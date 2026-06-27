@@ -16,6 +16,8 @@ import {
 } from "@trogg/shared";
 import {
   chat,
+  discardItem,
+  dropItem,
   face,
   equipItem,
   hauntGhost,
@@ -279,6 +281,79 @@ test("equipItem equips only a specific owned equippable row", () => {
   assert.equal(ctx.db.player.identity.find(me).equippedMainHandInventoryId, first.id);
   equipItem(ctx, { inventoryId: second.id });
   assert.equal(ctx.db.player.identity.find(me).equippedMainHandInventoryId, second.id);
+});
+
+test("dropItem removes a non-stackable row and lays it on the ground", () => {
+  const { ctx, me } = withPlayer({ x: 5, y: 8 });
+  const sword = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });
+  dropItem(ctx, { inventoryId: sword.id });
+  assert.equal(ctx.db.inventory.id.find(sword.id), undefined);
+  const ground = ctx.db.groundItem.rows();
+  assert.equal(ground.length, 1);
+  assert.equal(ground[0].item, "sword");
+  assert.equal(ground[0].zoneId, ZONE);
+});
+
+test("dropItem decrements a stack and lays one unit on the ground", () => {
+  const { ctx, me } = withPlayer({ x: 5, y: 8 });
+  const stone = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "stone", qty: 3 });
+  dropItem(ctx, { inventoryId: stone.id });
+  assert.equal(ctx.db.inventory.id.find(stone.id)?.qty, 2);
+  assert.equal(ctx.db.groundItem.rows().length, 1);
+  assert.equal(ctx.db.groundItem.rows()[0].item, "stone");
+});
+
+test("dropItem unequips the main hand when the dropped row was equipped", () => {
+  const { ctx, me } = withPlayer({ x: 5, y: 8, equippedMainHand: "sword" });
+  const sword = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });
+  ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedMainHandInventoryId: sword.id });
+  dropItem(ctx, { inventoryId: sword.id });
+  const p = ctx.db.player.identity.find(me);
+  assert.equal(p.equippedMainHand, "");
+  assert.equal(p.equippedMainHandInventoryId, 0n);
+});
+
+test("dropItem keeps the item when the zone is at its ground-item cap", () => {
+  const { ctx, me } = withPlayer({ x: 5, y: 8 });
+  const sword = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });
+  for (let i = 0; i < MAX_GROUND_ITEMS_PER_ZONE; i++) ctx.db.groundItem.insert({ id: 0n, zoneId: ZONE, item: "stone", x: 1, y: 1 });
+  dropItem(ctx, { inventoryId: sword.id });
+  assert.equal(ctx.db.inventory.id.find(sword.id)?.item, "sword");
+  assert.equal(ctx.db.groundItem.rows().length, MAX_GROUND_ITEMS_PER_ZONE);
+});
+
+test("dropItem ignores an inventory row the caller does not own", () => {
+  const { ctx, me } = withPlayer({ x: 5, y: 8 });
+  const theirs = ctx.db.inventory.insert({ id: 0n, playerId: id("other"), item: "sword", qty: 1 });
+  dropItem(ctx, { inventoryId: theirs.id });
+  assert.equal(ctx.db.inventory.id.find(theirs.id)?.item, "sword");
+  assert.equal(ctx.db.groundItem.rows().length, 0);
+});
+
+test("discardItem destroys a non-stackable row without creating a ground item", () => {
+  const { ctx, me } = withPlayer({ x: 5, y: 8 });
+  const sword = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });
+  discardItem(ctx, { inventoryId: sword.id });
+  assert.equal(ctx.db.inventory.id.find(sword.id), undefined);
+  assert.equal(ctx.db.groundItem.rows().length, 0);
+});
+
+test("discardItem decrements a stack by one unit", () => {
+  const { ctx, me } = withPlayer({ x: 5, y: 8 });
+  const stone = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "stone", qty: 3 });
+  discardItem(ctx, { inventoryId: stone.id });
+  assert.equal(ctx.db.inventory.id.find(stone.id)?.qty, 2);
+  assert.equal(ctx.db.groundItem.rows().length, 0);
+});
+
+test("discardItem unequips the main hand when the discarded row was equipped", () => {
+  const { ctx, me } = withPlayer({ x: 5, y: 8, equippedMainHand: "sword" });
+  const sword = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });
+  ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedMainHandInventoryId: sword.id });
+  discardItem(ctx, { inventoryId: sword.id });
+  const p = ctx.db.player.identity.find(me);
+  assert.equal(p.equippedMainHand, "");
+  assert.equal(p.equippedMainHandInventoryId, 0n);
 });
 
 test("useEquipped mines a faced boulder with a pickaxe without stopping movement", () => {

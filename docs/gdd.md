@@ -188,6 +188,7 @@ New node types are added by extending this table — keep it the registry.
 - Inventory rows store an item id and quantity, and each row occupies one visible carry slot. Stackable items (Stone) merge into one row and can grow without consuming more slots; a stackable item with no existing stack needs one free slot to start. Equippable items (Pickaxe, Shovel, Sword) are non-stackable qty=1 rows, so two swords remain two visible slots and the equipped row is unambiguous.
 - Items are defined in a static registry (id, name, stackable, blurb). Holdable/wearable items also carry their slot and sprite. No item randomization.
 - Equipping sets `player.equippedMainHand` and `player.equippedMainHandInventoryId` to an owned row (the item stays counted in inventory; equipment just references it). `0` unequips. See [Avatars and equipment](#avatars-and-equipment).
+- Selecting an inventory slot opens its actions: equip/unequip (equippables only), **drop**, and **delete**. Both drop and delete act on one unit — a stack decrements, a qty=1 row is removed; removing the equipped row unequips it. Drop lays that unit back into the world as a `ground_item` on the faced tile, the nearest free neighbour, or the trogg's own tile (the carried put-down placement), honouring `MAX_GROUND_ITEMS_PER_ZONE`; a full or boxed-in zone refuses the drop and keeps the item. Delete destroys the unit outright with no ground item, behind a confirm step in the panel.
 
 ### Crafting
 

@@ -1139,6 +1139,82 @@ export const equipItemAction = spacetimedb.procedure(
 );
 
 /**
+ * Drop one unit of an owned inventory item back into the world (GDD "Inventory") as
+ * a `ground_item` anyone can pick up. Placement mirrors carried put-down and debug
+ * spawns: the faced tile, else the nearest free neighbour, else the trogg's own tile
+ * (`spawnTile`), honouring `MAX_GROUND_ITEMS_PER_ZONE`. If the zone is at its ceiling
+ * or every candidate tile is blocked the drop is refused and nothing is removed, so
+ * the item is never lost. Removing the equipped row unequips it.
+ */
+function runDropItem(ctx: Ctx, { inventoryId, source = "" }: { inventoryId: bigint; source?: string }): AnalyticsEvent[] {
+  const p = ctx.db.player.identity.find(ctx.sender);
+  if (!p) return [];
+  const row = ownedInventoryRow(ctx, p.identity, inventoryId);
+  if (!row || row.qty <= 0) return [];
+  const zone = getZone(p.zoneId);
+  if (!zone) return [];
+  if (countRows(ctx.db.groundItem.zoneId.filter(p.zoneId)) >= MAX_GROUND_ITEMS_PER_ZONE) return [];
+
+  const occupied = solidTiles(ctx, p.zoneId, ctx.timestamp, p.identity);
+  addGroundItemTiles(ctx, p.zoneId, occupied);
+  const pos = settle(ctx, p, ctx.timestamp);
+  const face = facingDir(p);
+  const tile = spawnTile(zone, (x, y) => occupied.has(tileKey(x, y)), pos.x, pos.y, face.dirX, face.dirY);
+  if (!tile) return [];
+
+  const removed = removeInventoryUnit(ctx, p.identity, inventoryId);
+  if (!removed) return [];
+  if (removed.removedLastUnit && p.equippedMainHandInventoryId === inventoryId) {
+    ctx.db.player.identity.update({ ...p, equippedMainHand: "", equippedMainHandInventoryId: 0n });
+  }
+  ctx.db.groundItem.insert({ id: 0n, zoneId: p.zoneId, item: removed.item, x: tile.x, y: tile.y });
+  return [{ distinctId: distinctId(ctx), event: "inventory_item_dropped", properties: { zone: p.zoneId, item: removed.item, ...sourceProp(source) } }];
+}
+
+export const dropItem = spacetimedb.reducer({ inventoryId: t.u64() }, (ctx, args) => {
+  runDropItem(ctx, args);
+});
+
+export const dropItemAction = spacetimedb.procedure(
+  { inventoryId: t.u64(), posthogKey: t.string(), source: t.string() },
+  t.unit(),
+  (ctx, args) => {
+    const events = ctx.withTx((tx) => runDropItem(tx, args));
+    captureProcedureEvents(ctx, args.posthogKey, events);
+    return unit();
+  },
+);
+
+/**
+ * Permanently destroy one unit of an owned inventory item (GDD "Inventory") — no
+ * `ground_item` is created. Removing the equipped row unequips it.
+ */
+function runDiscardItem(ctx: Ctx, { inventoryId, source = "" }: { inventoryId: bigint; source?: string }): AnalyticsEvent[] {
+  const p = ctx.db.player.identity.find(ctx.sender);
+  if (!p) return [];
+  const removed = removeInventoryUnit(ctx, p.identity, inventoryId);
+  if (!removed) return [];
+  if (removed.removedLastUnit && p.equippedMainHandInventoryId === inventoryId) {
+    ctx.db.player.identity.update({ ...p, equippedMainHand: "", equippedMainHandInventoryId: 0n });
+  }
+  return [{ distinctId: distinctId(ctx), event: "inventory_item_discarded", properties: { zone: p.zoneId, item: removed.item, ...sourceProp(source) } }];
+}
+
+export const discardItem = spacetimedb.reducer({ inventoryId: t.u64() }, (ctx, args) => {
+  runDiscardItem(ctx, args);
+});
+
+export const discardItemAction = spacetimedb.procedure(
+  { inventoryId: t.u64(), posthogKey: t.string(), source: t.string() },
+  t.unit(),
+  (ctx, args) => {
+    const events = ctx.withTx((tx) => runDiscardItem(tx, args));
+    captureProcedureEvents(ctx, args.posthogKey, events);
+    return unit();
+  },
+);
+
+/**
  * Use the equipped main-hand item (GDD "Avatars and equipment"). The row update
  * is a visible, low-volume impulse every client can animate. It preserves the
  * current movement intent — using a tool never turns into a stop. Pickaxes also
@@ -1497,6 +1573,23 @@ function equippedInventoryRow(ctx: Ctx, p: { identity: Ctx["sender"]; equippedMa
     if (row.item === p.equippedMainHand && row.qty > 0) return row;
   }
   return undefined;
+}
+
+/**
+ * Remove one unit of an owned inventory row: decrement a stack, or delete a qty=1
+ * row outright. Returns the item id and whether the row's last unit was removed (so
+ * the caller can unequip when the equipped row is gone), or undefined if the row
+ * isn't owned or is already empty.
+ */
+function removeInventoryUnit(ctx: Ctx, playerId: Ctx["sender"], inventoryId: bigint): { item: string; removedLastUnit: boolean } | undefined {
+  const row = ownedInventoryRow(ctx, playerId, inventoryId);
+  if (!row || row.qty <= 0) return undefined;
+  if (row.qty > 1) {
+    ctx.db.inventory.id.update({ ...row, qty: row.qty - 1 });
+    return { item: row.item, removedLastUnit: false };
+  }
+  ctx.db.inventory.id.delete(row.id);
+  return { item: row.item, removedLastUnit: true };
 }
 
 /** Add an item to inventory. Stackable items merge; new rows require a free carry slot. */
