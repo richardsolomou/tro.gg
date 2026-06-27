@@ -87,6 +87,7 @@ export function makeCtx(opts: FakeCtxOpts) {
       boulder: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
       hog: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
       chatMessage: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
+      ghostHaunt: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
       claimCode: makeTable({ pk: "code" }),
       hogWander: makeTable({ pk: "scheduledId", autoInc: true }),
     },

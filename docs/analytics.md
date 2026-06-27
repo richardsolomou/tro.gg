@@ -55,7 +55,7 @@ Code currently reads these flag keys:
 | ---- | -------- | -------- |
 | `auth-enabled` | Account sign-in / claim panel (the top-right claim/sign-out control) | On, but the UI still requires `VITE_SPACETIMEAUTH_CLIENT_ID` |
 | `avatar-sprites` | Trogg sprite avatars vs the placeholder colour marker | On |
-| `ghost-trogg` | Client-only cosmetic ghost easter egg (launch haunt + `/ghost` command) | On |
+| `ghost-trogg` | Zone-synced cosmetic ghost easter egg (launch haunt + `/ghost` command + Commands panel ghost buttons) | On |
 | `boulder-pushing` | Client push input for boulders | On |
 | `interact` | Interact key (`E`) — pick up / put down tile-sized objects | On |
 | `roaming-hogs` | Hog rendering and subscription | On |

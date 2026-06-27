@@ -1,5 +1,4 @@
 import { CHAT_BUBBLE_MS, CHAT_HISTORY_MAX, CHAT_MAX_CHARS, COLOR_UNSET, timestampMs, troggColorFor, type Zone } from "@trogg/shared";
-import type Phaser from "phaser";
 import type { DbConnection } from "../net/module_bindings";
 import type { Player } from "../net/module_bindings/types";
 import { cssColor } from "../ui_text.js";
@@ -159,14 +158,13 @@ export function setupChat(
   zone: Zone,
   sub: { live: boolean },
   myId: string | undefined,
-  stage: Phaser.GameObjects.Container,
 ) {
   const slug = zone.slug;
-  // Slash commands are typed in the chat box but are not chat lines. Spawn/reset
-  // fire reducers; ghost stays client-only. Each is independently feature-gated.
+  // Slash commands are typed in the chat box but are not chat lines. Each command is
+  // independently feature-gated and dispatches through reducers.
   const flags = currentCommandFlags();
   const chat = mountChat((text) => {
-    if (handleChatCommand(text, { conn, chat, zone, flags, onGhost: (tile) => entities.hauntGhost(stage, tile) })) return;
+    if (handleChatCommand(text, { conn, chat, zone, flags })) return;
     audio.playChatSend();
     conn.reducers.chat({ text });
   });
