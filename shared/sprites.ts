@@ -41,13 +41,13 @@ export function stylesOf(kind: Kind): readonly string[] {
   return kind === "trogg" ? TROGG_STYLES : HOG_STYLES;
 }
 
-/** Art pixels per frame. 16 wide matches the tile (`ART` in terrain.ts); the
- *  extra height is 3/4-view head room above the feet anchor. */
-export const FRAME_W = 16;
-export const FRAME_H = 24;
+/** Art pixels per frame. The frame is 32 wide so avatars render one tile wide
+ *  at `tile / FRAME_W`, with extra height for 3/4-view head room. */
+export const FRAME_W = 32;
+export const FRAME_H = 48;
 
 /** Feet anchor: where the sprite sits on its tile (bottom-centre). */
-export const ANCHOR = { x: 8, y: 22 } as const;
+export const ANCHOR = { x: 16, y: 44 } as const;
 
 export const KINDS: readonly Kind[] = ["trogg", "hog"] as const;
 export const FACINGS: readonly Facing[] = ["down", "up", "left", "right"] as const;

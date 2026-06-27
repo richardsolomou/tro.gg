@@ -3,7 +3,7 @@
 `troggs-and-hogs.png` is the avatar **base body** sprite sheet for troggs and
 Hogs, with `troggs-and-hogs.atlas.json` describing the frame grid. Both are
 generated — the concept-inspired pixel art lives in [`shared/sprite_art.ts`](../../shared/sprite_art.ts)
-as indexed 16×24 text pixel maps, while [`shared/sprites.ts`](../../shared/sprites.ts)
+as indexed 32×48 text pixel maps, while [`shared/sprites.ts`](../../shared/sprites.ts)
 defines the rig, frame layout, and renderer. Regenerate with:
 
 ```sh
@@ -21,9 +21,9 @@ The sheet is laid out as **columns = animation frames**, **rows = (kind × style
 troggs and Hogs share one rig). A kind's styles come before the next kind's:
 trogg `moss` / `stone` / `ridge`, then hog `classic` / `snow` / `ember` /
 `buff` / `dino` / `chicken` (`TROGG_STYLES` / `HOG_STYLES` in `shared/sprites.ts`).
-Each frame is 16×24 art pixels (16 wide matches the tile; the extra height is
-3/4-view head room), anchored at the feet so a sprite drops onto a tile by its
-base. The big hogs (`buff`, `dino`) are authored at this same 16×24 but render at
+Each frame is 32×48 art pixels (32 wide renders as one tile, with the extra
+height giving 3/4-view head room), anchored at the feet so a sprite drops onto a tile by its
+base. The big hogs (`buff`, `dino`) are authored at this same 32×48 but render at
 double size over a 2×2 footprint (`hogSize`); the `chicken` is an easter egg.
 
 | | idle | walk_a | walk_b | run_a | run_b |
