@@ -184,7 +184,8 @@ New node types are added by extending this table — keep it the registry.
 ### Inventory
 
 - The top-left Inventory icon (`I`) opens the inventory/equipment panel. Starter pickup items are seeded from the zone registry as `ground_item` rows; pressing `E` while facing one moves it into the player's inventory and removes the ground row.
-- Inventory rows store an item id and quantity. Stackable items (Stone) merge into one row; equippable items (Pickaxe, Shovel, Sword) are non-stackable qty=1 rows, so two swords remain two visible slots and the equipped row is unambiguous.
+- Inventory has 10 visible carry slots *(initial)*. The HUD always shows all slot outlines, filled first by owned inventory rows and then empty slots, so players can see remaining capacity at a glance.
+- Inventory rows store an item id and quantity, and each row occupies one visible carry slot. Stackable items (Stone) merge into one row and can grow without consuming more slots; a stackable item with no existing stack needs one free slot to start. Equippable items (Pickaxe, Shovel, Sword) are non-stackable qty=1 rows, so two swords remain two visible slots and the equipped row is unambiguous.
 - Items are defined in a static registry (id, name, stackable, blurb). Holdable/wearable items also carry their slot and sprite. No item randomization.
 - Equipping sets `player.equippedMainHand` and `player.equippedMainHandInventoryId` to an owned row (the item stays counted in inventory; equipment just references it). `0` unequips. See [Avatars and equipment](#avatars-and-equipment).
 
@@ -261,8 +262,10 @@ ground_item    id (PK, auto-inc), zoneId, item, x, y
                a pickup item lying on the floor. Seeded from the ZONES registry on first connect and removed
                by `interact` when a trogg faces it and presses `E`. Items are not solid. index: by_zone (zoneId)
 inventory      id (PK, auto-inc), playerId, item, qty
-               player-owned items. Stackable rows merge; non-stackable equippables stay separate qty=1 rows
-               so equipment can point at one specific owned row. index: by_player (playerId)
+               player-owned items. Each row occupies one of 10 visible carry slots. Stackable rows merge
+               and can grow in-place; starting a new stack or adding a non-stackable item requires a free
+               slot. Non-stackable equippables stay separate qty=1 rows so equipment can point at one
+               specific owned row. index: by_player (playerId)
 player_connection connectionId (PK), playerId, connectedAt
                private live-socket presence for a `player` row. Multiple browser tabs or devices signed
                into the same account share one durable `player` row, so this table tracks the connection

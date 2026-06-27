@@ -92,6 +92,9 @@ export interface Coord {
 export const ITEM_IDS = ["stone", "pickaxe", "shovel", "sword"] as const;
 export type ItemId = (typeof ITEM_IDS)[number];
 
+/** Inventory capacity (GDD "Inventory"): each row occupies one visible carry slot. (initial) */
+export const INVENTORY_SLOT_COUNT = 10;
+
 export type EquipmentSlot = "mainHand";
 
 export interface ItemDef {

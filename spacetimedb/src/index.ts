@@ -15,6 +15,7 @@ import {
   HOG_IDLE_CHANCE,
   HOG_STEP_INTERVAL_MS,
   HOG_TURN_CHANCE,
+  INVENTORY_SLOT_COUNT,
   isColorIndex,
   isEquippableItem,
   isGeneratedName,
@@ -579,8 +580,7 @@ export const interact = spacetimedb.reducer({ dirX: t.i32(), dirY: t.i32() }, (c
   const target = pickupTarget(ctx, p.zoneId, Math.round(pos.x), Math.round(pos.y), dir, ctx.timestamp);
   if (target?.kind === "item") {
     if (!isItemId(target.row.item)) return;
-    addInventory(ctx, p.identity, target.row.item, 1);
-    ctx.db.groundItem.id.delete(target.row.id);
+    if (addInventory(ctx, p.identity, target.row.item, 1)) ctx.db.groundItem.id.delete(target.row.id);
     return;
   }
   if (target?.kind === "boulder") {
@@ -915,8 +915,7 @@ export const useEquipped = spacetimedb.reducer({ dirX: t.i32(), dirY: t.i32() },
     const ay = Math.round(pos.y) + dir.dirY;
     const b = boulderAt(ctx, p.zoneId, ax, ay);
     if (b) {
-      ctx.db.boulder.id.delete(b.id);
-      addInventory(ctx, p.identity, "stone", 1);
+      if (addInventory(ctx, p.identity, "stone", 1)) ctx.db.boulder.id.delete(b.id);
     }
   }
 
@@ -1225,23 +1224,36 @@ function equippedInventoryRow(ctx: Ctx, p: { identity: Ctx["sender"]; equippedMa
   return undefined;
 }
 
-/** Add an item to inventory. Stackable items merge; equippable items stay distinct. */
-function addInventory(ctx: Ctx, playerId: Ctx["sender"], item: string, qty: number): void {
-  if (!isItemId(item) || qty <= 0) return;
+/** Add an item to inventory. Stackable items merge; new rows require a free carry slot. */
+function addInventory(ctx: Ctx, playerId: Ctx["sender"], item: string, qty: number): boolean {
+  if (!isItemId(item) || qty <= 0) return false;
   if (isStackableItem(item)) {
     for (const row of ctx.db.inventory.playerId.filter(playerId)) {
       if (row.item === item) {
         ctx.db.inventory.id.update({ ...row, qty: row.qty + qty });
-        return;
+        return true;
       }
     }
+    if (!hasFreeInventorySlot(ctx, playerId)) return false;
     ctx.db.inventory.insert({ id: 0n, playerId, item, qty });
-    return;
+    return true;
   }
 
+  if (inventorySlotCount(ctx, playerId) + qty > INVENTORY_SLOT_COUNT) return false;
   for (let i = 0; i < qty; i++) {
     ctx.db.inventory.insert({ id: 0n, playerId, item, qty: 1 });
   }
+  return true;
+}
+
+function inventorySlotCount(ctx: Ctx, playerId: Ctx["sender"]): number {
+  let count = 0;
+  for (const _row of ctx.db.inventory.playerId.filter(playerId)) count++;
+  return count;
+}
+
+function hasFreeInventorySlot(ctx: Ctx, playerId: Ctx["sender"]): boolean {
+  return inventorySlotCount(ctx, playerId) < INVENTORY_SLOT_COUNT;
 }
 
 /** Fold every inventory row from one identity into another, preserving item counts. */
@@ -1249,8 +1261,7 @@ function moveInventory(ctx: Ctx, from: Ctx["sender"], to: Ctx["sender"]): Map<bi
   const moved = new Map<bigint, bigint>();
   for (const row of [...ctx.db.inventory.playerId.filter(from)]) {
     if (isStackableItem(row.item)) {
-      addInventory(ctx, to, row.item, row.qty);
-      moved.set(row.id, firstInventoryRowId(ctx, to, row.item));
+      moved.set(row.id, mergeInventoryForClaim(ctx, to, row.item, row.qty));
     } else {
       const inserted = ctx.db.inventory.insert({ id: 0n, playerId: to, item: row.item, qty: 1 });
       moved.set(row.id, inserted.id);
@@ -1260,11 +1271,14 @@ function moveInventory(ctx: Ctx, from: Ctx["sender"], to: Ctx["sender"]): Map<bi
   return moved;
 }
 
-function firstInventoryRowId(ctx: Ctx, playerId: Ctx["sender"], item: string): bigint {
+function mergeInventoryForClaim(ctx: Ctx, playerId: Ctx["sender"], item: string, qty: number): bigint {
   for (const row of ctx.db.inventory.playerId.filter(playerId)) {
-    if (row.item === item) return row.id;
+    if (row.item === item) {
+      ctx.db.inventory.id.update({ ...row, qty: row.qty + qty });
+      return row.id;
+    }
   }
-  return 0n;
+  return ctx.db.inventory.insert({ id: 0n, playerId, item, qty }).id;
 }
 
 /**
