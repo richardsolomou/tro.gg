@@ -177,10 +177,10 @@ New node types are added by extending this table — keep it the registry.
 
 ### Inventory and equipment
 
-- 24 slots *(initial)*, stackable items (item id + qty per slot).
+- 24 slots *(initial)*. Stackable items (e.g. Stone) merge into one item id + qty row; equippable items are non-stackable and stay as separate `qty = 1` rows, so two swords are two distinct inventory entries.
 - Items are defined in a static registry (id, name, stackable, blurb). Holdable/wearable items also carry their slot and sprite. No item randomization.
-- Equipping sets a player equipment slot to an owned item (the item stays counted in inventory; equipment just references it). See [Avatars and equipment](#avatars-and-equipment).
-- The current implementation stores one inventory stack row per owned item, exposes inventory from a top-left HUD toggle beside Help, and supports a single `equippedMainHand` slot. The inventory view uses item icons rather than item names; clicking an equippable icon equips/unequips it. Pressing `F` uses the equipped item without stopping the trogg. The pickaxe mines a faced boulder into Stone; the sword and shovel animate as equipped uses without world effects yet.
+- Equipping sets a player equipment slot to a specific owned inventory row (the item stays counted in inventory; equipment references the row). See [Avatars and equipment](#avatars-and-equipment).
+- The current implementation exposes inventory from a top-left HUD toggle beside Help, and supports a single `equippedMainHand` slot. The inventory view uses item icons rather than item names; clicking an equippable icon equips/unequips that specific row. Pressing `F` uses the equipped item without stopping the trogg. The pickaxe mines a faced boulder into Stone; the sword and shovel animate as equipped uses without world effects yet.
 
 ### Crafting
 
@@ -213,7 +213,7 @@ Dev mirrors prod: a local `spacetime start` instance runs the very module produc
 
 ```text
 player         identity (PK), name, isGuest, zoneId, x, y, dirX, dirY, movedAt, online, lastChatAt, running, color, carrying, path,
-               equippedMainHand, equipmentAction, equipmentActionAt
+               equippedMainHand, equippedMainHandInventoryId, equipmentAction, equipmentActionAt
                keyed by the connection's Identity. motion derived from origin (x,y) + movedAt: WASD uses
                dirX/dirY (0,0 = idle); running (shift held) picks run speed over walk speed in projectMotion,
                so it rides the intent like direction; click-to-move stores `path` as serialized waypoint tiles
@@ -223,7 +223,8 @@ player         identity (PK), name, isGuest, zoneId, x, y, dirX, dirY, movedAt, 
                TROGG_COLORS palette index (COLOR_UNSET = -1 → colour derived from id; see "Avatars").
                carrying: kind of tile-sized entity the trogg holds ("" = none), set by `interact`; the held
                entity's own row is removed while carried and re-inserted on put-down (see "Interacting").
-               equippedMainHand: owned item id in the main hand ("" = none), set by `equipItem`.
+               equippedMainHand: owned item id in the main hand ("" = none), set by `equipItem`; used by other clients for rendering.
+               equippedMainHandInventoryId: the specific inventory row equipped locally (0 = none), so duplicate equippables stay distinct.
                equipmentAction/equipmentActionAt: last visible equipped-item use impulse, set by `useEquipped`.
                index: by_zone (zoneId)
 zones          slug, name, width, height, tilemap (per-tile walkability + scenery), checkpoint (unlock tile, null if none)
@@ -268,7 +269,8 @@ claim_code     code (PK), guest (Identity), createdAt
 skills         playerId, skill, xp
                index: by_player (playerId)
 inventory      id (PK, auto-inc), playerId, item, qty
-               one stack row per player/item. Equipment references an owned item; it does not remove qty.
+               stackable items merge into one row; non-stackable equippable items use one qty=1 row each.
+               Equipment references an owned row by id; it does not remove qty.
                index: by_player (playerId)
 projects       slug, zoneId, status, requirements, contributed
                index: by_zone (zoneId)

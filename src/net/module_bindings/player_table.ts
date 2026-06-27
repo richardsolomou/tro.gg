@@ -29,4 +29,5 @@ export default __t.row({
   equippedMainHand: __t.string().name("equipped_main_hand"),
   equipmentAction: __t.string().name("equipment_action"),
   equipmentActionAt: __t.timestamp().name("equipment_action_at"),
+  equippedMainHandInventoryId: __t.u64().name("equipped_main_hand_inventory_id"),
 });

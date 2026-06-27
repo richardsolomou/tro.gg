@@ -141,6 +141,10 @@ export function isEquippableItem(item: string): item is ItemId {
   return isItemId(item) && ITEMS[item].slot === "mainHand";
 }
 
+export function isStackableItem(item: string): item is ItemId {
+  return isItemId(item) && ITEMS[item].stackable;
+}
+
 export interface GroundItemSeed extends Coord {
   item: ItemId;
 }

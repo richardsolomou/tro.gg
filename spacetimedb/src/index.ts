@@ -17,6 +17,7 @@ import {
   isEquippableItem,
   isGeneratedName,
   isItemId,
+  isStackableItem,
   isValidName,
   isWalkable,
   MAX_BOULDERS_PER_ZONE,
@@ -57,9 +58,12 @@ import {
  * colour. `carrying` is the kind of tile-sized entity the trogg holds (GDD
  * "Interacting"), set by `interact`; "" when empty-handed. `equippedMainHand`
  * stores the item id currently shown in the trogg's main hand (GDD "Inventory" /
- * "Avatars and equipment"). `equipmentAction` + `equipmentActionAt` are the last
- * visible equipment use impulse, so every client can briefly animate a swing or
- * chop from synced player state.
+ * "Avatars and equipment"). `equippedMainHandInventoryId` points at the specific
+ * owned inventory row, so duplicate swords/picks are distinct in the HUD even
+ * though everyone else only needs the item id to render the held sprite.
+ * `equipmentAction` + `equipmentActionAt` are the last visible equipment use
+ * impulse, so every client can briefly animate a swing or chop from synced player
+ * state.
  */
 const player = table(
   { name: "player", public: true },
@@ -94,6 +98,7 @@ const player = table(
     equippedMainHand: t.string().default(""),
     equipmentAction: t.string().default(""),
     equipmentActionAt: t.timestamp().default(Timestamp.UNIX_EPOCH),
+    equippedMainHandInventoryId: t.u64().default(0n),
   },
 );
 
@@ -300,6 +305,7 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
     equippedMainHand: "",
     equipmentAction: "",
     equipmentActionAt: Timestamp.UNIX_EPOCH,
+    equippedMainHandInventoryId: 0n,
   });
 });
 
@@ -743,23 +749,25 @@ export const recolor = spacetimedb.reducer({ color: t.i32() }, (ctx, { color }) 
 });
 
 /**
- * Equip an owned item in the main hand (GDD "Inventory"). Equipment references
- * the inventory item; it does not consume or move the stack. Empty string
- * unequips. The reducer validates ownership and slot server-side.
+ * Equip an owned item in the main hand (GDD "Inventory"). Equipment references a
+ * specific inventory row; it does not consume or move the item. `0` unequips.
+ * The reducer validates ownership and slot server-side.
  */
-export const equipItem = spacetimedb.reducer({ item: t.string() }, (ctx, { item }) => {
+export const equipItem = spacetimedb.reducer({ inventoryId: t.u64() }, (ctx, { inventoryId }) => {
   const p = ctx.db.player.identity.find(ctx.sender);
   if (!p) return;
 
-  const next = item.trim();
-  if (next === "") {
-    if (p.equippedMainHand !== "") ctx.db.player.identity.update({ ...p, equippedMainHand: "" });
+  if (inventoryId === 0n) {
+    if (p.equippedMainHand !== "" || p.equippedMainHandInventoryId !== 0n) {
+      ctx.db.player.identity.update({ ...p, equippedMainHand: "", equippedMainHandInventoryId: 0n });
+    }
     return;
   }
 
-  if (!isEquippableItem(next) || inventoryQty(ctx, p.identity, next) <= 0) return;
-  if (p.equippedMainHand === next) return;
-  ctx.db.player.identity.update({ ...p, equippedMainHand: next });
+  const row = ownedInventoryRow(ctx, p.identity, inventoryId);
+  if (!row || row.qty <= 0 || !isEquippableItem(row.item)) return;
+  if (p.equippedMainHandInventoryId === row.id) return;
+  ctx.db.player.identity.update({ ...p, equippedMainHand: row.item, equippedMainHandInventoryId: row.id });
 });
 
 /**
@@ -771,7 +779,9 @@ export const equipItem = spacetimedb.reducer({ item: t.string() }, (ctx, { item 
  */
 export const useEquipped = spacetimedb.reducer({ dirX: t.i32(), dirY: t.i32() }, (ctx, { dirX, dirY }) => {
   const p = ctx.db.player.identity.find(ctx.sender);
-  if (!p || !isEquippableItem(p.equippedMainHand) || inventoryQty(ctx, p.identity, p.equippedMainHand) <= 0) return;
+  if (!p) return;
+  const equipped = equippedInventoryRow(ctx, p);
+  if (!equipped) return;
   const dir = cardinal(dirX, dirY);
   if (!dir || (dir.dirX === 0 && dir.dirY === 0)) return;
 
@@ -779,7 +789,7 @@ export const useEquipped = spacetimedb.reducer({ dirX: t.i32(), dirY: t.i32() },
   if (!zone) return;
   const pos = settle(ctx, p, ctx.timestamp);
 
-  if (p.equippedMainHand === "pickaxe") {
+  if (equipped.item === "pickaxe") {
     const ax = Math.round(pos.x) + dir.dirX;
     const ay = Math.round(pos.y) + dir.dirY;
     const b = boulderAt(ctx, p.zoneId, ax, ay);
@@ -791,7 +801,9 @@ export const useEquipped = spacetimedb.reducer({ dirX: t.i32(), dirY: t.i32() },
 
   ctx.db.player.identity.update({
     ...p,
-    equipmentAction: p.equippedMainHand,
+    equippedMainHand: equipped.item,
+    equippedMainHandInventoryId: equipped.id,
+    equipmentAction: equipped.item,
     equipmentActionAt: ctx.timestamp,
   });
 });
@@ -862,9 +874,20 @@ export const redeemClaim = spacetimedb.reducer({ code: t.string() }, (ctx, { cod
   // Carry the guest's chosen name onto a freshly-named account (never clobber a
   // returning account's own name), staying within the uniqueness rule.
   const inheritName = !isGeneratedName(guestName) && isGeneratedName(account.name) && !nameTaken(ctx, guestName, ctx.sender);
-  moveInventory(ctx, guest.identity, account.identity);
-  const equippedMainHand = account.equippedMainHand || guest.equippedMainHand;
-  ctx.db.player.identity.update({ ...account, name: inheritName ? guestName : account.name, carrying, equippedMainHand, isGuest: false });
+  const movedInventoryIds = moveInventory(ctx, guest.identity, account.identity);
+  const accountEquipped = equippedInventoryRow(ctx, account);
+  const guestEquippedId = movedInventoryIds.get(guest.equippedMainHandInventoryId) ?? 0n;
+  const guestEquipped = guestEquippedId !== 0n ? ownedInventoryRow(ctx, account.identity, guestEquippedId) : undefined;
+  const equippedMainHand = accountEquipped?.item ?? guestEquipped?.item ?? "";
+  const equippedMainHandInventoryId = accountEquipped?.id ?? guestEquipped?.id ?? 0n;
+  ctx.db.player.identity.update({
+    ...account,
+    name: inheritName ? guestName : account.name,
+    carrying,
+    equippedMainHand,
+    equippedMainHandInventoryId,
+    isGuest: false,
+  });
 });
 
 /** Whether any player is currently online — the Hogs only roam while someone is
@@ -1027,33 +1050,64 @@ function groundItemAt(ctx: Ctx, zoneId: string, x: number, y: number) {
   return undefined;
 }
 
-/** Quantity of an item the player owns. Invalid item ids read as zero. */
-function inventoryQty(ctx: Ctx, playerId: Ctx["sender"], item: string): number {
-  if (!isItemId(item)) return 0;
-  for (const row of ctx.db.inventory.playerId.filter(playerId)) {
-    if (row.item === item) return row.qty;
-  }
-  return 0;
+/** The player's owned inventory row by id, or undefined. */
+function ownedInventoryRow(ctx: Ctx, playerId: Ctx["sender"], id: bigint) {
+  const row = ctx.db.inventory.id.find(id);
+  return row && row.playerId.isEqual(playerId) ? row : undefined;
 }
 
-/** Add an item to inventory, merging with the player's existing stack when present. */
+/** The specific inventory row currently equipped, with a fallback for pre-row-id rows. */
+function equippedInventoryRow(ctx: Ctx, p: { identity: Ctx["sender"]; equippedMainHand: string; equippedMainHandInventoryId: bigint }) {
+  const byId = p.equippedMainHandInventoryId !== 0n ? ownedInventoryRow(ctx, p.identity, p.equippedMainHandInventoryId) : undefined;
+  if (byId && byId.qty > 0 && isEquippableItem(byId.item)) return byId;
+
+  if (!isEquippableItem(p.equippedMainHand)) return undefined;
+  for (const row of ctx.db.inventory.playerId.filter(p.identity)) {
+    if (row.item === p.equippedMainHand && row.qty > 0) return row;
+  }
+  return undefined;
+}
+
+/** Add an item to inventory. Stackable items merge; equippable items stay distinct. */
 function addInventory(ctx: Ctx, playerId: Ctx["sender"], item: string, qty: number): void {
   if (!isItemId(item) || qty <= 0) return;
-  for (const row of ctx.db.inventory.playerId.filter(playerId)) {
-    if (row.item === item) {
-      ctx.db.inventory.id.update({ ...row, qty: row.qty + qty });
-      return;
+  if (isStackableItem(item)) {
+    for (const row of ctx.db.inventory.playerId.filter(playerId)) {
+      if (row.item === item) {
+        ctx.db.inventory.id.update({ ...row, qty: row.qty + qty });
+        return;
+      }
     }
+    ctx.db.inventory.insert({ id: 0n, playerId, item, qty });
+    return;
   }
-  ctx.db.inventory.insert({ id: 0n, playerId, item, qty });
+
+  for (let i = 0; i < qty; i++) {
+    ctx.db.inventory.insert({ id: 0n, playerId, item, qty: 1 });
+  }
 }
 
 /** Fold every inventory row from one identity into another, preserving item counts. */
-function moveInventory(ctx: Ctx, from: Ctx["sender"], to: Ctx["sender"]): void {
+function moveInventory(ctx: Ctx, from: Ctx["sender"], to: Ctx["sender"]): Map<bigint, bigint> {
+  const moved = new Map<bigint, bigint>();
   for (const row of [...ctx.db.inventory.playerId.filter(from)]) {
-    addInventory(ctx, to, row.item, row.qty);
+    if (isStackableItem(row.item)) {
+      addInventory(ctx, to, row.item, row.qty);
+      moved.set(row.id, firstInventoryRowId(ctx, to, row.item));
+    } else {
+      const inserted = ctx.db.inventory.insert({ id: 0n, playerId: to, item: row.item, qty: 1 });
+      moved.set(row.id, inserted.id);
+    }
     ctx.db.inventory.id.delete(row.id);
   }
+  return moved;
+}
+
+function firstInventoryRowId(ctx: Ctx, playerId: Ctx["sender"], item: string): bigint {
+  for (const row of ctx.db.inventory.playerId.filter(playerId)) {
+    if (row.item === item) return row.id;
+  }
+  return 0n;
 }
 
 /**

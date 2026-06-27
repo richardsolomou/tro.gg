@@ -34,6 +34,7 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
 
   const rows = new Map<string, Inventory>();
   let mainHand = "";
+  let mainHandInventoryId = 0n;
 
   toggle.addEventListener("click", () => {
     body.hidden = !body.hidden;
@@ -53,7 +54,7 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
 
     list.replaceChildren();
 
-    const sorted = [...rows.values()].sort((a, b) => a.item.localeCompare(b.item));
+    const sorted = [...rows.values()].sort((a, b) => a.item.localeCompare(b.item) || Number(a.id - b.id));
     if (sorted.length === 0) {
       const empty = document.createElement("div");
       empty.className = "inventory-empty";
@@ -67,19 +68,21 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
       const item = document.createElement("button");
       item.type = "button";
       item.className = "inventory-item";
-      const equippedNow = row.item === mainHand;
+      const equippedNow = row.id === mainHandInventoryId;
       item.setAttribute("aria-label", `${equippedNow ? "Unequip" : "Equip"} ${def?.name ?? row.item}`);
       item.setAttribute("aria-pressed", String(equippedNow));
       item.title = def?.name ?? row.item;
       item.disabled = !isEquippableItem(row.item);
       item.appendChild(itemIcon(row.item));
 
-      const qty = document.createElement("span");
-      qty.className = "inventory-qty";
-      qty.textContent = `x${row.qty}`;
-      item.appendChild(qty);
+      if (row.qty > 1) {
+        const qty = document.createElement("span");
+        qty.className = "inventory-qty";
+        qty.textContent = `x${row.qty}`;
+        item.appendChild(qty);
+      }
       item.addEventListener("click", () => {
-        conn.reducers.equipItem({ item: equippedNow ? "" : row.item });
+        conn.reducers.equipItem({ inventoryId: equippedNow ? 0n : row.id });
       });
 
       list.appendChild(item);
@@ -106,6 +109,7 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
   const applyPlayer = (p: Player) => {
     if (p.identity.toHexString() !== playerId) return;
     mainHand = p.equippedMainHand;
+    mainHandInventoryId = p.equippedMainHandInventoryId;
     render();
   };
   conn.db.player.onInsert((_ctx, p) => applyPlayer(p));

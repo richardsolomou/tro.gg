@@ -165,20 +165,39 @@ test("interact picks up a faced ground item into inventory", () => {
   assert.equal(ctx.db.inventory.rows()[0].item, "pickaxe");
 });
 
-test("equipItem equips only an owned equippable item", () => {
+test("non-stackable equippable pickups stay as separate inventory rows", () => {
+  const { ctx, me } = withPlayer({ x: 5, y: 8, carrying: "" });
+  ctx.db.groundItem.insert({ id: 0n, zoneId: ZONE, item: "sword", x: 6, y: 8 });
+  interact(ctx, { dirX: 1, dirY: 0 });
+  ctx.db.groundItem.insert({ id: 0n, zoneId: ZONE, item: "sword", x: 5, y: 9 });
+  interact(ctx, { dirX: 0, dirY: 1 });
+
+  const swords = ctx.db.inventory.rows().filter((r: any) => r.playerId.isEqual(me) && r.item === "sword");
+  assert.equal(swords.length, 2);
+  assert.deepEqual(swords.map((r: any) => r.qty), [1, 1]);
+});
+
+test("equipItem equips only a specific owned equippable row", () => {
   const { ctx, me } = withPlayer({});
-  equipItem(ctx, { item: "pickaxe" });
+  equipItem(ctx, { inventoryId: 999n });
   assert.equal(ctx.db.player.identity.find(me).equippedMainHand, "");
-  ctx.db.inventory.insert({ id: 0n, playerId: me, item: "pickaxe", qty: 1 });
-  equipItem(ctx, { item: "pickaxe" });
-  assert.equal(ctx.db.player.identity.find(me).equippedMainHand, "pickaxe");
-  equipItem(ctx, { item: "stone" });
-  assert.equal(ctx.db.player.identity.find(me).equippedMainHand, "pickaxe");
+  const first = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });
+  const second = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });
+  const stone = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "stone", qty: 3 });
+
+  equipItem(ctx, { inventoryId: first.id });
+  assert.equal(ctx.db.player.identity.find(me).equippedMainHand, "sword");
+  assert.equal(ctx.db.player.identity.find(me).equippedMainHandInventoryId, first.id);
+  equipItem(ctx, { inventoryId: stone.id });
+  assert.equal(ctx.db.player.identity.find(me).equippedMainHandInventoryId, first.id);
+  equipItem(ctx, { inventoryId: second.id });
+  assert.equal(ctx.db.player.identity.find(me).equippedMainHandInventoryId, second.id);
 });
 
 test("useEquipped mines a faced boulder with a pickaxe without stopping movement", () => {
   const { ctx, me } = withPlayer({ x: 5, y: 8, dirX: 1, dirY: 0, running: true, equippedMainHand: "pickaxe" });
-  ctx.db.inventory.insert({ id: 0n, playerId: me, item: "pickaxe", qty: 1 });
+  const pickaxe = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "pickaxe", qty: 1 });
+  ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedMainHandInventoryId: pickaxe.id });
   ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 6, y: 8 });
   useEquipped(ctx, { dirX: 1, dirY: 0 });
   assert.equal(ctx.db.boulder.rows().length, 0);
