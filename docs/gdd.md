@@ -82,10 +82,10 @@ Boulders are pushable rocks — dynamic obstacles, the same block-pushing gramma
 
 `E` is the generic **interact** key. It picks objects up from adjacent tiles and uses the faced tile first when several candidates are in reach, so later interactions (flip a switch, light a fire) can hang off the same key without adding a new control.
 
-- **Pick up / put down is a toggle for tile-sized objects.** Empty-handed, pressing `E` beside a boulder or a Hog **lifts it onto the trogg** — if several are adjacent, the one on the tile the trogg faces wins. It leaves its tile and rides on your person, drawn as a held overlay above the head (the same held-item layering as [Avatars and equipment](#avatars-and-equipment)). Pressing `E` again **puts it down** on the faced tile (or the nearest free tile), re-materialising it in the world. A trogg carries at most one thing.
+- **Pick up / put down is a toggle for tile-sized objects.** Empty-handed, pressing `E` beside a boulder or a Hog **lifts it onto the trogg** — if several are adjacent, the one on the tile the trogg faces wins. It leaves its tile and rides on your person, drawn as a full-size held overlay above the head (the same held-item layering as [Avatars and equipment](#avatars-and-equipment)); pickup changes its position, not its scale. Pressing `E` again **puts it down** on the faced tile (or the nearest free tile), re-materialising it in the world. A trogg carries at most one thing.
 - **Ground items go into inventory.** Empty-handed, pressing `E` beside a ground item removes that `ground_item` row and adds the item to the trogg's inventory. Starter pickups in `hog-town` are a pickaxe, shovel, and sword. Items are not solid; pickup uses the same adjacent scan and faced-tile priority as tile-sized objects.
 - **Anything tile-sized is grabbable.** Boulders and Hogs are the same 1×1 entity to the mechanic; it doesn't care that one is scenery and one is an NPC.
-- **Carried things leave the world.** A carried boulder is no longer a collision obstacle; a carried Hog stops wandering — because the entity's row is removed while held and re-inserted on drop. Boulders and Hogs are fungible (no identity, seeded from the `ZONES` registry), so nothing identity-bearing is lost in the round trip.
+- **Carried things leave the world.** A carried boulder is no longer a collision obstacle; a carried Hog stops wandering — because the entity's row is removed while held and re-inserted on drop. Boulders and Hogs are fungible (no identity, seeded from the `ZONES` registry), but a carried Hog's skin is copied onto the player row and restored on put-down so pickup/drop never changes its look.
 - **No tick, server-authoritative** (invariants 1 & 3). `interact` is an input-driven reducer. The client passes its current heading; the server re-derives the trogg's tile and acts only on adjacent entities or ground items, preferring the faced tile when there are multiple candidates, so the client can't reach past its neighbours. Carrying changes nothing per-frame — the held thing simply moves with its carrier, whose position is already derived.
 - **Nothing is orphaned.** On disconnect the trogg drops what it holds where it settles; the carried kind is durable on the player row, so even a mid-carry restart loses nothing.
 - Behind the optional `interact` flag (off → `E` does nothing). Independent of pushing: pushing shoves a boulder ahead, carrying lifts it (or a Hog) onto your person to relocate, and item pickup moves a ground item into inventory.
@@ -125,7 +125,7 @@ Ambient **Hog** NPCs (the glossary's friendly hedgehogs) roam the zone on their 
 - **Two appearance axes — style and colour.** A trogg's look is a **body style** (the sprite shape) plus a **colour tint** over it; the two are independent, so any style can wear any colour. Each is the value the trogg chose, or — until it chooses — a stable default derived from its durable id (a deterministic projection, like a level from XP; `STYLE_UNSET` / `COLOR_UNSET` = -1 are the unchosen sentinels). Both ride the zone player sync, so the sprite (and the trogg's chat-name colour) update everywhere they're shown.
 - **Trogg style (`trogg-restyle`):** styles come from a fixed list (`TROGG_STYLES` in `shared`: `moss`, `stone`, `ridge`) that vary the silhouette features (ear nubs / earless crag / horns) and base palette — same rig, different head and tone. A trogg picks one via the `restyle` reducer, which stores its chosen index on the `player` row (validated server-side, invariant 3). The optional flag controls whether the style buttons show in the Appearance panel.
 - **Trogg colour (`trogg-recolor`):** the tint comes from a fixed palette (`TROGG_COLORS` in `shared`), chosen via the `recolor` reducer (the mirror of `restyle` on the colour axis). The optional flag controls whether the palette swatches show in the Appearance panel.
-- **Hog variation.** Hogs have no `player` row to store a choice, so each Hog's skin is derived from its entity id (`HOG_STYLES`: `classic`, `snow`, `ember` — palette only, one shape), giving a zone a varied, stable crowd without a schema field. Hogs are never tinted.
+- **Hog variation.** Hogs have no `player` row to store a choice, so a fresh Hog's skin starts from its entity id (`HOG_STYLES`: `classic`, `snow`, `ember` — palette only, one shape), giving a zone a varied crowd. Once a Hog is picked up, its effective skin is stored as `player.carryingStyle` and written back to `hog.style` on put-down, so the replacement row keeps the same look despite getting a new id. Hogs are never tinted.
 - **Ghost (`ghost-trogg`):** the cosmetic easter egg is its own bespoke sprite (`ghostDraw` — a hog draped in a pale sheet, two eye holes, scalloped hem), painted into a standalone texture and never tinted. Summoning it inserts a zone-scoped `ghost_haunt` row; live clients in that zone render the fresh insert once as a slow materialise, gentle drift, linger, and fade-out, while late joiners ignore the replayed snapshot.
 - **Appearance panel.** Rename, recolour, and restyle are one top-left HUD icon toggle (`P`, beside Help/Inventory/Commands) — everything about how your trogg *looks* in one place. The separate top-right account panel is only the claim/sign-out control (`auth-enabled`).
 
@@ -217,7 +217,7 @@ One layer. **SpacetimeDB** is the durable store *and* the live feed: the tables 
 Dev mirrors prod: a local `spacetime start` instance runs the very module production runs — `just dev` publishes to it and regenerates the client bindings — so persistence is exercised the same way it runs in production. No Docker, no separate database to provision.
 
 ```text
-player         identity (PK), name, isGuest, zoneId, x, y, dirX, dirY, movedAt, online, lastChatAt, running, color, carrying, path, style, equippedMainHand, equipmentAction, equipmentActionAt, equippedMainHandInventoryId, faceX, faceY
+player         identity (PK), name, isGuest, zoneId, x, y, dirX, dirY, movedAt, online, lastChatAt, running, color, carrying, path, style, equippedMainHand, equipmentAction, equipmentActionAt, equippedMainHandInventoryId, faceX, faceY, carryingStyle
                keyed by the connection's Identity. motion derived from origin (x,y) + movedAt: WASD uses
                dirX/dirY (0,0 = idle); running (shift held) picks run speed over walk speed in projectMotion,
                so it rides the intent like direction; click-to-move stores `path` as serialized waypoint tiles
@@ -227,6 +227,8 @@ player         identity (PK), name, isGuest, zoneId, x, y, dirX, dirY, movedAt, 
                TROGG_COLORS palette index (COLOR_UNSET = -1 → colour derived from id; see "Avatars").
                carrying: kind of tile-sized entity the trogg holds ("" = none), set by `interact`; the held
                entity's own row is removed while carried and re-inserted on put-down (see "Interacting").
+               carryingStyle: carried entity visual variant; currently used only for Hog skins so carrying
+               and putting down a Hog preserves its look even though the Hog row is replaced.
                style: chosen TROGG_STYLES index (STYLE_UNSET = -1 → style derived from id; see "Avatars"),
                set by `restyle`. equippedMainHand: equipped item id ("" = none);
                equippedMainHandInventoryId: the specific owned inventory row equipped (0 = none);
@@ -245,13 +247,14 @@ boulder        id (PK, auto-inc), zoneId, x, y     (tile coords)
                (or reset to the registry by the `resetBoulders` reducer, fired by the in-chat `/reset` command).
                Removed while a trogg carries it and re-inserted on put-down (see "Interacting").
                index: by_zone (zoneId)
-hog            id (PK, auto-inc), zoneId, x, y, dirX, dirY, movedAt, path, homeX, homeY
+hog            id (PK, auto-inc), zoneId, x, y, dirX, dirY, movedAt, path, homeX, homeY, style
                an ambient roaming Hog NPC (see "Hogs"). Intent-based motion like a player (position
                derived with projectMotion); server-owned, no identity. Solid: blocks troggs and other
                Hogs (troggs never block each other), so wanderHogs re-bases it tile by tile, stopping
                flush against anything solid. dirX/dirY is its cardinal amble heading; path/homeX/homeY are
                retained columns from the earlier pathfinding wander, unused by the tile-by-tile amble and
-               kept only so the shipped schema isn't reordered. Seeded from the ZONES registry
+               kept only so the shipped schema isn't reordered. style is a Hog skin override; empty means
+               derive from id, while carried-and-dropped Hogs store their preserved skin there. Seeded from the ZONES registry
                on first connect, spawned by the `/spawn` debug command or Commands panel, moved only by the scheduled
                `wanderHogs` (or reset to the registry population by the `resetHogs` reducer, fired by the
                in-chat `/reset hedgehogs` command). Removed while a trogg carries it and re-inserted on put-down (see "Interacting").
