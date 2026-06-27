@@ -20,6 +20,12 @@ function timestampBaseMs(movedAt: Stamp): number {
   return performance.now() - elapsedMs;
 }
 
+function playerFacing(p: Pick<Player, "dirX" | "dirY" | "faceX" | "faceY">): FacingSeed {
+  return p.dirX !== 0 || p.dirY !== 0 ? { dirX: p.dirX, dirY: p.dirY } : { dirX: p.faceX, dirY: p.faceY };
+}
+
+type FacingSeed = { dirX: number; dirY: number };
+
 /** What the bootstrap (main.ts) hands the scene once the connection is live. */
 export interface WorldSceneData {
   conn: DbConnection;
@@ -321,7 +327,8 @@ export class WorldScene extends Phaser.Scene {
   private addPlayer(p: Player) {
     const id = p.identity.toHexString();
     if (this.tracked.has(id)) return;
-    const facing = facingFromDir(p.dirX, p.dirY, "down");
+    const face = playerFacing(p);
+    const facing = facingFromDir(face.dirX, face.dirY, "down");
     const style = troggStyleFor(p.style, id);
     const { marker, sprite, frameKey } = this.entities.makeMarker(p.name, troggColorFor(p.color, id), style, id === this.myId, facing, this.useSprites);
     const entry: Tracked = { marker, sprite, player: p, baseMs: timestampBaseMs(p.movedAt), facing, style, frameKey, carriedKind: "" };

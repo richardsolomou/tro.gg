@@ -11,6 +11,7 @@ import {
 } from "@trogg/shared";
 import {
   chat,
+  face,
   interact,
   move,
   moveTo,
@@ -131,17 +132,38 @@ test("push refuses when a Hog stands beyond the boulder", () => {
 // --- Movement authority ---
 
 test("move rejects a diagonal intent and keeps the prior heading", () => {
-  const { ctx, me } = withPlayer({ dirX: 0, dirY: 1 });
+  const { ctx, me } = withPlayer({ dirX: 0, dirY: 1, faceX: 0, faceY: 1 });
   move(ctx, { dirX: 1, dirY: 1, running: false });
   const p = ctx.db.player.identity.find(me);
-  assert.deepEqual({ dirX: p.dirX, dirY: p.dirY }, { dirX: 0, dirY: 1 });
+  assert.deepEqual({ dirX: p.dirX, dirY: p.dirY, faceX: p.faceX, faceY: p.faceY }, { dirX: 0, dirY: 1, faceX: 0, faceY: 1 });
 });
 
-test("move stores an accepted cardinal intent", () => {
-  const { ctx, me } = withPlayer({ dirX: 0, dirY: 0 });
+test("move stores an accepted cardinal intent and synced facing", () => {
+  const { ctx, me } = withPlayer({ dirX: 0, dirY: 0, faceX: 0, faceY: 1 });
   move(ctx, { dirX: 1, dirY: 0, running: false });
   const p = ctx.db.player.identity.find(me);
-  assert.deepEqual({ dirX: p.dirX, dirY: p.dirY, path: p.path }, { dirX: 1, dirY: 0, path: "" });
+  assert.deepEqual({ dirX: p.dirX, dirY: p.dirY, path: p.path, faceX: p.faceX, faceY: p.faceY }, { dirX: 1, dirY: 0, path: "", faceX: 1, faceY: 0 });
+});
+
+test("move preserves synced facing when stopping", () => {
+  const { ctx, me } = withPlayer({ dirX: 1, dirY: 0, faceX: 1, faceY: 0 });
+  move(ctx, { dirX: 0, dirY: 0, running: false });
+  const p = ctx.db.player.identity.find(me);
+  assert.deepEqual({ dirX: p.dirX, dirY: p.dirY, faceX: p.faceX, faceY: p.faceY }, { dirX: 0, dirY: 0, faceX: 1, faceY: 0 });
+});
+
+test("face stores a standing turn without starting movement", () => {
+  const { ctx, me } = withPlayer({ x: 5, y: 8, dirX: 0, dirY: 0, faceX: 0, faceY: 1 });
+  face(ctx, { dirX: -1, dirY: 0 });
+  const p = ctx.db.player.identity.find(me);
+  assert.deepEqual({ x: p.x, y: p.y, dirX: p.dirX, dirY: p.dirY, faceX: p.faceX, faceY: p.faceY, path: p.path }, { x: 5, y: 8, dirX: 0, dirY: 0, faceX: -1, faceY: 0, path: "" });
+});
+
+test("face rejects a diagonal standing turn", () => {
+  const { ctx, me } = withPlayer({ faceX: 0, faceY: 1 });
+  face(ctx, { dirX: 1, dirY: 1 });
+  const p = ctx.db.player.identity.find(me);
+  assert.deepEqual({ faceX: p.faceX, faceY: p.faceY }, { faceX: 0, faceY: 1 });
 });
 
 // --- Interacting ---
@@ -240,7 +262,7 @@ test("moveTo stores a cardinal route toward a reachable tile", () => {
   moveTo(ctx, { x: 8, y: 8, running: false });
   const p = ctx.db.player.identity.find(me);
   assert.equal(parsePath(p.path).at(-1)?.x, 8); // route ends at the target column
-  assert.deepEqual({ dirX: p.dirX, dirY: p.dirY }, { dirX: 1, dirY: 0 });
+  assert.deepEqual({ dirX: p.dirX, dirY: p.dirY, faceX: p.faceX, faceY: p.faceY }, { dirX: 1, dirY: 0, faceX: 1, faceY: 0 });
 });
 
 // --- Interacting: put-down, the cap on drop, and Hog pickup ---

@@ -35,6 +35,7 @@ import {
 
 // Import all reducer arg schemas
 import ChatReducer from "./chat_reducer";
+import FaceReducer from "./face_reducer";
 import InteractReducer from "./interact_reducer";
 import MoveReducer from "./move_reducer";
 import MoveToReducer from "./move_to_reducer";
@@ -121,6 +122,7 @@ const tablesSchema = __schema({
 /** The schema information for all reducers in this module. This is defined the same way as the reducers would have been defined in the server, except the body of the reducer is omitted in code generation. */
 const reducersSchema = __reducers(
   __reducerSchema("chat", ChatReducer),
+  __reducerSchema("face", FaceReducer),
   __reducerSchema("interact", InteractReducer),
   __reducerSchema("move", MoveReducer),
   __reducerSchema("move_to", MoveToReducer),

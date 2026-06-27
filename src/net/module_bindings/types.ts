@@ -72,6 +72,8 @@ export const Player = __t.object("Player", {
   carrying: __t.string(),
   path: __t.string(),
   style: __t.i32(),
+  faceX: __t.i32(),
+  faceY: __t.i32(),
 });
 export type Player = __Infer<typeof Player>;
 

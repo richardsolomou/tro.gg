@@ -27,4 +27,6 @@ export default __t.row({
   carrying: __t.string(),
   path: __t.string(),
   style: __t.i32(),
+  faceX: __t.i32().name("face_x"),
+  faceY: __t.i32().name("face_y"),
 });
