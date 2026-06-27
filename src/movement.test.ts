@@ -158,7 +158,21 @@ test("rapid clicks on the same tile don't re-route until the first is acked", ()
   assert.equal(h.moveTos.length, 1); // no duplicate route — a second would reset movedAt and rewind for everyone
 });
 
-test("after the route is acked, a held click re-routes only at the next tile centre", () => {
+test("re-clicking the tile we're already routing to is ignored (no re-path snap)", () => {
+  const h = harness();
+  h.self.onClick({ x: 4, y: 0 });
+  h.self.update(h.entry, h.motion(0, 0, 0, 0, true), 0); // fires the route
+  // Server answers: trogg now pathing east toward (4,0) from (0,0).
+  const server = { x: 0, y: 0, dirX: 1, dirY: 0, running: false, path: "1,0;2,0;3,0;4,0", movedAt: { microsSinceUnixEpoch: 5n } } as unknown as Player;
+  h.self.reconcile(h.entry, server);
+  h.moveTos.length = 0;
+  h.self.onClick({ x: 4, y: 0 }); // same destination, mid-route
+  h.self.update(h.entry, h.motion(0.5, 0, 1, 0), 50); // mid-tile (prev becomes non-NaN)
+  h.self.update(h.entry, h.motion(1, 0, 1, 0), 100); // crosses a real centre — where a redirect would re-route
+  assert.equal(h.moveTos.length, 0); // deduped — re-routing would reset movedAt and snap the trogg
+});
+
+test("redirecting mid-route re-routes only at the next tile centre", () => {
   const h = harness();
   h.self.onClick({ x: 4, y: 0 });
   h.self.update(h.entry, h.motion(0, 0, 0, 0, true), 0); // fires the first moveTo
@@ -166,13 +180,13 @@ test("after the route is acked, a held click re-routes only at the next tile cen
   const server = { x: 0, y: 0, dirX: 1, dirY: 0, running: false, path: "1,0;2,0;3,0;4,0", movedAt: { microsSinceUnixEpoch: 5n } } as unknown as Player;
   h.self.reconcile(h.entry, server);
   h.moveTos.length = 0;
-  h.self.onClick({ x: 4, y: 0 }); // re-click the same tile mid-route
+  h.self.onClick({ x: 4, y: 2 }); // redirect to a different tile
   h.self.update(h.entry, h.motion(0.1, 0, 1, 0), 32); // just left the centre (prev NaN after reconcile) → no off-centre fire
   assert.equal(h.moveTos.length, 0);
   h.self.update(h.entry, h.motion(0.5, 0, 1, 0), 40); // mid-tile → no fire
   assert.equal(h.moveTos.length, 0);
   h.self.update(h.entry, h.motion(1, 0, 1, 0), 48); // reached the next centre → one clean re-route
-  assert.equal(h.moveTos.length, 1);
+  assert.deepEqual(h.moveTos.at(-1), { x: 4, y: 2 });
 });
 
 test("clicking a tile we're already on clears the marker instead of retrying forever", () => {

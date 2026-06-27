@@ -160,6 +160,13 @@ export function createSelfController(deps: SelfControllerDeps) {
   // and bumps `movedAt`, rewinding the animation for everyone. Hold off re-routing until
   // the dispatched route is acked (`reconcile`).
   let awaitingMoveTo = false;
+  // The tile the live route was actually dispatched to (set when `moveTo` fires, cleared
+  // when the route ends). A repeat click on this same tile while we're already gliding
+  // toward it would re-path for no gain — and the re-path's reconcile resets `baseMs` to
+  // a server stamp that can map a hair ahead of the local clock, projecting one frame of
+  // negative elapsed that visibly snaps the trogg backward. So a redundant re-click is
+  // dropped rather than re-dispatched.
+  let routedTarget: Coord | null = null;
   // The clicked destination we're routing toward (the re-route aims here, not the
   // route's truncated end), and the last path we adopted the marker from.
   let destinationTile: Coord | undefined;
@@ -169,6 +176,9 @@ export function createSelfController(deps: SelfControllerDeps) {
 
   const setDestination = (tile: Coord | undefined) => {
     destinationTile = tile;
+    // Marker cleared (arrived, keypress, or as-close-as-we-get) means the route is over,
+    // so a fresh click to the same tile dispatches again rather than being deduped.
+    if (!tile) routedTarget = null;
     showDestination(tile);
   };
 
@@ -326,6 +336,13 @@ export function createSelfController(deps: SelfControllerDeps) {
   const flushPendingMoveTo = (entry: Tracked, motion: ProjectedMotion, x: number, y: number, now: number) => {
     if (!pendingMoveTo || awaitingMoveTo) return;
     const dir = { dirX: motion.dirX, dirY: motion.dirY, running: entry.player.running };
+    // Already gliding along a live route to this exact tile? Re-clicking it changes
+    // nothing, so don't re-path (which would reset movedAt and snap the trogg for
+    // everyone). A stalled route (path set but no heading) falls through to re-route.
+    if (routedTarget && routedTarget.x === pendingMoveTo.x && routedTarget.y === pendingMoveTo.y && entry.player.path !== "" && !isIdle(dir)) {
+      pendingMoveTo = null;
+      return;
+    }
     if (!isIdle(dir)) {
       // Moving: re-route only on a real tile-centre crossing, so the server's settle is a
       // no-op snap. A fresh reconcile leaves `prev` NaN (motion just re-based to a centre);
@@ -337,6 +354,7 @@ export function createSelfController(deps: SelfControllerDeps) {
     const target = pendingMoveTo;
     pendingMoveTo = null;
     awaitingMoveTo = true;
+    routedTarget = target;
     sent = { dirX: 0, dirY: 0, running: false };
     pendingSelfMoves.length = 0;
     lastMoveToAt = now;
