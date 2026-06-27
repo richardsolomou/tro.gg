@@ -152,8 +152,7 @@ test("path motion stalls at the tile it's entering when that tile is blocked", (
 test("path motion never rewinds onto a blocked tile it has already crossed", () => {
   // A Hog wanders onto (2,1) — a tile the trogg already walked over — after the route
   // was planned. The projection must keep going forward (it's past that tile), not
-  // snap back to it; a held route re-derived from its origin used to teleport the
-  // trogg backward here. At ~750ms (3 tiles) it's stepping into (4,1), still ahead.
+  // snap back to it. At ~750ms (3 tiles) it's stepping into (4,1), still ahead.
   const passedBlock = zoneBounds(openRoom, (x, y) => x === 2 && y === 1);
   const path = serializePath([
     { x: 2, y: 1 },
