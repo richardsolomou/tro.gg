@@ -2,6 +2,11 @@
 
 spacetime := env_var_or_default("SPACETIME", "spacetime")
 
+# Address the local dev SpacetimeDB listens on. 3001 rather than the 3000 default
+# so it doesn't collide with Social Stream Ninja's local server on 3000.
+local_addr := "127.0.0.1:3001"
+local_server := "http://" + local_addr
+
 # List available recipes.
 default:
     @just --list
@@ -12,18 +17,18 @@ spacetime-install:
 
 # Run the local SpacetimeDB instance in the foreground.
 start:
-    {{spacetime}} start
+    {{spacetime}} start --listen-addr {{local_addr}}
 
 # Publish the module to the local instance and regenerate client bindings.
 publish:
-    {{spacetime}} publish --module-path spacetimedb trogg -y
+    {{spacetime}} publish --server {{local_server}} --module-path spacetimedb trogg -y
     just generate
 
 # Delete the local development database so branch/schema switches start cleanly.
 reset-local-db:
-    @dbs="$({{spacetime}} list --server local -y)" || exit $$?; \
+    @dbs="$({{spacetime}} list --server {{local_server}} -y)" || exit $$?; \
     if printf '%s\n' "$$dbs" | awk 'NR > 2 {print $$1}' | grep -qx trogg; then \
-        {{spacetime}} delete --server local trogg -y; \
+        {{spacetime}} delete --server {{local_server}} trogg -y; \
     else \
         echo "No local trogg database to clear."; \
     fi
