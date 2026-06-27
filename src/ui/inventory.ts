@@ -1,4 +1,5 @@
 import { ITEMS, isEquippableItem } from "@trogg/shared";
+import { logError } from "../analytics.js";
 import type { DbConnection } from "../net/module_bindings";
 import type { Inventory, Player } from "../net/module_bindings/types";
 import { hudLeft } from "./hud.js";
@@ -92,7 +93,11 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
         item.appendChild(qty);
       }
       item.addEventListener("click", () => {
-        conn.reducers.equipItem({ inventoryId: equippedNow ? 0n : row.id });
+        try {
+          conn.reducers.equipItem({ inventoryId: equippedNow ? 0n : row.id });
+        } catch (err) {
+          logError("Equip item request failed", { surface: "inventory", action: "equip_item", item: row.item, error: err });
+        }
       });
 
       list.appendChild(item);

@@ -9,7 +9,7 @@ import {
   TROGG_STYLES,
 } from "@trogg/shared";
 import type { DbConnection } from "../net/module_bindings";
-import { captureEvent, isFeatureEnabled } from "../analytics.js";
+import { captureEvent, isFeatureEnabled, logError, logWarn } from "../analytics.js";
 import { cssColor } from "../ui_text.js";
 import { hudLeft } from "./hud.js";
 import { registerKeybind } from "./keybinds.js";
@@ -74,14 +74,14 @@ export function mountAppearance(conn: DbConnection): void {
   const rename = async (raw: string) => {
     const name = raw.trim();
     if (!isValidName(name)) {
-      console.warn("Rejected invalid rename", { surface: "appearance", reason: "invalid_name" });
+      logWarn("Rejected invalid rename", { surface: "appearance", reason: "invalid_name" });
       status.textContent = "3–20 letters, numbers or hyphens.";
       return;
     }
     try {
       await conn.reducers.rename({ name });
     } catch (err) {
-      console.error("Rename reducer failed", { surface: "appearance", action: "rename", error: err });
+      logError("Rename reducer failed", { surface: "appearance", action: "rename", error: err });
       status.textContent = "Couldn't rename. Try again.";
       return;
     }
@@ -120,8 +120,13 @@ export function mountAppearance(conn: DbConnection): void {
       swatch.style.background = cssColor(color);
       swatch.setAttribute("aria-label", `Trogg colour ${index + 1}`);
       swatch.addEventListener("click", () => {
-        void conn.reducers.recolor({ color: index });
-        captureEvent("trogg_recolored", { color: index });
+        try {
+          conn.reducers.recolor({ color: index });
+          captureEvent("trogg_recolored", { color: index });
+        } catch (err) {
+          logError("Recolor reducer failed", { surface: "appearance", action: "recolor", color: index, error: err });
+          status.textContent = "Couldn't recolour. Try again.";
+        }
       });
       swatches.push(swatch);
       palette.appendChild(swatch);
@@ -140,8 +145,13 @@ export function mountAppearance(conn: DbConnection): void {
       btn.className = "style-option";
       btn.textContent = STYLE_LABELS[style] ?? style;
       btn.addEventListener("click", () => {
-        void conn.reducers.restyle({ style: index });
-        captureEvent("trogg_restyled", { style });
+        try {
+          conn.reducers.restyle({ style: index });
+          captureEvent("trogg_restyled", { style });
+        } catch (err) {
+          logError("Restyle reducer failed", { surface: "appearance", action: "restyle", style, error: err });
+          status.textContent = "Couldn't restyle. Try again.";
+        }
       });
       styleButtons.push(btn);
       options.appendChild(btn);

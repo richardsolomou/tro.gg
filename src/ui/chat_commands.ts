@@ -1,7 +1,7 @@
 import { MAX_BOULDERS_PER_ZONE, MAX_HOGS_PER_ZONE, type Zone } from "@trogg/shared";
 import type { DbConnection } from "../net/module_bindings";
 import type { ChatUI } from "./chat.js";
-import { captureEvent, isFeatureEnabled } from "../analytics.js";
+import { captureEvent, isFeatureEnabled, logInfo, logWarn } from "../analytics.js";
 import { audio } from "../audio.js";
 import { POSTHOG_KEY } from "../env.js";
 
@@ -40,7 +40,7 @@ export function handleChatCommand(text: string, ctx: ChatCommandContext): boolea
   const { conn, chat, zone, flags } = ctx;
   if (flags.spawn && handleSpawnCommand(conn, chat, zone.slug, text)) return true;
   if (handleResetCommand(conn, chat, zone.slug, text, flags.resetBoulders, flags.resetHogs)) return true;
-  if (flags.ghost && handleGhostCommand(conn, text)) return true;
+  if (flags.ghost && handleGhostCommand(conn, zone.slug, text)) return true;
   return false;
 }
 
@@ -64,7 +64,7 @@ function handleSpawnCommand(conn: DbConnection, chat: ChatUI, zone: string, text
   const second = m[2]?.toLowerCase();
   if (!first) {
     audio.playError();
-    console.warn("Rejected spawn command", { zone, reason: "missing_kind" });
+    logWarn("Rejected spawn command", { zone, reason: "missing_kind" });
     hint("usage: /spawn boulder [count] | hedgehog [count]");
     return true;
   }
@@ -75,7 +75,7 @@ function handleSpawnCommand(conn: DbConnection, chat: ChatUI, zone: string, text
   const kind = arg ? SPAWNABLE[arg] : undefined;
   if (!kind) {
     audio.playError();
-    console.warn("Rejected spawn command", { zone, reason: "unknown_kind" });
+    logWarn("Rejected spawn command", { zone, reason: "unknown_kind" });
     hint(`unknown entity "${arg ?? first}" — try boulder or hedgehog`);
     return true;
   }
@@ -83,13 +83,14 @@ function handleSpawnCommand(conn: DbConnection, chat: ChatUI, zone: string, text
   const count = countArg ? parseSpawnCount(countArg) : 1;
   if (!count) {
     audio.playError();
+    logWarn("Rejected spawn command", { zone, reason: "invalid_count" });
     hint(`count must be 1-${kind === "boulder" ? MAX_BOULDERS_PER_ZONE : MAX_HOGS_PER_ZONE}`);
     return true;
   }
   audio.playCommand();
   conn.reducers.spawn({ kind, count });
-  captureEvent("debug_entity_spawned", { zone, kind });
-  console.info("Debug entity spawned", { zone, kind });
+  captureEvent("debug_entity_spawned", { zone, kind, count, source: "chat" });
+  logInfo("Debug entity spawn requested", { zone, kind, count, source: "chat" });
   return true;
 }
 
@@ -139,13 +140,13 @@ function handleResetCommand(
   if (target === "boulders" && bouldersEnabled) {
     audio.playCommand();
     conn.reducers.resetBoulders({});
-    captureEvent("boulders_reset", { zone });
+    captureEvent("boulders_reset", { zone, source: "chat" });
     return true;
   }
   if (target === "hogs" && hogsEnabled) {
     audio.playCommand();
     conn.reducers.resetHogs({});
-    captureEvent("hedgehogs_reset", { zone });
+    captureEvent("hedgehogs_reset", { zone, source: "chat" });
     return true;
   }
 
@@ -158,8 +159,9 @@ function handleResetCommand(
  * Handle a chat line as the `/ghost` command: request a server-picked, zone-scoped
  * cosmetic haunt. Returns true if it was the command; anything else falls through to chat.
  */
-function handleGhostCommand(conn: DbConnection, text: string): boolean {
+function handleGhostCommand(conn: DbConnection, zone: string, text: string): boolean {
   if (!/^\/ghost\s*$/i.test(text)) return false;
   conn.reducers.hauntGhost({});
+  captureEvent("ghost_summoned", { zone, source: "chat", count: 1 });
   return true;
 }

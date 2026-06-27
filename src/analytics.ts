@@ -7,6 +7,9 @@ const serviceContext = {
   environment: import.meta.env.MODE,
 };
 
+type LogAttribute = string | number | boolean | null | undefined | unknown[] | Record<string, unknown>;
+type LogAttributes = Record<string, LogAttribute>;
+
 /**
  * Autocapture, session replay, error tracking, and logs are first-class from day
  * one (docs/analytics.md). Custom gameplay events land with their mechanics.
@@ -25,7 +28,13 @@ export function initAnalytics() {
     },
     logs: {
       ...serviceContext,
-      captureConsoleLogs: true,
+      captureConsoleLogs: false,
+    },
+    session_recording: {
+      captureCanvas: {
+        recordCanvas: true,
+        canvasFps: 12,
+      },
     },
   });
 }
@@ -54,6 +63,46 @@ export function identifyUser(distinctId: string) {
 export function isFeatureEnabled(flag: string, fallback = true): boolean {
   if (!POSTHOG_KEY) return fallback;
   return posthog.isFeatureEnabled(flag) ?? fallback;
+}
+
+export function logInfo(body: string, attributes?: Record<string, unknown>) {
+  captureLog("info", body, attributes);
+  if (attributes) console.info(body, attributes);
+  else console.info(body);
+}
+
+export function logWarn(body: string, attributes?: Record<string, unknown>) {
+  captureLog("warn", body, attributes);
+  if (attributes) console.warn(body, attributes);
+  else console.warn(body);
+}
+
+export function logError(body: string, attributes?: Record<string, unknown>) {
+  captureLog("error", body, attributes);
+  if (attributes) console.error(body, attributes);
+  else console.error(body);
+}
+
+function captureLog(level: "info" | "warn" | "error", body: string, attributes?: Record<string, unknown>) {
+  if (!POSTHOG_KEY) return;
+  posthog.logger[level](body, normalizeLogAttributes(attributes));
+}
+
+function normalizeLogAttributes(attributes?: Record<string, unknown>): LogAttributes | undefined {
+  if (!attributes) return undefined;
+  return Object.fromEntries(Object.entries(attributes).map(([key, value]) => [key, normalizeLogAttribute(value)]));
+}
+
+function normalizeLogAttribute(value: unknown): LogAttribute {
+  if (value instanceof Error) return { name: value.name, message: value.message, stack: value.stack };
+  if (typeof value === "bigint") return value.toString();
+  if (value instanceof Date) return value.toISOString();
+  if (Array.isArray(value)) return value.map((entry) => normalizeLogAttribute(entry) ?? null);
+  if (value === null || value === undefined || typeof value === "string" || typeof value === "number" || typeof value === "boolean") return value;
+  if (typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, normalizeLogAttribute(entry)]));
+  }
+  return String(value);
 }
 
 export { posthog };

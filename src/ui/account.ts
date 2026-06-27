@@ -1,5 +1,5 @@
 import type { DbConnection } from "../net/module_bindings";
-import { captureEvent } from "../analytics.js";
+import { captureEvent, logError, logInfo } from "../analytics.js";
 import { signIn, signOut } from "../auth.js";
 import { setPendingClaim } from "../identity.js";
 import { hudRoot } from "./hud.js";
@@ -27,7 +27,7 @@ export function mountAccount(conn: DbConnection, opts: { signedIn: boolean; auth
   action.addEventListener("click", async () => {
     if (opts.signedIn) {
       captureEvent("account_signed_out");
-      console.info("Account signed out", { surface: "account" });
+      logInfo("Account signed out", { surface: "account" });
       await signOut();
       window.location.reload();
       return;
@@ -38,18 +38,18 @@ export function mountAccount(conn: DbConnection, opts: { signedIn: boolean; auth
     try {
       await conn.reducers.startClaim({ code });
     } catch (err) {
-      console.error("Account claim start failed", { surface: "account", action: "start_claim", error: err });
+      logError("Account claim start failed", { surface: "account", action: "start_claim", error: err });
       status.textContent = "Couldn't start sign-in. Try again.";
       action.disabled = false;
       return;
     }
     setPendingClaim(code);
     captureEvent("account_claim_started");
-    console.info("Account claim started", { surface: "account" });
+    logInfo("Account claim started", { surface: "account" });
     try {
       await signIn();
     } catch (err) {
-      console.error("Sign-in redirect failed", { surface: "account", action: "sign_in_redirect", error: err });
+      logError("Sign-in redirect failed", { surface: "account", action: "sign_in_redirect", error: err });
       status.textContent = "Couldn't open sign-in. Try again.";
       action.disabled = false;
     }
