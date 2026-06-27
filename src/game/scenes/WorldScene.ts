@@ -123,10 +123,8 @@ export class WorldScene extends Phaser.Scene {
     this.hogLayer = this.add.container(0, 0);
     this.stage.add([this.destinationLayer, this.boulderLayer, this.hogLayer]);
 
-    // An invisible interactive zone over the play field captures click-to-move. The
-    // HUD is HTML layered on top of the canvas with `pointer-events`, so a click on a
-    // panel is consumed by the DOM and never reaches this zone; clicks on open space
-    // fall through to here.
+    // An invisible interactive zone over the play field captures click-to-move. HUD
+    // panels consume their own clicks (pointer-events), so only open-space clicks reach it.
     this.clickZone = this.add.zone(0, 0, 1, 1).setOrigin(0, 0).setInteractive();
     this.clickZone.setDepth(1);
 

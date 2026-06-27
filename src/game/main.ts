@@ -13,10 +13,9 @@ export function StartGame(parent: string, data: WorldSceneData): Phaser.Game {
     backgroundColor: "#0a0806",
     pixelArt: true,
     scale: { mode: Phaser.Scale.RESIZE, width: window.innerWidth, height: window.innerHeight },
-    // Listen only on the canvas, not the window. The HUD is HTML over the canvas with
-    // `pointer-events`, so a click on a panel never reaches the canvas — but Phaser's
-    // default window-level mousedown would still fire (the event bubbles to window) and
-    // move the trogg under the panel. Canvas-only input lets the DOM shadow it properly.
+    // Canvas-only input: Phaser also binds mousedown on the window by default, which
+    // fires for HUD-panel clicks (they bubble to window) and would move the trogg under
+    // the panel even though pointer-events keep the click off the canvas itself.
     input: { windowEvents: false },
   });
   game.scene.add("world", WorldScene, true, data);

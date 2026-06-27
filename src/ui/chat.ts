@@ -96,8 +96,8 @@ export function mountChat(send: (text: string) => void): ChatUI {
 
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter") {
-      // Stop the window "Enter opens chat" listener from seeing this Enter — submit()
-      // blurs, and without this the bubbled keypress would immediately re-focus.
+      // Don't let this Enter bubble to the window "open chat" listener, which would
+      // re-focus the input that submit() just blurred.
       e.preventDefault();
       e.stopPropagation();
       submit();
