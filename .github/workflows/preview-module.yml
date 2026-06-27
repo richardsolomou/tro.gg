@@ -1,25 +1,37 @@
 name: PR preview module
 
 # Publishes the SpacetimeDB module to the production instance (spacetime.tro.gg)
-# under a per-PR database (`trogg-<branch-slug>`), so each PR gets an isolated
-# backend alongside the live `trogg` database. Databases are isolated from each
-# other within the instance, so a preview cannot touch prod data. The matching
-# frontend preview is built by Cloudflare Workers Builds, which derives the same
-# slug from WORKERS_CI_BRANCH and points VITE_SPACETIMEDB_HOST at the instance.
-# preview-cleanup.yml deletes the database when the PR closes. Preview data is
-# disposable: if a branch changes schema in a way SpacetimeDB cannot auto-migrate,
-# this workflow clears only that PR database and republishes it rather than blocking
-# the preview.
+# under a per-branch database (`trogg-<branch-slug>`), so each branch gets an
+# isolated backend alongside the live `trogg` database. Databases are isolated
+# from each other within the instance, so a preview cannot touch prod data. The
+# matching frontend preview is built by Cloudflare Workers Builds, which derives
+# the same slug from WORKERS_CI_BRANCH and points VITE_SPACETIMEDB_HOST at the
+# instance.
+#
+# Triggered on `push` (not `pull_request`) to mirror that Cloudflare frontend
+# preview, which also builds on branch push. This keeps frontend and backend in
+# lockstep: a `pull_request` run is suppressed whenever the PR has a merge
+# conflict (GitHub cannot build the test-merge ref), which would leave the
+# frontend pointing at a database that was never published. `push` runs off the
+# raw branch head, so a conflict never blocks it. `push` also never fires for
+# forks, so SPACETIME_TOKEN is never exposed to untrusted code — unlike a
+# `pull_request_target` workaround, which would.
+#
+# Lifecycle: preview-cleanup.yml deletes the database when a PR closes;
+# preview-prune.yml sweeps databases whose branch has no open PR weekly. Preview
+# data is disposable: if a branch changes schema in a way SpacetimeDB cannot
+# auto-migrate, the publish below clears only that branch's database and
+# republishes it (--delete-data=on-conflict) rather than blocking the preview.
 #
 # Reuses the SPACETIME_TOKEN secret (the identity that owns `trogg`); that identity
-# owns the per-PR databases too, so it can publish and later delete them.
+# owns the per-branch databases too, so it can publish and later delete them.
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
+  push:
+    branches-ignore: [main]
 
 concurrency:
-  group: preview-module-${{ github.head_ref }}
+  group: preview-module-${{ github.ref_name }}
   cancel-in-progress: true
 
 jobs:
@@ -41,7 +53,7 @@ jobs:
       - name: Derive database name
         id: db
         run: |
-          slug=$(printf '%s' "${{ github.head_ref }}" | tr '[:upper:]' '[:lower:]' \
+          slug=$(printf '%s' "${{ github.ref_name }}" | tr '[:upper:]' '[:lower:]' \
             | sed -E 's/[^a-z0-9]+/-/g' | cut -c1-40 | sed -E 's/^-+|-+$//g')
           if [ -z "$slug" ]; then
             echo "::error::Empty slug — refusing to publish a preview database."
