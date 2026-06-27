@@ -1,8 +1,9 @@
-import type { Coord, Zone } from "@trogg/shared";
+import { MAX_BOULDERS_PER_ZONE, MAX_HOGS_PER_ZONE, type Coord, type Zone } from "@trogg/shared";
 import type { DbConnection } from "../net/module_bindings";
 import type { ChatUI } from "./chat.js";
-import { captureEvent } from "../analytics.js";
+import { captureEvent, isFeatureEnabled } from "../analytics.js";
 import { audio } from "../audio.js";
+import { POSTHOG_KEY } from "../env.js";
 
 /** Which slash commands are live (each behind its own feature flag, resolved by the caller). */
 export interface ChatCommandFlags {
@@ -20,6 +21,16 @@ export interface ChatCommandContext {
   /** Flicker the cosmetic ghost at a tile — the one rendering effect a command needs,
    *  injected so this module stays pure dispatch (no renderer). */
   onGhost: (tile: Coord) => void;
+}
+
+/** Resolve the live command flags once per mounted HUD surface. */
+export function currentCommandFlags(): ChatCommandFlags {
+  return {
+    spawn: isFeatureEnabled("spawn-command", import.meta.env.DEV || !POSTHOG_KEY),
+    resetBoulders: isFeatureEnabled("boulder-reset"),
+    resetHogs: isFeatureEnabled("hog-reset"),
+    ghost: isFeatureEnabled("ghost-trogg"),
+  };
 }
 
 /**
@@ -40,31 +51,52 @@ export function handleChatCommand(text: string, ctx: ChatCommandContext): boolea
 const SPAWNABLE: Record<string, "boulder" | "hog"> = { boulder: "boulder", hedgehog: "hog", hog: "hog" };
 
 /**
- * Handle a chat line as a `/spawn <entity>` command. Returns true if it was a spawn
- * command (so the caller skips sending it as chat): a known entity fires the `spawn`
- * reducer; an unknown one or bad syntax posts a local usage hint. Anything not starting
- * with `/spawn` returns false and falls through to chat.
+ * Handle a chat line as a `/spawn <entity> [count]` command. Returns true if it
+ * was a spawn command (so the caller skips sending it as chat): a known entity
+ * fires the `spawn` reducer; an unknown one or bad syntax posts a local usage
+ * hint. The server enforces the real cap; the client range is just a friendlier
+ * pre-alpha control. Anything not starting with `/spawn` returns false and falls
+ * through to chat.
  */
 function handleSpawnCommand(conn: DbConnection, chat: ChatUI, text: string): boolean {
-  const m = /^\/spawn(?:\s+(\S+))?\s*$/i.exec(text);
+  const m = /^\/spawn(?:\s+(\S+)(?:\s+(\S+))?)?\s*$/i.exec(text);
   if (!m) return false;
 
   const hint = (msg: string) => chat.addMessage("spawn", "spawn", msg, 0x9a8c70);
-  const arg = m[1]?.toLowerCase();
-  if (!arg) {
+  const first = m[1]?.toLowerCase();
+  const second = m[2]?.toLowerCase();
+  if (!first) {
     audio.playError();
-    hint("usage: /spawn boulder | hedgehog");
+    hint("usage: /spawn boulder [count] | hedgehog [count]");
     return true;
   }
-  const kind = SPAWNABLE[arg];
+
+  const countFirst = parseSpawnCount(first);
+  const arg = countFirst ? second : first;
+  const countArg = countFirst ? first : second;
+  const kind = arg ? SPAWNABLE[arg] : undefined;
   if (!kind) {
     audio.playError();
-    hint(`unknown entity "${arg}" — try boulder or hedgehog`);
+    hint(`unknown entity "${arg ?? first}" — try boulder or hedgehog`);
+    return true;
+  }
+
+  const count = countArg ? parseSpawnCount(countArg) : 1;
+  if (!count) {
+    audio.playError();
+    hint(`count must be 1-${kind === "boulder" ? MAX_BOULDERS_PER_ZONE : MAX_HOGS_PER_ZONE}`);
     return true;
   }
   audio.playCommand();
-  conn.reducers.spawn({ kind });
+  conn.reducers.spawn({ kind, count });
   return true;
+}
+
+function parseSpawnCount(raw: string): number | undefined {
+  if (!/^\d+$/.test(raw)) return undefined;
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value < 1) return undefined;
+  return value;
 }
 
 /** The `/reset` targets mapped to a stable key, so aliases resolve to one branch. */

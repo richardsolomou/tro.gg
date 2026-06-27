@@ -1,5 +1,6 @@
 import { isFeatureEnabled } from "../analytics.js";
-import { collapseLeftPanels, hudLeft } from "./hud.js";
+import { hudLeft } from "./hud.js";
+import { currentCommandFlags } from "./chat_commands.js";
 
 /** One control or command line: the key/command and what it does. */
 interface Row {
@@ -21,7 +22,7 @@ interface Section {
  */
 export function mountHelp(): void {
   const root = document.createElement("div");
-  root.className = "panel help";
+  root.className = "help";
 
   const toggle = document.createElement("button");
   toggle.type = "button";
@@ -53,10 +54,14 @@ export function mountHelp(): void {
   }
 
   toggle.addEventListener("click", () => {
-    const willOpen = body.hidden;
-    collapseLeftPanels();
-    body.hidden = !willOpen;
+    const opening = body.hidden;
+    body.hidden = !opening;
+    if (opening) window.dispatchEvent(new CustomEvent("hud-menu-open", { detail: "help" }));
   });
+  // Accordion: opening any left-bar menu closes the others, so two drop-downs never overlap.
+  window.addEventListener("hud-menu-open", ((event: Event) => {
+    if ((event as CustomEvent<string>).detail !== "help") body.hidden = true;
+  }) as EventListener);
 
   root.append(toggle, body);
   hudLeft().appendChild(root);
@@ -68,10 +73,7 @@ function buildSections(): Section[] {
   const useInteract = isFeatureEnabled("interact");
   const pushEnabled = isFeatureEnabled("boulder-pushing");
   const chatEnabled = isFeatureEnabled("chat-enabled");
-  const spawnEnabled = isFeatureEnabled("spawn-command", import.meta.env.DEV);
-  const resetBouldersEnabled = isFeatureEnabled("boulder-reset");
-  const resetHogsEnabled = isFeatureEnabled("hog-reset");
-  const ghostEnabled = isFeatureEnabled("ghost-trogg");
+  const commandFlags = currentCommandFlags();
 
   const controls: Row[] = [
     { key: "WASD / Arrows", desc: "Move" },
@@ -87,10 +89,10 @@ function buildSections(): Section[] {
   // Commands are typed into the chat box, so they only matter when chat is on.
   if (chatEnabled) {
     const commands: Row[] = [];
-    if (spawnEnabled) commands.push({ key: "/spawn boulder | hedgehog", desc: "Spawn an object" });
-    const resetTargets = [resetBouldersEnabled && "boulders", resetHogsEnabled && "hedgehogs"].filter(Boolean);
+    if (commandFlags.spawn) commands.push({ key: "/spawn boulder [count] | hedgehog [count]", desc: "Spawn objects" });
+    const resetTargets = [commandFlags.resetBoulders && "boulders", commandFlags.resetHogs && "hedgehogs"].filter(Boolean);
     if (resetTargets.length) commands.push({ key: `/reset ${resetTargets.join(" | ")}`, desc: "Reset to the default layout" });
-    if (ghostEnabled) commands.push({ key: "/ghost", desc: "Summon a ghost" });
+    if (commandFlags.ghost) commands.push({ key: "/ghost", desc: "Summon a ghost" });
     if (commands.length) sections.push({ title: "Commands", rows: commands });
   }
 

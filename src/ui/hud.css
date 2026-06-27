@@ -1,5 +1,6 @@
 /*
- * HUD chrome — HTML/CSS overlays above the Phaser canvas (chat, account, help).
+ * HUD chrome — HTML/CSS overlays above the Phaser canvas (chat, account, help,
+ * commands).
  * Cave palette, shared with the landing page and the in-world art: ink #e8dcc4 on
  * #0a0806 stone, amber #f2c94c accents. The world (troggs, bubbles, terrain) is
  * drawn by Phaser; everything here is DOM, so the browser owns layout, text input,
@@ -125,28 +126,27 @@
   border-color: #e8dcc4;
 }
 
-/* ── Top-left toggle bar (Help, Appearance side by side) ─────────────────── */
+/* ── Top-left toggle bar (Help, Commands, Appearance side by side) ────────── */
 #hud .hud-left {
   position: fixed;
   top: 12px;
   left: 12px;
   display: flex;
   flex-direction: row;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: flex-start;
+  max-width: calc(100vw - 24px);
   pointer-events: none; /* the gaps stay click-through… */
 }
+/* Each menu opts back into clicks and anchors its drop-down body, which is
+   absolutely placed below the bar so opening one toggle never shifts another. */
 #hud .hud-left > * {
-  pointer-events: auto; /* …each toggle/panel consumes its own clicks */
-}
-
-/* Each panel anchors its drop-down body, which is absolutely placed below the bar
-   so opening one toggle never shifts the other. */
-#hud .help,
-#hud .appearance {
+  pointer-events: auto;
   position: relative;
 }
-#hud .help-body {
+#hud .help-body,
+#hud .command-body {
   position: absolute;
   top: 100%;
   left: 0;
@@ -191,7 +191,7 @@
   white-space: nowrap;
 }
 
-/* ── Appearance (top-left, under Help) ───────────────────────────────────── */
+/* ── Appearance (beside Help) ────────────────────────────────────────────── */
 #hud .appearance .help-toggle {
   background: #e8dcc4; /* set apart from Help's amber toggle */
 }
@@ -225,4 +225,63 @@
   color: #0a0806;
   background: #e8dcc4;
   border-color: #e8dcc4;
+}
+
+/* ── Commands (beside Help) ──────────────────────────────────────────────── */
+#hud .command-body {
+  width: min(330px, calc(100vw - 24px));
+  padding: 12px;
+  background: rgba(10, 8, 6, 0.86);
+  border: 1px solid #2a2118;
+  border-radius: 4px;
+  font-size: 13px;
+}
+#hud .command-body[hidden] {
+  display: none;
+}
+#hud .command-section + .command-section,
+#hud .command-status {
+  margin-top: 10px;
+}
+#hud .command-row {
+  display: grid;
+  grid-template-columns: minmax(74px, 0.6fr) 1fr;
+  gap: 6px;
+}
+#hud .command-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 6px;
+}
+#hud .command-segment {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+#hud .command-button {
+  min-width: 0;
+  height: 30px;
+  padding: 0 8px;
+  overflow: hidden;
+  color: #e8dcc4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: rgba(232, 220, 196, 0.14);
+  border: 1px solid #4a3a27;
+  border-radius: 4px;
+  cursor: pointer;
+}
+#hud .command-button[aria-pressed="true"] {
+  color: #0a0806;
+  background: #f2c94c;
+  border-color: #f2c94c;
+}
+#hud .command-count {
+  min-width: 0;
+}
+#hud .command-status {
+  color: #9b8a6c;
+  font-size: 12px;
 }

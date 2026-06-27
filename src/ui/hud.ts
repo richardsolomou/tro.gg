@@ -18,10 +18,12 @@ export function hudRoot(): HTMLDivElement {
 }
 
 /**
- * The top-left bar the toggle panels (Help, Appearance) share: their toggles sit
- * side by side, and each panel's body drops *below* the bar (absolutely placed), so
- * opening one never shoves the other toggle. The bar stays click-through
- * (pointer-events fall to the canvas); each child opts back in.
+ * The top-left bar the toggle menus (Help, Commands, Appearance) share: their
+ * toggles sit side by side, and each menu's body drops *below* the bar (absolutely
+ * placed), so opening one never shoves another toggle. Only one body is open at a
+ * time — each menu listens for the `hud-menu-open` window event and closes when
+ * another opens. The bar stays click-through (pointer-events fall to the canvas);
+ * each child opts back in.
  */
 export function hudLeft(): HTMLDivElement {
   if (!left) {
@@ -30,17 +32,4 @@ export function hudLeft(): HTMLDivElement {
     hudRoot().appendChild(left);
   }
   return left;
-}
-
-/**
- * Close every open panel body in the left bar except `keep`. The toggles act as an
- * accordion — only one body open at a time — so two drop-downs can't overlap below
- * the bar. Both panels' bodies carry the `.help-body` class, so one selector covers
- * them.
- */
-export function collapseLeftPanels(keep?: HTMLElement): void {
-  if (!left) return;
-  for (const body of left.querySelectorAll<HTMLElement>(".help-body")) {
-    if (body !== keep) body.hidden = true;
-  }
 }

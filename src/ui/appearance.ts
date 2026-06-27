@@ -11,7 +11,7 @@ import {
 import type { DbConnection } from "../net/module_bindings";
 import { captureEvent, isFeatureEnabled } from "../analytics.js";
 import { cssColor } from "../ui_text.js";
-import { collapseLeftPanels, hudLeft } from "./hud.js";
+import { hudLeft } from "./hud.js";
 
 /** Human label for a trogg style id (GDD "Avatars"); the id is the sprite key. */
 const STYLE_LABELS: Record<string, string> = { moss: "Moss", stone: "Stone", ridge: "Ridge" };
@@ -43,10 +43,14 @@ export function mountAppearance(conn: DbConnection): void {
   body.className = "help-body appearance-body";
   body.hidden = true;
   toggle.addEventListener("click", () => {
-    const willOpen = body.hidden;
-    collapseLeftPanels();
-    body.hidden = !willOpen;
+    const opening = body.hidden;
+    body.hidden = !opening;
+    if (opening) window.dispatchEvent(new CustomEvent("hud-menu-open", { detail: "appearance" }));
   });
+  // Accordion: opening any left-bar menu closes the others, so two drop-downs never overlap.
+  window.addEventListener("hud-menu-open", ((event: Event) => {
+    if ((event as CustomEvent<string>).detail !== "appearance") body.hidden = true;
+  }) as EventListener);
 
   const status = document.createElement("div");
   status.className = "account-status";
