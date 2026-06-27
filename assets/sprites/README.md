@@ -13,7 +13,10 @@ pnpm sprites      # indexed maps → troggs-and-hogs.png + .atlas.json
    reference-inspired pixel art as readable **paint logic** (the same
    code-authored-pixel approach as the procedural terrain in `terrain.ts`) and
    emits [`shared/sprite_art.ts`](../../shared/sprite_art.ts) as indexed 32×48
-   text pixel maps.
+   text pixel maps. Art direction is **Pokémon Gold/Silver**: a tight flat
+   palette (a base colour, one block shadow, one light), chunky flat shapes, and
+   a single dilation pass that traces the same crisp dark outline around every
+   silhouette — pixelated, but unmistakably the creature.
 2. [`shared/sprites.ts`](../../shared/sprites.ts) defines the rig, frame layout,
    and renderer that blits those maps; the generator in `tools/gen-spritesheet.ts`
    writes the committed PNG/atlas from them.
