@@ -1,10 +1,11 @@
 import { MAX_BOULDERS_PER_ZONE, MAX_HOGS_PER_ZONE, type Zone } from "@trogg/shared";
 import type { DbConnection } from "../net/module_bindings";
-import { captureEvent, logError, logInfo } from "../analytics.js";
+import { logError, logInfo } from "../analytics.js";
 import { audio } from "../audio.js";
 import { hudLeft } from "./hud.js";
 import { registerKeybind } from "./keybinds.js";
 import { currentCommandFlags, type ChatCommandFlags } from "./chat_commands.js";
+import { hauntGhost, resetBoulders, resetHogs, spawnDebugEntity } from "../net/procedures.js";
 
 type SpawnKind = "boulder" | "hog";
 
@@ -38,8 +39,8 @@ export function mountCommands({ conn, zone }: CommandPanelContext): void {
   status.className = "command-status";
 
   if (flags.spawn) body.appendChild(spawnSection(conn, zone.slug, status));
-  if (flags.resetBoulders || flags.resetHogs) body.appendChild(resetSection(conn, zone.slug, flags, status));
-  if (flags.ghost) body.appendChild(ghostSection(conn, zone.slug, status));
+  if (flags.resetBoulders || flags.resetHogs) body.appendChild(resetSection(conn, flags, status));
+  if (flags.ghost) body.appendChild(ghostSection(conn, status));
   body.appendChild(status);
 
   const setOpen = (open: boolean) => {
@@ -128,21 +129,17 @@ function spawnSection(conn: DbConnection, zone: string, status: HTMLElement): HT
 
 function requestSpawn(conn: DbConnection, zone: string, status: HTMLElement, kind: SpawnKind, count: number) {
   const label = kind === "hog" ? "Hogs" : "boulders";
-  try {
-    conn.reducers.spawn({ kind, count });
-  } catch (err) {
+  void spawnDebugEntity(conn, kind, count, "commands").catch((err) => {
     logError("Command spawn request failed", { surface: "commands", action: "spawn", kind, count, error: err });
     audio.playError();
     status.textContent = "couldn't request spawn";
-    return;
-  }
-  captureEvent("debug_entity_spawned", { zone, kind, count, source: "commands" });
+  });
   logInfo("Debug entity spawn requested", { zone, kind, count, source: "commands" });
   audio.playCommand();
   status.textContent = `requested ${count} ${label}`;
 }
 
-function resetSection(conn: DbConnection, zone: string, flags: ChatCommandFlags, status: HTMLElement): HTMLElement {
+function resetSection(conn: DbConnection, flags: ChatCommandFlags, status: HTMLElement): HTMLElement {
   const section = commandSection("Reset");
   const grid = document.createElement("div");
   grid.className = "command-grid";
@@ -150,8 +147,11 @@ function resetSection(conn: DbConnection, zone: string, flags: ChatCommandFlags,
   if (flags.resetBoulders) {
     const button = commandButton("Reset boulders");
     button.addEventListener("click", () => {
-      conn.reducers.resetBoulders({});
-      captureEvent("boulders_reset", { zone, source: "commands" });
+      void resetBoulders(conn, "commands").catch((err) => {
+        logError("Command reset request failed", { surface: "commands", action: "reset_boulders", error: err });
+        audio.playError();
+        status.textContent = "couldn't reset boulders";
+      });
       audio.playCommand();
       status.textContent = "reset boulders";
     });
@@ -161,8 +161,11 @@ function resetSection(conn: DbConnection, zone: string, flags: ChatCommandFlags,
   if (flags.resetHogs) {
     const button = commandButton("Reset Hogs");
     button.addEventListener("click", () => {
-      conn.reducers.resetHogs({});
-      captureEvent("hedgehogs_reset", { zone, source: "commands" });
+      void resetHogs(conn, "commands").catch((err) => {
+        logError("Command reset request failed", { surface: "commands", action: "reset_hogs", error: err });
+        audio.playError();
+        status.textContent = "couldn't reset Hogs";
+      });
       audio.playCommand();
       status.textContent = "reset Hogs";
     });
@@ -172,10 +175,16 @@ function resetSection(conn: DbConnection, zone: string, flags: ChatCommandFlags,
   if (flags.resetBoulders && flags.resetHogs) {
     const button = commandButton("Reset both");
     button.addEventListener("click", () => {
-      conn.reducers.resetBoulders({});
-      conn.reducers.resetHogs({});
-      captureEvent("boulders_reset", { zone, source: "commands" });
-      captureEvent("hedgehogs_reset", { zone, source: "commands" });
+      void resetBoulders(conn, "commands").catch((err) => {
+        logError("Command reset request failed", { surface: "commands", action: "reset_boulders", error: err });
+        audio.playError();
+        status.textContent = "couldn't reset boulders";
+      });
+      void resetHogs(conn, "commands").catch((err) => {
+        logError("Command reset request failed", { surface: "commands", action: "reset_hogs", error: err });
+        audio.playError();
+        status.textContent = "couldn't reset Hogs";
+      });
       audio.playCommand();
       status.textContent = "reset boulders and Hogs";
     });
@@ -186,19 +195,19 @@ function resetSection(conn: DbConnection, zone: string, flags: ChatCommandFlags,
   return section;
 }
 
-function ghostSection(conn: DbConnection, zone: string, status: HTMLElement): HTMLElement {
+function ghostSection(conn: DbConnection, status: HTMLElement): HTMLElement {
   const section = commandSection("Ghost");
   const grid = document.createElement("div");
   grid.className = "command-grid";
 
   const once = commandButton("Ghost once");
   once.addEventListener("click", () => {
-    status.textContent = haunt(conn, zone, 1) ? "requested one ghost" : "couldn't request ghost";
+    status.textContent = haunt(conn, 1) ? "requested one ghost" : "couldn't request ghost";
   });
 
   const burst = commandButton("Ghost burst");
   burst.addEventListener("click", () => {
-    status.textContent = haunt(conn, zone, 8) ? "requested eight ghosts" : "couldn't request ghosts";
+    status.textContent = haunt(conn, 8) ? "requested eight ghosts" : "couldn't request ghosts";
   });
 
   grid.append(once, burst);
@@ -206,15 +215,11 @@ function ghostSection(conn: DbConnection, zone: string, status: HTMLElement): HT
   return section;
 }
 
-function haunt(conn: DbConnection, zone: string, count: number): boolean {
-  try {
-    for (let i = 0; i < count; i++) conn.reducers.hauntGhost({});
-  } catch (err) {
+function haunt(conn: DbConnection, count: number): boolean {
+  void hauntGhost(conn, count, "commands").catch((err) => {
     logError("Command ghost request failed", { surface: "commands", action: "haunt_ghost", count, error: err });
     audio.playError();
-    return false;
-  }
-  captureEvent("ghost_summoned", { zone, source: "commands", count });
+  });
   return true;
 }
 

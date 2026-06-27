@@ -1,7 +1,7 @@
 import Phaser from "phaser";
 import { getZone, hogStyleFor, projectMotion, projectMotionState, snapToTile, STARTING_ZONE_SLUG, tileKey, timestampMs, troggColorFor, troggStyleFor, zoneBounds, type Coord, type Stamp, type ZoneBounds } from "@trogg/shared";
 import type { DbConnection } from "../../net/module_bindings";
-import type { Boulder, GroundItem, Hog, Inventory, Player } from "../../net/module_bindings/types";
+import type { Boulder, GroundItem, Hog, Player } from "../../net/module_bindings/types";
 import { attachKeyboard } from "../../input.js";
 import { setupChat } from "../../ui/chat.js";
 import { mountCommands } from "../../ui/commands.js";
@@ -9,8 +9,9 @@ import { createSelfController, type SelfController } from "../../movement.js";
 import { ART, createEntities, GHOST_CHANCE, type BoulderView, type Entities, type GroundItemView, type HogView, type Tracked } from "../entities.js";
 import { createTerrain, registerTerrainTextures, type Terrain } from "../terrain.js";
 import { facingFromDir, registerAvatarTextures } from "../avatars.js";
-import { captureEvent, isFeatureEnabled, logInfo } from "../../analytics.js";
+import { isFeatureEnabled, logError, logInfo } from "../../analytics.js";
 import { audio } from "../../audio.js";
+import { hauntGhost, interact, useEquipped } from "../../net/procedures.js";
 
 /** Fraction of the viewport the zone fills, leaving a rim of cave around it. */
 const ZONE_FILL = 0.92;
@@ -170,7 +171,6 @@ export class WorldScene extends Phaser.Scene {
     this.wirePlayers();
     this.wireGroundItems();
     this.wireBoulders();
-    if (this.myId) this.wireInventory();
     if (this.useHogs) this.wireHogs();
     if (this.useGhost) this.wireGhostHaunts();
 
@@ -181,10 +181,14 @@ export class WorldScene extends Phaser.Scene {
         // server has no synced standing facing, so pass the trogg's current heading;
         // it re-derives the tile and acts only on what's actually adjacent (invariant 3).
         if (!this.useInteract) return;
-        conn.reducers.interact({ dirX: this.self.facing.dirX, dirY: this.self.facing.dirY });
+        void interact(conn, this.self.facing.dirX, this.self.facing.dirY).catch((err) => {
+          logError("Interact action failed", { surface: "world", action: "interact", error: err });
+        });
       },
       () => {
-        conn.reducers.useEquipped({ dirX: this.self.facing.dirX, dirY: this.self.facing.dirY });
+        void useEquipped(conn, this.self.facing.dirX, this.self.facing.dirY).catch((err) => {
+          logError("Use equipped action failed", { surface: "world", action: "use_equipped", error: err });
+        });
       },
       this.canRun,
     );
@@ -221,8 +225,9 @@ export class WorldScene extends Phaser.Scene {
         // Cosmetic join easter egg. Each launch has a chance to request a synced
         // zone haunt, so everyone in the map sees the same apparition.
         if (this.useGhost && Math.random() < GHOST_CHANCE) {
-          conn.reducers.hauntGhost({});
-          captureEvent("ghost_summoned", { zone: this.slug, source: "launch", count: 1 });
+          void hauntGhost(conn, 1, "launch").catch((err) => {
+            logError("Launch ghost action failed", { surface: "world", action: "haunt_ghost", count: 1, error: err });
+          });
         }
       })
       .subscribe(queries);
@@ -352,20 +357,9 @@ export class WorldScene extends Phaser.Scene {
       if (_old.name !== p.name || _old.color !== p.color || _old.style !== p.style) this.rebuildMarker(id, entry);
       else if (_old.carrying !== p.carrying) this.entities.applyCarry(entry);
 
-      if (id === this.myId && _old.name !== p.name) captureEvent("trogg_renamed", { zone: this.slug });
       const equipmentChanged = _old.equippedMainHand !== p.equippedMainHand || _old.equippedMainHandInventoryId !== p.equippedMainHandInventoryId;
       if (equipmentChanged) {
         this.entities.applyEquipment(entry);
-        if (id === this.myId) captureEvent("item_equipped", { zone: this.slug, item: p.equippedMainHand || _old.equippedMainHand, equipped: p.equippedMainHand !== "" });
-      }
-      if (id === this.myId && p.equipmentAction && timestampMs(_old.equipmentActionAt) !== timestampMs(p.equipmentActionAt)) {
-        captureEvent("equipped_item_used", { zone: this.slug, item: p.equipmentAction });
-      }
-
-      // Pick-up / put-down are low-volume, so emit on the authoritative carrying
-      // transition of your own trogg (GDD analytics: observe server truth).
-      if (id === this.myId && _old.carrying !== p.carrying) {
-        captureEvent(p.carrying ? "object_picked_up" : "object_dropped", { zone: this.slug, kind: p.carrying || _old.carrying });
       }
     });
     conn.db.player.onDelete((_ctx, p) => this.removePlayer(p.identity.toHexString()));
@@ -458,20 +452,6 @@ export class WorldScene extends Phaser.Scene {
     conn.db.groundItem.onInsert((_ctx, row) => this.upsertGroundItem(row));
     conn.db.groundItem.onUpdate((_ctx, _old, row) => this.upsertGroundItem(row));
     conn.db.groundItem.onDelete((_ctx, row) => this.removeGroundItem(row));
-  }
-
-  private wireInventory() {
-    const mine = (row: Inventory) => row.playerId.toHexString() === this.myId;
-    const acquired = (item: string, qty: number) => {
-      if (!this.sub.live || qty <= 0) return;
-      captureEvent("inventory_item_acquired", { zone: this.slug, item, qty });
-    };
-    this.conn.db.inventory.onInsert((_ctx, row) => {
-      if (mine(row)) acquired(row.item, row.qty);
-    });
-    this.conn.db.inventory.onUpdate((_ctx, _old, row) => {
-      if (mine(row)) acquired(row.item, row.qty - _old.qty);
-    });
   }
 
   private addHog(h: Hog) {

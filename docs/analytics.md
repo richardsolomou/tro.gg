@@ -15,7 +15,7 @@ The PostHog plan: every product gets a real job when it is useful. This document
 | Error tracking | Client + server errors |
 | Surveys | In-game feedback prompts |
 | AI observability | LLM-driven Hogs — traces, cost, quality |
-| Logs | Structured client diagnostics tied to user/session context, plus trusted sidecar diagnostics |
+| Logs | Structured client diagnostics tied to user/session context |
 
 ## Events
 
@@ -52,7 +52,9 @@ snake_case. Low-volume by design — anything that could fire more than ~once/se
 | `project_completed` | `project` | Communal project completes |
 | `shop_purchase` | `item, qty, price` | Player buys from a Hog merchant |
 
-Client events via posthog-js (plus autocapture + session replay). SpacetimeDB reducers are network-isolated — they can't call out to PostHog — so the browser emits immediate gameplay-authoritative events when it observes the authoritative table change that earns them. The trusted Node sidecar (`instrumentation/index.ts`) also uses `posthog-node` to poll the SpacetimeDB HTTP SQL API and emit backend-derived events from public table diffs with `source=spacetimedb-sidecar`. It uses HTTP SQL rather than an SDK subscription so the observer does not run `clientConnected` and create a visible trogg.
+Client lifecycle events use posthog-js (plus autocapture + session replay). Gameplay actions that need trusted server-side product events should use SpacetimeDB procedure wrappers rather than calling reducers directly from the browser. Each `*Action` procedure performs the authoritative mutation inside `ctx.withTx(...)`, derives event properties from server state, and then best-effort posts the accepted event to PostHog from the module with `source=spacetimedb-procedure` unless the caller supplies a narrower source such as `chat`, `commands`, `appearance`, `inventory`, or `keyboard`. Movement still generates zero events.
+
+The procedure wrappers accept the existing public `VITE_POSTHOG_KEY` as an argument because SpacetimeDB modules do not have the browser's Vite env at runtime. The PostHog project key is already public in the client bundle; never pass private API keys, OIDC tokens, SpacetimeDB tokens, chat content, or arbitrary command text through procedure telemetry parameters.
 
 ## Feature flags
 
@@ -80,13 +82,13 @@ PostHog project audit (2026-06-27): all code-read flags above are configured in 
 
 ## Error tracking and logs
 
-The browser SDK initializes with exception autocapture for unhandled errors, unhandled promise rejections, and `console.error()` calls. Handled failures in startup, account claim/sign-in, silent auth refresh, and reducer-backed account, appearance, inventory, or command actions should go through `logError()` with stable `surface` / `action` context so they are visible in DevTools and captured by PostHog Logs without relying on console-log autocapture.
+The browser SDK initializes with exception autocapture for unhandled errors, unhandled promise rejections, and `console.error()` calls. Handled failures in startup, account claim/sign-in, silent auth refresh, and reducer- or procedure-backed account, appearance, inventory, or command actions should go through `logError()` with stable `surface` / `action` context so they are visible in DevTools and captured by PostHog Logs without relying on console-log autocapture.
 
 Structured browser logs go through explicit `logInfo()` / `logWarn()` / `logError()` helpers with `service.name = trogg-web`, the Vite build stamp as `service.version`, and the Vite mode as `deployment.environment`. Console-log autocapture is off to avoid double-capturing helper output. Use these helpers for startup, world boot flags, account actions, deploy recovery, version prompts, validation rejections, and debug command outcomes without chat content or arbitrary command text.
 
-Backend logs and handled sidecar exceptions use the trusted Node sidecar. It sends PostHog Logs with `service.name = trogg-sidecar`, captures poll/runtime exceptions with `posthog-node`, and should run with `POSTHOG_PROJECT_TOKEN`, `POSTHOG_HOST`, `SPACETIMEDB_HTTP_HOST`, and `SPACETIMEDB_DB_NAME`. Do not log raw player chat, arbitrary command text, credentials, OIDC tokens, or SpacetimeDB tokens.
+The SpacetimeDB module currently captures accepted gameplay events from procedures, not general backend logs. Procedure telemetry failures are swallowed so analytics cannot roll back a committed gameplay action. Do not log or capture raw player chat, arbitrary command text, credentials, OIDC tokens, or SpacetimeDB tokens.
 
-Session Replay records the Phaser canvas via `session_recording.captureCanvas.recordCanvas = true`. The SDK's local canvas FPS option is capped at 12, so tro.gg sets `canvasFps = 12`; use lower values if replay payload size becomes a problem.
+Session Replay records the Phaser canvas via `session_recording.captureCanvas.recordCanvas = true`. tro.gg sets `canvasFps = 15`; use lower values if replay payload size becomes a problem.
 
 ## Rules
 

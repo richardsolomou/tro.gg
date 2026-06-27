@@ -11,21 +11,17 @@
     "build": "tsc -p tsconfig.json --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "typecheck:sidecar": "tsc -p instrumentation/tsconfig.json --noEmit",
     "typecheck:module": "tsc -p spacetimedb/tsconfig.json --noEmit",
     "test": "TSX_TSCONFIG_PATH=test/tsconfig.json node --import tsx --test \"shared/*.test.ts\" \"src/*.test.ts\" \"test/*.test.ts\"",
-    "sidecar": "node --env-file-if-exists=.env --import tsx instrumentation/index.ts",
     "sprites": "tsx tools/gen-spritesheet.ts"
   },
   "dependencies": {
     "oidc-client-ts": "^3.5.0",
     "phaser": "^4.2.0",
     "posthog-js": "^1.391.2",
-    "posthog-node": "^5.38.6",
     "spacetimedb": "2.6.*"
   },
   "devDependencies": {
-    "@types/node": "^26.0.1",
     "tsx": "^4.19.2",
     "typescript": "^6.0.3",
     "vite": "^8.0.16"

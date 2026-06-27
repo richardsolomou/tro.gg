@@ -25,8 +25,8 @@ async function main() {
     const conn = await connect(idToken ?? undefined, () => startReconnect(idToken ?? undefined));
     const signedIn = idToken !== null;
 
-    // Server-authoritative events can't be emitted from inside reducers
-    // (network-isolated), so session events fire client-side (docs/analytics.md).
+    // Session lifecycle events are client-side; accepted gameplay actions emit from
+    // SpacetimeDB procedure wrappers where server state is available (docs/analytics.md).
     captureEvent("player_joined", { zone: STARTING_ZONE_SLUG, is_guest: !signedIn });
     logInfo("Player joined world", { zone: STARTING_ZONE_SLUG, is_guest: !signedIn });
 

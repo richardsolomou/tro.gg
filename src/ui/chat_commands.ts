@@ -1,9 +1,10 @@
 import { MAX_BOULDERS_PER_ZONE, MAX_HOGS_PER_ZONE, type Zone } from "@trogg/shared";
 import type { DbConnection } from "../net/module_bindings";
 import type { ChatUI } from "./chat.js";
-import { captureEvent, isFeatureEnabled, logInfo, logWarn } from "../analytics.js";
+import { isFeatureEnabled, logError, logInfo, logWarn } from "../analytics.js";
 import { audio } from "../audio.js";
 import { POSTHOG_KEY } from "../env.js";
+import { hauntGhost, resetBoulders, resetHogs, spawnDebugEntity } from "../net/procedures.js";
 
 /** Which slash commands are live (each behind its own feature flag, resolved by the caller). */
 export interface ChatCommandFlags {
@@ -33,14 +34,15 @@ export function currentCommandFlags(): ChatCommandFlags {
 /**
  * Try to handle a chat line as a slash command, returning true if it was one (so the
  * caller skips broadcasting it as chat). `/spawn`, `/reset`, and `/ghost` fire server
- * reducers. Anything else returns false and falls through to chat. Each command is
- * gated by its flag; a disabled command is just an ordinary line.
+ * procedures. Anything else returns false and falls through to chat. Each command is
+ * gated by its flag; a disabled command is just an ordinary line. Gameplay
+ * commands use procedure wrappers so accepted server mutations emit analytics.
  */
 export function handleChatCommand(text: string, ctx: ChatCommandContext): boolean {
   const { conn, chat, zone, flags } = ctx;
   if (flags.spawn && handleSpawnCommand(conn, chat, zone.slug, text)) return true;
   if (handleResetCommand(conn, chat, zone.slug, text, flags.resetBoulders, flags.resetHogs)) return true;
-  if (flags.ghost && handleGhostCommand(conn, zone.slug, text)) return true;
+  if (flags.ghost && handleGhostCommand(conn, text)) return true;
   return false;
 }
 
@@ -88,8 +90,9 @@ function handleSpawnCommand(conn: DbConnection, chat: ChatUI, zone: string, text
     return true;
   }
   audio.playCommand();
-  conn.reducers.spawn({ kind, count });
-  captureEvent("debug_entity_spawned", { zone, kind, count, source: "chat" });
+  void spawnDebugEntity(conn, kind, count, "chat").catch((err) => {
+    logError("Spawn action failed", { surface: "chat", action: "spawn", kind, count, error: err });
+  });
   logInfo("Debug entity spawn requested", { zone, kind, count, source: "chat" });
   return true;
 }
@@ -139,14 +142,16 @@ function handleResetCommand(
 
   if (target === "boulders" && bouldersEnabled) {
     audio.playCommand();
-    conn.reducers.resetBoulders({});
-    captureEvent("boulders_reset", { zone, source: "chat" });
+    void resetBoulders(conn, "chat").catch((err) => {
+      logError("Reset boulders action failed", { surface: "chat", action: "reset_boulders", error: err });
+    });
     return true;
   }
   if (target === "hogs" && hogsEnabled) {
     audio.playCommand();
-    conn.reducers.resetHogs({});
-    captureEvent("hedgehogs_reset", { zone, source: "chat" });
+    void resetHogs(conn, "chat").catch((err) => {
+      logError("Reset Hogs action failed", { surface: "chat", action: "reset_hogs", error: err });
+    });
     return true;
   }
 
@@ -159,9 +164,10 @@ function handleResetCommand(
  * Handle a chat line as the `/ghost` command: request a server-picked, zone-scoped
  * cosmetic haunt. Returns true if it was the command; anything else falls through to chat.
  */
-function handleGhostCommand(conn: DbConnection, zone: string, text: string): boolean {
+function handleGhostCommand(conn: DbConnection, text: string): boolean {
   if (!/^\/ghost\s*$/i.test(text)) return false;
-  conn.reducers.hauntGhost({});
-  captureEvent("ghost_summoned", { zone, source: "chat", count: 1 });
+  void hauntGhost(conn, 1, "chat").catch((err) => {
+    logError("Ghost action failed", { surface: "chat", action: "haunt_ghost", count: 1, error: err });
+  });
   return true;
 }

@@ -33,7 +33,7 @@ export function initAnalytics() {
     session_recording: {
       captureCanvas: {
         recordCanvas: true,
-        canvasFps: 12,
+        canvasFps: 15,
       },
     },
   });

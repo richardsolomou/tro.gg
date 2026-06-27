@@ -1,9 +1,9 @@
 // A minimal stand-in for `spacetimedb/server`, aliased in for tests via test/tsconfig.json.
 // The real server module only loads inside SpacetimeDB's host runtime (it won't import
 // under node), so this mock lets `spacetimedb/src/index.ts` *evaluate* — define its tables
-// and reducers — while the test supplies a fake `ctx` (test/spacetime.ts) at call time.
-// `spacetimedb.reducer(opts, fn)` returns a function that just invokes the handler, so a
-// reducer export is directly callable: `move(ctx, { dirX, dirY, running })`.
+// and reducers/procedures — while the test supplies a fake `ctx` (test/spacetime.ts) at
+// call time. `spacetimedb.reducer(opts, fn)` returns a function that just invokes the
+// handler, so a reducer export is directly callable: `move(ctx, { dirX, dirY, running })`.
 
 /** A chainable column builder. Only needs to not throw at definition time; the fake ctx
  *  owns the real table semantics, so the column metadata here is inert. */
@@ -28,6 +28,7 @@ export const t = {
   timestamp: col,
   scheduleAt: col,
   option: (_inner?: unknown) => col(),
+  unit: col,
 };
 
 export function table(_opts: unknown, cols?: unknown): any {
@@ -40,6 +41,7 @@ const callable = (fn: Handler) => (...args: any[]) => fn(...args);
 export function schema(_tables: unknown): any {
   return {
     reducer: (a: unknown, b?: Handler) => callable(typeof a === "function" ? (a as Handler) : (b as Handler)),
+    procedure: (_params: unknown, _ret: unknown, fn: Handler) => callable(fn),
     clientConnected: (fn: Handler) => callable(fn),
     clientDisconnected: (fn: Handler) => callable(fn),
     init: (fn: Handler) => callable(fn),

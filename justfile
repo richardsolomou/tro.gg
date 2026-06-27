@@ -52,16 +52,11 @@ build:
 # Type-check the client and the module.
 typecheck:
     pnpm typecheck
-    pnpm typecheck:sidecar
     pnpm typecheck:module
 
 # Run the shared pure-logic unit tests.
 test:
     pnpm test
-
-# Run the trusted PostHog sidecar for backend table telemetry and logs.
-sidecar:
-    pnpm sidecar
 
 # Regenerate the trogg + Hog avatar sprite sheet (assets/sprites/) from shared/sprites.ts.
 sprites:
