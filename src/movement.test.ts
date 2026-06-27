@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Coord, Facing, ProjectedMotion, ZoneBounds } from "@trogg/shared";
-import type { Player } from "./module_bindings/types";
-import type { Tracked } from "./entities.js";
+import type { Player } from "./net/module_bindings/types";
+import type { Tracked } from "./game/entities.js";
 import type { MoveIntent } from "./input.js";
 import { createSelfController, type SelfControllerDeps } from "./movement.js";
 

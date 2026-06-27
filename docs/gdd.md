@@ -103,8 +103,8 @@ Ambient **Hog** NPCs (the glossary's friendly hedgehogs) roam the zone on their 
 ### Camera and rendering
 
 - 3/4 top-down (RuneScape-2004 / Stardew view), pixel art tiles and sprites.
-- Rendered with **PixiJS** (WebGL/WebGPU canvas) on a Vite + TypeScript client, nearest-neighbour scaled for crisp pixels. The client subscribes to the zone's SpacetimeDB tables and draws them; all authority stays server-side (invariant 3).
-- Visible in-game HUD surfaces — chat history/input, account claim/rename controls, avatar colour swatches, and the help panel (a top-left "?" toggle listing the controls and chat commands a player can use) — render inside the PixiJS scene above the world so layout is owned by the game renderer on small screens. Browser-native text input is still used as an invisible bridge while typing, because mobile keyboards, paste, and IME composition are platform controls. The help panel lists only the controls and commands whose feature flags are enabled this session, so it never advertises a disabled key or command.
+- Rendered with **Phaser 4** (WebGL canvas) on a Vite + TypeScript client, nearest-neighbour scaled for crisp pixels (`pixelArt`). The client subscribes to the zone's SpacetimeDB tables and draws them; all authority stays server-side (invariant 3).
+- Visible in-game HUD surfaces — chat history/input, account claim/rename controls, avatar colour swatches, and the help panel (a top-left "?" toggle listing the controls and chat commands a player can use) — are HTML/CSS overlays above the Phaser canvas, so the browser owns layout, text input, focus, IME, and resize. They use `pointer-events` so a click on a panel is consumed by the DOM and a click on open space falls through to the canvas (click-to-move). World-space labels and speech bubbles over troggs stay in the Phaser scene. The help panel lists only the controls and commands whose feature flags are enabled this session, so it never advertises a disabled key or command.
 
 ### Audio
 
@@ -136,7 +136,7 @@ Ambient **Hog** NPCs (the glossary's friendly hedgehogs) roam the zone on their 
 ### Chat
 
 - Zone-scoped. Max 200 chars *(initial)*. Bubble displays 5s *(initial)*; side panel keeps recent history.
-- Chat bubbles, history, and the visible typing field render in the PixiJS scene. The field mirrors through the hidden native text-input bridge only while focused; chat content is never inserted as HTML.
+- Chat history and the typing field are HTML overlays (a real `<input>`); speech bubbles over troggs render in the Phaser scene. Chat content is added as a DOM text node, never as HTML markup, so a message can't inject markup.
 - Server-side rate limit: 1 message/sec per player *(initial)*.
 - Message content is **never** sent to analytics.
 - **`/ghost`:** flickers the cosmetic ghost trogg at a random tile in the zone (behind `ghost-trogg`, fallback on, so anyone can summon it). Purely a client render — touches no table or reducer (invariant 3), so only the caller sees it. Off → it's just an ordinary chat line. The same cosmetic also haunts the origin tile by chance on launch.
@@ -151,7 +151,7 @@ Ambient **Hog** NPCs (the glossary's friendly hedgehogs) roam the zone on their 
 - **Signing in** upgrades a guest to an account via **SpacetimeAuth** (SpacetimeDB's managed OIDC provider; Discord is the enabled login). SpacetimeDB derives a *stable* Identity from the OIDC token's `iss`+`sub`, so the account — not the browser — now anchors the synced state and the trogg resumes on any device. The browser runs the OIDC Authorization-Code-**+-PKCE** flow (a public client: no client secret in the bundle, invariant 8); the module trusts only the SpacetimeAuth issuer as an account provider (invariant 3). Account creation and the upgrade fire `player_named` alongside `posthog.identify()`, merging the guest's history.
 - **Claiming** (folding a guest's trogg into the account, since the two are different Identities): the guest's browser mints a one-time nonce, registers it under the guest Identity via `startClaim`, then signs in and redeems it as the account via `redeemClaim` — both sides proven, never a client-asserted identity (invariant 3). The guest's chosen name carries over (a generated `trogg-####` never overwrites a name the account already chose); the guest row is then absorbed. A fresh device with no guest just signs in and resumes the account directly. Nonces expire after `CLAIM_CODE_TTL_MS`.
 - **Changing your name:** the `rename` reducer swaps the generated `trogg-####` for a chosen one, validated server-side. Names: unique, 3–20 chars, alphanumeric + hyphen. The new name takes effect everywhere it's shown — the nameplate over the trogg and the denormalised `name` on the player's past `chat_message` rows are both rewritten, so nothing keeps showing the old name.
-- The account panel is a PixiJS HUD surface; its visible buttons, rename field, and colour swatches are engine-rendered. Sign-in still uses the browser redirect to SpacetimeAuth, and rename typing uses the hidden native text-input bridge.
+- The account panel is an HTML/CSS HUD overlay; its buttons, rename field (a real `<input>`), and colour swatches are DOM. Sign-in still uses the browser redirect to SpacetimeAuth.
 
 ### Skills and XP
 

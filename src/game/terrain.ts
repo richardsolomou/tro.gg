@@ -1,4 +1,4 @@
-import { Container, Graphics, Rectangle, Sprite, Texture, TilingSprite } from "pixi.js";
+import Phaser from "phaser";
 import { GLOWMOSS_TILE, GRAVEL_TILE, isWalkable, MOSS_TILE, WALL_TILE, WATER_TILE, type Zone } from "@trogg/shared";
 
 /**
@@ -30,47 +30,51 @@ const MOSS = { light: 0x4a6b3a, mid: 0x3b5630, dark: 0x263b21 };
 const WATER = { deep: 0x12303a, base: 0x1b424f, ripple: 0x2f6675, glint: 0x70502e };
 const GLOWMOSS = { core: 0x7ff0d8, mid: 0x3fb6a2, halo: 0x224f48 };
 
+const FLOOR_TEX = "terrain-floor";
+const VOID_TEX = "terrain-void";
+const VIGNETTE_TEX = "terrain-vignette";
+/** Each decorative glyph paints one patch texture, sampled per tile by sub-cell. */
+const DECAL_TEX: Record<string, string> = {
+  [GRAVEL_TILE]: "decal-gravel",
+  [MOSS_TILE]: "decal-moss",
+  [WATER_TILE]: "decal-water",
+  [GLOWMOSS_TILE]: "decal-glowmoss",
+};
+
 export interface Terrain {
   /** Full-viewport rock, drawn in screen space behind the zone. */
-  background: TilingSprite;
+  background: Phaser.GameObjects.TileSprite;
   /** Zone floor + wall frame, in zone space (lives in the translated stage). */
-  ground: Container;
+  ground: Phaser.GameObjects.Container;
   /** Full-viewport darkening overlay, drawn on top for atmosphere. */
-  vignette: Sprite;
+  vignette: Phaser.GameObjects.Image;
   /** Re-lay everything for a tile size and viewport. */
   layout(tile: number, viewW: number, viewH: number): void;
 }
 
-export function createTerrain(zone: Zone): Terrain {
-  const background = new TilingSprite({ texture: floorlessPatch(VOID.base, 0.1, VOID.specks), width: 1, height: 1 });
-  const floor = new TilingSprite({ texture: floorPatch(), width: 1, height: 1 });
-  // One patch texture per decorative glyph, generated once. Each tile samples a
-  // sub-cell of the patch keyed by its coords, so neighbouring tiles of the same
-  // material flow together instead of stamping an identical square (PATCH × PATCH
-  // distinct cells, the same repeat the floor uses).
-  const decorPatches = decalPatches();
-  const decals = new Container();
-  const walls = new Graphics();
-  const ground = new Container();
+export function createTerrain(scene: Phaser.Scene, zone: Zone): Terrain {
+  registerTerrainTextures(scene);
+
+  const background = scene.add.tileSprite(0, 0, 1, 1, VOID_TEX).setOrigin(0, 0);
+  const floor = scene.add.tileSprite(0, 0, 1, 1, FLOOR_TEX).setOrigin(0, 0);
+  const decals = scene.add.container();
+  const walls = scene.add.graphics();
   // Decals sit above the floor and below the walls; they only ever cover walkable
   // tiles, so they never overlap the wall faces drawn from `#`.
-  ground.addChild(floor, decals, walls);
-  const vignette = new Sprite(vignetteTexture());
+  const ground = scene.add.container(0, 0, [floor, decals, walls]);
+  const vignette = scene.add.image(0, 0, VIGNETTE_TEX).setOrigin(0, 0);
 
   const layout = (tile: number, viewW: number, viewH: number) => {
     const scale = tile / ART;
-    background.width = viewW;
-    background.height = viewH;
-    background.tileScale.set(scale);
+    background.setSize(viewW, viewH);
+    background.setTileScale(scale);
 
-    floor.width = zone.width * tile;
-    floor.height = zone.height * tile;
-    floor.tileScale.set(scale);
+    floor.setSize(zone.width * tile, zone.height * tile);
+    floor.setTileScale(scale);
     drawWalls(walls, zone, tile);
-    drawDecals(decals, decorPatches, zone, tile);
+    drawDecals(scene, decals, zone, tile);
 
-    vignette.width = viewW;
-    vignette.height = viewH;
+    vignette.setDisplaySize(viewW, viewH);
   };
 
   return { background, ground, vignette, layout };
@@ -82,14 +86,15 @@ export function createTerrain(zone: Zone): Terrain {
  * below it (visible to the 3/4 camera) gets a lit lower edge; one with floor
  * above gets a dark top edge — cheap depth without a spritesheet.
  */
-function drawWalls(g: Graphics, zone: Zone, tile: number) {
+function drawWalls(g: Phaser.GameObjects.Graphics, zone: Zone, tile: number) {
   const px = Math.max(1, Math.round(tile / ART));
   g.clear();
 
+  g.fillStyle(WALL.face, 1);
   for (let ty = 0; ty < zone.height; ty++) {
     for (let tx = 0; tx < zone.width; tx++) {
       if (isWalkable(zone, tx, ty)) continue;
-      g.rect(tx * tile, ty * tile, tile, tile).fill(WALL.face);
+      g.fillRect(tx * tile, ty * tile, tile, tile);
     }
   }
   // Bevels in a second pass so highlights sit on top of neighbouring wall faces.
@@ -98,52 +103,74 @@ function drawWalls(g: Graphics, zone: Zone, tile: number) {
       if (isWalkable(zone, tx, ty)) continue;
       const x = tx * tile;
       const y = ty * tile;
-      if (isWalkable(zone, tx, ty + 1)) g.rect(x, y + tile - px * 2, tile, px * 2).fill(WALL.top);
-      if (isWalkable(zone, tx, ty - 1)) g.rect(x, y, tile, px).fill(WALL.edge);
+      if (isWalkable(zone, tx, ty + 1)) g.fillStyle(WALL.top, 1).fillRect(x, y + tile - px * 2, tile, px * 2);
+      if (isWalkable(zone, tx, ty - 1)) g.fillStyle(WALL.edge, 1).fillRect(x, y, tile, px);
     }
   }
 }
 
 /**
- * Lay a tile-sized sprite over every decorated floor tile, reading the same
+ * Lay a tile-sized image over every decorated floor tile, reading the same
  * tilemap movement collides against. Each glyph picks its prebuilt patch; the
  * tile shows the patch sub-cell at its (x, y) so adjacent same-material tiles
- * (a gravel field, a water pool) flow together. Sprites are rebuilt per layout
+ * (a gravel field, a water pool) flow together. Images are rebuilt per layout
  * because they bake the tile size; old ones are destroyed to avoid leaks.
  */
-function drawDecals(layer: Container, patches: Map<string, Texture>, zone: Zone, tile: number) {
-  layer.removeChildren().forEach((child) => child.destroy());
+function drawDecals(scene: Phaser.Scene, layer: Phaser.GameObjects.Container, zone: Zone, tile: number) {
+  layer.removeAll(true);
   for (let ty = 0; ty < zone.height; ty++) {
     const row = zone.tiles[ty]!;
     for (let tx = 0; tx < row.length; tx++) {
-      const patch = patches.get(row[tx]!);
-      if (!patch) continue; // plain floor or wall — nothing to overlay
-      const frame = new Rectangle((tx % PATCH) * ART, (ty % PATCH) * ART, ART, ART);
-      const sprite = new Sprite(new Texture({ source: patch.source, frame }));
-      sprite.x = tx * tile;
-      sprite.y = ty * tile;
-      sprite.width = tile;
-      sprite.height = tile;
-      layer.addChild(sprite);
+      const key = DECAL_TEX[row[tx]!];
+      if (!key) continue; // plain floor or wall — nothing to overlay
+      const cell = `${tx % PATCH}-${ty % PATCH}`;
+      const image = scene.add.image(tx * tile, ty * tile, key, cell).setOrigin(0, 0);
+      image.setDisplaySize(tile, tile);
+      layer.add(image);
     }
   }
 }
 
-/** Prebuilt overlay patch per decorative glyph (built once, sampled per tile). */
-function decalPatches(): Map<string, Texture> {
-  return new Map([
-    [GRAVEL_TILE, gravelPatch()],
-    [MOSS_TILE, mossPatch()],
-    [WATER_TILE, waterPatch()],
-    [GLOWMOSS_TILE, glowmossPatch()],
-  ]);
+/** Register every terrain texture once. Patch textures get PATCH×PATCH sub-frames
+ *  so a tile can sample the sub-cell matching its coords. Idempotent, so the scene
+ *  can call it in `preload` and `createTerrain` re-call is a no-op. */
+export function registerTerrainTextures(scene: Phaser.Scene): void {
+  addCanvas(scene, FLOOR_TEX, floorPatch());
+  addCanvas(scene, VOID_TEX, floorlessPatch(VOID.base, 0.1, VOID.specks));
+
+  for (const [glyph, key] of Object.entries(DECAL_TEX)) {
+    const tex = addCanvas(scene, key, decalPatch(glyph));
+    if (!tex) continue;
+    for (let cy = 0; cy < PATCH; cy++) {
+      for (let cx = 0; cx < PATCH; cx++) tex.add(`${cx}-${cy}`, 0, cx * ART, cy * ART, ART, ART);
+    }
+  }
+
+  // The vignette is a smooth radial gradient, not a tile — keep it linear-filtered
+  // so it doesn't show nearest-neighbour banding under the pixel-art default.
+  const vignette = addCanvas(scene, VIGNETTE_TEX, vignetteCanvas());
+  if (vignette) vignette.setFilter(Phaser.Textures.FilterMode.LINEAR);
+}
+
+/** Register a painted canvas as a texture, returning it (null if already present). */
+function addCanvas(scene: Phaser.Scene, key: string, canvas: HTMLCanvasElement) {
+  if (scene.textures.exists(key)) return null;
+  return scene.textures.addCanvas(key, canvas);
+}
+
+/** Which painter builds a given decorative glyph's patch. */
+function decalPatch(glyph: string): HTMLCanvasElement {
+  if (glyph === GRAVEL_TILE) return gravelPatch();
+  if (glyph === MOSS_TILE) return mossPatch();
+  if (glyph === WATER_TILE) return waterPatch();
+  return glowmossPatch();
 }
 
 /** Gravel scree: a scatter of light/dark stone chips over the floor. */
-function gravelPatch(): Texture {
+function gravelPatch(): HTMLCanvasElement {
   const size = ART * PATCH;
   const rand = rng(0x9e3a11);
-  return pixelTexture(size, size, (set) => {
+  return pixelCanvas(size, size, (set) => {
     for (let i = 0; i < size * size * 0.22; i++) {
       const x = Math.floor(rand() * size);
       const y = Math.floor(rand() * size);
@@ -156,10 +183,10 @@ function gravelPatch(): Texture {
 }
 
 /** Moss: soft clumps of damp green with darker flecks, leaving stone gaps. */
-function mossPatch(): Texture {
+function mossPatch(): HTMLCanvasElement {
   const size = ART * PATCH;
   const rand = rng(0x2c7b3f);
-  return pixelTexture(size, size, (set) => {
+  return pixelCanvas(size, size, (set) => {
     for (let k = 0; k < 26; k++) {
       const cx = Math.floor(rand() * size);
       const cy = Math.floor(rand() * size);
@@ -178,10 +205,10 @@ function mossPatch(): Texture {
 }
 
 /** Shallow water: a near-opaque pool with darker depths and lit ripples. */
-function waterPatch(): Texture {
+function waterPatch(): HTMLCanvasElement {
   const size = ART * PATCH;
   const rand = rng(0x1f6fae);
-  return pixelTexture(size, size, (set) => {
+  return pixelCanvas(size, size, (set) => {
     for (let y = 0; y < size; y++) {
       for (let x = 0; x < size; x++) {
         const col = rand() < 0.3 ? WATER.deep : WATER.base;
@@ -199,10 +226,10 @@ function waterPatch(): Texture {
 }
 
 /** Glowmoss: sparse bioluminescent specks with a dim halo, mostly transparent. */
-function glowmossPatch(): Texture {
+function glowmossPatch(): HTMLCanvasElement {
   const size = ART * PATCH;
   const rand = rng(0x33d6c0);
-  return pixelTexture(size, size, (set) => {
+  return pixelCanvas(size, size, (set) => {
     for (let k = 0; k < 22; k++) {
       const x = Math.floor(rand() * size);
       const y = Math.floor(rand() * size);
@@ -216,15 +243,15 @@ function glowmossPatch(): Texture {
 }
 
 /**
- * Build a tiling texture by painting individual art pixels into a canvas. The
- * painter's `set` takes an optional alpha (0–255, default opaque) so decorative
- * overlays can leave gaps that show the stone floor beneath.
+ * Build a tiling canvas by painting individual art pixels. The painter's `set`
+ * takes an optional alpha (0–255, default opaque) so decorative overlays can
+ * leave gaps that show the stone floor beneath.
  */
-function pixelTexture(
+function pixelCanvas(
   w: number,
   h: number,
   paint: (set: (x: number, y: number, color: number, alpha?: number) => void) => void,
-): Texture {
+): HTMLCanvasElement {
   const canvas = document.createElement("canvas");
   canvas.width = w;
   canvas.height = h;
@@ -241,16 +268,14 @@ function pixelTexture(
   };
   paint(set);
   ctx.putImageData(img, 0, 0);
-  const tex = Texture.from(canvas);
-  tex.source.scaleMode = "nearest";
-  return tex;
+  return canvas;
 }
 
 /** Cave floor: mottled stone, tile seams, a few cracks and pebbles. Deterministic. */
-function floorPatch(): Texture {
+function floorPatch(): HTMLCanvasElement {
   const size = ART * PATCH;
   const rand = rng(0xc0ffee);
-  return pixelTexture(size, size, (set) => {
+  return pixelCanvas(size, size, (set) => {
     for (let y = 0; y < size; y += 2) {
       for (let x = 0; x < size; x += 2) {
         const r = rand();
@@ -288,10 +313,10 @@ function floorPatch(): Texture {
 }
 
 /** Flat rock fill with sparse darker specks — the void beyond the zone. */
-function floorlessPatch(base: number, speckChance: number, specks: readonly number[]): Texture {
+function floorlessPatch(base: number, speckChance: number, specks: readonly number[]): HTMLCanvasElement {
   const size = ART * PATCH;
   const rand = rng(0xbadbad);
-  return pixelTexture(size, size, (set) => {
+  return pixelCanvas(size, size, (set) => {
     for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) set(x, y, base);
     for (let y = 0; y < size; y += 2) {
       for (let x = 0; x < size; x += 2) {
@@ -307,7 +332,7 @@ function floorlessPatch(base: number, speckChance: number, specks: readonly numb
 }
 
 /** Radial darkening, smooth (not pixelated) — a lighting overlay, not a tile. */
-function vignetteTexture(): Texture {
+function vignetteCanvas(): HTMLCanvasElement {
   const canvas = document.createElement("canvas");
   canvas.width = 256;
   canvas.height = 256;
@@ -317,7 +342,7 @@ function vignetteTexture(): Texture {
   grad.addColorStop(1, "rgba(0,0,0,0.55)");
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, 256, 256);
-  return Texture.from(canvas);
+  return canvas;
 }
 
 /** mulberry32 — small deterministic PRNG so terrain looks identical everywhere. */

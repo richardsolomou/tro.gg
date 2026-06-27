@@ -1,7 +1,7 @@
 import type { Identity } from "spacetimedb";
 import { DbConnection } from "./module_bindings";
-import { SPACETIMEDB_DB_NAME, SPACETIMEDB_HOST } from "./env.js";
-import { getStoredToken, storeToken } from "./identity.js";
+import { SPACETIMEDB_DB_NAME, SPACETIMEDB_HOST } from "../env.js";
+import { getStoredToken, storeToken } from "../identity.js";
 
 /**
  * Connects to the SpacetimeDB module (GDD "Identity"). With no `accountToken`, we

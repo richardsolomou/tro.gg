@@ -1,8 +1,8 @@
 import type { Coord, Zone } from "@trogg/shared";
-import type { DbConnection } from "./module_bindings";
+import type { DbConnection } from "../net/module_bindings";
 import type { ChatUI } from "./chat.js";
-import { captureEvent } from "./analytics.js";
-import { audio } from "./audio.js";
+import { captureEvent } from "../analytics.js";
+import { audio } from "../audio.js";
 
 /** Which slash commands are live (each behind its own feature flag, resolved by the caller). */
 export interface ChatCommandFlags {
@@ -18,7 +18,7 @@ export interface ChatCommandContext {
   zone: Zone;
   flags: ChatCommandFlags;
   /** Flicker the cosmetic ghost at a tile — the one rendering effect a command needs,
-   *  injected so this module stays pure dispatch (no PixiJS). */
+   *  injected so this module stays pure dispatch (no renderer). */
   onGhost: (tile: Coord) => void;
 }
 
