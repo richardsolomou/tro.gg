@@ -1237,7 +1237,7 @@ function runDropItem(ctx: Ctx, { inventoryId, source = "" }: { inventoryId: bigi
   if (removed.removedLastUnit && p.equippedMainHandInventoryId === inventoryId) {
     ctx.db.player.identity.update({ ...p, equippedMainHand: "", equippedMainHandInventoryId: 0n });
   }
-  ctx.db.groundItem.insert({ id: 0n, zoneId: p.zoneId, item: removed.item, x: tile.x, y: tile.y });
+  ctx.db.groundItem.insert({ id: 0n, zoneId: p.zoneId, item: removed.item, x: tile.x, y: tile.y, qty: 1 });
   return [{ distinctId: distinctId(ctx), event: "inventory_item_dropped", properties: { zone: p.zoneId, item: removed.item, ...sourceProp(source) } }];
 }
 
