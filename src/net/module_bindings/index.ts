@@ -53,6 +53,17 @@ import StartClaimReducer from "./start_claim_reducer";
 import UseEquippedReducer from "./use_equipped_reducer";
 
 // Import all procedure arg schemas
+import * as ChatActionProcedure from "./chat_action_procedure";
+import * as EquipItemActionProcedure from "./equip_item_action_procedure";
+import * as HauntGhostActionProcedure from "./haunt_ghost_action_procedure";
+import * as InteractActionProcedure from "./interact_action_procedure";
+import * as RecolorActionProcedure from "./recolor_action_procedure";
+import * as RenameActionProcedure from "./rename_action_procedure";
+import * as ResetBouldersActionProcedure from "./reset_boulders_action_procedure";
+import * as ResetHogsActionProcedure from "./reset_hogs_action_procedure";
+import * as RestyleActionProcedure from "./restyle_action_procedure";
+import * as SpawnActionProcedure from "./spawn_action_procedure";
+import * as UseEquippedActionProcedure from "./use_equipped_action_procedure";
 
 // Import all table schema definitions
 import BoulderRow from "./boulder_table";
@@ -190,6 +201,17 @@ const reducersSchema = __reducers(
 
 /** The schema information for all procedures in this module. This is defined the same way as the procedures would have been defined in the server. */
 const proceduresSchema = __procedures(
+  __procedureSchema("chat_action", ChatActionProcedure.params, ChatActionProcedure.returnType),
+  __procedureSchema("equip_item_action", EquipItemActionProcedure.params, EquipItemActionProcedure.returnType),
+  __procedureSchema("haunt_ghost_action", HauntGhostActionProcedure.params, HauntGhostActionProcedure.returnType),
+  __procedureSchema("interact_action", InteractActionProcedure.params, InteractActionProcedure.returnType),
+  __procedureSchema("recolor_action", RecolorActionProcedure.params, RecolorActionProcedure.returnType),
+  __procedureSchema("rename_action", RenameActionProcedure.params, RenameActionProcedure.returnType),
+  __procedureSchema("reset_boulders_action", ResetBouldersActionProcedure.params, ResetBouldersActionProcedure.returnType),
+  __procedureSchema("reset_hogs_action", ResetHogsActionProcedure.params, ResetHogsActionProcedure.returnType),
+  __procedureSchema("restyle_action", RestyleActionProcedure.params, RestyleActionProcedure.returnType),
+  __procedureSchema("spawn_action", SpawnActionProcedure.params, SpawnActionProcedure.returnType),
+  __procedureSchema("use_equipped_action", UseEquippedActionProcedure.params, UseEquippedActionProcedure.returnType),
 );
 
 /** The remote SpacetimeDB module schema, both runtime and type information. */

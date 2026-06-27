@@ -1,4 +1,4 @@
-import { schema, table, t, type InferSchema, type ReducerCtx } from "spacetimedb/server";
+import { schema, table, t, type InferSchema, type ProcedureCtx, type ReducerCtx } from "spacetimedb/server";
 import { ScheduleAt, Timestamp } from "spacetimedb";
 import {
   CHAT_HISTORY_MAX,
@@ -39,6 +39,7 @@ import {
   STARTING_ZONE_SLUG,
   type Stamp,
   tileKey,
+  TROGG_STYLES,
   walkableCardinals,
   type Zone,
   type ZoneBounds,
@@ -47,11 +48,12 @@ import {
 
 /**
  * The tro.gg backend (GDD "Data model"): durable tables that clients subscribe to
- * directly, mutated only by reducers. Identity is the connection's own
- * cryptographic `ctx.sender` (invariant 3: never client-asserted). There is no simulation tick
- * (invariant 1): state changes only inside a reducer, on player input or a
- * lifecycle event; position between inputs is derived with `projectMotion`, never
- * advanced on a timer.
+ * directly, mutated only by trusted module entrypoints: reducers, or procedures
+ * that open a SpacetimeDB transaction before external telemetry. Identity is the
+ * connection's own cryptographic `ctx.sender` (invariant 3: never client-asserted).
+ * There is no simulation tick (invariant 1): state changes only inside a reducer,
+ * a procedure transaction, or a lifecycle event; position between inputs is derived
+ * with `projectMotion`, never advanced on a timer.
  */
 
 /**
@@ -301,8 +303,50 @@ export default spacetimedb;
 
 /** The reducer context, typed against this module's schema (db view + sender). */
 type Ctx = ReducerCtx<InferSchema<typeof spacetimedb>>;
+type ProcCtx = ProcedureCtx<InferSchema<typeof spacetimedb>>;
+type AnalyticsEvent = { distinctId: string; event: string; properties?: Record<string, string | number | boolean> };
+
+const POSTHOG_CAPTURE_URL = "https://us.i.posthog.com/capture/";
 
 export const init = spacetimedb.init(() => {});
+
+function captureProcedureEvents(ctx: ProcCtx, posthogKey: string, events: AnalyticsEvent | AnalyticsEvent[] | undefined): void {
+  const key = posthogKey.trim();
+  if (!key) return;
+  const batch = Array.isArray(events) ? events : events ? [events] : [];
+  for (const item of batch) {
+    try {
+      ctx.http.fetch(POSTHOG_CAPTURE_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          api_key: key,
+          event: item.event,
+          distinct_id: item.distinctId,
+          properties: {
+            ...item.properties,
+            source: item.properties?.source ?? "spacetimedb-procedure",
+          },
+        }),
+      });
+    } catch {
+      // Telemetry is best-effort and must never roll back an accepted gameplay action.
+    }
+  }
+}
+
+function sourceProp(source: string): { source?: string } {
+  const trimmed = source.trim();
+  return trimmed ? { source: trimmed.slice(0, 64) } : {};
+}
+
+function distinctId(ctx: Ctx): string {
+  return ctx.sender.toHexString();
+}
+
+function unit(): {} {
+  return {};
+}
 
 /**
  * A client connected. Resume the existing trogg (mark it online) or spawn a fresh
@@ -574,41 +618,63 @@ export const push = spacetimedb.reducer((ctx) => {
  * preferring the faced tile when there are multiple candidates, so the client can't
  * reach past its neighbours (invariant 3).
  */
-export const interact = spacetimedb.reducer({ dirX: t.i32(), dirY: t.i32() }, (ctx, { dirX, dirY }) => {
+function runInteract(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; dirY: number; source?: string }): AnalyticsEvent[] {
   const p = ctx.db.player.identity.find(ctx.sender);
-  if (!p) return;
+  if (!p) return [];
   const zone = getZone(p.zoneId);
-  if (!zone) return;
+  if (!zone) return [];
 
   const dir = cardinal(dirX, dirY);
   const pos = settle(ctx, p, ctx.timestamp);
+  const props = { zone: p.zoneId, ...sourceProp(source) };
 
   if (p.carrying !== "") {
     // Put down: place the held entity on the faced tile, or the nearest free
     // neighbour (spawnTile). A boxed-in trogg can't drop, so it keeps carrying.
+    const kind = p.carrying;
     const occupied = solidTiles(ctx, p.zoneId, ctx.timestamp, p.identity);
     const place = placeCarried(ctx, zone, p.carrying, p.carryingStyle, occupied, pos.x, pos.y, dir?.dirX ?? 0, dir?.dirY ?? 0);
     if (place) ctx.db.player.identity.update({ ...p, carrying: "", carryingStyle: "" });
-    return;
+    if (!place) return [];
+    const properties: Record<string, string | number | boolean> = { ...props, kind };
+    if (kind === "hog" && p.carryingStyle !== "") properties.style = p.carryingStyle;
+    return [{ distinctId: distinctId(ctx), event: "object_dropped", properties }];
   }
 
   const target = pickupTarget(ctx, p.zoneId, Math.round(pos.x), Math.round(pos.y), dir, ctx.timestamp);
   if (target?.kind === "item") {
-    if (!isItemId(target.row.item)) return;
-    if (addInventory(ctx, p.identity, target.row.item, 1)) ctx.db.groundItem.id.delete(target.row.id);
-    return;
+    if (!isItemId(target.row.item)) return [];
+    if (!addInventory(ctx, p.identity, target.row.item, 1)) return [];
+    ctx.db.groundItem.id.delete(target.row.id);
+    return [{ distinctId: distinctId(ctx), event: "inventory_item_acquired", properties: { ...props, item: target.row.item, qty: 1 } }];
   }
   if (target?.kind === "boulder") {
     ctx.db.boulder.id.delete(target.row.id);
     ctx.db.player.identity.update({ ...p, carrying: "boulder", carryingStyle: "" });
-    return;
+    return [{ distinctId: distinctId(ctx), event: "object_picked_up", properties: { ...props, kind: "boulder" } }];
   }
   if (target?.kind === "hog") {
     const carryingStyle = effectiveHogStyle(target.row);
     ctx.db.hog.id.delete(target.row.id);
     ctx.db.player.identity.update({ ...p, carrying: "hog", carryingStyle });
+    return [{ distinctId: distinctId(ctx), event: "object_picked_up", properties: { ...props, kind: "hog", style: carryingStyle } }];
   }
+  return [];
+}
+
+export const interact = spacetimedb.reducer({ dirX: t.i32(), dirY: t.i32() }, (ctx, args) => {
+  runInteract(ctx, args);
 });
+
+export const interactAction = spacetimedb.procedure(
+  { dirX: t.i32(), dirY: t.i32(), posthogKey: t.string(), source: t.string() },
+  t.unit(),
+  (ctx, args) => {
+    const events = ctx.withTx((tx) => runInteract(tx, args));
+    captureProcedureEvents(ctx, args.posthogKey, events);
+    return unit();
+  },
+);
 
 /**
  * The Hog wander tick (GDD "Hogs"), fired once per tile-crossing. Settle each Hog to
@@ -710,15 +776,16 @@ export const wanderHogs = spacetimedb.reducer({ timer: hogWander.rowType }, (ctx
  * flood it (the client flag only gates the UI). An unknown kind/item, a full zone,
  * or a boxed-in trogg is a silent no-op.
  */
-export const spawn = spacetimedb.reducer({ kind: t.string(), item: t.string() }, (ctx, { kind, item }) => {
-  if (kind !== "boulder" && kind !== "hog" && kind !== "item") return;
-  if (kind === "item" && !isSpawnableItemId(item)) return;
-  if (kind === "hog" && item !== "" && !isHogStyle(item)) return;
+function runSpawn(ctx: Ctx, { kind, item = "", source = "" }: { kind: string; item?: string; source?: string }): AnalyticsEvent[] {
+  if (kind !== "boulder" && kind !== "hog" && kind !== "item") return [];
+  if (kind === "boulder" && item !== "") return [];
+  if (kind === "item" && !isSpawnableItemId(item)) return [];
+  if (kind === "hog" && item !== "" && !isHogStyle(item)) return [];
 
   const p = ctx.db.player.identity.find(ctx.sender);
-  if (!p) return;
+  if (!p) return [];
   const zone = getZone(p.zoneId);
-  if (!zone) return;
+  if (!zone) return [];
 
   const existing =
     kind === "boulder"
@@ -727,7 +794,7 @@ export const spawn = spacetimedb.reducer({ kind: t.string(), item: t.string() },
         ? countRows(ctx.db.hog.zoneId.filter(p.zoneId))
         : countRows(ctx.db.groundItem.zoneId.filter(p.zoneId));
   const cap = kind === "boulder" ? MAX_BOULDERS_PER_ZONE : kind === "hog" ? MAX_HOGS_PER_ZONE : MAX_GROUND_ITEMS_PER_ZONE;
-  if (existing >= cap) return;
+  if (existing >= cap) return [];
 
   // Drop entities on free floor — never inside a wall or on top of anything solid
   // (a boulder, a Hog, or another trogg) or another pickup item.
@@ -736,7 +803,7 @@ export const spawn = spacetimedb.reducer({ kind: t.string(), item: t.string() },
   const pos = settle(ctx, p, ctx.timestamp);
   const face = facingDir(p);
   const tile = spawnTile(zone, (x, y) => occupied.has(tileKey(x, y)), pos.x, pos.y, face.dirX, face.dirY);
-  if (!tile) return;
+  if (!tile) return [];
 
   if (kind === "boulder") {
     ctx.db.boulder.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y });
@@ -747,7 +814,26 @@ export const spawn = spacetimedb.reducer({ kind: t.string(), item: t.string() },
   } else {
     ctx.db.groundItem.insert({ id: 0n, zoneId: p.zoneId, item, x: tile.x, y: tile.y });
   }
+
+  const properties: Record<string, string | number | boolean> = { zone: p.zoneId, kind, count: 1, ...sourceProp(source) };
+  if (kind === "item") properties.item = item;
+  if (kind === "hog" && item !== "") properties.style = item;
+  return [{ distinctId: distinctId(ctx), event: "debug_entity_spawned", properties }];
+}
+
+export const spawn = spacetimedb.reducer({ kind: t.string(), item: t.string() }, (ctx, args) => {
+  runSpawn(ctx, args);
 });
+
+export const spawnAction = spacetimedb.procedure(
+  { kind: t.string(), item: t.string(), posthogKey: t.string(), source: t.string() },
+  t.unit(),
+  (ctx, args) => {
+    const events = ctx.withTx((tx) => runSpawn(tx, args));
+    captureProcedureEvents(ctx, args.posthogKey, events);
+    return unit();
+  },
+);
 
 /**
  * Reset the caller's zone boulders to their `ZONES` registry positions (GDD
@@ -756,14 +842,29 @@ export const spawn = spacetimedb.reducer({ kind: t.string(), item: t.string() },
  * panel; open like every reducer, with the optional `boulder-reset` flag gating the
  * client control.
  */
-export const resetBoulders = spacetimedb.reducer((ctx) => {
+function runResetBoulders(ctx: Ctx, source = ""): AnalyticsEvent[] {
   const p = ctx.db.player.identity.find(ctx.sender);
-  if (!p) return;
+  if (!p) return [];
   const zone = getZone(p.zoneId);
-  if (!zone) return;
+  if (!zone) return [];
   for (const b of [...ctx.db.boulder.zoneId.filter(zone.slug)]) ctx.db.boulder.id.delete(b.id);
   seedBoulders(ctx, zone);
+  return [{ distinctId: distinctId(ctx), event: "boulders_reset", properties: { zone: zone.slug, ...sourceProp(source) } }];
+}
+
+export const resetBoulders = spacetimedb.reducer((ctx) => {
+  runResetBoulders(ctx);
 });
+
+export const resetBouldersAction = spacetimedb.procedure(
+  { posthogKey: t.string(), source: t.string() },
+  t.unit(),
+  (ctx, args) => {
+    const events = ctx.withTx((tx) => runResetBoulders(tx, args.source));
+    captureProcedureEvents(ctx, args.posthogKey, events);
+    return unit();
+  },
+);
 
 /**
  * Reset the caller's zone Hogs to their `ZONES` registry population (GDD "Hogs").
@@ -774,28 +875,43 @@ export const resetBoulders = spacetimedb.reducer((ctx) => {
  * put-down (GDD "Interacting"). Fired by the Commands panel; open like every reducer,
  * with the optional `hog-reset` flag gating the client control.
  */
-export const resetHogs = spacetimedb.reducer((ctx) => {
+function runResetHogs(ctx: Ctx, source = ""): AnalyticsEvent[] {
   const p = ctx.db.player.identity.find(ctx.sender);
-  if (!p) return;
+  if (!p) return [];
   const zone = getZone(p.zoneId);
-  if (!zone) return;
+  if (!zone) return [];
   for (const h of [...ctx.db.hog.zoneId.filter(zone.slug)]) ctx.db.hog.id.delete(h.id);
   seedHogs(ctx, zone);
+  return [{ distinctId: distinctId(ctx), event: "hedgehogs_reset", properties: { zone: zone.slug, ...sourceProp(source) } }];
+}
+
+export const resetHogs = spacetimedb.reducer((ctx) => {
+  runResetHogs(ctx);
 });
+
+export const resetHogsAction = spacetimedb.procedure(
+  { posthogKey: t.string(), source: t.string() },
+  t.unit(),
+  (ctx, args) => {
+    const events = ctx.withTx((tx) => runResetHogs(tx, args.source));
+    captureProcedureEvents(ctx, args.posthogKey, events);
+    return unit();
+  },
+);
 
 /**
  * A zone-scoped chat line. Validate length, enforce the per-player rate limit
  * (invariant 3 — never trust the client), append the row, and trim the zone's
  * history to its cap.
  */
-export const chat = spacetimedb.reducer({ text: t.string() }, (ctx, { text }) => {
+function runChat(ctx: Ctx, { text, source = "" }: { text: string; source?: string }): AnalyticsEvent[] {
   const p = ctx.db.player.identity.find(ctx.sender);
-  if (!p) return;
+  if (!p) return [];
 
   const trimmed = text.trim().slice(0, CHAT_MAX_CHARS);
-  if (!trimmed) return;
+  if (!trimmed) return [];
 
-  if (p.lastChatAt && elapsedMs(p.lastChatAt, ctx.timestamp) < CHAT_RATE_LIMIT_MS) return;
+  if (p.lastChatAt && elapsedMs(p.lastChatAt, ctx.timestamp) < CHAT_RATE_LIMIT_MS) return [];
   ctx.db.player.identity.update({ ...p, lastChatAt: ctx.timestamp });
 
   ctx.db.chatMessage.insert({
@@ -817,25 +933,69 @@ export const chat = spacetimedb.reducer({ text: t.string() }, (ctx, { text }) =>
     if (oldest === undefined || line.id < oldest) oldest = line.id;
   }
   if (count > CHAT_HISTORY_MAX && oldest !== undefined) ctx.db.chatMessage.id.delete(oldest);
+  return [{ distinctId: distinctId(ctx), event: "chat_sent", properties: { zone: p.zoneId, ...sourceProp(source) } }];
+}
+
+export const chat = spacetimedb.reducer({ text: t.string() }, (ctx, args) => {
+  runChat(ctx, args);
 });
+
+export const chatAction = spacetimedb.procedure(
+  { text: t.string(), posthogKey: t.string(), source: t.string() },
+  t.unit(),
+  (ctx, args) => {
+    const events = ctx.withTx((tx) => runChat(tx, args));
+    captureProcedureEvents(ctx, args.posthogKey, events);
+    return unit();
+  },
+);
 
 /**
  * Flicker a cosmetic ghost in the caller's zone. The server chooses a random walkable
  * tile and inserts a zone-scoped event row so every live subscriber in the map sees
  * the same haunt. It has no collision or durable gameplay effect.
  */
-export const hauntGhost = spacetimedb.reducer((ctx) => {
+function runHauntGhostOnce(ctx: Ctx): string | undefined {
   const p = ctx.db.player.identity.find(ctx.sender);
-  if (!p || !p.online) return;
+  if (!p || !p.online) return undefined;
   const zone = getZone(p.zoneId);
-  if (!zone) return;
+  if (!zone) return undefined;
 
   const tile = randomWalkableTile(ctx, zone);
-  if (!tile) return;
+  if (!tile) return undefined;
 
   ctx.db.ghostHaunt.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y, createdAt: ctx.timestamp });
   trimGhostHaunts(ctx, p.zoneId);
+  return p.zoneId;
+}
+
+function runHauntGhost(ctx: Ctx, { count = 1, source = "" }: { count?: number; source?: string } = {}): AnalyticsEvent[] {
+  const wanted = Number.isSafeInteger(count) ? Math.max(1, Math.min(12, Math.floor(count))) : 1;
+  let zone: string | undefined;
+  let inserted = 0;
+  for (let i = 0; i < wanted; i++) {
+    const nextZone = runHauntGhostOnce(ctx);
+    if (!nextZone) continue;
+    zone = nextZone;
+    inserted++;
+  }
+  if (!zone || inserted === 0) return [];
+  return [{ distinctId: distinctId(ctx), event: "ghost_summoned", properties: { zone, count: inserted, ...sourceProp(source) } }];
+}
+
+export const hauntGhost = spacetimedb.reducer((ctx) => {
+  runHauntGhost(ctx);
 });
+
+export const hauntGhostAction = spacetimedb.procedure(
+  { count: t.i32(), posthogKey: t.string(), source: t.string() },
+  t.unit(),
+  (ctx, args) => {
+    const events = ctx.withTx((tx) => runHauntGhost(tx, args));
+    captureProcedureEvents(ctx, args.posthogKey, events);
+    return unit();
+  },
+);
 
 /**
  * Rename the caller's trogg (GDD "Identity": names are unique, 3–20 chars,
@@ -846,18 +1006,33 @@ export const hauntGhost = spacetimedb.reducer((ctx) => {
  * the player's past chat lines is rewritten too, so history shows their current
  * name rather than whatever they were called when each line was sent.
  */
-export const rename = spacetimedb.reducer({ name: t.string() }, (ctx, { name }) => {
+function runRename(ctx: Ctx, { name, source = "" }: { name: string; source?: string }): AnalyticsEvent[] {
   const p = ctx.db.player.identity.find(ctx.sender);
-  if (!p) return;
+  if (!p) return [];
 
   const trimmed = name.trim();
-  if (trimmed === p.name || !isValidName(trimmed) || nameTaken(ctx, trimmed, ctx.sender)) return;
+  if (trimmed === p.name || !isValidName(trimmed) || nameTaken(ctx, trimmed, ctx.sender)) return [];
 
   ctx.db.player.identity.update({ ...p, name: trimmed });
   for (const line of ctx.db.chatMessage.iter()) {
     if (line.sender.isEqual(ctx.sender)) ctx.db.chatMessage.id.update({ ...line, name: trimmed });
   }
+  return [{ distinctId: distinctId(ctx), event: "trogg_renamed", properties: { zone: p.zoneId, ...sourceProp(source) } }];
+}
+
+export const rename = spacetimedb.reducer({ name: t.string() }, (ctx, args) => {
+  runRename(ctx, args);
 });
+
+export const renameAction = spacetimedb.procedure(
+  { name: t.string(), posthogKey: t.string(), source: t.string() },
+  t.unit(),
+  (ctx, args) => {
+    const events = ctx.withTx((tx) => runRename(tx, args));
+    captureProcedureEvents(ctx, args.posthogKey, events);
+    return unit();
+  },
+);
 
 /**
  * Recolour the caller's trogg (GDD "Avatars and equipment"): store a chosen index
@@ -867,12 +1042,27 @@ export const rename = spacetimedb.reducer({ name: t.string() }, (ctx, { name }) 
  * sync, so the tint updates for everyone; chat name colour is derived from the
  * same row, so no denormalised copy needs rewriting.
  */
-export const recolor = spacetimedb.reducer({ color: t.i32() }, (ctx, { color }) => {
+function runRecolor(ctx: Ctx, { color, source = "" }: { color: number; source?: string }): AnalyticsEvent[] {
   const p = ctx.db.player.identity.find(ctx.sender);
-  if (!p) return;
-  if (color === p.color || !isColorIndex(color)) return;
+  if (!p) return [];
+  if (color === p.color || !isColorIndex(color)) return [];
   ctx.db.player.identity.update({ ...p, color });
+  return [{ distinctId: distinctId(ctx), event: "trogg_recolored", properties: { color, ...sourceProp(source) } }];
+}
+
+export const recolor = spacetimedb.reducer({ color: t.i32() }, (ctx, args) => {
+  runRecolor(ctx, args);
 });
+
+export const recolorAction = spacetimedb.procedure(
+  { color: t.i32(), posthogKey: t.string(), source: t.string() },
+  t.unit(),
+  (ctx, args) => {
+    const events = ctx.withTx((tx) => runRecolor(tx, args));
+    captureProcedureEvents(ctx, args.posthogKey, events);
+    return unit();
+  },
+);
 
 /**
  * Restyle the caller's trogg (GDD "Avatars and equipment"): store a chosen index
@@ -882,34 +1072,71 @@ export const recolor = spacetimedb.reducer({ color: t.i32() }, (ctx, { color }) 
  * a silent no-op. The style rides the zone player sync, so the sprite swaps for
  * everyone.
  */
-export const restyle = spacetimedb.reducer({ style: t.i32() }, (ctx, { style }) => {
+function runRestyle(ctx: Ctx, { style, source = "" }: { style: number; source?: string }): AnalyticsEvent[] {
   const p = ctx.db.player.identity.find(ctx.sender);
-  if (!p) return;
-  if (style === p.style || !isTroggStyleIndex(style)) return;
+  if (!p) return [];
+  if (style === p.style || !isTroggStyleIndex(style)) return [];
   ctx.db.player.identity.update({ ...p, style });
+  return [{ distinctId: distinctId(ctx), event: "trogg_restyled", properties: { style: TROGG_STYLES[style] ?? String(style), ...sourceProp(source) } }];
+}
+
+export const restyle = spacetimedb.reducer({ style: t.i32() }, (ctx, args) => {
+  runRestyle(ctx, args);
 });
+
+export const restyleAction = spacetimedb.procedure(
+  { style: t.i32(), posthogKey: t.string(), source: t.string() },
+  t.unit(),
+  (ctx, args) => {
+    const events = ctx.withTx((tx) => runRestyle(tx, args));
+    captureProcedureEvents(ctx, args.posthogKey, events);
+    return unit();
+  },
+);
 
 /**
  * Equip an owned item in the main hand (GDD "Inventory"). Equipment references a
  * specific inventory row; it does not consume or move the item. `0` unequips.
  * The reducer validates ownership and slot server-side.
  */
-export const equipItem = spacetimedb.reducer({ inventoryId: t.u64() }, (ctx, { inventoryId }) => {
+function runEquipItem(ctx: Ctx, { inventoryId, source = "" }: { inventoryId: bigint; source?: string }): AnalyticsEvent[] {
   const p = ctx.db.player.identity.find(ctx.sender);
-  if (!p) return;
+  if (!p) return [];
 
   if (inventoryId === 0n) {
     if (p.equippedMainHand !== "" || p.equippedMainHandInventoryId !== 0n) {
       ctx.db.player.identity.update({ ...p, equippedMainHand: "", equippedMainHandInventoryId: 0n });
+      return [
+        {
+          distinctId: distinctId(ctx),
+          event: "item_equipped",
+          properties: { zone: p.zoneId, item: p.equippedMainHand, equipped: false, ...sourceProp(source) },
+        },
+      ];
     }
-    return;
+    return [];
   }
 
   const row = ownedInventoryRow(ctx, p.identity, inventoryId);
-  if (!row || row.qty <= 0 || !isEquippableItem(row.item)) return;
-  if (p.equippedMainHandInventoryId === row.id) return;
+  if (!row || row.qty <= 0 || !isEquippableItem(row.item)) return [];
+  if (p.equippedMainHandInventoryId === row.id) return [];
   ctx.db.player.identity.update({ ...p, equippedMainHand: row.item, equippedMainHandInventoryId: row.id });
+  return [{ distinctId: distinctId(ctx), event: "item_equipped", properties: { zone: p.zoneId, item: row.item, equipped: true, ...sourceProp(source) } }];
+}
+
+export const equipItem = spacetimedb.reducer({ inventoryId: t.u64() }, (ctx, args) => {
+  runEquipItem(ctx, args);
 });
+
+export const equipItemAction = spacetimedb.procedure(
+  { inventoryId: t.u64(), posthogKey: t.string(), source: t.string() },
+  t.unit(),
+  (ctx, args) => {
+    const events = ctx.withTx((tx) => runEquipItem(tx, args));
+    captureProcedureEvents(ctx, args.posthogKey, events);
+    return unit();
+  },
+);
 
 /**
  * Use the equipped main-hand item (GDD "Avatars and equipment"). The row update
@@ -918,24 +1145,28 @@ export const equipItem = spacetimedb.reducer({ inventoryId: t.u64() }, (ctx, { i
  * mine the faced boulder into one Stone inventory item; sword and shovel
  * currently have no world effect beyond the synced use animation.
  */
-export const useEquipped = spacetimedb.reducer({ dirX: t.i32(), dirY: t.i32() }, (ctx, { dirX, dirY }) => {
+function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; dirY: number; source?: string }): AnalyticsEvent[] {
   const p = ctx.db.player.identity.find(ctx.sender);
-  if (!p) return;
+  if (!p) return [];
   const equipped = equippedInventoryRow(ctx, p);
-  if (!equipped) return;
+  if (!equipped) return [];
   const dir = cardinal(dirX, dirY);
-  if (!dir || (dir.dirX === 0 && dir.dirY === 0)) return;
+  if (!dir || (dir.dirX === 0 && dir.dirY === 0)) return [];
 
   const zone = getZone(p.zoneId);
-  if (!zone) return;
+  if (!zone) return [];
   const pos = settle(ctx, p, ctx.timestamp);
+  const events: AnalyticsEvent[] = [];
 
   if (equipped.item === "pickaxe") {
     const ax = Math.round(pos.x) + dir.dirX;
     const ay = Math.round(pos.y) + dir.dirY;
     const b = boulderAt(ctx, p.zoneId, ax, ay);
     if (b) {
-      if (addInventory(ctx, p.identity, "stone", 1)) ctx.db.boulder.id.delete(b.id);
+      if (addInventory(ctx, p.identity, "stone", 1)) {
+        ctx.db.boulder.id.delete(b.id);
+        events.push({ distinctId: distinctId(ctx), event: "inventory_item_acquired", properties: { zone: p.zoneId, item: "stone", qty: 1, ...sourceProp(source) } });
+      }
     }
   }
 
@@ -946,7 +1177,23 @@ export const useEquipped = spacetimedb.reducer({ dirX: t.i32(), dirY: t.i32() },
     equipmentAction: equipped.item,
     equipmentActionAt: ctx.timestamp,
   });
+  events.unshift({ distinctId: distinctId(ctx), event: "equipped_item_used", properties: { zone: p.zoneId, item: equipped.item, ...sourceProp(source) } });
+  return events;
+}
+
+export const useEquipped = spacetimedb.reducer({ dirX: t.i32(), dirY: t.i32() }, (ctx, args) => {
+  runUseEquipped(ctx, args);
 });
+
+export const useEquippedAction = spacetimedb.procedure(
+  { dirX: t.i32(), dirY: t.i32(), posthogKey: t.string(), source: t.string() },
+  t.unit(),
+  (ctx, args) => {
+    const events = ctx.withTx((tx) => runUseEquipped(tx, args));
+    captureProcedureEvents(ctx, args.posthogKey, events);
+    return unit();
+  },
+);
 
 /** A claim nonce is a v4 UUID minted by the client (`crypto.randomUUID`). */
 const CLAIM_CODE_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

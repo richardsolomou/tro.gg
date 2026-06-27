@@ -1,5 +1,6 @@
 import { UserManager, WebStorageStateStore } from "oidc-client-ts";
 import { SPACETIMEAUTH_ISSUER } from "@trogg/shared";
+import { logError } from "./analytics.js";
 import { SPACETIMEAUTH_CLIENT_ID, SPACETIMEAUTH_REDIRECT_URI } from "./env.js";
 
 /**
@@ -71,7 +72,10 @@ export async function currentIdToken(): Promise<string | null> {
   if (!m) return null;
   let user = await m.getUser();
   if (user?.expired) {
-    user = await m.signinSilent().catch(() => null);
+    user = await m.signinSilent().catch((err: unknown) => {
+      logError("SpacetimeAuth silent token refresh failed", { surface: "auth", action: "silent_renew", error: err });
+      return null;
+    });
   }
   return user?.id_token ?? null;
 }

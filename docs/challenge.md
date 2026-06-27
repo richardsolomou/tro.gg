@@ -1,6 +1,6 @@
 # The challenge
 
-Build a multiplayer browser game using nothing but tools under the PostHog umbrella, reaching outside only for what PostHog doesn't offer. The one exception is the backend — a [SpacetimeDB](https://spacetimedb.com) instance we self-host on a Hetzner VPS, its tables and reducers the entire server (no separate database or cache). It's the one piece PostHog doesn't provide, and the one piece we run ourselves. The game is built incrementally, in public, using PostHog Code.
+Build a multiplayer browser game using nothing but tools under the PostHog umbrella, reaching outside only for what PostHog doesn't offer. The one exception is the backend — a [SpacetimeDB](https://spacetimedb.com) instance we self-host on a Hetzner VPS, its tables, reducers, and procedure wrappers the entire server (no separate database or cache). It's the one piece PostHog doesn't provide, and the one piece we run ourselves. The game is built incrementally, in public, using PostHog Code.
 
 - **Premise:** how much of a real multiplayer game can PostHog's products power — analytics, feature flags, error tracking, AI observability, and more — all doing real jobs, in the open. The per-product plan is in [analytics.md](analytics.md).
 - **Non-goals:** a full MMO, combat (deferred indefinitely), polished art, a roadmap that outlives the fun. Every coherent stopping point is valid; stopping is a concluded experiment, not an abandoned game.
