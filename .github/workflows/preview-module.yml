@@ -6,7 +6,10 @@ name: PR preview module
 # other within the instance, so a preview cannot touch prod data. The matching
 # frontend preview is built by Cloudflare Workers Builds, which derives the same
 # slug from WORKERS_CI_BRANCH and points VITE_SPACETIMEDB_HOST at the instance.
-# preview-cleanup.yml deletes the database when the PR closes.
+# preview-cleanup.yml deletes the database when the PR closes. Preview data is
+# disposable: if a branch changes schema in a way SpacetimeDB cannot auto-migrate,
+# this workflow clears only that PR database and republishes it rather than blocking
+# the preview.
 #
 # Reuses the SPACETIME_TOKEN secret (the identity that owns `trogg`); that identity
 # owns the per-PR databases too, so it can publish and later delete them.
@@ -59,4 +62,4 @@ jobs:
         run: spacetime server add trogg-prod --url https://spacetime.tro.gg || true
 
       - name: Publish preview database
-        run: spacetime publish --server trogg-prod --module-path spacetimedb "${{ steps.db.outputs.name }}" -y
+        run: spacetime publish --server trogg-prod --module-path spacetimedb --delete-data=on-conflict "${{ steps.db.outputs.name }}" -y

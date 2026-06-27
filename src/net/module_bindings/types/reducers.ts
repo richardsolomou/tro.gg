@@ -7,6 +7,7 @@ import { type Infer as __Infer } from "spacetimedb";
 
 // Import all reducer arg schemas
 import ChatReducer from "../chat_reducer";
+import EquipItemReducer from "../equip_item_reducer";
 import HauntGhostReducer from "../haunt_ghost_reducer";
 import InteractReducer from "../interact_reducer";
 import MoveReducer from "../move_reducer";
@@ -20,8 +21,10 @@ import ResetHogsReducer from "../reset_hogs_reducer";
 import RestyleReducer from "../restyle_reducer";
 import SpawnReducer from "../spawn_reducer";
 import StartClaimReducer from "../start_claim_reducer";
+import UseEquippedReducer from "../use_equipped_reducer";
 
 export type ChatParams = __Infer<typeof ChatReducer>;
+export type EquipItemParams = __Infer<typeof EquipItemReducer>;
 export type HauntGhostParams = __Infer<typeof HauntGhostReducer>;
 export type InteractParams = __Infer<typeof InteractReducer>;
 export type MoveParams = __Infer<typeof MoveReducer>;
@@ -35,4 +38,5 @@ export type ResetHogsParams = __Infer<typeof ResetHogsReducer>;
 export type RestyleParams = __Infer<typeof RestyleReducer>;
 export type SpawnParams = __Infer<typeof SpawnReducer>;
 export type StartClaimParams = __Infer<typeof StartClaimReducer>;
+export type UseEquippedParams = __Infer<typeof UseEquippedReducer>;
 

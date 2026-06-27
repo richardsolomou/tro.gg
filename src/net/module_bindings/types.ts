@@ -44,6 +44,15 @@ export const GhostHaunt = __t.object("GhostHaunt", {
 });
 export type GhostHaunt = __Infer<typeof GhostHaunt>;
 
+export const GroundItem = __t.object("GroundItem", {
+  id: __t.u64(),
+  zoneId: __t.string(),
+  item: __t.string(),
+  x: __t.i32(),
+  y: __t.i32(),
+});
+export type GroundItem = __Infer<typeof GroundItem>;
+
 export const Hog = __t.object("Hog", {
   id: __t.u64(),
   zoneId: __t.string(),
@@ -64,6 +73,14 @@ export const HogWander = __t.object("HogWander", {
 });
 export type HogWander = __Infer<typeof HogWander>;
 
+export const Inventory = __t.object("Inventory", {
+  id: __t.u64(),
+  playerId: __t.identity(),
+  item: __t.string(),
+  qty: __t.i32(),
+});
+export type Inventory = __Infer<typeof Inventory>;
+
 export const Player = __t.object("Player", {
   identity: __t.identity(),
   name: __t.string(),
@@ -81,6 +98,10 @@ export const Player = __t.object("Player", {
   carrying: __t.string(),
   path: __t.string(),
   style: __t.i32(),
+  equippedMainHand: __t.string(),
+  equipmentAction: __t.string(),
+  equipmentActionAt: __t.timestamp(),
+  equippedMainHandInventoryId: __t.u64(),
 });
 export type Player = __Infer<typeof Player>;
 

@@ -16,7 +16,10 @@ import {
   HOG_STEP_INTERVAL_MS,
   HOG_TURN_CHANCE,
   isColorIndex,
+  isEquippableItem,
   isGeneratedName,
+  isItemId,
+  isStackableItem,
   isTroggStyleIndex,
   STYLE_UNSET,
   isValidName,
@@ -57,7 +60,14 @@ import {
  * `color` is the chosen avatar palette index (GDD "Avatars"), set by `recolor`; it
  * defaults to `COLOR_UNSET` (-1) so an unchosen trogg falls back to its id-derived
  * colour. `carrying` is the kind of tile-sized entity the trogg holds (GDD
- * "Interacting"), set by `interact`; "" when empty-handed.
+ * "Interacting"), set by `interact`; "" when empty-handed. `style` is the chosen
+ * avatar body style. `equippedMainHand` stores the item id currently shown in the
+ * trogg's main hand (GDD "Inventory" / "Avatars and equipment").
+ * `equippedMainHandInventoryId` points at the specific owned inventory row, so
+ * duplicate swords/picks are distinct in the HUD even though everyone else only
+ * needs the item id to render the held sprite. `equipmentAction` +
+ * `equipmentActionAt` are the last visible equipment use impulse, so every client
+ * can briefly animate a swing or chop from synced player state.
  */
 const player = table(
   { name: "player", public: true },
@@ -93,6 +103,10 @@ const player = table(
     // `restyle`. Defaults to `STYLE_UNSET` (-1) so an unchosen trogg falls back to its
     // id-derived style, the mirror of `color`. Appended last per the migration note above.
     style: t.i32().default(STYLE_UNSET),
+    equippedMainHand: t.string().default(""),
+    equipmentAction: t.string().default(""),
+    equipmentActionAt: t.timestamp().default(Timestamp.UNIX_EPOCH),
+    equippedMainHandInventoryId: t.u64().default(0n),
   },
 );
 
@@ -203,6 +217,37 @@ const hog = table(
 );
 
 /**
+ * A pickup item lying on a tile (GDD "Inventory"). It is seeded from the zone
+ * registry, then removed by `interact` when a trogg picks it up. Items are not
+ * solid; a trogg can stand on a tool, but must face its tile to take it.
+ */
+const groundItem = table(
+  { name: "ground_item", public: true },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    zoneId: t.string().index("btree"),
+    item: t.string(),
+    x: t.i32(),
+    y: t.i32(),
+  },
+);
+
+/**
+ * Player inventory (GDD "Inventory"): stackable items merge into one row;
+ * non-stackable equippables stay as distinct qty=1 rows. Equipment references an
+ * owned row on the player record; it does not remove quantity here.
+ */
+const inventory = table(
+  { name: "inventory", public: true },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    playerId: t.identity().index("btree"),
+    item: t.string(),
+    qty: t.i32(),
+  },
+);
+
+/**
  * The Hog wander timer (GDD "Hogs"). A scheduled table is SpacetimeDB's
  * deterministic timer — the only way state changes outside player input (invariant
  * 1: no simulation tick). Each tick fires `wanderHogs`, which re-bases every Hog to
@@ -218,7 +263,7 @@ const hogWander = table(
   },
 );
 
-const spacetimedb = schema({ player, chatMessage, ghostHaunt, claimCode, boulder, hog, hogWander });
+const spacetimedb = schema({ player, chatMessage, ghostHaunt, claimCode, boulder, hog, groundItem, inventory, hogWander });
 export default spacetimedb;
 
 /** The reducer context, typed against this module's schema (db view + sender). */
@@ -237,6 +282,7 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
   const startingZone = getZone(STARTING_ZONE_SLUG)!;
   seedBoulders(ctx, startingZone);
   seedHogs(ctx, startingZone);
+  seedGroundItems(ctx, startingZone);
   // A player is here, so make sure the Hogs are roaming (no-op if already armed).
   armWander(ctx);
 
@@ -283,6 +329,10 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
     carrying: "",
     path: "",
     style: STYLE_UNSET,
+    equippedMainHand: "",
+    equipmentAction: "",
+    equipmentActionAt: Timestamp.UNIX_EPOCH,
+    equippedMainHandInventoryId: 0n,
   });
 });
 
@@ -304,6 +354,14 @@ function seedHogs(ctx: Ctx, zone: Zone): void {
   if ([...ctx.db.hog.zoneId.filter(zone.slug)].length > 0) return;
   for (const h of zone.hogs) {
     ctx.db.hog.insert({ id: 0n, zoneId: zone.slug, x: h.x, y: h.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, path: "", homeX: h.x, homeY: h.y });
+  }
+}
+
+/** Seed a zone's starter pickup items from the registry, unless it already has some. */
+function seedGroundItems(ctx: Ctx, zone: Zone): void {
+  if ([...ctx.db.groundItem.zoneId.filter(zone.slug)].length > 0) return;
+  for (const item of zone.items) {
+    ctx.db.groundItem.insert({ id: 0n, zoneId: zone.slug, item: item.item, x: item.x, y: item.y });
   }
 }
 
@@ -423,15 +481,14 @@ export const push = spacetimedb.reducer((ctx) => {
 });
 
 /**
- * Interact with nearby tile-sized things (GDD "Interacting") — a generic action key
- * (client `E`). Today the one effect is pick up / put down: empty-handed, lift an
- * adjacent boulder or hog onto the trogg (delete its world row, stamp `carrying`);
- * already carrying, set it back down on the faced tile. It's a toggle. The faced
- * direction is passed in because an idle trogg's standing facing isn't synced (GDD
- * "Movement"); the server still re-derives the trogg's tile and only acts on an
- * adjacent entity, preferring the faced tile when there are multiple candidates, so
- * the client can't reach past its neighbours (invariant 3). Future interactions
- * (switches, fires, item pickups) branch in here on the selected target.
+ * Interact with nearby things (GDD "Interacting") — a generic action key (client
+ * `E`). Empty-handed, pick up an adjacent ground item into inventory or lift an
+ * adjacent boulder / hog onto the trogg (delete its world row, stamp `carrying`);
+ * already carrying, set it back down on the faced tile. The faced direction is
+ * passed in because an idle trogg's standing facing isn't synced (GDD "Movement");
+ * the server still re-derives the trogg's tile and only acts on adjacent targets,
+ * preferring the faced tile when there are multiple candidates, so the client can't
+ * reach past its neighbours (invariant 3).
  */
 export const interact = spacetimedb.reducer({ dirX: t.i32(), dirY: t.i32() }, (ctx, { dirX, dirY }) => {
   const p = ctx.db.player.identity.find(ctx.sender);
@@ -452,6 +509,12 @@ export const interact = spacetimedb.reducer({ dirX: t.i32(), dirY: t.i32() }, (c
   }
 
   const target = pickupTarget(ctx, p.zoneId, Math.round(pos.x), Math.round(pos.y), dir, ctx.timestamp);
+  if (target?.kind === "item") {
+    if (!isItemId(target.row.item)) return;
+    addInventory(ctx, p.identity, target.row.item, 1);
+    ctx.db.groundItem.id.delete(target.row.id);
+    return;
+  }
   if (target?.kind === "boulder") {
     ctx.db.boulder.id.delete(target.row.id);
     ctx.db.player.identity.update({ ...p, carrying: "boulder" });
@@ -737,6 +800,66 @@ export const restyle = spacetimedb.reducer({ style: t.i32() }, (ctx, { style }) 
   ctx.db.player.identity.update({ ...p, style });
 });
 
+/**
+ * Equip an owned item in the main hand (GDD "Inventory"). Equipment references a
+ * specific inventory row; it does not consume or move the item. `0` unequips.
+ * The reducer validates ownership and slot server-side.
+ */
+export const equipItem = spacetimedb.reducer({ inventoryId: t.u64() }, (ctx, { inventoryId }) => {
+  const p = ctx.db.player.identity.find(ctx.sender);
+  if (!p) return;
+
+  if (inventoryId === 0n) {
+    if (p.equippedMainHand !== "" || p.equippedMainHandInventoryId !== 0n) {
+      ctx.db.player.identity.update({ ...p, equippedMainHand: "", equippedMainHandInventoryId: 0n });
+    }
+    return;
+  }
+
+  const row = ownedInventoryRow(ctx, p.identity, inventoryId);
+  if (!row || row.qty <= 0 || !isEquippableItem(row.item)) return;
+  if (p.equippedMainHandInventoryId === row.id) return;
+  ctx.db.player.identity.update({ ...p, equippedMainHand: row.item, equippedMainHandInventoryId: row.id });
+});
+
+/**
+ * Use the equipped main-hand item (GDD "Avatars and equipment"). The row update
+ * is a visible, low-volume impulse every client can animate. It preserves the
+ * current movement intent — using a tool never turns into a stop. Pickaxes also
+ * mine the faced boulder into one Stone inventory item; sword and shovel
+ * currently have no world effect beyond the synced use animation.
+ */
+export const useEquipped = spacetimedb.reducer({ dirX: t.i32(), dirY: t.i32() }, (ctx, { dirX, dirY }) => {
+  const p = ctx.db.player.identity.find(ctx.sender);
+  if (!p) return;
+  const equipped = equippedInventoryRow(ctx, p);
+  if (!equipped) return;
+  const dir = cardinal(dirX, dirY);
+  if (!dir || (dir.dirX === 0 && dir.dirY === 0)) return;
+
+  const zone = getZone(p.zoneId);
+  if (!zone) return;
+  const pos = settle(ctx, p, ctx.timestamp);
+
+  if (equipped.item === "pickaxe") {
+    const ax = Math.round(pos.x) + dir.dirX;
+    const ay = Math.round(pos.y) + dir.dirY;
+    const b = boulderAt(ctx, p.zoneId, ax, ay);
+    if (b) {
+      ctx.db.boulder.id.delete(b.id);
+      addInventory(ctx, p.identity, "stone", 1);
+    }
+  }
+
+  ctx.db.player.identity.update({
+    ...p,
+    equippedMainHand: equipped.item,
+    equippedMainHandInventoryId: equipped.id,
+    equipmentAction: equipped.item,
+    equipmentActionAt: ctx.timestamp,
+  });
+});
+
 /** A claim nonce is a v4 UUID minted by the client (`crypto.randomUUID`). */
 const CLAIM_CODE_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -803,7 +926,20 @@ export const redeemClaim = spacetimedb.reducer({ code: t.string() }, (ctx, { cod
   // Carry the guest's chosen name onto a freshly-named account (never clobber a
   // returning account's own name), staying within the uniqueness rule.
   const inheritName = !isGeneratedName(guestName) && isGeneratedName(account.name) && !nameTaken(ctx, guestName, ctx.sender);
-  ctx.db.player.identity.update({ ...account, name: inheritName ? guestName : account.name, carrying, isGuest: false });
+  const movedInventoryIds = moveInventory(ctx, guest.identity, account.identity);
+  const accountEquipped = equippedInventoryRow(ctx, account);
+  const guestEquippedId = movedInventoryIds.get(guest.equippedMainHandInventoryId) ?? 0n;
+  const guestEquipped = guestEquippedId !== 0n ? ownedInventoryRow(ctx, account.identity, guestEquippedId) : undefined;
+  const equippedMainHand = accountEquipped?.item ?? guestEquipped?.item ?? "";
+  const equippedMainHandInventoryId = accountEquipped?.id ?? guestEquipped?.id ?? 0n;
+  ctx.db.player.identity.update({
+    ...account,
+    name: inheritName ? guestName : account.name,
+    carrying,
+    equippedMainHand,
+    equippedMainHandInventoryId,
+    isGuest: false,
+  });
 });
 
 /** Whether any player is currently online — the Hogs only roam while someone is
@@ -977,6 +1113,74 @@ function boulderAt(ctx: Ctx, zoneId: string, x: number, y: number) {
   return undefined;
 }
 
+/** The pickup item at a tile in a zone, or undefined. */
+function groundItemAt(ctx: Ctx, zoneId: string, x: number, y: number) {
+  for (const item of ctx.db.groundItem.zoneId.filter(zoneId)) {
+    if (item.x === x && item.y === y) return item;
+  }
+  return undefined;
+}
+
+/** The player's owned inventory row by id, or undefined. */
+function ownedInventoryRow(ctx: Ctx, playerId: Ctx["sender"], id: bigint) {
+  const row = ctx.db.inventory.id.find(id);
+  return row && row.playerId.isEqual(playerId) ? row : undefined;
+}
+
+/** The specific inventory row currently equipped, with a fallback for pre-row-id rows. */
+function equippedInventoryRow(ctx: Ctx, p: { identity: Ctx["sender"]; equippedMainHand: string; equippedMainHandInventoryId: bigint }) {
+  const byId = p.equippedMainHandInventoryId !== 0n ? ownedInventoryRow(ctx, p.identity, p.equippedMainHandInventoryId) : undefined;
+  if (byId && byId.qty > 0 && isEquippableItem(byId.item)) return byId;
+
+  if (!isEquippableItem(p.equippedMainHand)) return undefined;
+  for (const row of ctx.db.inventory.playerId.filter(p.identity)) {
+    if (row.item === p.equippedMainHand && row.qty > 0) return row;
+  }
+  return undefined;
+}
+
+/** Add an item to inventory. Stackable items merge; equippable items stay distinct. */
+function addInventory(ctx: Ctx, playerId: Ctx["sender"], item: string, qty: number): void {
+  if (!isItemId(item) || qty <= 0) return;
+  if (isStackableItem(item)) {
+    for (const row of ctx.db.inventory.playerId.filter(playerId)) {
+      if (row.item === item) {
+        ctx.db.inventory.id.update({ ...row, qty: row.qty + qty });
+        return;
+      }
+    }
+    ctx.db.inventory.insert({ id: 0n, playerId, item, qty });
+    return;
+  }
+
+  for (let i = 0; i < qty; i++) {
+    ctx.db.inventory.insert({ id: 0n, playerId, item, qty: 1 });
+  }
+}
+
+/** Fold every inventory row from one identity into another, preserving item counts. */
+function moveInventory(ctx: Ctx, from: Ctx["sender"], to: Ctx["sender"]): Map<bigint, bigint> {
+  const moved = new Map<bigint, bigint>();
+  for (const row of [...ctx.db.inventory.playerId.filter(from)]) {
+    if (isStackableItem(row.item)) {
+      addInventory(ctx, to, row.item, row.qty);
+      moved.set(row.id, firstInventoryRowId(ctx, to, row.item));
+    } else {
+      const inserted = ctx.db.inventory.insert({ id: 0n, playerId: to, item: row.item, qty: 1 });
+      moved.set(row.id, inserted.id);
+    }
+    ctx.db.inventory.id.delete(row.id);
+  }
+  return moved;
+}
+
+function firstInventoryRowId(ctx: Ctx, playerId: Ctx["sender"], item: string): bigint {
+  for (const row of ctx.db.inventory.playerId.filter(playerId)) {
+    if (row.item === item) return row.id;
+  }
+  return 0n;
+}
+
 /**
  * The Hog currently on a tile in a zone, or undefined. Unlike a boulder a Hog is
  * in motion, so re-derive each Hog's position at `now` (against walls and boulders,
@@ -1002,11 +1206,13 @@ function pickupDirs(dir: { dirX: number; dirY: number } | null): { dirX: number;
   return [dir, ...CARDINALS.filter((d) => d.dirX !== dir.dirX || d.dirY !== dir.dirY)];
 }
 
-/** The adjacent entity `interact` should lift, preferring the faced direction. */
+/** The adjacent target `interact` should pick up, preferring the faced direction. */
 function pickupTarget(ctx: Ctx, zoneId: string, x: number, y: number, dir: { dirX: number; dirY: number } | null, now: Stamp) {
   for (const d of pickupDirs(dir)) {
     const tx = x + d.dirX;
     const ty = y + d.dirY;
+    const item = groundItemAt(ctx, zoneId, tx, ty);
+    if (item) return { kind: "item" as const, row: item };
     const b = boulderAt(ctx, zoneId, tx, ty);
     if (b) return { kind: "boulder" as const, row: b };
     const h = hogAt(ctx, zoneId, tx, ty, now);

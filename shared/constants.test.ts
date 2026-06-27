@@ -102,3 +102,9 @@ test("the starting zone seeds roaming hogs on walkable floor", () => {
   assert.ok(zone.hogs.length > 0);
   for (const h of zone.hogs) assert.equal(isWalkable(zone, h.x, h.y), true);
 });
+
+test("the starting zone seeds pickup items on walkable floor", () => {
+  const zone = getZone(STARTING_ZONE_SLUG)!;
+  assert.ok(zone.items.length > 0);
+  for (const item of zone.items) assert.equal(isWalkable(zone, item.x, item.y), true);
+});

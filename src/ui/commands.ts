@@ -3,6 +3,7 @@ import type { DbConnection } from "../net/module_bindings";
 import { captureEvent } from "../analytics.js";
 import { audio } from "../audio.js";
 import { hudLeft } from "./hud.js";
+import { registerKeybind } from "./keybinds.js";
 import { currentCommandFlags, type ChatCommandFlags } from "./chat_commands.js";
 
 type SpawnKind = "boulder" | "hog";
@@ -23,8 +24,11 @@ export function mountCommands({ conn, zone }: CommandPanelContext): void {
 
   const toggle = document.createElement("button");
   toggle.type = "button";
-  toggle.className = "help-toggle command-toggle";
-  toggle.textContent = "Commands";
+  toggle.className = "hud-icon-button command-toggle";
+  toggle.setAttribute("aria-label", "Commands");
+  toggle.setAttribute("aria-keyshortcuts", "`");
+  toggle.title = "Commands (`)";
+  toggle.appendChild(commandIcon());
 
   const body = document.createElement("div");
   body.className = "command-body";
@@ -38,17 +42,45 @@ export function mountCommands({ conn, zone }: CommandPanelContext): void {
   if (flags.ghost) body.appendChild(ghostSection(conn, status));
   body.appendChild(status);
 
-  toggle.addEventListener("click", () => {
-    const opening = body.hidden;
-    body.hidden = !opening;
+  const setOpen = (open: boolean) => {
+    const opening = open && body.hidden;
+    body.hidden = !open;
+    toggle.setAttribute("aria-expanded", String(!body.hidden));
     if (opening) window.dispatchEvent(new CustomEvent("hud-menu-open", { detail: "commands" }));
-  });
+  };
+  const toggleOpen = () => setOpen(body.hidden === true);
+  toggle.addEventListener("click", toggleOpen);
+  registerKeybind({ id: "hud-commands", matches: (event) => event.code === "Backquote", handler: toggleOpen });
   window.addEventListener("hud-menu-open", ((event: Event) => {
-    if ((event as CustomEvent<string>).detail !== "commands") body.hidden = true;
+    if ((event as CustomEvent<string>).detail !== "commands") setOpen(false);
   }) as EventListener);
 
   root.append(toggle, body);
   hudLeft().appendChild(root);
+}
+
+function svg(width: number, height: number): SVGSVGElement {
+  const node = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  node.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  node.setAttribute("aria-hidden", "true");
+  node.setAttribute("focusable", "false");
+  return node;
+}
+
+function el(name: string, attrs: Record<string, string | number>): SVGElement {
+  const node = document.createElementNS("http://www.w3.org/2000/svg", name);
+  for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, String(value));
+  return node;
+}
+
+function commandIcon(): SVGSVGElement {
+  const icon = svg(24, 24);
+  icon.append(
+    el("rect", { x: 4, y: 5, width: 16, height: 14, rx: 2, fill: "none", stroke: "currentColor", "stroke-width": 2 }),
+    el("path", { d: "M8 10l3 2-3 2", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round" }),
+    el("path", { d: "M13 15h4", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round" }),
+  );
+  return icon;
 }
 
 function spawnSection(conn: DbConnection, status: HTMLElement): HTMLElement {
