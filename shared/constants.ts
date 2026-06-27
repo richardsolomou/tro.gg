@@ -58,6 +58,15 @@ export const CHAT_HISTORY_MAX = 50;
 export const GHOST_HAUNT_HISTORY_MAX = 50;
 
 /**
+ * A `ghost_haunt` row only renders if it arrived this fresh. The initial subscription
+ * snapshot replays the zone's capped history to a joiner, so without a freshness gate
+ * every persisted row would render at once (a swarm). Live inserts arrive within a
+ * second; this window stays well clear of network latency and clock skew while
+ * excluding any backlog row. (initial)
+ */
+export const GHOST_HAUNT_FRESH_MS = 10_000;
+
+/**
  * Tilemap glyphs (GDD "Zones"). Each character in a zone's `tiles` rows is one
  * tile. `WALL_TILE` (`#`) is the only unwalkable glyph — `isWalkable` treats it,
  * and only it, as solid; every other glyph is walkable floor. The non-wall glyphs
