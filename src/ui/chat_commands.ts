@@ -1,7 +1,7 @@
 import type { Coord, Zone } from "@trogg/shared";
 import type { DbConnection } from "../net/module_bindings";
 import type { ChatUI } from "./chat.js";
-import { captureEvent, captureLog } from "../analytics.js";
+import { captureEvent } from "../analytics.js";
 import { audio } from "../audio.js";
 
 /** Which slash commands are live (each behind its own feature flag, resolved by the caller). */
@@ -53,21 +53,21 @@ function handleSpawnCommand(conn: DbConnection, chat: ChatUI, zone: string, text
   const arg = m[1]?.toLowerCase();
   if (!arg) {
     audio.playError();
-    captureLog("warn", "Rejected spawn command", { zone, reason: "missing_kind" });
+    console.warn("Rejected spawn command", { zone, reason: "missing_kind" });
     hint("usage: /spawn boulder | hedgehog");
     return true;
   }
   const kind = SPAWNABLE[arg];
   if (!kind) {
     audio.playError();
-    captureLog("warn", "Rejected spawn command", { zone, reason: "unknown_kind" });
+    console.warn("Rejected spawn command", { zone, reason: "unknown_kind" });
     hint(`unknown entity "${arg}" — try boulder or hedgehog`);
     return true;
   }
   audio.playCommand();
   conn.reducers.spawn({ kind });
   captureEvent("debug_entity_spawned", { zone, kind });
-  captureLog("info", "Debug entity spawned", { zone, kind });
+  console.info("Debug entity spawned", { zone, kind });
   return true;
 }
 

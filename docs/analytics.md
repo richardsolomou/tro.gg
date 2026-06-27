@@ -74,9 +74,9 @@ PostHog project audit (2026-06-27): all 12 code-read flags above are configured 
 
 ## Error tracking and logs
 
-The browser SDK initializes with exception autocapture for unhandled errors and unhandled promise rejections. Handled failures in startup, account claim/sign-in, silent auth refresh, and reducer-backed account actions call `captureException()` with stable `surface` / `action` context.
+The browser SDK initializes with exception autocapture for unhandled errors, unhandled promise rejections, and `console.error()` calls. Handled failures in startup, account claim/sign-in, silent auth refresh, and reducer-backed account actions should log with `console.error()` and stable `surface` / `action` context so they are visible in DevTools and captured by PostHog without a separate manual exception call.
 
-Structured logs go through PostHog Logs with `service.name = trogg-web`, the Vite build stamp as `service.version`, and the Vite mode as `deployment.environment`. Console-log autocapture is off by default; manual logs record startup, world boot flags, account actions, deploy recovery, version prompts, and debug command outcomes without chat content or arbitrary command text.
+Structured logs go through PostHog Logs with `service.name = trogg-web`, the Vite build stamp as `service.version`, and the Vite mode as `deployment.environment`. Console-log autocapture is on; use `console.info()` / `console.warn()` / `console.error()` for startup, world boot flags, account actions, deploy recovery, version prompts, validation rejections, and debug command outcomes without chat content or arbitrary command text. Do not log raw player chat, arbitrary command text, credentials, or OIDC tokens.
 
 ## Rules
 

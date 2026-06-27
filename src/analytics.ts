@@ -1,5 +1,4 @@
 import posthog from "posthog-js";
-import type { LogAttributes, LogSeverityLevel, Properties } from "posthog-js";
 import { POSTHOG_HOST, POSTHOG_KEY } from "./env.js";
 
 const serviceContext = {
@@ -22,13 +21,11 @@ export function initAnalytics() {
     capture_exceptions: {
       capture_unhandled_errors: true,
       capture_unhandled_rejections: true,
-      capture_console_errors: false,
+      capture_console_errors: true,
     },
     logs: {
       ...serviceContext,
-      // Manual structured logs only; browser/third-party console output can include
-      // incidental values we do not want to ingest blindly.
-      captureConsoleLogs: false,
+      captureConsoleLogs: true,
     },
   });
 }
@@ -37,18 +34,6 @@ export function initAnalytics() {
 export function captureEvent(event: string, properties?: Record<string, unknown>) {
   if (!POSTHOG_KEY) return;
   posthog.capture(event, properties);
-}
-
-/** Capture a handled exception with context. No-op without a PostHog key. */
-export function captureException(error: unknown, properties?: Properties) {
-  if (!POSTHOG_KEY) return;
-  posthog.captureException(error, properties);
-}
-
-/** Send a structured application log. No-op without a PostHog key. */
-export function captureLog(level: LogSeverityLevel, body: string, attributes?: LogAttributes) {
-  if (!POSTHOG_KEY) return;
-  posthog.captureLog({ level, body, attributes });
 }
 
 /**

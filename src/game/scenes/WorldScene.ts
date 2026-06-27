@@ -8,7 +8,7 @@ import { createSelfController, type SelfController } from "../../movement.js";
 import { ART, createEntities, GHOST_CHANCE, type BoulderView, type Entities, type HogView, type Tracked } from "../entities.js";
 import { createTerrain, registerTerrainTextures, type Terrain } from "../terrain.js";
 import { facingFromDir, registerAvatarTextures } from "../avatars.js";
-import { captureEvent, captureLog, isFeatureEnabled } from "../../analytics.js";
+import { captureEvent, isFeatureEnabled } from "../../analytics.js";
 import { audio } from "../../audio.js";
 
 /** Fraction of the viewport the zone fills, leaving a rim of cave around it. */
@@ -103,7 +103,7 @@ export class WorldScene extends Phaser.Scene {
     this.useHogs = isFeatureEnabled("roaming-hogs");
     this.canRun = isFeatureEnabled("running");
     this.useInteract = isFeatureEnabled("interact");
-    captureLog("info", "World scene created", {
+    console.info("World scene created", {
       zone: this.slug,
       avatar_sprites: this.useSprites,
       roaming_hogs: this.useHogs,

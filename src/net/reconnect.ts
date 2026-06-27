@@ -1,4 +1,4 @@
-import { captureEvent, captureLog } from "../analytics.js";
+import { captureEvent } from "../analytics.js";
 import { connect } from "./net.js";
 
 /**
@@ -34,7 +34,7 @@ export function startReconnect(accountToken?: string): void {
   if (active) return;
   active = true;
   captureEvent("connection_lost");
-  captureLog("warn", "SpacetimeDB connection lost", { surface: "reconnect" });
+  console.warn("SpacetimeDB connection lost", { surface: "reconnect" });
   showOverlay();
   void probeUntilLive(accountToken);
 }
@@ -47,11 +47,11 @@ async function probeUntilLive(accountToken?: string): Promise<void> {
       // The probe only proves the server is back; the reload makes the real
       // connection with a clean slate, so drop this one rather than leak it.
       conn.disconnect();
-      captureLog("info", "SpacetimeDB reconnect probe succeeded", { surface: "reconnect", attempt });
+      console.info("SpacetimeDB reconnect probe succeeded", { surface: "reconnect", attempt });
       window.location.reload();
       return;
     } catch {
-      captureLog("warn", "SpacetimeDB reconnect probe failed", { surface: "reconnect", attempt });
+      console.warn("SpacetimeDB reconnect probe failed", { surface: "reconnect", attempt });
       // Server still unreachable (mid-deploy) — keep backing off and retry.
     }
   }
