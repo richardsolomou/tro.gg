@@ -19,7 +19,7 @@ The buildable spec for tro.gg. If you are an agent working on this codebase: thi
 | tile | The grid unit. Positions are integer tile coordinates within a zone. |
 | node | A gatherable world object (rock, mushroom). Has a type, a state, and a respawn timer. |
 | boulder | A pushable rock. Sits on an unwalkable tile; a trogg pushes it one tile at a time. `boulder` in code/schema. |
-| interact | The generic action a trogg takes on the tile it faces (the `E` key). Today its one effect is to pick up / put down a tile-sized object; future effects (switch, fire, item) hang off the same key. |
+| interact | The generic action key (`E`). Today its one effect is to pick up / put down a tile-sized object; pickup scans adjacent tiles and prioritises the tile the trogg faces, while put-down uses the faced tile first. Future effects (switch, fire, item) hang off the same key. |
 | carry | A trogg holding a tile-sized object (boulder, Hog) on its person — the object leaves its tile until put down. `carrying` in code/schema. |
 | action | A timed activity a player starts on a node (mine, forage). One action at a time per player. |
 | skill | A progression track (mining, foraging). XP and levels per skill, per player. |
@@ -80,12 +80,12 @@ Boulders are pushable rocks — dynamic obstacles, the same block-pushing gramma
 
 ### Interacting (pick up and carry)
 
-`E` is the generic **interact** key: it acts on whatever tile the trogg faces. Today its one effect is picking objects up — a deliberate seam, so later interactions (flip a switch, light a fire, take an item) hang off the same key without adding a new control.
+`E` is the generic **interact** key. Today its one effect is picking objects up — a deliberate seam, so later interactions (flip a switch, light a fire, take an item) hang off the same key without adding a new control.
 
-- **Pick up / put down is a toggle.** Empty-handed, pressing `E` while facing a tile that holds a boulder or a Hog **lifts it onto the trogg** — it leaves its tile and rides on your person, drawn as a held overlay above the head (the same held-item layering as [Avatars and equipment](#avatars-and-equipment); a boulder, a Hog, and a future sword all read the same held way). Pressing `E` again **puts it down** on the faced tile (or the nearest free tile), re-materialising it in the world. A trogg carries at most one thing.
+- **Pick up / put down is a toggle.** Empty-handed, pressing `E` beside a boulder or a Hog **lifts it onto the trogg** — if several are adjacent, the one on the tile the trogg faces wins. It leaves its tile and rides on your person, drawn as a held overlay above the head (the same held-item layering as [Avatars and equipment](#avatars-and-equipment); a boulder, a Hog, and a future sword all read the same held way). Pressing `E` again **puts it down** on the faced tile (or the nearest free tile), re-materialising it in the world. A trogg carries at most one thing.
 - **Anything tile-sized is grabbable.** Boulders and Hogs are the same 1×1 entity to the mechanic; it doesn't care that one is scenery and one is an NPC.
 - **Carried things leave the world.** A carried boulder is no longer a collision obstacle; a carried Hog stops wandering — because the entity's row is removed while held and re-inserted on drop. Boulders and Hogs are fungible (no identity, seeded from the `ZONES` registry), so nothing identity-bearing is lost in the round trip.
-- **No tick, server-authoritative** (invariants 1 & 3). `interact` is an input-driven reducer. An idle trogg's standing facing isn't synced (see "Movement"), so the client passes its current heading; the server re-derives the trogg's tile and acts only on the entity actually on the adjacent faced tile, so the client can't reach past its neighbours. Carrying changes nothing per-frame — the held thing simply moves with its carrier, whose position is already derived.
+- **No tick, server-authoritative** (invariants 1 & 3). `interact` is an input-driven reducer. An idle trogg's standing facing isn't synced (see "Movement"), so the client passes its current heading; the server re-derives the trogg's tile and acts only on adjacent entities, preferring the faced tile when there are multiple candidates, so the client can't reach past its neighbours. Carrying changes nothing per-frame — the held thing simply moves with its carrier, whose position is already derived.
 - **Nothing is orphaned.** On disconnect the trogg drops what it holds where it settles; the carried kind is durable on the player row, so even a mid-carry restart loses nothing.
 - Behind the optional `interact` flag (off → `E` does nothing). Independent of pushing: pushing shoves a boulder ahead, carrying lifts it (or a Hog) onto your person to relocate.
 
