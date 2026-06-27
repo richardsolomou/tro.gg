@@ -341,6 +341,44 @@ test("reconnecting flips an existing trogg back online without duplicating it", 
   assert.equal(mine[0].name, "Keepme");
 });
 
+test("connecting a second tab for the same account does not reset active movement", () => {
+  const me = id("account");
+  const first = id("tab-1");
+  const second = id("tab-2");
+  const ctx = makeCtx({ sender: me, connectionId: second, now: micros(250) });
+  ctx.db.player.insert(playerRow(me, { online: true, x: 5, y: 8, dirX: 1, dirY: 0, running: true, movedAt: { microsSinceUnixEpoch: 0n } }));
+  ctx.db.playerConnection.insert({ connectionId: first.toHexString(), playerId: me, connectedAt: { microsSinceUnixEpoch: 0n } });
+
+  onConnect(ctx);
+
+  const p = ctx.db.player.identity.find(me);
+  assert.equal(p.online, true);
+  assert.equal(p.dirX, 1);
+  assert.equal(p.dirY, 0);
+  assert.equal(p.running, true);
+  assert.equal(p.movedAt.microsSinceUnixEpoch, 0n);
+  assert.equal(ctx.db.playerConnection.rows().length, 2);
+});
+
+test("disconnecting one duplicate account tab keeps the shared trogg online", () => {
+  const me = id("account");
+  const first = id("tab-1");
+  const second = id("tab-2");
+  const ctx = makeCtx({ sender: me, connectionId: first });
+  ctx.db.player.insert(playerRow(me, { online: true, x: 5, y: 8, dirX: 1, dirY: 0, carrying: "boulder" }));
+  ctx.db.playerConnection.insert({ connectionId: first.toHexString(), playerId: me, connectedAt: { microsSinceUnixEpoch: 0n } });
+  ctx.db.playerConnection.insert({ connectionId: second.toHexString(), playerId: me, connectedAt: { microsSinceUnixEpoch: 0n } });
+
+  onDisconnect(ctx);
+
+  const p = ctx.db.player.identity.find(me);
+  assert.equal(p.online, true);
+  assert.equal(p.dirX, 1);
+  assert.equal(p.carrying, "boulder");
+  assert.equal(ctx.db.boulder.rows().length, 0);
+  assert.equal(ctx.db.playerConnection.rows().length, 1);
+});
+
 test("a returning trogg embedded in a wall is nudged to spawn", () => {
   const me = id("stuck");
   const ctx = makeCtx({ sender: me });
