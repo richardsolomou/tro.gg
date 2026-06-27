@@ -6,7 +6,7 @@ import { attachKeyboard } from "../../input.js";
 import { setupChat } from "../../ui/chat.js";
 import { mountCommands } from "../../ui/commands.js";
 import { createSelfController, type SelfController } from "../../movement.js";
-import { ART, createEntities, GHOST_CHANCE, type BoulderView, type Entities, type GroundItemView, type HogView, type Tracked } from "../entities.js";
+import { ART, createEntities, type BoulderView, type Entities, type GroundItemView, type HogView, type Tracked } from "../entities.js";
 import { createTerrain, registerTerrainTextures, type Terrain } from "../terrain.js";
 import { facingFromDir, registerAvatarTextures } from "../avatars.js";
 import { captureEvent, isFeatureEnabled } from "../../analytics.js";
@@ -209,9 +209,6 @@ export class WorldScene extends Phaser.Scene {
       .subscriptionBuilder()
       .onApplied(() => {
         this.sub.live = true;
-        // Cosmetic join easter egg. Each launch has a chance to request a synced
-        // zone haunt, so everyone in the map sees the same apparition.
-        if (this.useGhost && Math.random() < GHOST_CHANCE) conn.reducers.hauntGhost({});
       })
       .subscribe(queries);
   }

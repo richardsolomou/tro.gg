@@ -182,6 +182,11 @@ export function createSelfController(deps: SelfControllerDeps) {
   let destinationPath = "";
   // Optimistically-applied self moves awaiting their server ack, oldest first.
   const pendingSelfMoves: MotionSnapshot[] = [];
+  // A duplicate signed-in tab sees the same player row as "self", but should act as
+  // an observer until this tab receives local keyboard input. Without this, an idle
+  // observer adopts another tab's WASD motion as `sent`, then emits an idle `move` at
+  // the next tile centre and cancels the driver.
+  let keyboardControlling = false;
 
   const setDestination = (tile: Coord | undefined) => {
     destinationTile = tile;
@@ -217,6 +222,7 @@ export function createSelfController(deps: SelfControllerDeps) {
       if (wasIdle) audio.playFootstep(intent.running);
     }
     conn.reducers.move(intent);
+    if (isIdle(intent) && isIdle(desired)) keyboardControlling = false;
   };
 
   const sendFace = (entry: Tracked, intent: MoveIntent, x: number, y: number, now: number) => {
@@ -332,6 +338,7 @@ export function createSelfController(deps: SelfControllerDeps) {
     // Stopped (on a tile centre).
     if (isIdle(desired)) {
       walkAfter = Number.POSITIVE_INFINITY;
+      keyboardControlling = false;
       return;
     }
     if (blockedByHog(x, y, desired)) {
@@ -432,9 +439,9 @@ export function createSelfController(deps: SelfControllerDeps) {
         conn.reducers.moveTo({ x: destinationTile.x, y: destinationTile.y, running: false });
       }
     } else {
-      driveSelf(entry, x, y, now);
+      if (keyboardControlling) driveSelf(entry, x, y, now);
     }
-    pushStep(x, y, now);
+    if (keyboardControlling) pushStep(x, y, now);
     prevX = x;
     prevY = y;
   };
@@ -456,7 +463,7 @@ export function createSelfController(deps: SelfControllerDeps) {
       pendingSelfMoves.length = 0;
       entry.player = p;
       entry.baseMs = toBaseMs(p.movedAt);
-      sent = playerIntent(p);
+      sent = keyboardControlling ? playerIntent(p) : { dirX: 0, dirY: 0, running: false };
       prevX = Number.NaN;
       prevY = Number.NaN;
       pushBlocked = false;
@@ -469,6 +476,7 @@ export function createSelfController(deps: SelfControllerDeps) {
    *  trogg now rather than at the next centre, since a backgrounded tab can't animate it. */
   const onIntent = (intent: MoveIntent, immediate = false) => {
     syncFacingFromSelfRow();
+    if (!isIdle(intent)) keyboardControlling = true;
     desired = intent;
     destinationPath = "";
     // A keypress takes over from click-to-move: drop any click waiting for a centre.
@@ -480,10 +488,12 @@ export function createSelfController(deps: SelfControllerDeps) {
     walkAfter = Number.POSITIVE_INFINITY;
     if (self) {
       const { x, y } = projectMotion(self.player, now - self.baseMs, bounds);
-      sendMove(self, intent, x, y, now);
+      if (keyboardControlling || !isIdle(intent)) sendMove(self, intent, x, y, now);
     } else {
-      sent = intent;
-      conn.reducers.move(intent);
+      if (keyboardControlling || !isIdle(intent)) {
+        sent = intent;
+        conn.reducers.move(intent);
+      }
     }
   };
 
@@ -498,6 +508,7 @@ export function createSelfController(deps: SelfControllerDeps) {
     // tile centre (`flushPendingMoveTo`) — a flurry of clicks just overwrites the
     // target, so the trogg can never bank sub-tile distance between centres.
     pendingMoveTo = tile;
+    keyboardControlling = false;
     setDestination(tile);
   };
 
