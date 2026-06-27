@@ -12,5 +12,5 @@ import {
 
 export default {
   kind: __t.string(),
-  count: __t.i32(),
+  item: __t.string(),
 };

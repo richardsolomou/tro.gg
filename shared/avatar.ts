@@ -82,6 +82,11 @@ export function troggStyleFor(styleIndex: number, userId: string): TroggStyle {
 }
 
 /** A Hog's style, derived from its entity id — Hogs don't choose, they just vary. */
-export function hogStyleFor(hogId: string): HogStyle {
-  return HOG_STYLES[hashId(hogId) % HOG_STYLES.length]!;
+export function hogStyleFor(hogId: string, storedStyle = ""): HogStyle {
+  return isHogStyle(storedStyle) ? storedStyle : HOG_STYLES[hashId(hogId) % HOG_STYLES.length]!;
+}
+
+/** Whether `style` is one of the Hog sprite skins the shared sheet contains. */
+export function isHogStyle(style: string): style is HogStyle {
+  return (HOG_STYLES as readonly string[]).includes(style);
 }

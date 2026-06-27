@@ -3,7 +3,6 @@ import type { DbConnection } from "../net/module_bindings";
 import type { Player } from "../net/module_bindings/types";
 import { cssColor } from "../ui_text.js";
 import { hudRoot } from "./hud.js";
-import { currentCommandFlags, handleChatCommand } from "./chat_commands.js";
 import { captureEvent, isFeatureEnabled } from "../analytics.js";
 import { audio } from "../audio.js";
 import type { Entities, Tracked } from "../game/entities.js";
@@ -160,11 +159,7 @@ export function setupChat(
   myId: string | undefined,
 ) {
   const slug = zone.slug;
-  // Slash commands are typed in the chat box but are not chat lines. Each command is
-  // independently feature-gated and dispatches through reducers.
-  const flags = currentCommandFlags();
   const chat = mountChat((text) => {
-    if (handleChatCommand(text, { conn, chat, zone, flags })) return;
     audio.playChatSend();
     conn.reducers.chat({ text });
   });

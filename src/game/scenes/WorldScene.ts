@@ -440,7 +440,7 @@ export class WorldScene extends Phaser.Scene {
     const id = h.id.toString();
     if (this.hogs.has(id)) return;
     const facing = facingFromDir(h.dirX, h.dirY, "down");
-    const style = hogStyleFor(id);
+    const style = hogStyleFor(id, h.style);
     const { marker, sprite, frameKey } = this.entities.makeHog(style, facing);
     const baseMs = timestampBaseMs(h.movedAt);
     const { x, y } = projectMotion(h, performance.now() - baseMs, this.hogBounds);
@@ -452,6 +452,16 @@ export class WorldScene extends Phaser.Scene {
   private updateHog(h: Hog) {
     const view = this.hogs.get(h.id.toString());
     if (!view) return this.addHog(h);
+    const style = hogStyleFor(h.id.toString(), h.style);
+    if (view.style !== style) {
+      view.marker.destroy();
+      const built = this.entities.makeHog(style, view.facing);
+      view.marker = built.marker;
+      view.sprite = built.sprite;
+      view.frameKey = built.frameKey;
+      view.style = style;
+      this.hogLayer.add(view.marker);
+    }
     // Rebase extrapolation on each new intent, like remote players.
     view.row = h;
     view.baseMs = timestampBaseMs(h.movedAt);
