@@ -12,6 +12,7 @@ import { facingFromDir, registerAvatarTextures } from "../avatars.js";
 import { captureEvent, isFeatureEnabled, logError, logInfo } from "../../analytics.js";
 import { audio } from "../../audio.js";
 import { interact, useEquipped } from "../../net/procedures.js";
+import { isOlderPlayerMotion, playerMotionChanged, withPlayerMotion } from "../../motion_sync.js";
 
 /** Fraction of the viewport the zone fills, leaving a rim of cave around it. */
 const ZONE_FILL = 0.92;
@@ -339,6 +340,7 @@ export class WorldScene extends Phaser.Scene {
     entry.equipped = undefined;
     entry.equippedKind = "";
     entry.equippedFacing = undefined;
+    entry.equipmentActionBaseMs = undefined;
     const { x, y } = projectMotion(entry.player, performance.now() - entry.baseMs, this.troggBounds);
     this.entities.place(entry.marker, x, y);
     this.stage.add(entry.marker);
@@ -358,11 +360,20 @@ export class WorldScene extends Phaser.Scene {
         this.observeLocalLifecycle(_old, p);
         this.self.reconcile(entry, p);
       } else {
-        // Rebase extrapolation to the server's `movedAt` on the local monotonic clock,
-        // not receipt time, so a deployed client doesn't trail the server by its network
-        // latency (which would show as correction jitter).
-        entry.player = p;
-        entry.baseMs = timestampBaseMs(p.movedAt);
+        const motionChanged = playerMotionChanged(entry.player, p);
+        const staleMotion = motionChanged && isOlderPlayerMotion(p, entry.player);
+        entry.player = staleMotion ? withPlayerMotion(p, entry.player) : p;
+        if (motionChanged) {
+          // Rebase extrapolation to the server's `movedAt` on the local monotonic clock,
+          // not receipt time, so a deployed client doesn't trail the server by its network
+          // latency (which would show as correction jitter). Non-motion row updates, such
+          // as equipment swings, keep the existing base so walking does not visibly restart.
+          if (!staleMotion) entry.baseMs = timestampBaseMs(p.movedAt);
+        }
+      }
+
+      if (_old.equipmentActionAt.microsSinceUnixEpoch !== p.equipmentActionAt.microsSinceUnixEpoch) {
+        entry.equipmentActionBaseMs = performance.now();
       }
 
       // The nameplate, tint, body style, and health bar are baked into the marker at
