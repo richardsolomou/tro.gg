@@ -14,6 +14,7 @@ import {
   styleGroups,
   type PixelSink,
 } from "./sprites";
+import { AVATAR_FRAME_ART, GHOST_ART, PIXEL_KEYS, type IndexedSpriteArt } from "./sprite_art";
 
 test("the atlas covers every style group × facing × frame exactly once", () => {
   const all = frames();
@@ -34,6 +35,31 @@ test("frames tile the sheet without overlap or gaps", () => {
 test("frameRect names follow kind_style_facing_frame", () => {
   assert.equal(frameRect("trogg", "moss", "down", "walk_a").name, "trogg_moss_down_walk_a");
   assert.equal(frameRect("hog", "ember", "left", "idle").name, "hog_ember_left_idle");
+});
+
+function assertIndexedArt(name: string, art: IndexedSpriteArt): void {
+  assert.equal(art.pixels.length, FRAME_H, `${name} row count`);
+  const validKeys = new Set([".", ...PIXEL_KEYS]);
+  for (const [y, row] of art.pixels.entries()) {
+    assert.equal(row.length, FRAME_W, `${name} row ${y} width`);
+    for (const key of row) {
+      assert.ok(validKeys.has(key), `${name} uses unknown pixel key ${key}`);
+      if (key !== ".") assert.ok(PIXEL_KEYS.indexOf(key) < art.palette.length, `${name} key ${key} has no palette entry`);
+    }
+  }
+  for (const rgba of art.palette) {
+    assert.ok(Number.isInteger(rgba) && rgba >= 0 && rgba <= 0xffffffff, `${name} palette entry is not RGBA`);
+  }
+}
+
+test("indexed avatar art covers every generated frame", () => {
+  const expected = frames().map((f) => f.name);
+  assert.deepEqual(Object.keys(AVATAR_FRAME_ART), expected);
+  for (const name of expected) assertIndexedArt(name, AVATAR_FRAME_ART[name]!);
+});
+
+test("indexed ghost art is one valid frame", () => {
+  assertIndexedArt("ghost", GHOST_ART);
 });
 
 test("painting stays within the sheet bounds", () => {

@@ -247,7 +247,7 @@ function boulderIcon(): SVGSVGElement {
 
 function hogIcon(style: HogStyle): HTMLSpanElement {
   const frame = frameRect("hog", style, "down", "idle");
-  const scale = 2;
+  const scale = 1;
   const icon = document.createElement("span");
   icon.className = "command-avatar-icon";
   icon.style.width = `${FRAME_W * scale}px`;

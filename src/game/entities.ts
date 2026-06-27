@@ -100,9 +100,10 @@ export function createEntities(scene: Phaser.Scene, getTile: () => number) {
    * centre so the trogg stands in the middle of its tile, not on the bottom-edge seam.
    */
   const feetY = () => getTile() / 2;
+  const avatarScale = () => getTile() / FRAME_W;
 
   /** Screen-space y of the top of a trogg's head, for placing labels and bubbles. */
-  const headTopY = () => feetY() - FRAME_H * (getTile() / ART);
+  const headTopY = () => feetY() - FRAME_H * avatarScale();
 
   const place = (marker: Positionable, x: number, y: number) => {
     const tile = getTile();
@@ -139,7 +140,7 @@ export function createEntities(scene: Phaser.Scene, getTile: () => number) {
       // Anchor on the art's feet point (ANCHOR), not the frame's bottom edge, so the
       // feet — not the empty pixels below them — land on the tile centre.
       sprite.setOrigin(ANCHOR.x / FRAME_W, ANCHOR.y / FRAME_H);
-      sprite.setScale(tile / ART);
+      sprite.setScale(avatarScale());
       sprite.setTint(color);
       if (dead) sprite.setAlpha(0.45);
       marker.add(sprite);
@@ -330,7 +331,7 @@ export function createEntities(scene: Phaser.Scene, getTile: () => number) {
     } else if (kind === "hog") {
       const sprite = scene.make.sprite({ x: 0, y: 0, key: AVATAR_TEX, frame: avatarFrameName("hog", style, "down", "idle"), add: false });
       sprite.setOrigin(ANCHOR.x / FRAME_W, ANCHOR.y / FRAME_H);
-      sprite.setScale((tile / ART) * CARRY_SCALE);
+      sprite.setScale(avatarScale() * CARRY_SCALE);
       wrap.add(sprite);
     } else {
       wrap.destroy();
@@ -421,7 +422,7 @@ export function createEntities(scene: Phaser.Scene, getTile: () => number) {
     // out of it — the same feet-centred placement a common hog gets in its one tile.
     const sprite = scene.make.sprite({ x: (tile * size) / 2, y: (tile * size) / 2, key: AVATAR_TEX, frame: avatarFrameName("hog", style, facing, frame), add: false });
     sprite.setOrigin(ANCHOR.x / FRAME_W, ANCHOR.y / FRAME_H);
-    sprite.setScale((size * tile) / ART);
+    sprite.setScale(size * avatarScale());
     marker.add(sprite);
     const hp = Math.max(0, Math.min(HOG_MAX_HEALTH, health));
     if (hp < HOG_MAX_HEALTH) {
@@ -449,7 +450,7 @@ export function createEntities(scene: Phaser.Scene, getTile: () => number) {
     const ghost = scene.add.container(0, 0);
     const sprite = scene.make.sprite({ x: getTile() / 2, y: feetY(), key: GHOST_TEX, frame: GHOST_FRAME, add: false });
     sprite.setOrigin(ANCHOR.x / FRAME_W, ANCHOR.y / FRAME_H);
-    sprite.setScale(getTile() / ART);
+    sprite.setScale(avatarScale());
     ghost.add(sprite);
     ghost.setAlpha(0);
     place(ghost, tile.x, tile.y);
