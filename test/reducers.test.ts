@@ -5,6 +5,7 @@ import {
   CLAIM_CODE_TTL_MS,
   GHOST_HAUNT_HISTORY_MAX,
   getZone,
+  INVENTORY_SLOT_COUNT,
   isWalkable,
   MAX_BOULDERS_PER_ZONE,
   MAX_HOGS_PER_ZONE,
@@ -203,6 +204,30 @@ test("non-stackable equippable pickups stay as separate inventory rows", () => {
   assert.deepEqual(swords.map((r: any) => r.qty), [1, 1]);
 });
 
+test("interact leaves a ground item in place when inventory has no free slot", () => {
+  const { ctx, me } = withPlayer({ x: 5, y: 8, carrying: "" });
+  for (let i = 0; i < INVENTORY_SLOT_COUNT; i++) ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });
+  const item = ctx.db.groundItem.insert({ id: 0n, zoneId: ZONE, item: "pickaxe", x: 6, y: 8 });
+
+  interact(ctx, { dirX: 1, dirY: 0 });
+
+  assert.equal(ctx.db.inventory.rows().length, INVENTORY_SLOT_COUNT);
+  assert.equal(ctx.db.groundItem.id.find(item.id)?.item, "pickaxe");
+});
+
+test("stackable pickups merge into an existing row even when inventory slots are full", () => {
+  const { ctx, me } = withPlayer({ x: 5, y: 8, carrying: "" });
+  const stone = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "stone", qty: 3 });
+  for (let i = 1; i < INVENTORY_SLOT_COUNT; i++) ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });
+  ctx.db.groundItem.insert({ id: 0n, zoneId: ZONE, item: "stone", x: 6, y: 8 });
+
+  interact(ctx, { dirX: 1, dirY: 0 });
+
+  assert.equal(ctx.db.inventory.rows().length, INVENTORY_SLOT_COUNT);
+  assert.equal(ctx.db.inventory.id.find(stone.id)?.qty, 4);
+  assert.equal(ctx.db.groundItem.rows().length, 0);
+});
+
 test("equipItem equips only a specific owned equippable row", () => {
   const { ctx, me } = withPlayer({});
   equipItem(ctx, { inventoryId: 999n });
@@ -231,6 +256,19 @@ test("useEquipped mines a faced boulder with a pickaxe without stopping movement
   const p = ctx.db.player.identity.find(me);
   assert.equal(p.equipmentAction, "pickaxe");
   assert.deepEqual({ dirX: p.dirX, dirY: p.dirY, running: p.running, path: p.path }, { dirX: 1, dirY: 0, running: true, path: "" });
+});
+
+test("useEquipped does not mine a boulder when there is no slot for a new stone stack", () => {
+  const { ctx, me } = withPlayer({ x: 5, y: 8, equippedMainHand: "pickaxe" });
+  const pickaxe = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "pickaxe", qty: 1 });
+  ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedMainHandInventoryId: pickaxe.id });
+  for (let i = 1; i < INVENTORY_SLOT_COUNT; i++) ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });
+  const boulder = ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 6, y: 8 });
+
+  useEquipped(ctx, { dirX: 1, dirY: 0 });
+
+  assert.equal(ctx.db.boulder.id.find(boulder.id)?.x, 6);
+  assert.equal(ctx.db.inventory.rows().some((r: any) => r.item === "stone"), false);
 });
 
 test("interact prioritizes the faced pickup when several entities are adjacent", () => {
@@ -339,6 +377,44 @@ test("reconnecting flips an existing trogg back online without duplicating it", 
   assert.equal(mine.length, 1);
   assert.equal(mine[0].online, true);
   assert.equal(mine[0].name, "Keepme");
+});
+
+test("connecting a second tab for the same account does not reset active movement", () => {
+  const me = id("account");
+  const first = id("tab-1");
+  const second = id("tab-2");
+  const ctx = makeCtx({ sender: me, connectionId: second, now: micros(250) });
+  ctx.db.player.insert(playerRow(me, { online: true, x: 5, y: 8, dirX: 1, dirY: 0, running: true, movedAt: { microsSinceUnixEpoch: 0n } }));
+  ctx.db.playerConnection.insert({ connectionId: first.toHexString(), playerId: me, connectedAt: { microsSinceUnixEpoch: 0n } });
+
+  onConnect(ctx);
+
+  const p = ctx.db.player.identity.find(me);
+  assert.equal(p.online, true);
+  assert.equal(p.dirX, 1);
+  assert.equal(p.dirY, 0);
+  assert.equal(p.running, true);
+  assert.equal(p.movedAt.microsSinceUnixEpoch, 0n);
+  assert.equal(ctx.db.playerConnection.rows().length, 2);
+});
+
+test("disconnecting one duplicate account tab keeps the shared trogg online", () => {
+  const me = id("account");
+  const first = id("tab-1");
+  const second = id("tab-2");
+  const ctx = makeCtx({ sender: me, connectionId: first });
+  ctx.db.player.insert(playerRow(me, { online: true, x: 5, y: 8, dirX: 1, dirY: 0, carrying: "boulder" }));
+  ctx.db.playerConnection.insert({ connectionId: first.toHexString(), playerId: me, connectedAt: { microsSinceUnixEpoch: 0n } });
+  ctx.db.playerConnection.insert({ connectionId: second.toHexString(), playerId: me, connectedAt: { microsSinceUnixEpoch: 0n } });
+
+  onDisconnect(ctx);
+
+  const p = ctx.db.player.identity.find(me);
+  assert.equal(p.online, true);
+  assert.equal(p.dirX, 1);
+  assert.equal(p.carrying, "boulder");
+  assert.equal(ctx.db.boulder.rows().length, 0);
+  assert.equal(ctx.db.playerConnection.rows().length, 1);
 });
 
 test("a returning trogg embedded in a wall is nudged to spawn", () => {

@@ -6,12 +6,12 @@ import { attachKeyboard } from "../../input.js";
 import { setupChat } from "../../ui/chat.js";
 import { mountCommands } from "../../ui/commands.js";
 import { createSelfController, type SelfController } from "../../movement.js";
-import { ART, createEntities, GHOST_CHANCE, type BoulderView, type Entities, type GroundItemView, type HogView, type Tracked } from "../entities.js";
+import { ART, createEntities, type BoulderView, type Entities, type GroundItemView, type HogView, type Tracked } from "../entities.js";
 import { createTerrain, registerTerrainTextures, type Terrain } from "../terrain.js";
 import { facingFromDir, registerAvatarTextures } from "../avatars.js";
 import { isFeatureEnabled, logError, logInfo } from "../../analytics.js";
 import { audio } from "../../audio.js";
-import { hauntGhost, interact, useEquipped } from "../../net/procedures.js";
+import { interact, useEquipped } from "../../net/procedures.js";
 
 /** Fraction of the viewport the zone fills, leaving a rim of cave around it. */
 const ZONE_FILL = 0.92;
@@ -222,13 +222,6 @@ export class WorldScene extends Phaser.Scene {
       .subscriptionBuilder()
       .onApplied(() => {
         this.sub.live = true;
-        // Cosmetic join easter egg. Each launch has a chance to request a synced
-        // zone haunt, so everyone in the map sees the same apparition.
-        if (this.useGhost && Math.random() < GHOST_CHANCE) {
-          void hauntGhost(conn, 1, "launch").catch((err) => {
-            logError("Launch ghost action failed", { surface: "world", action: "haunt_ghost", count: 1, error: err });
-          });
-        }
       })
       .subscribe(queries);
   }

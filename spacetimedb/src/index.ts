@@ -15,6 +15,7 @@ import {
   HOG_IDLE_CHANCE,
   HOG_STEP_INTERVAL_MS,
   HOG_TURN_CHANCE,
+  INVENTORY_SLOT_COUNT,
   isColorIndex,
   isEquippableItem,
   isGeneratedName,
@@ -256,6 +257,22 @@ const inventory = table(
 );
 
 /**
+ * Live socket presence per trogg (private). A player row is keyed by Identity, so
+ * two tabs signed into the same account share one durable trogg. This table tracks
+ * the individual connections behind that identity so an extra tab connecting does
+ * not restart the trogg's motion, and one tab disconnecting does not mark the shared
+ * row offline while another tab is still present.
+ */
+const playerConnection = table(
+  { name: "player_connection", public: false },
+  {
+    connectionId: t.string().primaryKey(),
+    playerId: t.identity().index("btree"),
+    connectedAt: t.timestamp(),
+  },
+);
+
+/**
  * The Hog wander timer (GDD "Hogs"). A scheduled table is SpacetimeDB's
  * deterministic timer — the only way state changes outside player input (invariant
  * 1: no simulation tick). Each tick fires `wanderHogs`, which re-bases every Hog to
@@ -271,7 +288,7 @@ const hogWander = table(
   },
 );
 
-const spacetimedb = schema({ player, chatMessage, ghostHaunt, claimCode, boulder, hog, groundItem, inventory, hogWander });
+const spacetimedb = schema({ player, chatMessage, ghostHaunt, claimCode, boulder, hog, groundItem, inventory, playerConnection, hogWander });
 export default spacetimedb;
 
 /** The reducer context, typed against this module's schema (db view + sender). */
@@ -336,8 +353,17 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
   // A player is here, so make sure the Hogs are roaming (no-op if already armed).
   armWander(ctx);
 
+  const hadLiveConnection = playerConnectionCount(ctx, ctx.sender) > 0;
+  rememberPlayerConnection(ctx);
+
   const existing = ctx.db.player.identity.find(ctx.sender);
   if (existing) {
+    // The same account can have several live sockets (two tabs, or two devices).
+    // They all control and observe one trogg row. Only the first live connection
+    // should resume/reset presence; later connections must not stop an in-flight
+    // movement intent that the already-active tab is driving.
+    if (existing.online && hadLiveConnection) return;
+
     // A returning trogg is already settled (disconnect zeroes its direction), but
     // a tilemap edit could leave its resting tile inside a new wall; nudge it back
     // to spawn so it never resumes embedded in an obstacle (invariant 6).
@@ -425,6 +451,8 @@ function seedGroundItems(ctx: Ctx, zone: Zone): void {
 export const onDisconnect = spacetimedb.clientDisconnected((ctx) => {
   const p = ctx.db.player.identity.find(ctx.sender);
   if (!p) return;
+  if (forgetPlayerConnection(ctx) > 0) return;
+
   const settled = settle(ctx, p, ctx.timestamp);
   // Drop whatever the trogg was carrying where it stops, so a carried entity is
   // never orphaned while its carrier is offline (GDD "Interacting"). If it's boxed
@@ -598,7 +626,7 @@ function runInteract(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; dirY
   const target = pickupTarget(ctx, p.zoneId, Math.round(pos.x), Math.round(pos.y), dir, ctx.timestamp);
   if (target?.kind === "item") {
     if (!isItemId(target.row.item)) return [];
-    addInventory(ctx, p.identity, target.row.item, 1);
+    if (!addInventory(ctx, p.identity, target.row.item, 1)) return [];
     ctx.db.groundItem.id.delete(target.row.id);
     return [{ distinctId: distinctId(ctx), event: "inventory_item_acquired", properties: { ...props, item: target.row.item, qty: 1 } }];
   }
@@ -1108,9 +1136,10 @@ function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; d
     const ay = Math.round(pos.y) + dir.dirY;
     const b = boulderAt(ctx, p.zoneId, ax, ay);
     if (b) {
-      ctx.db.boulder.id.delete(b.id);
-      addInventory(ctx, p.identity, "stone", 1);
-      events.push({ distinctId: distinctId(ctx), event: "inventory_item_acquired", properties: { zone: p.zoneId, item: "stone", qty: 1, ...sourceProp(source) } });
+      if (addInventory(ctx, p.identity, "stone", 1)) {
+        ctx.db.boulder.id.delete(b.id);
+        events.push({ distinctId: distinctId(ctx), event: "inventory_item_acquired", properties: { zone: p.zoneId, item: "stone", qty: 1, ...sourceProp(source) } });
+      }
     }
   }
 
@@ -1227,6 +1256,22 @@ export const redeemClaim = spacetimedb.reducer({ code: t.string() }, (ctx, { cod
 function anyPlayerOnline(ctx: Ctx): boolean {
   for (const p of ctx.db.player.iter()) if (p.online) return true;
   return false;
+}
+
+function playerConnectionCount(ctx: Ctx, playerId: Ctx["sender"]): number {
+  return countRows(ctx.db.playerConnection.playerId.filter(playerId));
+}
+
+function rememberPlayerConnection(ctx: Ctx): void {
+  if (!ctx.connectionId) return;
+  const connectionId = ctx.connectionId.toHexString();
+  if (ctx.db.playerConnection.connectionId.find(connectionId)) return;
+  ctx.db.playerConnection.insert({ connectionId, playerId: ctx.sender, connectedAt: ctx.timestamp });
+}
+
+function forgetPlayerConnection(ctx: Ctx): number {
+  if (ctx.connectionId) ctx.db.playerConnection.connectionId.delete(ctx.connectionId.toHexString());
+  return playerConnectionCount(ctx, ctx.sender);
 }
 
 /** Pick a walkable floor tile from a zone. Used for the cosmetic ghost haunt. */
@@ -1419,23 +1464,36 @@ function equippedInventoryRow(ctx: Ctx, p: { identity: Ctx["sender"]; equippedMa
   return undefined;
 }
 
-/** Add an item to inventory. Stackable items merge; equippable items stay distinct. */
-function addInventory(ctx: Ctx, playerId: Ctx["sender"], item: string, qty: number): void {
-  if (!isItemId(item) || qty <= 0) return;
+/** Add an item to inventory. Stackable items merge; new rows require a free carry slot. */
+function addInventory(ctx: Ctx, playerId: Ctx["sender"], item: string, qty: number): boolean {
+  if (!isItemId(item) || qty <= 0) return false;
   if (isStackableItem(item)) {
     for (const row of ctx.db.inventory.playerId.filter(playerId)) {
       if (row.item === item) {
         ctx.db.inventory.id.update({ ...row, qty: row.qty + qty });
-        return;
+        return true;
       }
     }
+    if (!hasFreeInventorySlot(ctx, playerId)) return false;
     ctx.db.inventory.insert({ id: 0n, playerId, item, qty });
-    return;
+    return true;
   }
 
+  if (inventorySlotCount(ctx, playerId) + qty > INVENTORY_SLOT_COUNT) return false;
   for (let i = 0; i < qty; i++) {
     ctx.db.inventory.insert({ id: 0n, playerId, item, qty: 1 });
   }
+  return true;
+}
+
+function inventorySlotCount(ctx: Ctx, playerId: Ctx["sender"]): number {
+  let count = 0;
+  for (const _row of ctx.db.inventory.playerId.filter(playerId)) count++;
+  return count;
+}
+
+function hasFreeInventorySlot(ctx: Ctx, playerId: Ctx["sender"]): boolean {
+  return inventorySlotCount(ctx, playerId) < INVENTORY_SLOT_COUNT;
 }
 
 /** Fold every inventory row from one identity into another, preserving item counts. */
@@ -1443,8 +1501,7 @@ function moveInventory(ctx: Ctx, from: Ctx["sender"], to: Ctx["sender"]): Map<bi
   const moved = new Map<bigint, bigint>();
   for (const row of [...ctx.db.inventory.playerId.filter(from)]) {
     if (isStackableItem(row.item)) {
-      addInventory(ctx, to, row.item, row.qty);
-      moved.set(row.id, firstInventoryRowId(ctx, to, row.item));
+      moved.set(row.id, mergeInventoryForClaim(ctx, to, row.item, row.qty));
     } else {
       const inserted = ctx.db.inventory.insert({ id: 0n, playerId: to, item: row.item, qty: 1 });
       moved.set(row.id, inserted.id);
@@ -1454,11 +1511,14 @@ function moveInventory(ctx: Ctx, from: Ctx["sender"], to: Ctx["sender"]): Map<bi
   return moved;
 }
 
-function firstInventoryRowId(ctx: Ctx, playerId: Ctx["sender"], item: string): bigint {
+function mergeInventoryForClaim(ctx: Ctx, playerId: Ctx["sender"], item: string, qty: number): bigint {
   for (const row of ctx.db.inventory.playerId.filter(playerId)) {
-    if (row.item === item) return row.id;
+    if (row.item === item) {
+      ctx.db.inventory.id.update({ ...row, qty: row.qty + qty });
+      return row.id;
+    }
   }
-  return 0n;
+  return ctx.db.inventory.insert({ id: 0n, playerId, item, qty }).id;
 }
 
 /**
