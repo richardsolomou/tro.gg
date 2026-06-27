@@ -14,3 +14,20 @@ export function playerMotionChanged(a: MotionRow, b: MotionRow): boolean {
     a.movedAt.microsSinceUnixEpoch !== b.movedAt.microsSinceUnixEpoch
   );
 }
+
+export function isOlderPlayerMotion(incoming: MotionRow, current: MotionRow): boolean {
+  return incoming.movedAt.microsSinceUnixEpoch < current.movedAt.microsSinceUnixEpoch;
+}
+
+export function withPlayerMotion(p: Player, motion: MotionRow): Player {
+  return {
+    ...p,
+    x: motion.x,
+    y: motion.y,
+    dirX: motion.dirX,
+    dirY: motion.dirY,
+    running: motion.running,
+    path: motion.path,
+    movedAt: motion.movedAt,
+  };
+}

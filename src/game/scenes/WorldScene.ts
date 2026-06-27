@@ -12,7 +12,7 @@ import { facingFromDir, registerAvatarTextures } from "../avatars.js";
 import { isFeatureEnabled, logError, logInfo } from "../../analytics.js";
 import { audio } from "../../audio.js";
 import { interact, useEquipped } from "../../net/procedures.js";
-import { playerMotionChanged } from "../../motion_sync.js";
+import { isOlderPlayerMotion, playerMotionChanged, withPlayerMotion } from "../../motion_sync.js";
 
 /** Fraction of the viewport the zone fills, leaving a rim of cave around it. */
 const ZONE_FILL = 0.92;
@@ -341,13 +341,14 @@ export class WorldScene extends Phaser.Scene {
         this.self.reconcile(entry, p);
       } else {
         const motionChanged = playerMotionChanged(entry.player, p);
-        entry.player = p;
+        const staleMotion = motionChanged && isOlderPlayerMotion(p, entry.player);
+        entry.player = staleMotion ? withPlayerMotion(p, entry.player) : p;
         if (motionChanged) {
           // Rebase extrapolation to the server's `movedAt` on the local monotonic clock,
           // not receipt time, so a deployed client doesn't trail the server by its network
           // latency (which would show as correction jitter). Non-motion row updates, such
           // as equipment swings, keep the existing base so walking does not visibly restart.
-          entry.baseMs = timestampBaseMs(p.movedAt);
+          if (!staleMotion) entry.baseMs = timestampBaseMs(p.movedAt);
         }
       }
 
