@@ -6,6 +6,7 @@ import {
   CHAT_RATE_LIMIT_MS,
   CLAIM_CODE_TTL_MS,
   COLOR_UNSET,
+  CARDINALS,
   elapsedMs,
   facingTile,
   findPath,
@@ -422,15 +423,15 @@ export const push = spacetimedb.reducer((ctx) => {
 });
 
 /**
- * Interact with the tile a trogg faces (GDD "Interacting") — a generic action key
- * (client `E`). Today the one effect is pick up / put down a tile-sized entity:
- * empty-handed, lift the boulder or hog on the faced tile onto the trogg (delete
- * its world row, stamp `carrying`); already carrying, set it back down on the faced
- * tile. It's a toggle. The faced direction is passed in because an idle trogg's
- * standing facing isn't synced (GDD "Movement"); the server still re-derives the
- * trogg's tile and only acts on the entity actually on the adjacent faced tile, so
+ * Interact with nearby tile-sized things (GDD "Interacting") — a generic action key
+ * (client `E`). Today the one effect is pick up / put down: empty-handed, lift an
+ * adjacent boulder or hog onto the trogg (delete its world row, stamp `carrying`);
+ * already carrying, set it back down on the faced tile. It's a toggle. The faced
+ * direction is passed in because an idle trogg's standing facing isn't synced (GDD
+ * "Movement"); the server still re-derives the trogg's tile and only acts on an
+ * adjacent entity, preferring the faced tile when there are multiple candidates, so
  * the client can't reach past its neighbours (invariant 3). Future interactions
- * (switches, fires, item pickups) branch in here on the faced target.
+ * (switches, fires, item pickups) branch in here on the selected target.
  */
 export const interact = spacetimedb.reducer({ dirX: t.i32(), dirY: t.i32() }, (ctx, { dirX, dirY }) => {
   const p = ctx.db.player.identity.find(ctx.sender);
@@ -450,20 +451,14 @@ export const interact = spacetimedb.reducer({ dirX: t.i32(), dirY: t.i32() }, (c
     return;
   }
 
-  // Pick up the boulder or hog on the tile the trogg squarely faces.
-  if (!dir || (dir.dirX === 0 && dir.dirY === 0)) return;
-  const ax = Math.round(pos.x) + dir.dirX;
-  const ay = Math.round(pos.y) + dir.dirY;
-
-  const b = boulderAt(ctx, p.zoneId, ax, ay);
-  if (b) {
-    ctx.db.boulder.id.delete(b.id);
+  const target = pickupTarget(ctx, p.zoneId, Math.round(pos.x), Math.round(pos.y), dir, ctx.timestamp);
+  if (target?.kind === "boulder") {
+    ctx.db.boulder.id.delete(target.row.id);
     ctx.db.player.identity.update({ ...p, carrying: "boulder" });
     return;
   }
-  const h = hogAt(ctx, p.zoneId, ax, ay, ctx.timestamp);
-  if (h) {
-    ctx.db.hog.id.delete(h.id);
+  if (target?.kind === "hog") {
+    ctx.db.hog.id.delete(target.row.id);
     ctx.db.player.identity.update({ ...p, carrying: "hog" });
   }
 });
@@ -996,6 +991,26 @@ function hogAt(ctx: Ctx, zoneId: string, x: number, y: number, now: Stamp) {
   for (const h of ctx.db.hog.zoneId.filter(zoneId)) {
     const pos = projectMotion(h, elapsedMs(h.movedAt, now), bounds);
     if (Math.round(pos.x) === x && Math.round(pos.y) === y) return h;
+  }
+  return undefined;
+}
+
+/** Adjacent pickup candidates, with the faced tile first when the client has a heading. */
+function pickupDirs(dir: { dirX: number; dirY: number } | null): { dirX: number; dirY: number }[] {
+  if (!dir) return [];
+  if (dir.dirX === 0 && dir.dirY === 0) return [...CARDINALS];
+  return [dir, ...CARDINALS.filter((d) => d.dirX !== dir.dirX || d.dirY !== dir.dirY)];
+}
+
+/** The adjacent entity `interact` should lift, preferring the faced direction. */
+function pickupTarget(ctx: Ctx, zoneId: string, x: number, y: number, dir: { dirX: number; dirY: number } | null, now: Stamp) {
+  for (const d of pickupDirs(dir)) {
+    const tx = x + d.dirX;
+    const ty = y + d.dirY;
+    const b = boulderAt(ctx, zoneId, tx, ty);
+    if (b) return { kind: "boulder" as const, row: b };
+    const h = hogAt(ctx, zoneId, tx, ty, now);
+    if (h) return { kind: "hog" as const, row: h };
   }
   return undefined;
 }

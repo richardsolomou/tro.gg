@@ -157,6 +157,16 @@ test("interact picks up the boulder on the faced tile", () => {
   assert.equal(ctx.db.player.identity.find(me).carrying, "boulder"); // now carried
 });
 
+test("interact prioritizes the faced pickup when several entities are adjacent", () => {
+  const { ctx, me } = withPlayer({ x: 5, y: 8, carrying: "" });
+  ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 5, y: 7 });
+  hogAt_(ctx, 6, 8);
+  interact(ctx, { dirX: 1, dirY: 0 });
+  assert.equal(ctx.db.player.identity.find(me).carrying, "hog");
+  assert.equal(ctx.db.hog.rows().length, 0);
+  assert.equal(ctx.db.boulder.rows().length, 1);
+});
+
 // --- Chat ---
 
 test("chat enforces the per-player rate limit", () => {
