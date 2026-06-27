@@ -33,14 +33,25 @@ export function isColorIndex(index: number): boolean {
   return Number.isInteger(index) && index >= 0 && index < TROGG_COLORS.length;
 }
 
+/** A trogg's stable default colour *index*, derived by hashing its id. */
+export function troggColorIndex(userId: string): number {
+  return hashId(userId) % TROGG_COLORS.length;
+}
+
 /** A trogg's stable default colour, picked from the palette by hashing its id. */
 export function troggColor(userId: string): number {
-  return TROGG_COLORS[hashId(userId) % TROGG_COLORS.length]!;
+  return TROGG_COLORS[troggColorIndex(userId)]!;
+}
+
+/** A trogg's effective colour *index*: its chosen entry, else the id-derived default.
+ *  Lets the UI highlight the swatch a trogg actually shows, chosen or not. */
+export function troggColorIndexFor(colorIndex: number, userId: string): number {
+  return isColorIndex(colorIndex) ? colorIndex : troggColorIndex(userId);
 }
 
 /** A trogg's display colour: its chosen palette entry, else the id-derived default. */
 export function troggColorFor(colorIndex: number, userId: string): number {
-  return isColorIndex(colorIndex) ? TROGG_COLORS[colorIndex]! : troggColor(userId);
+  return TROGG_COLORS[troggColorIndexFor(colorIndex, userId)]!;
 }
 
 /** Whether `index` is a selectable trogg style (so a chosen style the client can offer). */
@@ -48,16 +59,26 @@ export function isTroggStyleIndex(index: number): boolean {
   return Number.isInteger(index) && index >= 0 && index < TROGG_STYLES.length;
 }
 
-/** A trogg's stable default style, picked from the list by hashing its id. The id
- *  is bit-rotated first so style and colour don't move in lockstep off one hash. */
+/** A trogg's stable default style *index*, derived by hashing its id. The id is
+ *  bit-rotated first so style and colour don't move in lockstep off one hash. */
+export function troggStyleIndex(userId: string): number {
+  return ((hashId(userId) ^ 0x9e3779b9) >>> 0) % TROGG_STYLES.length;
+}
+
+/** A trogg's stable default style, picked from the list by hashing its id. */
 export function troggStyle(userId: string): TroggStyle {
-  const h = (hashId(userId) ^ 0x9e3779b9) >>> 0;
-  return TROGG_STYLES[h % TROGG_STYLES.length]!;
+  return TROGG_STYLES[troggStyleIndex(userId)]!;
+}
+
+/** A trogg's effective style *index*: its chosen entry, else the id-derived default.
+ *  Lets the UI highlight the style button a trogg actually shows, chosen or not. */
+export function troggStyleIndexFor(styleIndex: number, userId: string): number {
+  return isTroggStyleIndex(styleIndex) ? styleIndex : troggStyleIndex(userId);
 }
 
 /** A trogg's display style: its chosen entry, else the id-derived default. */
 export function troggStyleFor(styleIndex: number, userId: string): TroggStyle {
-  return isTroggStyleIndex(styleIndex) ? TROGG_STYLES[styleIndex]! : troggStyle(userId);
+  return TROGG_STYLES[troggStyleIndexFor(styleIndex, userId)]!;
 }
 
 /** A Hog's style, derived from its entity id — Hogs don't choose, they just vary. */

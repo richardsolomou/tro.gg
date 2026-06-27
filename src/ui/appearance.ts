@@ -1,11 +1,11 @@
 import {
   COLOR_UNSET,
-  isColorIndex,
-  isTroggStyleIndex,
   isValidName,
   NAME_MAX_CHARS,
   STYLE_UNSET,
+  troggColorIndexFor,
   TROGG_COLORS,
+  troggStyleIndexFor,
   TROGG_STYLES,
 } from "@trogg/shared";
 import type { DbConnection } from "../net/module_bindings";
@@ -140,10 +140,12 @@ export function mountAppearance(conn: DbConnection): void {
 
   const refresh = () => {
     if (!focused) input.value = myName();
-    const color = myColor();
-    swatches.forEach((s, i) => s.setAttribute("aria-pressed", String(isColorIndex(color) && i === color)));
-    const style = myStyle();
-    styleButtons.forEach((b, i) => b.setAttribute("aria-pressed", String(isTroggStyleIndex(style) && i === style)));
+    // Highlight the look the trogg actually shows — its chosen entry, or the
+    // id-derived default when it hasn't picked one (so a fresh trogg isn't blank).
+    const color = troggColorIndexFor(myColor(), myId ?? "");
+    swatches.forEach((s, i) => s.setAttribute("aria-pressed", String(i === color)));
+    const style = troggStyleIndexFor(myStyle(), myId ?? "");
+    styleButtons.forEach((b, i) => b.setAttribute("aria-pressed", String(i === style)));
   };
 
   conn.db.player.onInsert((_ctx, p) => {

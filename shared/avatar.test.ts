@@ -9,8 +9,10 @@ import {
   TROGG_COLORS,
   troggColor,
   troggColorFor,
+  troggColorIndexFor,
   troggStyle,
   troggStyleFor,
+  troggStyleIndexFor,
 } from "./avatar";
 import { HOG_STYLES, TROGG_STYLES } from "./sprites";
 
@@ -66,6 +68,17 @@ test("only in-range integers are selectable style indices", () => {
 test("a chosen style index resolves to its entry, unchosen to the id default", () => {
   for (let i = 0; i < TROGG_STYLES.length; i++) assert.equal(troggStyleFor(i, "any-id"), TROGG_STYLES[i]);
   assert.equal(troggStyleFor(STYLE_UNSET, "abcd1234"), troggStyle("abcd1234"));
+});
+
+test("effective index resolvers fall back to the id-derived default when unchosen", () => {
+  // chosen index passes through
+  assert.equal(troggColorIndexFor(3, "abcd1234"), 3);
+  assert.equal(troggStyleIndexFor(2, "abcd1234"), 2);
+  // unset resolves to a default index whose entry matches the value resolvers
+  const cIdx = troggColorIndexFor(COLOR_UNSET, "abcd1234");
+  assert.equal(TROGG_COLORS[cIdx], troggColorFor(COLOR_UNSET, "abcd1234"));
+  const sIdx = troggStyleIndexFor(STYLE_UNSET, "abcd1234");
+  assert.equal(TROGG_STYLES[sIdx], troggStyleFor(STYLE_UNSET, "abcd1234"));
 });
 
 test("a Hog's style is stable for its id and always from the list", () => {
