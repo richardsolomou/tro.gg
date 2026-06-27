@@ -44,15 +44,22 @@ function withPlayer(over: Record<string, unknown> = {}, ctxOver: Partial<Paramet
 test("spawn refuses a boulder once the zone is at its cap", () => {
   const { ctx } = withPlayer({ x: 5, y: 8 });
   for (let i = 0; i < MAX_BOULDERS_PER_ZONE; i++) ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 1, y: 1 });
-  spawn(ctx, { kind: "boulder" });
+  spawn(ctx, { kind: "boulder", count: 1 });
   assert.equal(ctx.db.boulder.rows().length, MAX_BOULDERS_PER_ZONE);
 });
 
 test("spawn adds a boulder when the zone is below the cap", () => {
   const { ctx } = withPlayer({ x: 5, y: 8 });
-  spawn(ctx, { kind: "boulder" });
+  spawn(ctx, { kind: "boulder", count: 1 });
   assert.equal(ctx.db.boulder.rows().length, 1);
   assert.equal(ctx.db.boulder.rows()[0].zoneId, ZONE);
+});
+
+test("spawn can add a counted batch without exceeding the boulder cap", () => {
+  const { ctx } = withPlayer({ x: 5, y: 8 });
+  for (let i = 0; i < MAX_BOULDERS_PER_ZONE - 2; i++) ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 1, y: 1 });
+  spawn(ctx, { kind: "boulder", count: 10 });
+  assert.equal(ctx.db.boulder.rows().length, MAX_BOULDERS_PER_ZONE);
 });
 
 // --- Two Hogs never converge onto one tile (the wanderHogs fix) ---
