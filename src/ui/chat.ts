@@ -6,6 +6,7 @@ import { cssColor } from "../ui_text.js";
 import { hudRoot } from "./hud.js";
 import { handleChatCommand } from "./chat_commands.js";
 import { captureEvent, isFeatureEnabled } from "../analytics.js";
+import { POSTHOG_KEY } from "../env.js";
 import { audio } from "../audio.js";
 import type { Entities, Tracked } from "../game/entities.js";
 
@@ -165,8 +166,9 @@ export function setupChat(
   // The `/spawn` debug command is typed in the chat box but isn't a chat line —
   // it spawns an entity at the caller's tile (server-authoritative) instead of
   // broadcasting. It has an optional flag; off → it's sent as plain chat.
-  // Defaults on in local dev, off in a production build (PostHog can flip it on).
-  const spawnEnabled = isFeatureEnabled("spawn-command", import.meta.env.DEV);
+  // Defaults on outside production — local dev and PR preview builds ship no
+  // PostHog key — while in production the `spawn-command` flag governs it.
+  const spawnEnabled = isFeatureEnabled("spawn-command", import.meta.env.DEV || !POSTHOG_KEY);
   // `/reset` snaps the zone's boulders (`boulder-reset`) or Hogs (`hog-reset`) back
   // to their registry layout; each target is independently gated, so bare `/reset`
   // and `/reset boulders` need boulders on, `/reset hedgehogs` needs Hogs on.
