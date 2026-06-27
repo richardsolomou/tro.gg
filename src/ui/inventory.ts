@@ -1,4 +1,4 @@
-import { ITEMS, isEquippableItem } from "@trogg/shared";
+import { INVENTORY_SLOT_COUNT, ITEMS, isEquippableItem } from "@trogg/shared";
 import type { DbConnection } from "../net/module_bindings";
 import type { Inventory, Player } from "../net/module_bindings/types";
 import { hudLeft } from "./hud.js";
@@ -65,13 +65,6 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
     list.replaceChildren();
 
     const sorted = [...rows.values()].sort((a, b) => a.item.localeCompare(b.item) || Number(a.id - b.id));
-    if (sorted.length === 0) {
-      const empty = document.createElement("div");
-      empty.className = "inventory-empty";
-      empty.textContent = "Pick up tools with E";
-      list.appendChild(empty);
-      return;
-    }
 
     for (const row of sorted) {
       const def = ITEMS[row.item as keyof typeof ITEMS];
@@ -96,6 +89,15 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
       });
 
       list.appendChild(item);
+    }
+
+    for (let index = sorted.length; index < INVENTORY_SLOT_COUNT; index++) {
+      const empty = document.createElement("span");
+      empty.className = "inventory-item inventory-slot-empty";
+      empty.setAttribute("role", "img");
+      empty.setAttribute("aria-label", "Empty inventory slot");
+      empty.title = "Empty";
+      list.appendChild(empty);
     }
   };
 
