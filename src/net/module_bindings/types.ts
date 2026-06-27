@@ -35,6 +35,15 @@ export const ClaimCode = __t.object("ClaimCode", {
 });
 export type ClaimCode = __Infer<typeof ClaimCode>;
 
+export const GhostHaunt = __t.object("GhostHaunt", {
+  id: __t.u64(),
+  zoneId: __t.string(),
+  x: __t.i32(),
+  y: __t.i32(),
+  createdAt: __t.timestamp(),
+});
+export type GhostHaunt = __Infer<typeof GhostHaunt>;
+
 export const GroundItem = __t.object("GroundItem", {
   id: __t.u64(),
   zoneId: __t.string(),

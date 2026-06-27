@@ -1,4 +1,4 @@
-import { MAX_BOULDERS_PER_ZONE, MAX_HOGS_PER_ZONE, type Coord, type Zone } from "@trogg/shared";
+import { MAX_BOULDERS_PER_ZONE, MAX_HOGS_PER_ZONE, type Zone } from "@trogg/shared";
 import type { DbConnection } from "../net/module_bindings";
 import type { ChatUI } from "./chat.js";
 import { captureEvent, isFeatureEnabled } from "../analytics.js";
@@ -18,9 +18,6 @@ export interface ChatCommandContext {
   chat: ChatUI;
   zone: Zone;
   flags: ChatCommandFlags;
-  /** Flicker the cosmetic ghost at a tile — the one rendering effect a command needs,
-   *  injected so this module stays pure dispatch (no renderer). */
-  onGhost: (tile: Coord) => void;
 }
 
 /** Resolve the live command flags once per mounted HUD surface. */
@@ -35,15 +32,15 @@ export function currentCommandFlags(): ChatCommandFlags {
 
 /**
  * Try to handle a chat line as a slash command, returning true if it was one (so the
- * caller skips broadcasting it as chat). `/spawn` and `/reset` fire server reducers;
- * `/ghost` is a client-only cosmetic. Anything else returns false and falls through to
- * chat. Each command is gated by its flag; a disabled command is just an ordinary line.
+ * caller skips broadcasting it as chat). `/spawn`, `/reset`, and `/ghost` fire server
+ * reducers. Anything else returns false and falls through to chat. Each command is
+ * gated by its flag; a disabled command is just an ordinary line.
  */
 export function handleChatCommand(text: string, ctx: ChatCommandContext): boolean {
-  const { conn, chat, zone, flags, onGhost } = ctx;
+  const { conn, chat, zone, flags } = ctx;
   if (flags.spawn && handleSpawnCommand(conn, chat, text)) return true;
   if (handleResetCommand(conn, chat, zone.slug, text, flags.resetBoulders, flags.resetHogs)) return true;
-  if (flags.ghost && handleGhostCommand(text, zone, onGhost)) return true;
+  if (flags.ghost && handleGhostCommand(conn, text)) return true;
   return false;
 }
 
@@ -154,13 +151,11 @@ function handleResetCommand(
 }
 
 /**
- * Handle a chat line as the `/ghost` command: flicker the cosmetic ghost trogg at a
- * random tile in the zone via `onGhost`. Purely a client render (touches no table or
- * reducer), so only the caller sees it. Returns true if it was the command; anything
- * else falls through to chat.
+ * Handle a chat line as the `/ghost` command: request a server-picked, zone-scoped
+ * cosmetic haunt. Returns true if it was the command; anything else falls through to chat.
  */
-function handleGhostCommand(text: string, zone: Zone, onGhost: (tile: Coord) => void): boolean {
+function handleGhostCommand(conn: DbConnection, text: string): boolean {
   if (!/^\/ghost\s*$/i.test(text)) return false;
-  onGhost({ x: Math.floor(Math.random() * zone.width), y: Math.floor(Math.random() * zone.height) });
+  conn.reducers.hauntGhost({});
   return true;
 }

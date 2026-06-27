@@ -36,6 +36,7 @@ import {
 // Import all reducer arg schemas
 import ChatReducer from "./chat_reducer";
 import EquipItemReducer from "./equip_item_reducer";
+import HauntGhostReducer from "./haunt_ghost_reducer";
 import InteractReducer from "./interact_reducer";
 import MoveReducer from "./move_reducer";
 import MoveToReducer from "./move_to_reducer";
@@ -55,6 +56,7 @@ import UseEquippedReducer from "./use_equipped_reducer";
 // Import all table schema definitions
 import BoulderRow from "./boulder_table";
 import ChatMessageRow from "./chat_message_table";
+import GhostHauntRow from "./ghost_haunt_table";
 import GroundItemRow from "./ground_item_table";
 import HogRow from "./hog_table";
 import InventoryRow from "./inventory_table";
@@ -92,6 +94,20 @@ const tablesSchema = __schema({
       { name: 'chat_message_id_key', constraint: 'unique', columns: ['id'] },
     ],
   }, ChatMessageRow),
+  ghostHaunt: __table({
+    name: 'ghost_haunt',
+    indexes: [
+      { accessor: 'id', name: 'ghost_haunt_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+      { accessor: 'zoneId', name: 'ghost_haunt_zone_id_idx_btree', algorithm: 'btree', columns: [
+        'zoneId',
+      ] },
+    ],
+    constraints: [
+      { name: 'ghost_haunt_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, GhostHauntRow),
   groundItem: __table({
     name: 'ground_item',
     indexes: [
@@ -154,6 +170,7 @@ const tablesSchema = __schema({
 const reducersSchema = __reducers(
   __reducerSchema("chat", ChatReducer),
   __reducerSchema("equip_item", EquipItemReducer),
+  __reducerSchema("haunt_ghost", HauntGhostReducer),
   __reducerSchema("interact", InteractReducer),
   __reducerSchema("move", MoveReducer),
   __reducerSchema("move_to", MoveToReducer),

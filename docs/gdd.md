@@ -19,7 +19,7 @@ The buildable spec for tro.gg. If you are an agent working on this codebase: thi
 | tile | The grid unit. Positions are integer tile coordinates within a zone. |
 | node | A gatherable world object (rock, mushroom). Has a type, a state, and a respawn timer. |
 | boulder | A pushable rock. Sits on an unwalkable tile; a trogg pushes it one tile at a time. `boulder` in code/schema. |
-| interact | The generic action a trogg takes on the tile it faces (the `E` key). It picks up ground items and picks up / puts down tile-sized objects; future effects (switch, fire) hang off the same key. |
+| interact | The generic action key (`E`). It picks up ground items and picks up / puts down tile-sized objects; pickup scans adjacent tiles and prioritises the tile the trogg faces, while put-down uses the faced tile first. Future effects (switch, fire) hang off the same key. |
 | carry | A trogg holding a tile-sized object (boulder, Hog) on its person — the object leaves its tile until put down. `carrying` in code/schema. |
 | action | A timed activity a player starts on a node (mine, forage). One action at a time per player. |
 | skill | A progression track (mining, foraging). XP and levels per skill, per player. |
@@ -80,13 +80,13 @@ Boulders are pushable rocks — dynamic obstacles, the same block-pushing gramma
 
 ### Interacting (pick up and carry)
 
-`E` is the generic **interact** key: it acts on whatever tile the trogg faces. It picks up ground items and toggles tile-sized carried objects — a deliberate seam, so later interactions (flip a switch, light a fire) hang off the same key without adding a new control.
+`E` is the generic **interact** key. It picks objects up from adjacent tiles and uses the faced tile first when several candidates are in reach, so later interactions (flip a switch, light a fire) can hang off the same key without adding a new control.
 
-- **Pick up / put down is a toggle for tile-sized objects.** Empty-handed, pressing `E` while facing a tile that holds a boulder or a Hog **lifts it onto the trogg** — it leaves its tile and rides on your person, drawn as a held overlay above the head (the same held-item layering as [Avatars and equipment](#avatars-and-equipment)). Pressing `E` again **puts it down** on the faced tile (or the nearest free tile), re-materialising it in the world. A trogg carries at most one thing.
-- **Ground items go into inventory.** Empty-handed, pressing `E` while facing a ground item removes that `ground_item` row and adds the item to the trogg's inventory. Starter pickups in `hog-town` are a pickaxe, shovel, and sword. Items are not solid; reach is still only the faced neighbour tile.
+- **Pick up / put down is a toggle for tile-sized objects.** Empty-handed, pressing `E` beside a boulder or a Hog **lifts it onto the trogg** — if several are adjacent, the one on the tile the trogg faces wins. It leaves its tile and rides on your person, drawn as a held overlay above the head (the same held-item layering as [Avatars and equipment](#avatars-and-equipment)). Pressing `E` again **puts it down** on the faced tile (or the nearest free tile), re-materialising it in the world. A trogg carries at most one thing.
+- **Ground items go into inventory.** Empty-handed, pressing `E` beside a ground item removes that `ground_item` row and adds the item to the trogg's inventory. Starter pickups in `hog-town` are a pickaxe, shovel, and sword. Items are not solid; pickup uses the same adjacent scan and faced-tile priority as tile-sized objects.
 - **Anything tile-sized is grabbable.** Boulders and Hogs are the same 1×1 entity to the mechanic; it doesn't care that one is scenery and one is an NPC.
 - **Carried things leave the world.** A carried boulder is no longer a collision obstacle; a carried Hog stops wandering — because the entity's row is removed while held and re-inserted on drop. Boulders and Hogs are fungible (no identity, seeded from the `ZONES` registry), so nothing identity-bearing is lost in the round trip.
-- **No tick, server-authoritative** (invariants 1 & 3). `interact` is an input-driven reducer. An idle trogg's standing facing isn't synced (see "Movement"), so the client passes its current heading; the server re-derives the trogg's tile and acts only on the entity actually on the adjacent faced tile, so the client can't reach past its neighbours. Carrying changes nothing per-frame — the held thing simply moves with its carrier, whose position is already derived.
+- **No tick, server-authoritative** (invariants 1 & 3). `interact` is an input-driven reducer. An idle trogg's standing facing isn't synced (see "Movement"), so the client passes its current heading; the server re-derives the trogg's tile and acts only on adjacent entities or ground items, preferring the faced tile when there are multiple candidates, so the client can't reach past its neighbours. Carrying changes nothing per-frame — the held thing simply moves with its carrier, whose position is already derived.
 - **Nothing is orphaned.** On disconnect the trogg drops what it holds where it settles; the carried kind is durable on the player row, so even a mid-carry restart loses nothing.
 - Behind the optional `interact` flag (off → `E` does nothing). Independent of pushing: pushing shoves a boulder ahead, carrying lifts it (or a Hog) onto your person to relocate, and item pickup moves a ground item into inventory.
 
@@ -126,7 +126,7 @@ Ambient **Hog** NPCs (the glossary's friendly hedgehogs) roam the zone on their 
 - **Trogg style (`trogg-restyle`):** styles come from a fixed list (`TROGG_STYLES` in `shared`: `moss`, `stone`, `ridge`) that vary the silhouette features (ear nubs / earless crag / horns) and base palette — same rig, different head and tone. A trogg picks one via the `restyle` reducer, which stores its chosen index on the `player` row (validated server-side, invariant 3). The optional flag controls whether the style buttons show in the Appearance panel.
 - **Trogg colour (`trogg-recolor`):** the tint comes from a fixed palette (`TROGG_COLORS` in `shared`), chosen via the `recolor` reducer (the mirror of `restyle` on the colour axis). The optional flag controls whether the palette swatches show in the Appearance panel.
 - **Hog variation.** Hogs have no `player` row to store a choice, so each Hog's skin is derived from its entity id (`HOG_STYLES`: `classic`, `snow`, `ember` — palette only, one shape), giving a zone a varied, stable crowd without a schema field. Hogs are never tinted.
-- **Ghost (`ghost-trogg`):** the cosmetic easter egg is its own bespoke sprite (`ghostDraw` — a hog draped in a pale sheet, two eye holes, scalloped hem), painted into a standalone texture and never tinted. A client-only render (invariant 3): it touches no table, so only the player who summons it sees it.
+- **Ghost (`ghost-trogg`):** the cosmetic easter egg is its own bespoke sprite (`ghostDraw` — a hog draped in a pale sheet, two eye holes, scalloped hem), painted into a standalone texture and never tinted. Summoning it inserts a zone-scoped `ghost_haunt` row; live clients in that zone render the fresh insert once, while late joiners ignore the replayed snapshot.
 - **Appearance panel.** Rename, recolour, and restyle are one top-left HUD icon toggle (`P`, beside Help/Inventory/Commands) — everything about how your trogg *looks* in one place. The separate top-right account panel is only the claim/sign-out control (`auth-enabled`).
 
 ### Zones
@@ -145,8 +145,8 @@ Ambient **Hog** NPCs (the glossary's friendly hedgehogs) roam the zone on their 
 - Chat history and the typing field are HTML overlays (a real `<input>`); speech bubbles over troggs render in the Phaser scene. Chat content is added as a DOM text node, never as HTML markup, so a message can't inject markup.
 - Server-side rate limit: 1 message/sec per player *(initial)*.
 - Message content is **never** sent to analytics.
-- **Pre-alpha commands:** debug commands can be typed in chat or fired from the top-left Commands panel for stress testing. `/spawn boulder [count]` and `/spawn hedgehog [count]` place one or more entities on nearby free tiles around the caller, starting with the tile they face; `count` defaults to 1, and the server clamps inserts to `MAX_BOULDERS_PER_ZONE` / `MAX_HOGS_PER_ZONE` and available floor, so the UI can be abused without bypassing caps. The Commands panel exposes the same spawn, reset, and ghost tools as buttons, plus quick batch counts and a local-only ghost burst.
-- **`/ghost`:** flickers the cosmetic ghost (a draped-sheet apparition; see [Avatars](#avatars-and-equipment)) at a random tile in the zone (behind `ghost-trogg`, fallback on, so anyone can summon it). Purely a client render — touches no table or reducer (invariant 3), so only the caller sees it. Off → it's just an ordinary chat line. The same cosmetic also haunts the origin tile by chance on launch.
+- **Pre-alpha commands:** debug commands can be typed in chat or fired from the top-left Commands panel for stress testing. `/spawn boulder [count]` and `/spawn hedgehog [count]` place one or more entities on nearby free tiles around the caller, starting with the tile they face; `count` defaults to 1, and the server clamps inserts to `MAX_BOULDERS_PER_ZONE` / `MAX_HOGS_PER_ZONE` and available floor, so the UI can be abused without bypassing caps. The Commands panel exposes the same spawn, reset, and ghost tools as buttons, plus quick batch counts and a zone-wide ghost burst.
+- **`/ghost`:** flickers the cosmetic ghost (a draped-sheet apparition; see [Avatars](#avatars-and-equipment)) at a server-picked random walkable tile in the caller's zone (behind `ghost-trogg`, fallback on, so anyone can summon it). It inserts a capped `ghost_haunt` row so every live player in the map sees the same haunt; the row has no collision or durable gameplay effect, and late joiners ignore old rows. Off → it's just an ordinary chat line. The same synced cosmetic can also appear by chance on launch.
 
 ### Identity
 
@@ -264,6 +264,12 @@ inventory      id (PK, auto-inc), playerId, item, qty
 hog_wander     scheduledId (PK, auto-inc), scheduledAt     (scheduled table)
                the Hog wander timer — SpacetimeDB's deterministic scheduler (invariant 1). Fires
                `wanderHogs`, which re-arms it only while a player is online. Private (no client reads it).
+ghost_haunt    id (PK, auto-inc), zoneId, x, y, createdAt
+               a zone-scoped cosmetic fanout event for the ghost. `hauntGhost` chooses a random
+               walkable tile server-side, inserts the row, and trims each zone to
+               GHOST_HAUNT_HISTORY_MAX. Clients subscribe per zone and render fresh inserts only,
+               so everyone already in the map sees it once and late joiners don't replay old haunts.
+               index: by_zone (zoneId)
 actions        playerId, nodeId, kind, startedAt, endsAt
                index: by_player (playerId)
 chat_message   id (PK, auto-inc), zoneId, sender (Identity), name (denormalised), text, createdAt
@@ -308,7 +314,7 @@ Roadmap notes are planning context, not permission gates. Pick work by current p
 
 Current playable foundation: durable SpacetimeDB tables are the store, anonymous SpacetimeDB Identity gives each browser a persistent trogg, and optional SpacetimeAuth OIDC lets a guest claim an account with `startClaim`/`redeemClaim`, `rename`, `player_named`, and `posthog.identify()`. Identity is issued by the connection and reducers authorize by `ctx.sender`; it is never client-asserted.
 
-Implemented world systems: a static shared `ZONES` registry, zone-scoped subscriptions, per-tile walkability, cardinal grid-locked WASD movement, boulder pushing, pick-up-and-carry interaction (`E`), starter tool pickups, inventory/equipment with `I`, equipped-item use with `F`, roaming Hogs, hold-shift-to-run, sprite avatars, trogg recolouring/restyling via Appearance (`P`), chat bubbles/history, a small ghost-trogg cosmetic (launch haunt + `/ghost`), `/spawn`, `/reset` (boulders and Hogs), a help panel listing the live controls and commands, and a pre-alpha Commands panel for stress-test spawn/reset/ghost tools. Some of these have optional client-side flag gates for remote rollout or kill-switch use; the current code-read flags are configured in PostHog and still have code fallbacks for local or unconfigured environments.
+Implemented world systems: a static shared `ZONES` registry, zone-scoped subscriptions, per-tile walkability, cardinal grid-locked WASD movement, boulder pushing, pick-up-and-carry interaction (`E`), starter tool pickups, inventory/equipment with `I`, equipped-item use with `F`, roaming Hogs, hold-shift-to-run, sprite avatars, trogg recolouring/restyling via Appearance (`P`), chat bubbles/history, a small synced ghost-trogg cosmetic (launch haunt + `/ghost`), `/spawn`, `/reset` (boulders and Hogs), a help panel listing the live controls and commands, and a pre-alpha Commands panel for stress-test spawn/reset/ghost tools. Some of these have optional client-side flag gates for remote rollout or kill-switch use; the current code-read flags are configured in PostHog and still have code fallbacks for local or unconfigured environments.
 
 Likely next work areas include starting-zone onboarding, click-to-move pathfinding around obstacles, gathering and XP, crafting, communal projects, Hog merchants, load events, LLM-driven Hogs, and optional PvE defense. These are intentionally fluid; implement the slice that best serves the current task.
 

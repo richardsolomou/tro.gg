@@ -89,6 +89,7 @@ export function makeCtx(opts: FakeCtxOpts) {
       groundItem: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
       inventory: makeTable({ pk: "id", autoInc: true, indexes: ["playerId"] }),
       chatMessage: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
+      ghostHaunt: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
       claimCode: makeTable({ pk: "code" }),
       hogWander: makeTable({ pk: "scheduledId", autoInc: true }),
     },

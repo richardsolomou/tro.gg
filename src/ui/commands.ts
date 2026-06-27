@@ -1,4 +1,4 @@
-import { MAX_BOULDERS_PER_ZONE, MAX_HOGS_PER_ZONE, type Coord, type Zone } from "@trogg/shared";
+import { MAX_BOULDERS_PER_ZONE, MAX_HOGS_PER_ZONE, type Zone } from "@trogg/shared";
 import type { DbConnection } from "../net/module_bindings";
 import { captureEvent } from "../analytics.js";
 import { audio } from "../audio.js";
@@ -11,12 +11,11 @@ type SpawnKind = "boulder" | "hog";
 export interface CommandPanelContext {
   conn: DbConnection;
   zone: Zone;
-  onGhost: (tile: Coord) => void;
 }
 
 /** Mount the pre-alpha command panel beside Help. It exposes the same debug
  * commands as chat, but as bounded controls for stress testing. */
-export function mountCommands({ conn, zone, onGhost }: CommandPanelContext): void {
+export function mountCommands({ conn, zone }: CommandPanelContext): void {
   const flags = currentCommandFlags();
   if (!flags.spawn && !flags.resetBoulders && !flags.resetHogs && !flags.ghost) return;
 
@@ -40,7 +39,7 @@ export function mountCommands({ conn, zone, onGhost }: CommandPanelContext): voi
 
   if (flags.spawn) body.appendChild(spawnSection(conn, status));
   if (flags.resetBoulders || flags.resetHogs) body.appendChild(resetSection(conn, zone.slug, flags, status));
-  if (flags.ghost) body.appendChild(ghostSection(zone, onGhost, status));
+  if (flags.ghost) body.appendChild(ghostSection(conn, status));
   body.appendChild(status);
 
   const setOpen = (open: boolean) => {
@@ -178,21 +177,21 @@ function resetSection(conn: DbConnection, zone: string, flags: ChatCommandFlags,
   return section;
 }
 
-function ghostSection(zone: Zone, onGhost: (tile: Coord) => void, status: HTMLElement): HTMLElement {
+function ghostSection(conn: DbConnection, status: HTMLElement): HTMLElement {
   const section = commandSection("Ghost");
   const grid = document.createElement("div");
   grid.className = "command-grid";
 
   const once = commandButton("Ghost once");
   once.addEventListener("click", () => {
-    haunt(zone, onGhost, 1);
-    status.textContent = "flickered one ghost";
+    haunt(conn, 1);
+    status.textContent = "requested one ghost";
   });
 
   const burst = commandButton("Ghost burst");
   burst.addEventListener("click", () => {
-    haunt(zone, onGhost, 8);
-    status.textContent = "flickered eight ghosts";
+    haunt(conn, 8);
+    status.textContent = "requested eight ghosts";
   });
 
   grid.append(once, burst);
@@ -200,10 +199,8 @@ function ghostSection(zone: Zone, onGhost: (tile: Coord) => void, status: HTMLEl
   return section;
 }
 
-function haunt(zone: Zone, onGhost: (tile: Coord) => void, count: number) {
-  for (let i = 0; i < count; i++) {
-    onGhost({ x: Math.floor(Math.random() * zone.width), y: Math.floor(Math.random() * zone.height) });
-  }
+function haunt(conn: DbConnection, count: number) {
+  for (let i = 0; i < count; i++) conn.reducers.hauntGhost({});
 }
 
 function commandSection(title: string): HTMLElement {

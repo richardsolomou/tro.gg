@@ -78,6 +78,7 @@ export class WorldScene extends Phaser.Scene {
 
   private useSprites = false;
   private useHogs = false;
+  private useGhost = false;
   private canRun = false;
   private useInteract = false;
 
@@ -104,6 +105,7 @@ export class WorldScene extends Phaser.Scene {
     // ambient roaming Hogs, hold-shift-to-run, and the interact key.
     this.useSprites = isFeatureEnabled("avatar-sprites");
     this.useHogs = isFeatureEnabled("roaming-hogs");
+    this.useGhost = isFeatureEnabled("ghost-trogg");
     this.canRun = isFeatureEnabled("running");
     this.useInteract = isFeatureEnabled("interact");
 
@@ -155,6 +157,7 @@ export class WorldScene extends Phaser.Scene {
     this.wireGroundItems();
     this.wireBoulders();
     if (this.useHogs) this.wireHogs();
+    if (this.useGhost) this.wireGhostHaunts();
 
     attachKeyboard(
       (intent, immediate) => this.self.onIntent(intent, immediate),
@@ -181,13 +184,10 @@ export class WorldScene extends Phaser.Scene {
     this.scale.on(Phaser.Scale.Events.RESIZE, this.layout, this);
     this.layout();
 
-    // Cosmetic join easter egg. Each launch has a chance of a haunt at the origin.
-    if (isFeatureEnabled("ghost-trogg") && Math.random() < GHOST_CHANCE) this.entities.hauntGhost(this.stage, { x: 0, y: 0 });
-
     // Live once the initial rows have been delivered: backlog chat fills the
     // history panel silently, while later inserts also pop a bubble.
-    if (isFeatureEnabled("chat-enabled")) setupChat(conn, this.entities, this.tracked, this.zone, this.sub, this.myId, this.stage);
-    mountCommands({ conn, zone: this.zone, onGhost: (tile) => this.entities.hauntGhost(this.stage, tile) });
+    if (isFeatureEnabled("chat-enabled")) setupChat(conn, this.entities, this.tracked, this.zone, this.sub, this.myId);
+    mountCommands({ conn, zone: this.zone });
 
     const queries = [
       `SELECT * FROM player WHERE zone_id = '${this.slug}' AND online = true`,
@@ -197,10 +197,16 @@ export class WorldScene extends Phaser.Scene {
     ];
     if (this.myId) queries.push(`SELECT * FROM inventory WHERE player_id = '${this.myId}'`);
     if (this.useHogs) queries.push(`SELECT * FROM hog WHERE zone_id = '${this.slug}'`);
+    if (this.useGhost) queries.push(`SELECT * FROM ghost_haunt WHERE zone_id = '${this.slug}'`);
 
     conn
       .subscriptionBuilder()
-      .onApplied(() => (this.sub.live = true))
+      .onApplied(() => {
+        this.sub.live = true;
+        // Cosmetic join easter egg. Each launch has a chance to request a synced
+        // zone haunt, so everyone in the map sees the same apparition.
+        if (this.useGhost && Math.random() < GHOST_CHANCE) conn.reducers.hauntGhost({});
+      })
       .subscribe(queries);
   }
 
@@ -463,5 +469,14 @@ export class WorldScene extends Phaser.Scene {
       if (changedHeading && Math.random() < 0.35) audio.playHog();
     });
     conn.db.hog.onDelete((_ctx, h) => this.removeHog(h));
+  }
+
+  private wireGhostHaunts() {
+    this.conn.db.ghostHaunt.onInsert((_ctx, haunt) => {
+      // The subscription replays recent rows on join; only render live inserts so
+      // old haunts don't flicker for a late subscriber.
+      if (!this.sub.live) return;
+      this.entities.hauntGhost(this.stage, { x: haunt.x, y: haunt.y });
+    });
   }
 }
