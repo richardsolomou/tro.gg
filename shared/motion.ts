@@ -28,6 +28,10 @@ export interface Motion {
    *  "Movement"). Part of the intent so every client derives the same speed;
    *  absent/false = walk. Hogs never set it, so they always walk. */
   running?: boolean;
+  /** Tile-footprint span anchored at (x, y) as the top-left corner: 1 for a trogg
+   *  or common Hog, 2 for a big 2×2 Hog (GDD "Hogs"). Absent = 1. The footprint
+   *  clamps against walls across its whole width/height, not a single tile. */
+  size?: number;
 }
 
 export interface ProjectedMotion {
@@ -40,8 +44,9 @@ export interface ProjectedMotion {
 
 /**
  * Zone collision context for `projectMotion`. `isWalkable` is optional: without
- * it the trogg is only clamped to the rectangular bounds (open floor). The
- * trogg occupies a 1×1 tile footprint anchored at (x, y).
+ * it the mover is only clamped to the rectangular bounds (open floor). The mover
+ * occupies a `size`×`size` footprint anchored at (x, y) as its top-left corner
+ * (`size` from the `Motion`, default 1).
  */
 export interface ZoneBounds {
   width: number;
@@ -88,19 +93,35 @@ export const CARDINALS: readonly { dirX: number; dirY: number }[] = [
 ];
 
 /**
- * The cardinal directions whose next tile a Hog at (x, y) could step onto —
- * walkable floor inside the zone (GDD "Hogs"). The tile-by-tile wander reducer picks
- * a Hog's heading from these, so it ambles around walls, boulders, troggs, and other
- * Hogs (whatever the `ZoneBounds` `occupied` predicate marks unwalkable) instead of
- * pressing into them. (x, y) are tile coordinates.
+ * The cardinal directions a Hog at (x, y) could step onto — where its whole
+ * `size`-tile footprint, shifted one tile that way, lands on walkable floor inside
+ * the zone (GDD "Hogs"). The tile-by-tile wander reducer picks a Hog's heading from
+ * these, so it ambles around walls, boulders, troggs, and other Hogs (whatever the
+ * `ZoneBounds` `occupied` predicate marks unwalkable). For a 2×2 Hog the `occupied`
+ * predicate must exclude the Hog's own footprint, else its next step (which overlaps
+ * where it stands) reads as blocked. (x, y) is the footprint's top-left tile.
  */
-export function walkableCardinals(zone: ZoneBounds, x: number, y: number): { dirX: number; dirY: number }[] {
-  return CARDINALS.filter(({ dirX, dirY }) => {
-    const nx = x + dirX;
-    const ny = y + dirY;
-    if (nx < 0 || ny < 0 || nx >= zone.width || ny >= zone.height) return false;
-    return zone.isWalkable ? zone.isWalkable(nx, ny) : true;
-  });
+export function walkableCardinals(zone: ZoneBounds, x: number, y: number, size = 1): { dirX: number; dirY: number }[] {
+  return CARDINALS.filter(({ dirX, dirY }) => footprintWalkable(zone, x + dirX, y + dirY, size));
+}
+
+/** Whether the whole `size`-tile footprint anchored at top-left (x, y) is inside the
+ *  zone and on walkable floor. (x, y, size) are tile units. */
+export function footprintWalkable(zone: ZoneBounds, x: number, y: number, size = 1): boolean {
+  if (x < 0 || y < 0 || x + size > zone.width || y + size > zone.height) return false;
+  if (!zone.isWalkable) return true;
+  for (let dy = 0; dy < size; dy++) for (let dx = 0; dx < size; dx++) {
+    if (!zone.isWalkable(x + dx, y + dy)) return false;
+  }
+  return true;
+}
+
+/** The tiles a `size`-tile footprint anchored at top-left (x, y) occupies — the one
+ *  tile for a 1×1, the four tiles for a 2×2. Used to build collision sets. */
+export function footprintTiles(x: number, y: number, size = 1): Coord[] {
+  const tiles: Coord[] = [];
+  for (let dy = 0; dy < size; dy++) for (let dx = 0; dx < size; dx++) tiles.push({ x: x + dx, y: y + dy });
+  return tiles;
 }
 
 /** Serialize click-to-move waypoints into the player row's path string. */
@@ -271,16 +292,18 @@ export function projectMotionState(motion: Motion, elapsedMs: number, zone: Zone
 
   const speed = motion.running ? RUN_SPEED_TILES_PER_SEC : MOVE_SPEED_TILES_PER_SEC;
   const dist = (speed * Math.max(elapsedMs, 0)) / 1000;
+  const size = motion.size ?? 1;
 
-  // Cardinal: exactly one axis moves. Clamp to bounds, then to the first wall.
+  // Cardinal: exactly one axis moves. Clamp to bounds (the footprint stays inside),
+  // then to the first wall the footprint meets.
   if (dirX !== 0) {
     const step = Math.sign(dirX);
-    const target = clamp(motion.x + step * dist, 0, zone.width - 1);
-    return { x: zone.isWalkable ? wallX(zone, motion.x, motion.y, target, step) : target, y: motion.y, dirX, dirY, arrived: false };
+    const target = clamp(motion.x + step * dist, 0, zone.width - size);
+    return { x: zone.isWalkable ? wallX(zone, motion.x, motion.y, target, step, size) : target, y: motion.y, dirX, dirY, arrived: false };
   }
   const step = Math.sign(dirY);
-  const target = clamp(motion.y + step * dist, 0, zone.height - 1);
-  return { x: motion.x, y: zone.isWalkable ? wallY(zone, motion.x, motion.y, target, step) : target, dirX, dirY, arrived: false };
+  const target = clamp(motion.y + step * dist, 0, zone.height - size);
+  return { x: motion.x, y: zone.isWalkable ? wallY(zone, motion.x, motion.y, target, step, size) : target, dirX, dirY, arrived: false };
 }
 
 function projectPathMotion(motion: Motion, path: readonly Coord[], elapsedMs: number, zone: ZoneBounds): ProjectedMotion {
@@ -374,18 +397,19 @@ export function tileKey(x: number, y: number): string {
 }
 
 /**
- * Clamp a rightward/leftward slide so the trogg's footprint never enters an
- * unwalkable tile. The footprint spans the tile rows `[r0, r1]` its height
- * overlaps (one row when y is tile-aligned, two when mid-tile); a column blocks
- * if any of those rows is unwalkable there.
+ * Clamp a rightward/leftward slide so a `size`-tile footprint anchored at (ox, oy)
+ * never enters an unwalkable tile. The footprint spans the tile rows `[r0, r1]` its
+ * height overlaps (one extra row when mid-tile); a column blocks if any of those
+ * rows is unwalkable. A blocking column `k` stops the origin at `k - size` going
+ * right (the footprint's right edge ends at `k`), or `k + 1` going left.
  */
-function wallX(zone: ZoneBounds, ox: number, oy: number, target: number, step: number): number {
+function wallX(zone: ZoneBounds, ox: number, oy: number, target: number, step: number, size: number): number {
   const r0 = Math.floor(oy + EPS);
-  const r1 = Math.ceil(oy + 1 - EPS) - 1;
+  const r1 = Math.ceil(oy + size - EPS) - 1;
   if (step > 0) {
-    const from = Math.ceil(ox + 1 - EPS) - 1; // rightmost occupied column
+    const from = Math.ceil(ox + size - EPS) - 1; // rightmost occupied column
     for (let k = from + 1; k <= zone.width - 1; k++) {
-      if (!colWalkable(zone, k, r0, r1)) return Math.min(target, k - 1);
+      if (!colWalkable(zone, k, r0, r1)) return Math.min(target, k - size);
     }
     return target;
   }
@@ -397,13 +421,13 @@ function wallX(zone: ZoneBounds, ox: number, oy: number, target: number, step: n
 }
 
 /** Vertical counterpart of `wallX`: the footprint spans tile columns `[c0, c1]`. */
-function wallY(zone: ZoneBounds, ox: number, oy: number, target: number, step: number): number {
+function wallY(zone: ZoneBounds, ox: number, oy: number, target: number, step: number, size: number): number {
   const c0 = Math.floor(ox + EPS);
-  const c1 = Math.ceil(ox + 1 - EPS) - 1;
+  const c1 = Math.ceil(ox + size - EPS) - 1;
   if (step > 0) {
-    const from = Math.ceil(oy + 1 - EPS) - 1; // lowest occupied row
+    const from = Math.ceil(oy + size - EPS) - 1; // lowest occupied row
     for (let k = from + 1; k <= zone.height - 1; k++) {
-      if (!rowWalkable(zone, k, c0, c1)) return Math.min(target, k - 1);
+      if (!rowWalkable(zone, k, c0, c1)) return Math.min(target, k - size);
     }
     return target;
   }
