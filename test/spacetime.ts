@@ -117,6 +117,7 @@ export function playerRow(identity: Id, over: Record<string, unknown> = {}) {
     running: false,
     path: "",
     carrying: "",
+    carryingStyle: "",
     equippedMainHand: "",
     equippedMainHandInventoryId: 0n,
     equipmentAction: "",

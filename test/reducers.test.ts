@@ -5,6 +5,7 @@ import {
   CLAIM_CODE_TTL_MS,
   GHOST_HAUNT_HISTORY_MAX,
   getZone,
+  hogStyleFor,
   INVENTORY_SLOT_COUNT,
   isWalkable,
   MAX_BOULDERS_PER_ZONE,
@@ -376,8 +377,8 @@ test("hauntGhost trims old haunt rows to the cap", () => {
 });
 
 // --- helpers for the entity tables ---
-const hogAt_ = (ctx: FakeCtx, x: number, y: number) =>
-  ctx.db.hog.insert({ id: 0n, zoneId: ZONE, x, y, dirX: 0, dirY: 0, movedAt: { microsSinceUnixEpoch: 0n }, path: "", homeX: x, homeY: y, style: "" });
+const hogAt_ = (ctx: FakeCtx, x: number, y: number, style = "") =>
+  ctx.db.hog.insert({ id: 0n, zoneId: ZONE, x, y, dirX: 0, dirY: 0, movedAt: { microsSinceUnixEpoch: 0n }, path: "", homeX: x, homeY: y, style });
 
 // --- Connect / disconnect lifecycle ---
 
@@ -505,6 +506,31 @@ test("interact picks up a Hog on the faced tile", () => {
   interact(ctx, { dirX: 1, dirY: 0 });
   assert.equal(ctx.db.hog.rows().length, 0);
   assert.equal(ctx.db.player.identity.find(me).carrying, "hog");
+});
+
+test("interact preserves a Hog's style while carried and after put-down", () => {
+  const { ctx, me } = withPlayer({ x: 5, y: 8 });
+  hogAt_(ctx, 6, 8, "ember");
+
+  interact(ctx, { dirX: 1, dirY: 0 });
+  const carrying = ctx.db.player.identity.find(me);
+  assert.equal(carrying.carrying, "hog");
+  assert.equal(carrying.carryingStyle, "ember");
+
+  interact(ctx, { dirX: 1, dirY: 0 });
+  const dropped = ctx.db.hog.rows()[0];
+  assert.equal(ctx.db.player.identity.find(me).carrying, "");
+  assert.equal(ctx.db.player.identity.find(me).carryingStyle, "");
+  assert.equal(dropped.style, "ember");
+});
+
+test("interact stores the effective id-derived Hog style for legacy rows", () => {
+  const { ctx, me } = withPlayer({ x: 5, y: 8 });
+  const hog = hogAt_(ctx, 6, 8);
+
+  interact(ctx, { dirX: 1, dirY: 0 });
+
+  assert.equal(ctx.db.player.identity.find(me).carryingStyle, hogStyleFor(hog.id.toString()));
 });
 
 // --- Reset commands restore the registry layout ---
