@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { ANCHOR, FRAME_H, FRAME_W, ITEMS, timestampMs, type Facing, type Kind, type ProjectedMotion } from "@trogg/shared";
+import { ANCHOR, FRAME_H, FRAME_W, ITEMS, type Facing, type FrameName, type Kind, type ProjectedMotion } from "@trogg/shared";
 import type { Boulder, GroundItem, Hog, Player } from "../net/module_bindings/types";
 import { AVATAR_TEX, avatarFrame, avatarFrameName, facingFromDir, GHOST_FRAME, GHOST_TEX } from "./avatars.js";
 import { cssColor, TEXT_RESOLUTION } from "../ui_text.js";
@@ -42,6 +42,8 @@ export interface Tracked {
   style: string;
   /** The frame key currently on the sprite, so the ticker only swaps on change. */
   frameKey: string;
+  /** Current avatar animation frame, used to keep equipment anchored to the hand. */
+  frameName?: FrameName;
   bubble?: Phaser.GameObjects.Container;
   bubbleTimer?: ReturnType<typeof setTimeout>;
   /** The overlay sprite for what the trogg carries (GDD "Interacting"), if any. */
@@ -54,6 +56,8 @@ export interface Tracked {
   equipped?: Phaser.GameObjects.Container;
   equippedKind: string;
   equippedFacing?: Facing;
+  /** Local monotonic start for the latest synced equipment-use impulse. */
+  equipmentActionBaseMs?: number;
 }
 
 /** A boulder's live row plus its sprite. */
@@ -167,7 +171,7 @@ export function createEntities(scene: Phaser.Scene, getTile: () => number) {
     const faceY = moving ? motion.dirY : entry.player.faceY;
     if (entry.sprite) driveSprite(entry.sprite, "trogg", entry.style, faceX, faceY, entry.player.running, entry, now, moving);
     applyEquipment(entry);
-    animateEquipment(entry);
+    animateEquipment(entry, now);
   };
 
   /**
@@ -183,12 +187,13 @@ export function createEntities(scene: Phaser.Scene, getTile: () => number) {
     dirX: number,
     dirY: number,
     running: boolean,
-    state: { facing: Facing; frameKey: string },
+    state: { facing: Facing; frameKey: string; frameName?: FrameName },
     now: number,
     moving = dirX !== 0 || dirY !== 0,
   ) => {
     state.facing = facingFromDir(dirX, dirY, state.facing);
     const frame = avatarFrame(moving, running, now);
+    state.frameName = frame;
     const key = `${state.facing}_${frame}`;
     if (key === state.frameKey) return;
     sprite.setFrame(avatarFrameName(kind, style, state.facing, frame));
@@ -318,13 +323,22 @@ export function createEntities(scene: Phaser.Scene, getTile: () => number) {
     }
   };
 
+  const equipmentFrameOffset = (frame: FrameName | undefined, running: boolean): { bob: number; sideSwing: number; lean: number } => {
+    if (!frame || frame === "idle") return { bob: 0, sideSwing: 0, lean: 0 };
+    const run = running || frame === "run_a" || frame === "run_b";
+    const stride = frame === "walk_a" || frame === "run_a" ? 1 : frame === "walk_b" || frame === "run_b" ? -1 : 0;
+    return { bob: run ? -2 : -1, sideSwing: stride * (run ? 2 : 1), lean: run ? 2 : 0 };
+  };
+
   const equipmentAnchor = (entry: Tracked): { x: number; y: number; rotation: number; scale: number } => {
     const tile = getTile();
-    const baseY = entry.sprite ? feetY() - tile * 0.42 : tile * 0.5;
-    if (entry.facing === "left") return { x: tile * 0.28, y: baseY, rotation: -0.8, scale: tile / ART };
-    if (entry.facing === "right") return { x: tile * 0.72, y: baseY, rotation: 0.8, scale: tile / ART };
-    if (entry.facing === "up") return { x: tile * 0.36, y: baseY - tile * 0.08, rotation: -0.35, scale: tile / ART };
-    return { x: tile * 0.66, y: baseY, rotation: 0.35, scale: tile / ART };
+    const scale = tile / ART;
+    const frame = equipmentFrameOffset(entry.frameName, entry.player.running);
+    const baseY = (entry.sprite ? feetY() - tile * 0.42 : tile * 0.5) + frame.bob * scale;
+    if (entry.facing === "left") return { x: tile * 0.28 - frame.lean * scale, y: baseY + frame.sideSwing * scale, rotation: -0.8, scale };
+    if (entry.facing === "right") return { x: tile * 0.72 + frame.lean * scale, y: baseY + frame.sideSwing * scale, rotation: 0.8, scale };
+    if (entry.facing === "up") return { x: tile * 0.36, y: baseY - tile * 0.08, rotation: -0.35, scale };
+    return { x: tile * 0.66, y: baseY, rotation: 0.35, scale };
   };
 
   /** Sync the main-hand equipment overlay to `player.equippedMainHand`. */
@@ -347,12 +361,13 @@ export function createEntities(scene: Phaser.Scene, getTile: () => number) {
   };
 
   /** Briefly exaggerate the equipped item when the server syncs an equipment use. */
-  const animateEquipment = (entry: Tracked): void => {
-    if (!entry.equipped || entry.player.equipmentAction !== entry.equippedKind) return;
-    const age = Date.now() - timestampMs(entry.player.equipmentActionAt);
+  const animateEquipment = (entry: Tracked, now: number): void => {
+    if (!entry.equipped) return;
+    const active = entry.player.equipmentAction === entry.equippedKind && entry.equipmentActionBaseMs !== undefined;
+    const age = active ? now - entry.equipmentActionBaseMs! : EQUIPMENT_ACTION_MS;
     const t = Math.max(0, Math.min(1, age / EQUIPMENT_ACTION_MS));
     const anchor = equipmentAnchor(entry);
-    const swing = age >= 0 && age < EQUIPMENT_ACTION_MS ? Math.sin(t * Math.PI) : 0;
+    const swing = active && age >= 0 && age < EQUIPMENT_ACTION_MS ? Math.sin(t * Math.PI) : 0;
     const side = entry.facing === "left" || entry.facing === "up" ? -1 : 1;
     entry.equipped.setRotation(anchor.rotation + swing * 0.85 * side);
     entry.equipped.setPosition(anchor.x + swing * side * getTile() * 0.08, anchor.y - swing * getTile() * 0.08);

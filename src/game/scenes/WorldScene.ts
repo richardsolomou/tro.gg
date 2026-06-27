@@ -321,6 +321,7 @@ export class WorldScene extends Phaser.Scene {
     entry.equipped = undefined;
     entry.equippedKind = "";
     entry.equippedFacing = undefined;
+    entry.equipmentActionBaseMs = undefined;
     const { x, y } = projectMotion(entry.player, performance.now() - entry.baseMs, this.troggBounds);
     this.entities.place(entry.marker, x, y);
     this.stage.add(entry.marker);
@@ -348,6 +349,10 @@ export class WorldScene extends Phaser.Scene {
           // as equipment swings, keep the existing base so walking does not visibly restart.
           entry.baseMs = timestampBaseMs(p.movedAt);
         }
+      }
+
+      if (_old.equipmentActionAt.microsSinceUnixEpoch !== p.equipmentActionAt.microsSinceUnixEpoch) {
+        entry.equipmentActionBaseMs = performance.now();
       }
 
       // The nameplate, tint, and body style are baked into the marker at build time, so
