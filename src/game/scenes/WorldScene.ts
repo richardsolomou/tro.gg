@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { getZone, hogStyleFor, projectMotion, projectMotionState, snapToTile, STARTING_ZONE_SLUG, tileKey, timestampMs, troggColorFor, troggStyleFor, zoneBounds, type Coord, type Stamp, type ZoneBounds } from "@trogg/shared";
+import { getZone, GHOST_HAUNT_FRESH_MS, hogStyleFor, projectMotion, projectMotionState, snapToTile, STARTING_ZONE_SLUG, tileKey, timestampMs, troggColorFor, troggStyleFor, zoneBounds, type Coord, type Stamp, type ZoneBounds } from "@trogg/shared";
 import type { DbConnection } from "../../net/module_bindings";
 import type { Boulder, GroundItem, Hog, Player } from "../../net/module_bindings/types";
 import { attachKeyboard } from "../../input.js";
@@ -499,9 +499,10 @@ export class WorldScene extends Phaser.Scene {
 
   private wireGhostHaunts() {
     this.conn.db.ghostHaunt.onInsert((_ctx, haunt) => {
-      // The subscription replays recent rows on join; only render live inserts so
-      // old haunts don't replay for a late subscriber.
-      if (!this.sub.live) return;
+      // The initial subscription snapshot replays the zone's capped haunt history as
+      // inserts (and does so after `onApplied`, so `sub.live` is already true). Render
+      // only fresh inserts, so a joiner doesn't get the whole backlog as a swarm.
+      if (Date.now() - timestampMs(haunt.createdAt) > GHOST_HAUNT_FRESH_MS) return;
       this.entities.hauntGhost(this.stage, { x: haunt.x, y: haunt.y, id: haunt.id });
     });
   }
