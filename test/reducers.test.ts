@@ -13,6 +13,7 @@ import {
   PLAYER_MAX_HEALTH,
   SPACETIMEAUTH_ISSUER,
   SWORD_DAMAGE,
+  THROWN_OBJECT_DAMAGE,
 } from "@trogg/shared";
 import {
   chat,
@@ -313,6 +314,43 @@ test("a sword hit at zero health kills, stops, and respawn restores the trogg", 
   assert.equal(target.health, PLAYER_MAX_HEALTH);
   assert.equal(target.dead, false);
   assert.deepEqual({ x: target.x, y: target.y }, { x: 12, y: 8 });
+});
+
+test("useEquipped throws a carried boulder into a trogg and lands it past the target", () => {
+  const { ctx, me } = withPlayer({ x: 5, y: 8, carrying: "boulder", equippedMainHand: "" });
+  const other = id("other");
+  ctx.db.player.insert(playerRow(other, { x: 7, y: 8, health: PLAYER_MAX_HEALTH }));
+
+  useEquipped(ctx, { dirX: 1, dirY: 0 });
+
+  const target = ctx.db.player.identity.find(other);
+  assert.equal(target.health, PLAYER_MAX_HEALTH - THROWN_OBJECT_DAMAGE);
+  assert.equal(ctx.db.player.identity.find(me).carrying, "");
+  const b = ctx.db.boulder.rows()[0];
+  assert.deepEqual({ x: b.x, y: b.y }, { x: 8, y: 8 });
+});
+
+test("useEquipped throws a carried Hog into a trogg", () => {
+  const { ctx, me } = withPlayer({ x: 5, y: 8, carrying: "hog", equippedMainHand: "" });
+  const other = id("other");
+  ctx.db.player.insert(playerRow(other, { x: 6, y: 8, health: PLAYER_MAX_HEALTH }));
+
+  useEquipped(ctx, { dirX: 1, dirY: 0 });
+
+  assert.equal(ctx.db.player.identity.find(other).health, PLAYER_MAX_HEALTH - THROWN_OBJECT_DAMAGE);
+  assert.equal(ctx.db.player.identity.find(me).carrying, "");
+  const h = ctx.db.hog.rows()[0];
+  assert.deepEqual({ x: h.x, y: h.y, dirX: h.dirX, dirY: h.dirY }, { x: 7, y: 8, dirX: 0, dirY: 0 });
+});
+
+test("useEquipped throws a carried object to max range when it hits no trogg", () => {
+  const { ctx, me } = withPlayer({ x: 5, y: 8, carrying: "boulder", equippedMainHand: "" });
+
+  useEquipped(ctx, { dirX: 1, dirY: 0 });
+
+  assert.equal(ctx.db.player.identity.find(me).carrying, "");
+  const b = ctx.db.boulder.rows()[0];
+  assert.deepEqual({ x: b.x, y: b.y }, { x: 9, y: 8 });
 });
 
 test("interact prioritizes the faced pickup when several entities are adjacent", () => {

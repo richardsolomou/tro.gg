@@ -95,9 +95,11 @@ export type ItemId = (typeof ITEM_IDS)[number];
 /** Inventory capacity (GDD "Inventory"): each row occupies one visible carry slot. (initial) */
 export const INVENTORY_SLOT_COUNT = 10;
 
-/** Trogg combat health. A sword hit removes `SWORD_DAMAGE` from a faced adjacent trogg. (initial) */
+/** Trogg combat health and damage. (initial) */
 export const PLAYER_MAX_HEALTH = 100;
 export const SWORD_DAMAGE = 25;
+export const THROWN_OBJECT_DAMAGE = 40;
+export const THROWN_OBJECT_RANGE = 4;
 
 export type EquipmentSlot = "mainHand";
 

@@ -36,6 +36,8 @@ import {
   spawnTiles,
   STARTING_ZONE_SLUG,
   SWORD_DAMAGE,
+  THROWN_OBJECT_DAMAGE,
+  THROWN_OBJECT_RANGE,
   type Stamp,
   tileKey,
   walkableCardinals,
@@ -908,22 +910,29 @@ export const equipItem = spacetimedb.reducer({ inventoryId: t.u64() }, (ctx, { i
 /**
  * Use the equipped main-hand item (GDD "Avatars and equipment"). The row update
  * is a visible, low-volume impulse every client can animate. It preserves the
- * current movement intent — using a tool never turns into a stop. Pickaxes also
- * mine the faced boulder into one Stone inventory item. Swords damage the faced
- * adjacent online trogg; at zero health the target dies and can respawn.
+ * current movement intent — using a tool never turns into a stop. If the trogg is
+ * carrying a boulder or Hog, `F` throws it as a tile-based impact weapon. Otherwise
+ * pickaxes mine the faced boulder into one Stone inventory item, and swords damage
+ * the faced adjacent online trogg; at zero health the target dies and can respawn.
  */
 export const useEquipped = spacetimedb.reducer({ dirX: t.i32(), dirY: t.i32() }, (ctx, { dirX, dirY }) => {
   const p = ctx.db.player.identity.find(ctx.sender);
   if (!p) return;
   if (p.dead) return;
-  const equipped = equippedInventoryRow(ctx, p);
-  if (!equipped) return;
   const dir = cardinal(dirX, dirY);
   if (!dir || (dir.dirX === 0 && dir.dirY === 0)) return;
 
   const zone = getZone(p.zoneId);
   if (!zone) return;
   const pos = settle(ctx, p, ctx.timestamp);
+
+  if (p.carrying !== "") {
+    throwCarried(ctx, p, zone, pos, dir);
+    return;
+  }
+
+  const equipped = equippedInventoryRow(ctx, p);
+  if (!equipped) return;
 
   if (equipped.item === "pickaxe") {
     const ax = Math.round(pos.x) + dir.dirX;
@@ -1392,6 +1401,46 @@ function damagePlayer(ctx: Ctx, target: NonNullable<ReturnType<typeof playerAt>>
   });
 }
 
+/** Throw a carried boulder or Hog in a straight cardinal line, damaging the first trogg hit. */
+function throwCarried(
+  ctx: Ctx,
+  p: NonNullable<ReturnType<typeof playerAt>>,
+  zone: Zone,
+  pos: { x: number; y: number },
+  dir: { dirX: number; dirY: number },
+): void {
+  if (p.carrying !== "boulder" && p.carrying !== "hog") return;
+
+  const sx = Math.round(pos.x);
+  const sy = Math.round(pos.y);
+  const pathOccupied = solidTiles(ctx, p.zoneId, ctx.timestamp, p.identity);
+  let lastFree: { x: number; y: number } | undefined;
+  let hit: NonNullable<ReturnType<typeof playerAt>> | undefined;
+
+  for (let step = 1; step <= THROWN_OBJECT_RANGE; step++) {
+    const tx = sx + dir.dirX * step;
+    const ty = sy + dir.dirY * step;
+    if (!isWalkable(zone, tx, ty)) break;
+
+    hit = playerAt(ctx, p.zoneId, tx, ty, ctx.timestamp, p.identity);
+    if (hit) break;
+
+    if (pathOccupied.has(tileKey(tx, ty))) break;
+    lastFree = { x: tx, y: ty };
+  }
+
+  let landing = lastFree;
+  if (hit) {
+    const targetTile = snapToTile(settle(ctx, hit, ctx.timestamp));
+    const landingOccupied = solidTiles(ctx, p.zoneId, ctx.timestamp);
+    landing = spawnTile(zone, (tx, ty) => landingOccupied.has(tileKey(tx, ty)), targetTile.x, targetTile.y, dir.dirX, dir.dirY) ?? lastFree;
+  }
+
+  if (!landing || !placeCarriedAt(ctx, zone, p.carrying, landing)) return;
+  if (hit) damagePlayer(ctx, hit, THROWN_OBJECT_DAMAGE);
+  ctx.db.player.identity.update({ ...p, carrying: "" });
+}
+
 /** Adjacent pickup candidates, with the faced tile first when the client has a heading. */
 function pickupDirs(dir: { dirX: number; dirY: number } | null): { dirX: number; dirY: number }[] {
   if (!dir) return [];
@@ -1433,6 +1482,11 @@ function placeCarried(
 ): boolean {
   const tile = spawnTile(zone, (tx, ty) => occupied.has(tileKey(tx, ty)), x, y, dirX, dirY);
   if (!tile) return false;
+  return placeCarriedAt(ctx, zone, kind, tile);
+}
+
+/** Materialise a carried entity on an exact tile, enforcing the same caps as put-down. */
+function placeCarriedAt(ctx: Ctx, zone: Zone, kind: string, tile: { x: number; y: number }): boolean {
   // Honour the per-zone cap on the put-down too, so picking up, spawning to the cap, then
   // dropping can't push a zone past its ceiling. Refusing keeps the trogg carrying — the
   // same outcome as a boxed-in drop — so nothing is lost.

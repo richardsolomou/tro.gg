@@ -97,6 +97,7 @@ function buildSections(): Section[] {
   if (useInteract) controls.push({ key: "E", desc: "Pick up / put down" });
   controls.push({ key: "F", desc: "Use equipped item" });
   controls.push({ key: "Sword + F", desc: "Attack a faced trogg" });
+  controls.push({ key: "Carry + F", desc: "Throw held object" });
   controls.push({ key: "R", desc: "Respawn when dead" });
   if (pushEnabled) controls.push({ key: "Walk into a boulder", desc: "Push it" });
   if (commandPanelEnabled) controls.push({ key: "`", desc: "Open Commands" });
