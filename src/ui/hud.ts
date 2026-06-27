@@ -1,6 +1,7 @@
 import "./hud.css";
 
 let root: HTMLDivElement | undefined;
+let toolbar: HTMLDivElement | undefined;
 
 /**
  * The HUD overlay above the Phaser canvas. `pointer-events: none` lets clicks on
@@ -14,4 +15,16 @@ export function hudRoot(): HTMLDivElement {
     document.body.appendChild(root);
   }
   return root;
+}
+
+/** Shared top-left HUD stack for compact menu toggles. */
+export function hudToolbar(): HTMLDivElement {
+  const hud = hudRoot();
+  if (!toolbar || !toolbar.isConnected) {
+    toolbar = document.createElement("div");
+    toolbar.id = "hud-toolbar";
+    toolbar.className = "hud-toolbar";
+    hud.appendChild(toolbar);
+  }
+  return toolbar;
 }

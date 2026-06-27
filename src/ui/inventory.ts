@@ -1,7 +1,7 @@
 import { ITEMS, isEquippableItem } from "@trogg/shared";
 import type { DbConnection } from "../net/module_bindings";
 import type { Inventory, Player } from "../net/module_bindings/types";
-import { hudRoot } from "./hud.js";
+import { hudToolbar } from "./hud.js";
 
 /** Mount the compact inventory/equipment panel. Rows are driven by subscribed inventory state. */
 export function mountInventory(conn: DbConnection, playerId: string): void {
@@ -13,7 +13,7 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
 
   const toggle = document.createElement("button");
   toggle.type = "button";
-  toggle.className = "inventory-toggle";
+  toggle.className = "hud-icon-button inventory-toggle";
   toggle.setAttribute("aria-label", "Inventory");
   toggle.title = "Inventory";
   toggle.appendChild(inventoryIcon());
@@ -30,16 +30,24 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
 
   body.append(equipped, list);
   root.append(toggle, body);
-  hudRoot().appendChild(root);
+  hudToolbar().appendChild(root);
 
   const rows = new Map<string, Inventory>();
   let mainHand = "";
   let mainHandInventoryId = 0n;
 
   toggle.addEventListener("click", () => {
-    body.hidden = !body.hidden;
+    const opening = body.hidden;
+    body.hidden = !opening;
     toggle.setAttribute("aria-expanded", String(!body.hidden));
+    if (opening) window.dispatchEvent(new CustomEvent("hud-menu-open", { detail: "inventory" }));
   });
+  window.addEventListener("hud-menu-open", ((event: Event) => {
+    if ((event as CustomEvent<string>).detail !== "inventory") {
+      body.hidden = true;
+      toggle.setAttribute("aria-expanded", "false");
+    }
+  }) as EventListener);
 
   const render = () => {
     equipped.replaceChildren();

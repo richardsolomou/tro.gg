@@ -1,6 +1,6 @@
 /*
  * HUD chrome — HTML/CSS overlays above the Phaser canvas (chat, account, help,
- * commands).
+ * inventory, commands).
  * Cave palette, shared with the landing page and the in-world art: ink #e8dcc4 on
  * #0a0806 stone, amber #f2c94c accents. The world (troggs, bubbles, terrain) is
  * drawn by Phaser; everything here is DOM, so the browser owns layout, text input,
@@ -20,6 +20,24 @@
   position: fixed;
   pointer-events: auto; /* …except on a panel, which consumes the click */
   box-sizing: border-box;
+}
+
+#hud .hud-toolbar {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  max-width: calc(100vw - 24px);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: flex-start;
+  pointer-events: none;
+}
+
+#hud .hud-toolbar .panel {
+  position: relative;
+  width: 32px;
+  pointer-events: auto;
 }
 
 /* Shared controls */
@@ -126,30 +144,39 @@
   border-color: #e8dcc4;
 }
 
-/* -- Inventory (beside Help) ---------------------------------------------- */
-#hud .inventory {
-  top: 12px;
-  left: 92px;
+/* -- Top-left toolbar ------------------------------------------------------ */
+#hud .help,
+#hud .inventory,
+#hud .commands {
   display: flex;
   flex-direction: column;
   gap: 6px;
   align-items: flex-start;
 }
-#hud .inventory-toggle {
+#hud .hud-icon-button {
   width: 32px;
   height: 28px;
   padding: 2px 5px;
+  display: grid;
+  place-items: center;
   color: #0a0806;
   background: #f2c94c;
   border: none;
   border-radius: 4px;
   cursor: pointer;
 }
-#hud .inventory-toggle svg {
+#hud .hud-icon-button svg {
   width: 20px;
   height: 20px;
   display: block;
 }
+#hud .help-toggle {
+  font-size: 16px;
+  font-weight: bold;
+  line-height: 1;
+}
+
+/* -- Inventory ------------------------------------------------------------- */
 #hud .inventory-body {
   width: 204px;
   padding: 10px;
@@ -235,35 +262,10 @@
   border-radius: 2px;
 }
 
-/* ── Help (top-left) ─────────────────────────────────────────────────────── */
-#hud .help {
-  top: 12px;
-  left: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  align-items: flex-start;
-}
-#hud .commands {
-  top: 12px;
-  left: 94px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  align-items: flex-start;
-}
-#hud .help-toggle {
-  width: auto;
-  padding: 0 10px;
-  height: 28px;
-  font-size: 13px;
-  color: #0a0806;
-  background: #f2c94c;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-}
+/* ── Help ────────────────────────────────────────────────────────────────── */
 #hud .help-body {
+  width: max-content;
+  max-width: calc(100vw - 24px);
   padding: 12px;
   background: rgba(10, 8, 6, 0.82);
   border: 1px solid #2a2118;
@@ -291,9 +293,9 @@
   white-space: nowrap;
 }
 
-/* ── Commands (top-left, beside Help) ────────────────────────────────────── */
+/* ── Commands ────────────────────────────────────────────────────────────── */
 #hud .command-body {
-  width: min(330px, calc(100vw - 24px));
+  width: min(330px, calc(100vw - 100px));
   padding: 12px;
   background: rgba(10, 8, 6, 0.86);
   border: 1px solid #2a2118;
@@ -351,8 +353,7 @@
 }
 
 @media (max-width: 520px) {
-  #hud .commands {
-    left: 12px;
-    top: 46px;
+  #hud .help-body {
+    width: min(330px, calc(100vw - 24px));
   }
 }

@@ -1,5 +1,5 @@
 import { isFeatureEnabled } from "../analytics.js";
-import { hudRoot } from "./hud.js";
+import { hudToolbar } from "./hud.js";
 import { currentCommandFlags } from "./chat_commands.js";
 
 /** One control or command line: the key/command and what it does. */
@@ -15,7 +15,7 @@ interface Section {
 }
 
 /**
- * The help panel as an HTML overlay: a top-left "? Help" toggle that opens a list
+ * The help panel as an HTML overlay: a top-left "?" toggle that opens a list
  * of controls and chat commands (GDD HUD note). The listed controls and commands
  * mirror the feature flags actually enabled this session, so the panel never
  * advertises a key or command that's switched off. Static reference, built once.
@@ -26,8 +26,10 @@ export function mountHelp(): void {
 
   const toggle = document.createElement("button");
   toggle.type = "button";
-  toggle.className = "help-toggle";
-  toggle.textContent = "? Help";
+  toggle.className = "hud-icon-button help-toggle";
+  toggle.textContent = "?";
+  toggle.setAttribute("aria-label", "Help");
+  toggle.title = "Help";
 
   const body = document.createElement("div");
   body.className = "help-body";
@@ -56,14 +58,18 @@ export function mountHelp(): void {
   toggle.addEventListener("click", () => {
     const opening = body.hidden;
     body.hidden = !opening;
+    toggle.setAttribute("aria-expanded", String(!body.hidden));
     if (opening) window.dispatchEvent(new CustomEvent("hud-menu-open", { detail: "help" }));
   });
   window.addEventListener("hud-menu-open", ((event: Event) => {
-    if ((event as CustomEvent<string>).detail !== "help") body.hidden = true;
+    if ((event as CustomEvent<string>).detail !== "help") {
+      body.hidden = true;
+      toggle.setAttribute("aria-expanded", "false");
+    }
   }) as EventListener);
 
   root.append(toggle, body);
-  hudRoot().appendChild(root);
+  hudToolbar().appendChild(root);
 }
 
 /** The controls and commands to show, filtered to this session's enabled flags. */
