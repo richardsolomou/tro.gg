@@ -34,7 +34,7 @@ export type FrameName = "idle" | "walk_a" | "walk_b" | "run_a" | "run_b";
  * (the unchosen / id-derived fallback resolves through it).
  */
 export const TROGG_STYLES = ["moss", "stone", "ridge"] as const;
-export const HOG_STYLES = ["classic", "snow", "ember"] as const;
+export const HOG_STYLES = ["classic", "classic-big", "snow", "snow-big", "ember", "ember-big"] as const;
 export type TroggStyle = (typeof TROGG_STYLES)[number];
 export type HogStyle = (typeof HOG_STYLES)[number];
 export type Style = TroggStyle | HogStyle;
@@ -178,8 +178,7 @@ const TROGG_SKINS: Record<string, TroggSkin> = {
   ridge: { out: 0x16110a, body: 0x6f5d3a, light: 0x8a7548, shade: 0x4c3f27, belly: 0x9d8a5c, eye: 0xffd34e, pupil: 0x1c140c, mouth: 0x2a2013, crest: "horns" },
 };
 
-/** A hog skin: quill, face, and accent palette. Hogs share one shape, so the
- *  palette is what tells a zone's Hogs apart. */
+/** A hog skin: quill, face, accent palette, and optional larger silhouette. */
 interface HogSkin {
   out: number;
   quill: number;
@@ -191,15 +190,58 @@ interface HogSkin {
   nose: number;
   eye: number;
   glint: number;
+  size?: "normal" | "big";
 }
 
-const HOG_SKINS: Record<string, HogSkin> = {
+const CLASSIC_HOG: HogSkin = {
   // Warm brown quills, cream face — the classic hedgehog.
-  classic: { out: 0x2a1d10, quill: 0x6e5334, quillLt: 0x916f44, quillDk: 0x40301c, face: 0xe3cf9f, faceLt: 0xf2e4c2, faceDk: 0xc8a86e, nose: 0x241710, eye: 0x1c140c, glint: 0xece0c6 },
+  out: 0x2a1d10,
+  quill: 0x6e5334,
+  quillLt: 0x916f44,
+  quillDk: 0x40301c,
+  face: 0xe3cf9f,
+  faceLt: 0xf2e4c2,
+  faceDk: 0xc8a86e,
+  nose: 0x241710,
+  eye: 0x1c140c,
+  glint: 0xece0c6,
+};
+
+const SNOW_HOG: HogSkin = {
   // Pale ash-grey quills, frost-cream face — the snowy hog.
-  snow: { out: 0x2b2a2d, quill: 0x9a9aa2, quillLt: 0xc2c2c8, quillDk: 0x6c6c74, face: 0xeae3d8, faceLt: 0xf6f1ea, faceDk: 0xc8bca8, nose: 0x3a2a2a, eye: 0x201a1a, glint: 0xf2eee6 },
+  out: 0x2b2a2d,
+  quill: 0x9a9aa2,
+  quillLt: 0xc2c2c8,
+  quillDk: 0x6c6c74,
+  face: 0xeae3d8,
+  faceLt: 0xf6f1ea,
+  faceDk: 0xc8bca8,
+  nose: 0x3a2a2a,
+  eye: 0x201a1a,
+  glint: 0xf2eee6,
+};
+
+const EMBER_HOG: HogSkin = {
   // Rust-red quills, toasted face — the ember hog.
-  ember: { out: 0x2c160c, quill: 0x9c4e2a, quillLt: 0xc46a38, quillDk: 0x5f2c16, face: 0xe6c79a, faceLt: 0xf3dcb4, faceDk: 0xc79a64, nose: 0x2a1208, eye: 0x1c100a, glint: 0xeed8b6 },
+  out: 0x2c160c,
+  quill: 0x9c4e2a,
+  quillLt: 0xc46a38,
+  quillDk: 0x5f2c16,
+  face: 0xe6c79a,
+  faceLt: 0xf3dcb4,
+  faceDk: 0xc79a64,
+  nose: 0x2a1208,
+  eye: 0x1c100a,
+  glint: 0xeed8b6,
+};
+
+const HOG_SKINS: Record<string, HogSkin> = {
+  classic: CLASSIC_HOG,
+  "classic-big": { ...CLASSIC_HOG, size: "big" },
+  snow: SNOW_HOG,
+  "snow-big": { ...SNOW_HOG, size: "big" },
+  ember: EMBER_HOG,
+  "ember-big": { ...EMBER_HOG, size: "big" },
 };
 
 // ── primitives ────────────────────────────────────────────────────────────────
@@ -292,8 +334,8 @@ function paintFrame(sink: PixelSink, kind: Kind, style: string, facing: Facing, 
 type View = "down" | "up" | "side";
 
 /** Soft contact shadow under the feet, shared by both characters. */
-function groundShadow(p: PixelSink): void {
-  disc(p, 7.5, 21, 5, 1.6, SHADOW, 70);
+function groundShadow(p: PixelSink, rx = 5, ry = 1.6): void {
+  disc(p, 7.5, 21, rx, ry, SHADOW, 70);
 }
 
 /** Two feet, with the walk lift applied. `y` is the planted baseline. */
@@ -415,15 +457,16 @@ function quillDome(p: PixelSink, cx: number, cy: number, rx: number, ry: number,
 
 const hogDraw = (p: PixelSink, view: View, frame: FrameName, h: HogSkin): void => {
   const b = bodyBob(frame);
-  groundShadow(p);
-  feet(p, frame, h.faceDk, h.out, 20, 5.5, 9.5);
+  const big = h.size === "big";
+  groundShadow(p, big ? 6.3 : 5, big ? 1.8 : 1.6);
+  feet(p, frame, h.faceDk, h.out, 20, big ? 4.8 : 5.5, big ? 10.2 : 9.5);
 
   if (view === "side") {
     // belly/snout in front (right), quills doming over the back (left)
-    blob(p, 8, 15 + b, 4.4, 3.4, h.face, h.out);
-    quillDome(p, 6, 12 + b, 4.6, 4.2, h);
+    blob(p, big ? 8.4 : 8, 15 + b, big ? 5.1 : 4.4, big ? 3.9 : 3.4, h.face, h.out);
+    quillDome(p, big ? 6.3 : 6, 12 + b, big ? 5.4 : 4.6, big ? 4.8 : 4.2, h);
     // pointed snout to the right
-    blob(p, 12, 14 + b, 2, 1.8, h.faceLt, h.out);
+    blob(p, big ? 12.3 : 12, 14 + b, big ? 2.2 : 2, big ? 2 : 1.8, h.faceLt, h.out);
     dot(p, 13, 14 + b, h.nose); dot(p, 14, 14 + b, h.nose);
     // eye
     dot(p, 10, 12 + b, h.eye); dot(p, 10, 11 + b, h.eye);
@@ -433,15 +476,15 @@ const hogDraw = (p: PixelSink, view: View, frame: FrameName, h: HogSkin): void =
 
   if (view === "up") {
     // walking away: almost all quills, a sliver of feet below
-    quillDome(p, 7.5, 12 + b, 6, 5.4, h);
-    disc(p, 7.5, 9 + b, 2.4, 1.6, h.quillDk); // crown shade
+    quillDome(p, 7.5, 12 + b, big ? 6.7 : 6, big ? 6 : 5.4, h);
+    disc(p, 7.5, 9 + b, big ? 2.8 : 2.4, big ? 1.9 : 1.6, h.quillDk); // crown shade
     return;
   }
 
   // down: round cream face under a quill hood, beady eyes, button nose
-  quillDome(p, 7.5, 9 + b, 6.2, 5, h);
-  blob(p, 7.5, 15 + b, 4.6, 3.4, h.face, h.out); // belly
-  disc(p, 7.5, 13.5 + b, 3.6, 2.8, h.faceLt); // face
+  quillDome(p, 7.5, 9 + b, big ? 7 : 6.2, big ? 5.6 : 5, h);
+  blob(p, 7.5, 15 + b, big ? 5.4 : 4.6, big ? 3.8 : 3.4, h.face, h.out); // belly
+  disc(p, 7.5, 13.5 + b, big ? 4.2 : 3.6, big ? 3.1 : 2.8, h.faceLt); // face
   // eyes
   for (const ex of [5.5, 9.5]) {
     dot(p, ex, 13 + b, h.eye);

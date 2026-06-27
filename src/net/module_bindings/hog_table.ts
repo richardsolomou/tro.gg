@@ -21,5 +21,6 @@ export default __t.row({
   path: __t.string(),
   homeX: __t.i32().name("home_x"),
   homeY: __t.i32().name("home_y"),
+  style: __t.string(),
   health: __t.i32(),
 });

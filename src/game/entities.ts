@@ -7,8 +7,8 @@ import { audio } from "../audio.js";
 
 /** Art pixels per tile — terrain tiles are drawn at this and scaled up crisply. */
 export const ART = 16;
-/** Size of a carried object's overlay relative to a full tile (GDD "Interacting"). */
-const CARRY_SCALE = 0.62;
+/** Carried tile-sized objects stay full tile size; pickup changes position, not scale. */
+const CARRY_SCALE = 1;
 /** How long a visible equipment use impulse lasts. */
 const EQUIPMENT_ACTION_MS = 240;
 /** How long the apparition spends materialising. */
@@ -21,9 +21,6 @@ const GHOST_FADE_OUT_MS = 1200;
 const GHOST_PEAK_ALPHA = 0.82;
 /** How far the ghost can drift from its summoned tile, as a tile fraction. */
 const GHOST_DRIFT_TILES = 0.44;
-/** The hedgehog skin a carried hog shows — a held hog has no id to derive one from. */
-const CARRIED_HOG_STYLE = "classic";
-
 /** Anything `place` can drop on a tile — a marker, a sprite, a stray graphic. */
 type Positionable = { setPosition(x: number, y: number): unknown };
 
@@ -51,6 +48,8 @@ export interface Tracked {
   carried?: Phaser.GameObjects.Container;
   /** Which kind the overlay shows ("" = none), so it only rebuilds on change. */
   carriedKind: string;
+  /** Which style the carried overlay shows (only Hogs use it). */
+  carriedStyle: string;
   /** The equipped main-hand overlay, drawn near the hand rather than above the head. */
   equipped?: Phaser.GameObjects.Container;
   equippedKind: string;
@@ -309,23 +308,23 @@ export function createEntities(scene: Phaser.Scene, getTile: () => number) {
 
   /**
    * The overlay for what a trogg carries (GDD "Interacting"): the held object drawn
-   * small, on the trogg's person above its head — a boulder, a hog, and (later) any
-   * tile-sized thing all read the same held way. `topY` is the head top in sprite
+   * at full tile size on the trogg's person above its head — a boulder, a hog, and
+   * (later) any tile-sized thing all read the same held way. `topY` is the head top in sprite
    * mode, the cell top for the placeholder marker. Unknown kind → no overlay.
    */
-  const makeCarried = (kind: string, topY: number): Phaser.GameObjects.Container | undefined => {
+  const makeCarried = (kind: string, style: string, topY: number): Phaser.GameObjects.Container | undefined => {
     const tile = getTile();
     const wrap = scene.add.container(0, 0);
     if (kind === "boulder") {
       const b = makeBoulder();
-      // The boulder spans [0, tile]; scale it down and shift so its centre — not its
-      // corner — sits on the wrap origin (Phaser containers transform about (0, 0)).
+      // The boulder spans [0, tile]; shift so its centre — not its corner — sits on
+      // the wrap origin (Phaser containers transform about (0, 0)).
       b.setScale(CARRY_SCALE);
       b.setPosition((-tile * CARRY_SCALE) / 2, (-tile * CARRY_SCALE) / 2);
       wrap.add(b);
     } else if (kind === "hog") {
-      const sprite = scene.make.sprite({ x: 0, y: 0, key: AVATAR_TEX, frame: avatarFrameName("hog", CARRIED_HOG_STYLE, "down", "idle"), add: false });
-      sprite.setOrigin(0.5, 0.85);
+      const sprite = scene.make.sprite({ x: 0, y: 0, key: AVATAR_TEX, frame: avatarFrameName("hog", style, "down", "idle"), add: false });
+      sprite.setOrigin(ANCHOR.x / FRAME_W, ANCHOR.y / FRAME_H);
       sprite.setScale((tile / ART) * CARRY_SCALE);
       wrap.add(sprite);
     } else {
@@ -339,15 +338,18 @@ export function createEntities(scene: Phaser.Scene, getTile: () => number) {
   /** Sync a trogg's carried overlay to its `carrying` kind, rebuilding only on change. */
   const applyCarry = (entry: Tracked): void => {
     const kind = entry.player.carrying;
-    if (kind === entry.carriedKind) return;
+    const style = kind === "hog" ? entry.player.carryingStyle || "classic" : "";
+    if (kind === entry.carriedKind && style === entry.carriedStyle) return;
     entry.carried?.destroy();
     entry.carried = undefined;
     entry.carriedKind = "";
-    const overlay = makeCarried(kind, entry.sprite ? headTopY() : 0);
+    entry.carriedStyle = "";
+    const overlay = makeCarried(kind, style, entry.sprite ? headTopY() : 0);
     if (overlay) {
       entry.marker.add(overlay);
       entry.carried = overlay;
       entry.carriedKind = kind;
+      entry.carriedStyle = style;
     }
   };
 
@@ -419,9 +421,9 @@ export function createEntities(scene: Phaser.Scene, getTile: () => number) {
 
   /**
    * Cosmetic easter egg (behind `ghost-trogg`): a pale draped ghost materialises on
-   * the given tile, drifts gently, lingers, then fades. `/ghost` and the command
-   * panel request `hauntGhost`; every live client in the zone renders the resulting
-   * `ghost_haunt` insert.
+   * the given tile, drifts gently, lingers, then fades. The Commands panel requests
+   * `hauntGhost`; every live client in the zone renders the resulting `ghost_haunt`
+   * insert.
    */
   const hauntGhost = (stage: Phaser.GameObjects.Container, tile: { x: number; y: number; id?: bigint }) => {
     audio.playGhost();

@@ -9,10 +9,11 @@ import {
   TROGG_STYLES,
 } from "@trogg/shared";
 import type { DbConnection } from "../net/module_bindings";
-import { captureEvent, isFeatureEnabled } from "../analytics.js";
+import { isFeatureEnabled, logError, logWarn } from "../analytics.js";
 import { cssColor } from "../ui_text.js";
 import { hudLeft } from "./hud.js";
 import { registerKeybind } from "./keybinds.js";
+import { recolorTrogg, renameTrogg, restyleTrogg } from "../net/procedures.js";
 
 /** Human label for a trogg style id (GDD "Avatars"); the id is the sprite key. */
 const STYLE_LABELS: Record<string, string> = { moss: "Moss", stone: "Stone", ridge: "Ridge" };
@@ -22,8 +23,8 @@ const STYLE_LABELS: Record<string, string> = { moss: "Moss", stone: "Stone", rid
  * Help: rename your trogg, recolour it, and restyle its body. Everything about how
  * your trogg looks lives in one place, off to the side, rather than a separate
  * overlay. A real `<input>` owns the rename (focus/blur/IME/mobile-keyboard are the
- * browser's job); swatches and style buttons fire their reducers directly. Each
- * control is gated by its own flag, so the panel never offers something switched off.
+ * browser's job); swatches and style buttons use procedure wrappers so accepted
+ * server mutations emit analytics. Each control is gated by its own flag, so the panel never offers something switched off.
  */
 export function mountAppearance(conn: DbConnection): void {
   const myId = conn.identity?.toHexString();
@@ -74,10 +75,17 @@ export function mountAppearance(conn: DbConnection): void {
   const rename = async (raw: string) => {
     const name = raw.trim();
     if (!isValidName(name)) {
+      logWarn("Rejected invalid rename", { surface: "appearance", reason: "invalid_name" });
       status.textContent = "3–20 letters, numbers or hyphens.";
       return;
     }
-    await conn.reducers.rename({ name });
+    try {
+      await renameTrogg(conn, name);
+    } catch (err) {
+      logError("Rename action failed", { surface: "appearance", action: "rename", error: err });
+      status.textContent = "Couldn't rename. Try again.";
+      return;
+    }
     status.textContent = myName() === name ? "Saved." : "That name's taken.";
     refresh();
   };
@@ -113,8 +121,10 @@ export function mountAppearance(conn: DbConnection): void {
       swatch.style.background = cssColor(color);
       swatch.setAttribute("aria-label", `Trogg colour ${index + 1}`);
       swatch.addEventListener("click", () => {
-        void conn.reducers.recolor({ color: index });
-        captureEvent("trogg_recolored", { color: index });
+        void recolorTrogg(conn, index).catch((err) => {
+          logError("Recolor action failed", { surface: "appearance", action: "recolor", color: index, error: err });
+          status.textContent = "Couldn't recolour. Try again.";
+        });
       });
       swatches.push(swatch);
       palette.appendChild(swatch);
@@ -133,8 +143,10 @@ export function mountAppearance(conn: DbConnection): void {
       btn.className = "style-option";
       btn.textContent = STYLE_LABELS[style] ?? style;
       btn.addEventListener("click", () => {
-        void conn.reducers.restyle({ style: index });
-        captureEvent("trogg_restyled", { style });
+        void restyleTrogg(conn, index).catch((err) => {
+          logError("Restyle action failed", { surface: "appearance", action: "restyle", style, error: err });
+          status.textContent = "Couldn't restyle. Try again.";
+        });
       });
       styleButtons.push(btn);
       options.appendChild(btn);

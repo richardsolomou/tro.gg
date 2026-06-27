@@ -3,10 +3,10 @@ import type { DbConnection } from "../net/module_bindings";
 import type { Player } from "../net/module_bindings/types";
 import { cssColor } from "../ui_text.js";
 import { hudRoot } from "./hud.js";
-import { currentCommandFlags, handleChatCommand } from "./chat_commands.js";
-import { captureEvent, isFeatureEnabled } from "../analytics.js";
+import { logError } from "../analytics.js";
 import { audio } from "../audio.js";
 import type { Entities, Tracked } from "../game/entities.js";
+import { sendChat } from "../net/procedures.js";
 
 export interface ChatUI {
   /** Append a line to the side-panel history, the name tinted by `color` (0xRRGGBB). */
@@ -147,8 +147,8 @@ export function mountChat(send: (text: string) => void): ChatUI {
  * Wires zone chat: every `chat_message` row feeds the side-panel history (the
  * subscription replays recent lines on join), and once live, a new row also pops
  * a bubble over the speaker's head — so bubbles fire only for present players,
- * not the backlog. Own messages emit `chat_sent` — never content (invariant 4 /
- * docs/analytics.md). The bubble half lives in Phaser, so this still takes the
+ * not the backlog. The `chatAction` procedure emits `chat_sent` without content
+ * once the server accepts the line. The bubble half lives in Phaser, so this still takes the
  * scene's `entities`/`tracked`/`stage`; the history half is the HTML `ChatUI`.
  */
 export function setupChat(
@@ -159,14 +159,11 @@ export function setupChat(
   sub: { live: boolean },
   myId: string | undefined,
 ) {
-  const slug = zone.slug;
-  // Slash commands are typed in the chat box but are not chat lines. Each command is
-  // independently feature-gated and dispatches through reducers.
-  const flags = currentCommandFlags();
   const chat = mountChat((text) => {
-    if (handleChatCommand(text, { conn, chat, zone, flags })) return;
     audio.playChatSend();
-    conn.reducers.chat({ text });
+    void sendChat(conn, text).catch((err) => {
+      logError("Chat action failed", { surface: "chat", action: "chat", zone: zone.slug, error: err });
+    });
   });
 
   const senderColor = (sender: Player["identity"]) =>
@@ -183,8 +180,7 @@ export function setupChat(
     const ageMs = Date.now() - timestampMs(message.createdAt);
     if (ageMs > CHAT_BUBBLE_MS) return;
     showBubble(entities, tracked, senderId, message.text);
-    if (senderId === myId) captureEvent("chat_sent", { zone: slug });
-    else audio.playChatReceive();
+    if (senderId !== myId) audio.playChatReceive();
   });
 
   // A rename rewrites the denormalised name on the sender's past lines; reflect it

@@ -1,6 +1,8 @@
 import { INVENTORY_SLOT_COUNT, ITEMS, isEquippableItem } from "@trogg/shared";
+import { logError } from "../analytics.js";
 import type { DbConnection } from "../net/module_bindings";
 import type { Inventory, Player } from "../net/module_bindings/types";
+import { equipItem } from "../net/procedures.js";
 import { hudLeft } from "./hud.js";
 import { registerKeybind } from "./keybinds.js";
 
@@ -85,7 +87,9 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
         item.appendChild(qty);
       }
       item.addEventListener("click", () => {
-        conn.reducers.equipItem({ inventoryId: equippedNow ? 0n : row.id });
+        void equipItem(conn, equippedNow ? 0n : row.id).catch((err) => {
+          logError("Equip item request failed", { surface: "inventory", action: "equip_item", item: row.item, error: err });
+        });
       });
 
       list.appendChild(item);
@@ -154,7 +158,7 @@ function inventoryIcon(): SVGSVGElement {
   return icon;
 }
 
-function itemIcon(item: string): SVGSVGElement {
+export function itemIcon(item: string): SVGSVGElement {
   const icon = svg(32, 32);
   icon.classList.add("item-icon");
 
