@@ -114,3 +114,4 @@ export const PlayerConnection = __t.object("PlayerConnection", {
   connectedAt: __t.timestamp(),
 });
 export type PlayerConnection = __Infer<typeof PlayerConnection>;
+
