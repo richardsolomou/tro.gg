@@ -488,601 +488,601 @@
       "w": 16,
       "h": 24
     },
-    "hog_classic-big_down_idle": {
-      "x": 0,
-      "y": 384,
-      "w": 16,
-      "h": 24
-    },
-    "hog_classic-big_down_walk_a": {
-      "x": 16,
-      "y": 384,
-      "w": 16,
-      "h": 24
-    },
-    "hog_classic-big_down_walk_b": {
-      "x": 32,
-      "y": 384,
-      "w": 16,
-      "h": 24
-    },
-    "hog_classic-big_down_run_a": {
-      "x": 48,
-      "y": 384,
-      "w": 16,
-      "h": 24
-    },
-    "hog_classic-big_down_run_b": {
-      "x": 64,
-      "y": 384,
-      "w": 16,
-      "h": 24
-    },
-    "hog_classic-big_up_idle": {
-      "x": 0,
-      "y": 408,
-      "w": 16,
-      "h": 24
-    },
-    "hog_classic-big_up_walk_a": {
-      "x": 16,
-      "y": 408,
-      "w": 16,
-      "h": 24
-    },
-    "hog_classic-big_up_walk_b": {
-      "x": 32,
-      "y": 408,
-      "w": 16,
-      "h": 24
-    },
-    "hog_classic-big_up_run_a": {
-      "x": 48,
-      "y": 408,
-      "w": 16,
-      "h": 24
-    },
-    "hog_classic-big_up_run_b": {
-      "x": 64,
-      "y": 408,
-      "w": 16,
-      "h": 24
-    },
-    "hog_classic-big_left_idle": {
-      "x": 0,
-      "y": 432,
-      "w": 16,
-      "h": 24
-    },
-    "hog_classic-big_left_walk_a": {
-      "x": 16,
-      "y": 432,
-      "w": 16,
-      "h": 24
-    },
-    "hog_classic-big_left_walk_b": {
-      "x": 32,
-      "y": 432,
-      "w": 16,
-      "h": 24
-    },
-    "hog_classic-big_left_run_a": {
-      "x": 48,
-      "y": 432,
-      "w": 16,
-      "h": 24
-    },
-    "hog_classic-big_left_run_b": {
-      "x": 64,
-      "y": 432,
-      "w": 16,
-      "h": 24
-    },
-    "hog_classic-big_right_idle": {
-      "x": 0,
-      "y": 456,
-      "w": 16,
-      "h": 24
-    },
-    "hog_classic-big_right_walk_a": {
-      "x": 16,
-      "y": 456,
-      "w": 16,
-      "h": 24
-    },
-    "hog_classic-big_right_walk_b": {
-      "x": 32,
-      "y": 456,
-      "w": 16,
-      "h": 24
-    },
-    "hog_classic-big_right_run_a": {
-      "x": 48,
-      "y": 456,
-      "w": 16,
-      "h": 24
-    },
-    "hog_classic-big_right_run_b": {
-      "x": 64,
-      "y": 456,
-      "w": 16,
-      "h": 24
-    },
     "hog_snow_down_idle": {
       "x": 0,
-      "y": 480,
+      "y": 384,
       "w": 16,
       "h": 24
     },
     "hog_snow_down_walk_a": {
       "x": 16,
-      "y": 480,
+      "y": 384,
       "w": 16,
       "h": 24
     },
     "hog_snow_down_walk_b": {
       "x": 32,
-      "y": 480,
+      "y": 384,
       "w": 16,
       "h": 24
     },
     "hog_snow_down_run_a": {
       "x": 48,
-      "y": 480,
+      "y": 384,
       "w": 16,
       "h": 24
     },
     "hog_snow_down_run_b": {
       "x": 64,
-      "y": 480,
+      "y": 384,
       "w": 16,
       "h": 24
     },
     "hog_snow_up_idle": {
       "x": 0,
-      "y": 504,
+      "y": 408,
       "w": 16,
       "h": 24
     },
     "hog_snow_up_walk_a": {
       "x": 16,
-      "y": 504,
+      "y": 408,
       "w": 16,
       "h": 24
     },
     "hog_snow_up_walk_b": {
       "x": 32,
-      "y": 504,
+      "y": 408,
       "w": 16,
       "h": 24
     },
     "hog_snow_up_run_a": {
       "x": 48,
-      "y": 504,
+      "y": 408,
       "w": 16,
       "h": 24
     },
     "hog_snow_up_run_b": {
       "x": 64,
-      "y": 504,
+      "y": 408,
       "w": 16,
       "h": 24
     },
     "hog_snow_left_idle": {
       "x": 0,
-      "y": 528,
+      "y": 432,
       "w": 16,
       "h": 24
     },
     "hog_snow_left_walk_a": {
       "x": 16,
-      "y": 528,
+      "y": 432,
       "w": 16,
       "h": 24
     },
     "hog_snow_left_walk_b": {
       "x": 32,
-      "y": 528,
+      "y": 432,
       "w": 16,
       "h": 24
     },
     "hog_snow_left_run_a": {
       "x": 48,
-      "y": 528,
+      "y": 432,
       "w": 16,
       "h": 24
     },
     "hog_snow_left_run_b": {
       "x": 64,
-      "y": 528,
+      "y": 432,
       "w": 16,
       "h": 24
     },
     "hog_snow_right_idle": {
       "x": 0,
-      "y": 552,
+      "y": 456,
       "w": 16,
       "h": 24
     },
     "hog_snow_right_walk_a": {
       "x": 16,
-      "y": 552,
+      "y": 456,
       "w": 16,
       "h": 24
     },
     "hog_snow_right_walk_b": {
       "x": 32,
-      "y": 552,
+      "y": 456,
       "w": 16,
       "h": 24
     },
     "hog_snow_right_run_a": {
       "x": 48,
-      "y": 552,
+      "y": 456,
       "w": 16,
       "h": 24
     },
     "hog_snow_right_run_b": {
       "x": 64,
-      "y": 552,
-      "w": 16,
-      "h": 24
-    },
-    "hog_snow-big_down_idle": {
-      "x": 0,
-      "y": 576,
-      "w": 16,
-      "h": 24
-    },
-    "hog_snow-big_down_walk_a": {
-      "x": 16,
-      "y": 576,
-      "w": 16,
-      "h": 24
-    },
-    "hog_snow-big_down_walk_b": {
-      "x": 32,
-      "y": 576,
-      "w": 16,
-      "h": 24
-    },
-    "hog_snow-big_down_run_a": {
-      "x": 48,
-      "y": 576,
-      "w": 16,
-      "h": 24
-    },
-    "hog_snow-big_down_run_b": {
-      "x": 64,
-      "y": 576,
-      "w": 16,
-      "h": 24
-    },
-    "hog_snow-big_up_idle": {
-      "x": 0,
-      "y": 600,
-      "w": 16,
-      "h": 24
-    },
-    "hog_snow-big_up_walk_a": {
-      "x": 16,
-      "y": 600,
-      "w": 16,
-      "h": 24
-    },
-    "hog_snow-big_up_walk_b": {
-      "x": 32,
-      "y": 600,
-      "w": 16,
-      "h": 24
-    },
-    "hog_snow-big_up_run_a": {
-      "x": 48,
-      "y": 600,
-      "w": 16,
-      "h": 24
-    },
-    "hog_snow-big_up_run_b": {
-      "x": 64,
-      "y": 600,
-      "w": 16,
-      "h": 24
-    },
-    "hog_snow-big_left_idle": {
-      "x": 0,
-      "y": 624,
-      "w": 16,
-      "h": 24
-    },
-    "hog_snow-big_left_walk_a": {
-      "x": 16,
-      "y": 624,
-      "w": 16,
-      "h": 24
-    },
-    "hog_snow-big_left_walk_b": {
-      "x": 32,
-      "y": 624,
-      "w": 16,
-      "h": 24
-    },
-    "hog_snow-big_left_run_a": {
-      "x": 48,
-      "y": 624,
-      "w": 16,
-      "h": 24
-    },
-    "hog_snow-big_left_run_b": {
-      "x": 64,
-      "y": 624,
-      "w": 16,
-      "h": 24
-    },
-    "hog_snow-big_right_idle": {
-      "x": 0,
-      "y": 648,
-      "w": 16,
-      "h": 24
-    },
-    "hog_snow-big_right_walk_a": {
-      "x": 16,
-      "y": 648,
-      "w": 16,
-      "h": 24
-    },
-    "hog_snow-big_right_walk_b": {
-      "x": 32,
-      "y": 648,
-      "w": 16,
-      "h": 24
-    },
-    "hog_snow-big_right_run_a": {
-      "x": 48,
-      "y": 648,
-      "w": 16,
-      "h": 24
-    },
-    "hog_snow-big_right_run_b": {
-      "x": 64,
-      "y": 648,
+      "y": 456,
       "w": 16,
       "h": 24
     },
     "hog_ember_down_idle": {
       "x": 0,
-      "y": 672,
+      "y": 480,
       "w": 16,
       "h": 24
     },
     "hog_ember_down_walk_a": {
       "x": 16,
-      "y": 672,
+      "y": 480,
       "w": 16,
       "h": 24
     },
     "hog_ember_down_walk_b": {
       "x": 32,
-      "y": 672,
+      "y": 480,
       "w": 16,
       "h": 24
     },
     "hog_ember_down_run_a": {
       "x": 48,
-      "y": 672,
+      "y": 480,
       "w": 16,
       "h": 24
     },
     "hog_ember_down_run_b": {
       "x": 64,
-      "y": 672,
+      "y": 480,
       "w": 16,
       "h": 24
     },
     "hog_ember_up_idle": {
       "x": 0,
-      "y": 696,
+      "y": 504,
       "w": 16,
       "h": 24
     },
     "hog_ember_up_walk_a": {
       "x": 16,
-      "y": 696,
+      "y": 504,
       "w": 16,
       "h": 24
     },
     "hog_ember_up_walk_b": {
       "x": 32,
-      "y": 696,
+      "y": 504,
       "w": 16,
       "h": 24
     },
     "hog_ember_up_run_a": {
       "x": 48,
-      "y": 696,
+      "y": 504,
       "w": 16,
       "h": 24
     },
     "hog_ember_up_run_b": {
       "x": 64,
-      "y": 696,
+      "y": 504,
       "w": 16,
       "h": 24
     },
     "hog_ember_left_idle": {
       "x": 0,
-      "y": 720,
+      "y": 528,
       "w": 16,
       "h": 24
     },
     "hog_ember_left_walk_a": {
       "x": 16,
-      "y": 720,
+      "y": 528,
       "w": 16,
       "h": 24
     },
     "hog_ember_left_walk_b": {
       "x": 32,
-      "y": 720,
+      "y": 528,
       "w": 16,
       "h": 24
     },
     "hog_ember_left_run_a": {
       "x": 48,
-      "y": 720,
+      "y": 528,
       "w": 16,
       "h": 24
     },
     "hog_ember_left_run_b": {
       "x": 64,
-      "y": 720,
+      "y": 528,
       "w": 16,
       "h": 24
     },
     "hog_ember_right_idle": {
       "x": 0,
-      "y": 744,
+      "y": 552,
       "w": 16,
       "h": 24
     },
     "hog_ember_right_walk_a": {
       "x": 16,
-      "y": 744,
+      "y": 552,
       "w": 16,
       "h": 24
     },
     "hog_ember_right_walk_b": {
       "x": 32,
-      "y": 744,
+      "y": 552,
       "w": 16,
       "h": 24
     },
     "hog_ember_right_run_a": {
       "x": 48,
-      "y": 744,
+      "y": 552,
       "w": 16,
       "h": 24
     },
     "hog_ember_right_run_b": {
       "x": 64,
+      "y": 552,
+      "w": 16,
+      "h": 24
+    },
+    "hog_buff_down_idle": {
+      "x": 0,
+      "y": 576,
+      "w": 16,
+      "h": 24
+    },
+    "hog_buff_down_walk_a": {
+      "x": 16,
+      "y": 576,
+      "w": 16,
+      "h": 24
+    },
+    "hog_buff_down_walk_b": {
+      "x": 32,
+      "y": 576,
+      "w": 16,
+      "h": 24
+    },
+    "hog_buff_down_run_a": {
+      "x": 48,
+      "y": 576,
+      "w": 16,
+      "h": 24
+    },
+    "hog_buff_down_run_b": {
+      "x": 64,
+      "y": 576,
+      "w": 16,
+      "h": 24
+    },
+    "hog_buff_up_idle": {
+      "x": 0,
+      "y": 600,
+      "w": 16,
+      "h": 24
+    },
+    "hog_buff_up_walk_a": {
+      "x": 16,
+      "y": 600,
+      "w": 16,
+      "h": 24
+    },
+    "hog_buff_up_walk_b": {
+      "x": 32,
+      "y": 600,
+      "w": 16,
+      "h": 24
+    },
+    "hog_buff_up_run_a": {
+      "x": 48,
+      "y": 600,
+      "w": 16,
+      "h": 24
+    },
+    "hog_buff_up_run_b": {
+      "x": 64,
+      "y": 600,
+      "w": 16,
+      "h": 24
+    },
+    "hog_buff_left_idle": {
+      "x": 0,
+      "y": 624,
+      "w": 16,
+      "h": 24
+    },
+    "hog_buff_left_walk_a": {
+      "x": 16,
+      "y": 624,
+      "w": 16,
+      "h": 24
+    },
+    "hog_buff_left_walk_b": {
+      "x": 32,
+      "y": 624,
+      "w": 16,
+      "h": 24
+    },
+    "hog_buff_left_run_a": {
+      "x": 48,
+      "y": 624,
+      "w": 16,
+      "h": 24
+    },
+    "hog_buff_left_run_b": {
+      "x": 64,
+      "y": 624,
+      "w": 16,
+      "h": 24
+    },
+    "hog_buff_right_idle": {
+      "x": 0,
+      "y": 648,
+      "w": 16,
+      "h": 24
+    },
+    "hog_buff_right_walk_a": {
+      "x": 16,
+      "y": 648,
+      "w": 16,
+      "h": 24
+    },
+    "hog_buff_right_walk_b": {
+      "x": 32,
+      "y": 648,
+      "w": 16,
+      "h": 24
+    },
+    "hog_buff_right_run_a": {
+      "x": 48,
+      "y": 648,
+      "w": 16,
+      "h": 24
+    },
+    "hog_buff_right_run_b": {
+      "x": 64,
+      "y": 648,
+      "w": 16,
+      "h": 24
+    },
+    "hog_dino_down_idle": {
+      "x": 0,
+      "y": 672,
+      "w": 16,
+      "h": 24
+    },
+    "hog_dino_down_walk_a": {
+      "x": 16,
+      "y": 672,
+      "w": 16,
+      "h": 24
+    },
+    "hog_dino_down_walk_b": {
+      "x": 32,
+      "y": 672,
+      "w": 16,
+      "h": 24
+    },
+    "hog_dino_down_run_a": {
+      "x": 48,
+      "y": 672,
+      "w": 16,
+      "h": 24
+    },
+    "hog_dino_down_run_b": {
+      "x": 64,
+      "y": 672,
+      "w": 16,
+      "h": 24
+    },
+    "hog_dino_up_idle": {
+      "x": 0,
+      "y": 696,
+      "w": 16,
+      "h": 24
+    },
+    "hog_dino_up_walk_a": {
+      "x": 16,
+      "y": 696,
+      "w": 16,
+      "h": 24
+    },
+    "hog_dino_up_walk_b": {
+      "x": 32,
+      "y": 696,
+      "w": 16,
+      "h": 24
+    },
+    "hog_dino_up_run_a": {
+      "x": 48,
+      "y": 696,
+      "w": 16,
+      "h": 24
+    },
+    "hog_dino_up_run_b": {
+      "x": 64,
+      "y": 696,
+      "w": 16,
+      "h": 24
+    },
+    "hog_dino_left_idle": {
+      "x": 0,
+      "y": 720,
+      "w": 16,
+      "h": 24
+    },
+    "hog_dino_left_walk_a": {
+      "x": 16,
+      "y": 720,
+      "w": 16,
+      "h": 24
+    },
+    "hog_dino_left_walk_b": {
+      "x": 32,
+      "y": 720,
+      "w": 16,
+      "h": 24
+    },
+    "hog_dino_left_run_a": {
+      "x": 48,
+      "y": 720,
+      "w": 16,
+      "h": 24
+    },
+    "hog_dino_left_run_b": {
+      "x": 64,
+      "y": 720,
+      "w": 16,
+      "h": 24
+    },
+    "hog_dino_right_idle": {
+      "x": 0,
       "y": 744,
       "w": 16,
       "h": 24
     },
-    "hog_ember-big_down_idle": {
+    "hog_dino_right_walk_a": {
+      "x": 16,
+      "y": 744,
+      "w": 16,
+      "h": 24
+    },
+    "hog_dino_right_walk_b": {
+      "x": 32,
+      "y": 744,
+      "w": 16,
+      "h": 24
+    },
+    "hog_dino_right_run_a": {
+      "x": 48,
+      "y": 744,
+      "w": 16,
+      "h": 24
+    },
+    "hog_dino_right_run_b": {
+      "x": 64,
+      "y": 744,
+      "w": 16,
+      "h": 24
+    },
+    "hog_chicken_down_idle": {
       "x": 0,
       "y": 768,
       "w": 16,
       "h": 24
     },
-    "hog_ember-big_down_walk_a": {
+    "hog_chicken_down_walk_a": {
       "x": 16,
       "y": 768,
       "w": 16,
       "h": 24
     },
-    "hog_ember-big_down_walk_b": {
+    "hog_chicken_down_walk_b": {
       "x": 32,
       "y": 768,
       "w": 16,
       "h": 24
     },
-    "hog_ember-big_down_run_a": {
+    "hog_chicken_down_run_a": {
       "x": 48,
       "y": 768,
       "w": 16,
       "h": 24
     },
-    "hog_ember-big_down_run_b": {
+    "hog_chicken_down_run_b": {
       "x": 64,
       "y": 768,
       "w": 16,
       "h": 24
     },
-    "hog_ember-big_up_idle": {
+    "hog_chicken_up_idle": {
       "x": 0,
       "y": 792,
       "w": 16,
       "h": 24
     },
-    "hog_ember-big_up_walk_a": {
+    "hog_chicken_up_walk_a": {
       "x": 16,
       "y": 792,
       "w": 16,
       "h": 24
     },
-    "hog_ember-big_up_walk_b": {
+    "hog_chicken_up_walk_b": {
       "x": 32,
       "y": 792,
       "w": 16,
       "h": 24
     },
-    "hog_ember-big_up_run_a": {
+    "hog_chicken_up_run_a": {
       "x": 48,
       "y": 792,
       "w": 16,
       "h": 24
     },
-    "hog_ember-big_up_run_b": {
+    "hog_chicken_up_run_b": {
       "x": 64,
       "y": 792,
       "w": 16,
       "h": 24
     },
-    "hog_ember-big_left_idle": {
+    "hog_chicken_left_idle": {
       "x": 0,
       "y": 816,
       "w": 16,
       "h": 24
     },
-    "hog_ember-big_left_walk_a": {
+    "hog_chicken_left_walk_a": {
       "x": 16,
       "y": 816,
       "w": 16,
       "h": 24
     },
-    "hog_ember-big_left_walk_b": {
+    "hog_chicken_left_walk_b": {
       "x": 32,
       "y": 816,
       "w": 16,
       "h": 24
     },
-    "hog_ember-big_left_run_a": {
+    "hog_chicken_left_run_a": {
       "x": 48,
       "y": 816,
       "w": 16,
       "h": 24
     },
-    "hog_ember-big_left_run_b": {
+    "hog_chicken_left_run_b": {
       "x": 64,
       "y": 816,
       "w": 16,
       "h": 24
     },
-    "hog_ember-big_right_idle": {
+    "hog_chicken_right_idle": {
       "x": 0,
       "y": 840,
       "w": 16,
       "h": 24
     },
-    "hog_ember-big_right_walk_a": {
+    "hog_chicken_right_walk_a": {
       "x": 16,
       "y": 840,
       "w": 16,
       "h": 24
     },
-    "hog_ember-big_right_walk_b": {
+    "hog_chicken_right_walk_b": {
       "x": 32,
       "y": 840,
       "w": 16,
       "h": 24
     },
-    "hog_ember-big_right_run_a": {
+    "hog_chicken_right_run_a": {
       "x": 48,
       "y": 840,
       "w": 16,
       "h": 24
     },
-    "hog_ember-big_right_run_b": {
+    "hog_chicken_right_run_b": {
       "x": 64,
       "y": 840,
       "w": 16,

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { MOVE_SPEED_TILES_PER_SEC, RUN_SPEED_TILES_PER_SEC, type Zone } from "./constants";
-import { candidateTargets, facingTile, findPath, parsePath, projectMotion, projectMotionState, serializePath, snapToTile, spawnTile, spawnTiles, walkableCardinals, zoneBounds } from "./motion";
+import { candidateTargets, facingTile, findPath, footprintTiles, footprintWalkable, parsePath, projectMotion, projectMotionState, serializePath, snapToTile, spawnTile, spawnTiles, walkableCardinals, zoneBounds } from "./motion";
 
 // No isWalkable → open floor, clamped only to the rectangular bounds.
 const open = { width: 24, height: 16 };
@@ -253,6 +253,40 @@ test("a hog's walkable headings exclude walls and the zone edge", () => {
 test("a hog's walkable headings treat an occupied tile (boulder/hog/trogg) like a wall", () => {
   // (3,1) in the 1-tile-tall corridor with the tile at (4,1) occupied: only left is open.
   assert.deepEqual(dirKeys(walkableCardinals(withBoulder, 3, 1)), new Set(["-1,0"]));
+});
+
+// --- Big (2×2) Hog footprints: a size-2 mover clamps across its whole footprint ---
+
+// 6×4 open floor with a solid wall down column 4.
+const pillar: Zone = { slug: "pillar", name: "Pillar", width: 6, height: 4, tiles: ["....#.", "....#.", "....#.", "....#."] };
+const pillared = zoneBounds(pillar);
+
+test("a 2×2 hog stops its right edge flush against a wall, a tile sooner than a 1×1", () => {
+  // From x=0 on row 1: the 2×2 (cols x..x+1) halts at x=2 so cols 2,3 sit before wall col 4.
+  assert.equal(projectMotion({ x: 0, y: 1, dirX: 1, dirY: 0, size: 2 }, 10_000, pillared).x, 2);
+  // A 1×1 from the same spot reaches x=3, flush against the wall itself.
+  assert.equal(projectMotion({ x: 0, y: 1, dirX: 1, dirY: 0 }, 10_000, pillared).x, 3);
+});
+
+test("a 2×2 hog is clamped so its whole footprint stays inside the zone", () => {
+  // Open floor: a 2×2 can't pass width-2 / height-2 (its far edge would leave the zone).
+  assert.equal(projectMotion({ x: 0, y: 2, dirX: 1, dirY: 0, size: 2 }, 10_000, open).x, open.width - 2);
+  assert.equal(projectMotion({ x: 5, y: 0, dirX: 0, dirY: 1, size: 2 }, 10_000, open).y, open.height - 2);
+});
+
+test("a 2×2 hog's walkable headings test the whole leading edge", () => {
+  // Footprint at (2,1) covers cols 2-3; stepping right would put col 3-4 onto wall col 4.
+  assert.deepEqual(dirKeys(walkableCardinals(pillared, 2, 1, 2)), new Set(["-1,0", "0,-1", "0,1"]));
+});
+
+test("footprintTiles and footprintWalkable cover the size×size block", () => {
+  assert.deepEqual(footprintTiles(3, 5), [{ x: 3, y: 5 }]);
+  assert.deepEqual(footprintTiles(3, 5, 2), [
+    { x: 3, y: 5 }, { x: 4, y: 5 }, { x: 3, y: 6 }, { x: 4, y: 6 },
+  ]);
+  assert.ok(footprintWalkable(pillared, 2, 1, 2)); // cols 2-3 clear
+  assert.ok(!footprintWalkable(pillared, 3, 1, 2)); // overlaps wall col 4
+  assert.ok(!footprintWalkable(pillared, 5, 1, 2)); // runs off the right edge
 });
 
 // --- candidateTargets: where a click-to-move route may end (drives the client's

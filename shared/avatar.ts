@@ -9,7 +9,7 @@
  * straight from their entity id, giving a zone a varied, stable crowd.
  */
 
-import { HOG_STYLES, TROGG_STYLES, type HogStyle, type TroggStyle } from "./sprites";
+import { COMMON_HOG_STYLES, HOG_STYLES, TROGG_STYLES, type HogStyle, type TroggStyle } from "./sprites";
 
 /** Distinct, readable tints against the world's dark ground — the recolour palette. */
 export const TROGG_COLORS = [
@@ -81,9 +81,11 @@ export function troggStyleFor(styleIndex: number, userId: string): TroggStyle {
   return TROGG_STYLES[troggStyleIndexFor(styleIndex, userId)]!;
 }
 
-/** A Hog's style, derived from its entity id — Hogs don't choose, they just vary. */
+/** A common Hog's style, derived from its entity id — the small roaming crowd varies
+ *  over `COMMON_HOG_STYLES`. Big and easter-egg hogs carry an explicit style on their
+ *  row instead, so they never come up here. */
 export function hogStyleFor(hogId: string, storedStyle = ""): HogStyle {
-  return isHogStyle(storedStyle) ? storedStyle : HOG_STYLES[hashId(hogId) % HOG_STYLES.length]!;
+  return isHogStyle(storedStyle) ? storedStyle : COMMON_HOG_STYLES[hashId(hogId) % COMMON_HOG_STYLES.length]!;
 }
 
 /** Whether `style` is one of the Hog sprite skins the shared sheet contains. */
