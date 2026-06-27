@@ -15,11 +15,14 @@ name: PR preview module
 # owns the per-PR databases too, so it can publish and later delete them.
 
 on:
+  push:
+    branches:
+      - "posthog-code/**"
   pull_request:
     types: [opened, synchronize, reopened]
 
 concurrency:
-  group: preview-module-${{ github.head_ref }}
+  group: preview-module-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
@@ -41,8 +44,13 @@ jobs:
       - name: Derive database name
         id: db
         run: |
-          slug=$(printf '%s' "${{ github.head_ref }}" | tr '[:upper:]' '[:lower:]' \
+          branch="${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}"
+          slug=$(printf '%s' "$branch" | tr '[:upper:]' '[:lower:]' \
             | sed -E 's/[^a-z0-9]+/-/g' | cut -c1-40 | sed -E 's/^-+|-+$//g')
+          if [ -z "$slug" ]; then
+            echo "::error::Empty slug — refusing to publish a preview database."
+            exit 1
+          fi
           echo "name=trogg-$slug" >> "$GITHUB_OUTPUT"
 
       - name: Install SpacetimeDB CLI
