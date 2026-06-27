@@ -7,7 +7,7 @@ The PostHog plan: every product gets a real job when it is useful. This document
 | Product | In-game job |
 | ------- | ----------- |
 | Autocapture + events | Core telemetry from day one |
-| Session replay | Watch new players get lost; review sessions after the fact; debugging |
+| Session replay | Watch new players get lost; review sessions after the fact; debugging; canvas recording enabled for the Phaser playfield |
 | Identify / person profiles | Guest → account upgrade, merged identities |
 | Funnels / retention | Onboarding funnel, XP progression, return cohorts |
 | Feature flags | Remote rollout, kill-switches, balance knobs, and experiments when they are worth the extra branch |
@@ -15,6 +15,7 @@ The PostHog plan: every product gets a real job when it is useful. This document
 | Error tracking | Client + server errors |
 | Surveys | In-game feedback prompts |
 | AI observability | LLM-driven Hogs — traces, cost, quality |
+| Logs | Structured client diagnostics tied to user/session context |
 
 ## Events
 
@@ -25,25 +26,35 @@ snake_case. Low-volume by design — anything that could fire more than ~once/se
 | `player_joined` | `zone, is_guest` | Session starts and the trogg exists in the world |
 | `connection_lost` | — | Live SpacetimeDB socket dropped after being connected (usually a backend redeploy); the client begins auto-reconnecting. Best-effort — fired just before the recovery reload, so it measures deploy disruption |
 | `client_update_available` | — | Polling spotted a newer deployed frontend than the running build (a Cloudflare-only deploy); the refresh prompt is shown. Measures how many players are on a stale client after a frontend deploy |
+| `account_claim_started` | — | Player starts the guest → account claim flow and is about to leave for SpacetimeAuth |
+| `account_signed_out` | — | Signed-in player explicitly signs out from the account panel |
 | `player_named` | — | Guest upgrades to an account — fires when a claim is redeemed, alongside `identify()` (the OIDC subject), merging the guest's history |
-| `trogg_recolored` | `color` | Player picks an avatar colour — `color` is the chosen `TROGG_COLORS` palette index |
-| `trogg_restyled` | `style` | Player picks an avatar body style — `style` is the chosen `TROGG_STYLES` id (e.g. `stone`) |
+| `trogg_renamed` | `zone, source?` | Player's own name changes after the authoritative player row updates |
+| `trogg_recolored` | `color, source?` | Player picks an avatar colour — `color` is the chosen `TROGG_COLORS` palette index |
+| `trogg_restyled` | `style, source?` | Player picks an avatar body style — `style` is the chosen `TROGG_STYLES` id (e.g. `stone`) |
+| `inventory_item_acquired` | `zone?, item, qty, source?` | Player's own inventory receives a new item row or stack increase from authoritative inventory sync |
+| `item_equipped` | `zone, item, equipped, source?` | Player's own main-hand equipment changes; `equipped=false` means the item was unequipped |
+| `equipped_item_used` | `zone, item, source?` | Player's own equipped item use is accepted and appears on the authoritative player row |
 | `zone_entered` | `zone, from_zone` | Zone transition |
 | `action_started` | `action, node_type, zone` | Action begins |
 | `resource_gathered` | `node_type, item, zone` | Action completes |
 | `xp_gained` | `skill, amount, level` | XP granted (batch if volume demands) |
 | `level_up` | `skill, level` | Derived level increases |
-| `chat_sent` | `zone` | Message sent — **no content** |
-| `boulders_reset` | `zone` | Player resets boulders via the Commands panel |
-| `hedgehogs_reset` | `zone` | Player resets Hogs via the Commands panel |
-| `object_picked_up` | `zone, kind` | Player picks up a tile-sized object — `kind` is `boulder` or `hog` |
-| `object_dropped` | `zone, kind` | Player puts down what they were carrying |
+| `chat_sent` | `zone, source?` | Message sent — **no content** |
+| `boulders_reset` | `zone, source` | Player resets boulders via the Commands panel |
+| `hedgehogs_reset` | `zone, source` | Player resets Hogs via the Commands panel |
+| `debug_entity_spawned` | `zone, kind, count, source, item?, style?` | Player requests a Commands panel spawn for a supported debug entity — `kind` is `boulder`, `hog`, or `item`; `style` is present for exact Hog skin spawns and `item` for spawned pickup items |
+| `ghost_summoned` | `zone, source, count` | Player requests one or more synced cosmetic ghost haunts via the Commands panel |
+| `object_picked_up` | `zone, kind, source?, style?` | Player picks up a tile-sized object — `kind` is `boulder` or `hog`; `style` is present for Hogs |
+| `object_dropped` | `zone, kind, source?, style?` | Player puts down what they were carrying; `style` is present for Hogs |
 | `item_crafted` | `recipe, qty` | Item crafting succeeds |
 | `project_contributed` | `project, item, qty` | Player contributes to a communal project |
 | `project_completed` | `project` | Communal project completes |
 | `shop_purchase` | `item, qty, price` | Player buys from a Hog merchant |
 
-Client events via posthog-js (plus autocapture + session replay). SpacetimeDB reducers are network-isolated — they can't call out to PostHog — so events fire client-side: the client emits a gameplay-authoritative event (`resource_gathered`, `xp_gained`, `level_up`, crafting, projects, purchases) when it observes the authoritative table change that earns it. If server-truth emission is ever needed, an external process subscribing to the tables can carry it; the event names and properties below are unchanged either way.
+Client lifecycle events use posthog-js (plus autocapture + session replay). Gameplay actions that need trusted server-side product events should use SpacetimeDB procedure wrappers rather than calling reducers directly from the browser. Each `*Action` procedure performs the authoritative mutation inside `ctx.withTx(...)`, derives event properties from server state, and then best-effort posts the accepted event to PostHog from the module with `source=spacetimedb-procedure` unless the caller supplies a narrower source such as `chat`, `commands`, `appearance`, `inventory`, or `keyboard`. Movement still generates zero events.
+
+The procedure wrappers accept the existing public `VITE_POSTHOG_KEY` as an argument because SpacetimeDB modules do not have the browser's Vite env at runtime. The PostHog project key is already public in the client bundle; never pass private API keys, OIDC tokens, SpacetimeDB tokens, chat content, or arbitrary command text through procedure telemetry parameters.
 
 ## Feature flags
 
@@ -67,7 +78,17 @@ Code currently reads these flag keys:
 | `trogg-recolor` | Colour swatches in the Appearance panel | On |
 | `trogg-restyle` | Body-style buttons in the Appearance panel | On |
 
-PostHog project audit (2026-06-27): all code-read flags above are configured in PostHog project 314596 and active at 100% rollout (`interact` created 2026-06-25 with the carry mechanic; `hog-reset` created 2026-06-25 with the Hog reset tool; `trogg-restyle` created 2026-06-27 with avatar body styles). Planned future flags should be added here, and created in PostHog, when code starts reading them.
+PostHog project audit (2026-06-27): all code-read flags above are configured in PostHog project 314596 and active. They are intentionally still in use because they cover remote rollback, production-only debug command governance, or visible UI capabilities that should not advertise disabled controls. `interact` was created 2026-06-25 with the carry mechanic; `hog-reset` was created 2026-06-25 with the Hog reset tool; `trogg-restyle` was created 2026-06-27 with avatar body styles. No new flag is needed for the observability pass; planned future flags should be added here, and created in PostHog, when code starts reading them.
+
+## Error tracking and logs
+
+The browser SDK initializes with exception autocapture for unhandled errors, unhandled promise rejections, and `console.error()` calls. Handled failures in startup, account claim/sign-in, silent auth refresh, and reducer- or procedure-backed account, appearance, inventory, or command actions should go through `logError()` with stable `surface` / `action` context so they are visible in DevTools and captured by PostHog Logs without relying on console-log autocapture.
+
+Structured browser logs go through explicit `logInfo()` / `logWarn()` / `logError()` helpers with `service.name = trogg-web`, the Vite build stamp as `service.version`, and the Vite mode as `deployment.environment`. Console-log autocapture is off to avoid double-capturing helper output. Use these helpers for startup, world boot flags, account actions, deploy recovery, version prompts, validation rejections, and debug command outcomes without chat content or arbitrary command text.
+
+The SpacetimeDB module currently captures accepted gameplay events from procedures, not general backend logs. Procedure telemetry failures are swallowed so analytics cannot roll back a committed gameplay action. Do not log or capture raw player chat, arbitrary command text, credentials, OIDC tokens, or SpacetimeDB tokens.
+
+Session Replay records the Phaser canvas via `session_recording.captureCanvas.recordCanvas = true`. tro.gg sets `canvasFps = 15`; use lower values if replay payload size becomes a problem.
 
 ## Rules
 

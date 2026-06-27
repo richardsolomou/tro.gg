@@ -9,8 +9,9 @@ import { createSelfController, type SelfController } from "../../movement.js";
 import { ART, createEntities, type BoulderView, type Entities, type GroundItemView, type HogView, type Tracked } from "../entities.js";
 import { createTerrain, registerTerrainTextures, type Terrain } from "../terrain.js";
 import { facingFromDir, registerAvatarTextures } from "../avatars.js";
-import { captureEvent, isFeatureEnabled } from "../../analytics.js";
+import { isFeatureEnabled, logError, logInfo } from "../../analytics.js";
 import { audio } from "../../audio.js";
+import { interact, useEquipped } from "../../net/procedures.js";
 
 /** Fraction of the viewport the zone fills, leaving a rim of cave around it. */
 const ZONE_FILL = 0.92;
@@ -114,6 +115,14 @@ export class WorldScene extends Phaser.Scene {
     this.useGhost = isFeatureEnabled("ghost-trogg");
     this.canRun = isFeatureEnabled("running");
     this.useInteract = isFeatureEnabled("interact");
+    logInfo("World scene created", {
+      zone: this.slug,
+      avatar_sprites: this.useSprites,
+      roaming_hogs: this.useHogs,
+      ghost_trogg: this.useGhost,
+      running: this.canRun,
+      interact: this.useInteract,
+    });
 
     // The collision sets are read live by these bounds and by the controller, so the
     // per-frame tick only has to refill the sets, never rewire anything.
@@ -172,10 +181,14 @@ export class WorldScene extends Phaser.Scene {
         // server has no synced standing facing, so pass the trogg's current heading;
         // it re-derives the tile and acts only on what's actually adjacent (invariant 3).
         if (!this.useInteract) return;
-        conn.reducers.interact({ dirX: this.self.facing.dirX, dirY: this.self.facing.dirY });
+        void interact(conn, this.self.facing.dirX, this.self.facing.dirY).catch((err) => {
+          logError("Interact action failed", { surface: "world", action: "interact", zone: this.slug, error: err });
+        });
       },
       () => {
-        conn.reducers.useEquipped({ dirX: this.self.facing.dirX, dirY: this.self.facing.dirY });
+        void useEquipped(conn, this.self.facing.dirX, this.self.facing.dirY).catch((err) => {
+          logError("Use equipped action failed", { surface: "world", action: "use_equipped", zone: this.slug, error: err });
+        });
       },
       this.canRun,
     );
@@ -337,12 +350,10 @@ export class WorldScene extends Phaser.Scene {
       // re-applies overlays). Bare carrying/equipment changes just retarget overlays.
       if (_old.name !== p.name || _old.color !== p.color || _old.style !== p.style) this.rebuildMarker(id, entry);
       else if (_old.carrying !== p.carrying || _old.carryingStyle !== p.carryingStyle) this.entities.applyCarry(entry);
-      if (_old.equippedMainHand !== p.equippedMainHand || _old.equippedMainHandInventoryId !== p.equippedMainHandInventoryId) this.entities.applyEquipment(entry);
 
-      // Pick-up / put-down are low-volume, so emit on the authoritative carrying
-      // transition of your own trogg (GDD analytics: observe server truth).
-      if (id === this.myId && _old.carrying !== p.carrying) {
-        captureEvent(p.carrying ? "object_picked_up" : "object_dropped", { zone: this.slug, kind: p.carrying || _old.carrying });
+      const equipmentChanged = _old.equippedMainHand !== p.equippedMainHand || _old.equippedMainHandInventoryId !== p.equippedMainHandInventoryId;
+      if (equipmentChanged) {
+        this.entities.applyEquipment(entry);
       }
     });
     conn.db.player.onDelete((_ctx, p) => this.removePlayer(p.identity.toHexString()));
