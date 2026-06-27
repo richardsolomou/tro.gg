@@ -16,4 +16,5 @@ export default __t.row({
   item: __t.string(),
   x: __t.i32(),
   y: __t.i32(),
+  qty: __t.i32(),
 });

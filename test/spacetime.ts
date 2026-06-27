@@ -95,6 +95,7 @@ export function makeCtx(opts: FakeCtxOpts) {
       ghostHaunt: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
       claimCode: makeTable({ pk: "code" }),
       hogWander: makeTable({ pk: "scheduledId", autoInc: true }),
+      playerRespawn: makeTable({ pk: "scheduledId", autoInc: true, indexes: ["playerId"] }),
     },
   };
 }
@@ -124,6 +125,7 @@ export function playerRow(identity: Id, over: Record<string, unknown> = {}) {
     style: -1,
     health: 100,
     dead: false,
+    respawnAt: undefined,
     online: true,
     isGuest: true,
     movedAt: { microsSinceUnixEpoch: 0n },

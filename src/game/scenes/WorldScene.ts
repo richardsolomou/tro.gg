@@ -180,9 +180,6 @@ export class WorldScene extends Phaser.Scene {
       () => {
         conn.reducers.useEquipped({ dirX: this.self.facing.dirX, dirY: this.self.facing.dirY });
       },
-      () => {
-        conn.reducers.respawn({});
-      },
       this.canRun,
     );
 
@@ -289,7 +286,7 @@ export class WorldScene extends Phaser.Scene {
     }
     for (const view of this.hogs.values()) {
       view.marker.destroy();
-      const built = this.entities.makeHog(view.style, view.facing);
+      const built = this.entities.makeHog(view.style, view.facing, view.row.health);
       view.marker = built.marker;
       view.sprite = built.sprite;
       view.frameKey = built.frameKey;
@@ -311,10 +308,12 @@ export class WorldScene extends Phaser.Scene {
       this.useSprites,
       entry.player.health,
       entry.player.dead,
+      entry.player.respawnAt,
     );
     entry.marker = built.marker;
     entry.sprite = built.sprite;
     entry.frameKey = built.frameKey;
+    entry.respawnText = built.respawnText;
     entry.bubble = undefined;
     entry.bubbleTimer = undefined;
     // The overlays were children of the old marker, so they're gone too; re-add them.
@@ -351,7 +350,7 @@ export class WorldScene extends Phaser.Scene {
       // The nameplate, tint, body style, and health bar are baked into the marker at
       // build time, so those changes rebuild it (which re-applies overlays). Bare
       // carrying/equipment changes just retarget overlays.
-      if (_old.name !== p.name || _old.color !== p.color || _old.style !== p.style || _old.health !== p.health || _old.dead !== p.dead) this.rebuildMarker(id, entry);
+      if (_old.name !== p.name || _old.color !== p.color || _old.style !== p.style || _old.health !== p.health || _old.dead !== p.dead || _old.respawnAt !== p.respawnAt) this.rebuildMarker(id, entry);
       else if (_old.carrying !== p.carrying) this.entities.applyCarry(entry);
       if (_old.equippedMainHand !== p.equippedMainHand || _old.equippedMainHandInventoryId !== p.equippedMainHandInventoryId) this.entities.applyEquipment(entry);
 
@@ -370,8 +369,8 @@ export class WorldScene extends Phaser.Scene {
     const face = playerFacing(p);
     const facing = facingFromDir(face.dirX, face.dirY, "down");
     const style = troggStyleFor(p.style, id);
-    const { marker, sprite, frameKey } = this.entities.makeMarker(p.name, troggColorFor(p.color, id), style, id === this.myId, facing, this.useSprites, p.health, p.dead);
-    const entry: Tracked = { marker, sprite, player: p, baseMs: timestampBaseMs(p.movedAt), facing, style, frameKey, carriedKind: "", equippedKind: "" };
+    const { marker, sprite, frameKey, respawnText } = this.entities.makeMarker(p.name, troggColorFor(p.color, id), style, id === this.myId, facing, this.useSprites, p.health, p.dead, p.respawnAt);
+    const entry: Tracked = { marker, sprite, player: p, baseMs: timestampBaseMs(p.movedAt), facing, style, frameKey, respawnText, carriedKind: "", equippedKind: "" };
     const { x, y } = projectMotion(p, performance.now() - entry.baseMs, this.troggBounds);
     this.entities.place(marker, x, y);
     this.tracked.set(id, entry);
@@ -458,7 +457,7 @@ export class WorldScene extends Phaser.Scene {
     if (this.hogs.has(id)) return;
     const facing = facingFromDir(h.dirX, h.dirY, "down");
     const style = hogStyleFor(id);
-    const { marker, sprite, frameKey } = this.entities.makeHog(style, facing);
+    const { marker, sprite, frameKey } = this.entities.makeHog(style, facing, h.health);
     const baseMs = timestampBaseMs(h.movedAt);
     const { x, y } = projectMotion(h, performance.now() - baseMs, this.hogBounds);
     this.entities.place(marker, x, y);
@@ -469,6 +468,16 @@ export class WorldScene extends Phaser.Scene {
   private updateHog(h: Hog) {
     const view = this.hogs.get(h.id.toString());
     if (!view) return this.addHog(h);
+    if (view.row.health !== h.health) {
+      const { x, y } = projectMotion(view.row, performance.now() - view.baseMs, this.hogBounds);
+      view.marker.destroy();
+      const built = this.entities.makeHog(view.style, view.facing, h.health);
+      view.marker = built.marker;
+      view.sprite = built.sprite;
+      view.frameKey = built.frameKey;
+      this.entities.place(view.marker, x, y);
+      this.hogLayer.add(view.marker);
+    }
     // Rebase extrapolation on each new intent, like remote players.
     view.row = h;
     view.baseMs = timestampBaseMs(h.movedAt);

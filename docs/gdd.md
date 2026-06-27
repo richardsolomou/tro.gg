@@ -83,7 +83,7 @@ Boulders are pushable rocks — dynamic obstacles, the same block-pushing gramma
 `E` is the generic **interact** key. It picks objects up from adjacent tiles and uses the faced tile first when several candidates are in reach, so later interactions (flip a switch, light a fire) can hang off the same key without adding a new control.
 
 - **Pick up / put down is a toggle for tile-sized objects.** Empty-handed, pressing `E` beside a boulder or a Hog **lifts it onto the trogg** — if several are adjacent, the one on the tile the trogg faces wins. It leaves its tile and rides on your person, drawn as a held overlay above the head (the same held-item layering as [Avatars and equipment](#avatars-and-equipment)). Pressing `E` again **puts it down** on the faced tile (or the nearest free tile), re-materialising it in the world. A trogg carries at most one thing.
-- **Throw what you carry.** Pressing `F` while carrying a boulder or Hog throws it in the faced cardinal direction as an instant, tile-based action. It travels up to `THROWN_OBJECT_RANGE` (4 tiles *(initial)*), stops at the first wall or solid object, and damages the first living trogg it hits by `THROWN_OBJECT_DAMAGE` (40 *(initial)*). The thrown object lands at the farthest clear tile, or near the target it hit.
+- **Throw what you carry.** Pressing `F` while carrying a boulder or Hog throws it in the faced cardinal direction as an instant, tile-based action. It travels up to `THROWN_OBJECT_RANGE` (4 tiles *(initial)*), stops at the first wall or solid object, and damages the first living trogg or Hog it hits by `THROWN_OBJECT_DAMAGE` (40 *(initial)*). The thrown object lands at the farthest clear tile, or near the target it hit.
 - **Ground items go into inventory.** Empty-handed, pressing `E` beside a ground item removes that `ground_item` row and adds the item to the trogg's inventory. Starter pickups in `hog-town` are a pickaxe, shovel, and sword. Items are not solid; pickup uses the same adjacent scan and faced-tile priority as tile-sized objects.
 - **Anything tile-sized is grabbable.** Boulders and Hogs are the same 1×1 entity to the mechanic; it doesn't care that one is scenery and one is an NPC.
 - **Carried things leave the world.** A carried boulder is no longer a collision obstacle; a carried Hog stops wandering — because the entity's row is removed while held and re-inserted on drop. Boulders and Hogs are fungible (no identity, seeded from the `ZONES` registry), so nothing identity-bearing is lost in the round trip.
@@ -192,14 +192,15 @@ New node types are added by extending this table — keep it the registry.
 
 ### Combat
 
-Pre-alpha combat is deliberately small and tile-based. It is player-vs-player for now, because troggs are the only damageable characters in the world; future PvE defense events use the same slow, stat-driven grammar rather than twitch mechanics.
+Pre-alpha combat is deliberately small and tile-based. Troggs and roaming Hogs are the current damageable characters; future PvE defense events use the same slow, stat-driven grammar rather than twitch mechanics.
 
 - **Health:** each trogg has `PLAYER_MAX_HEALTH` (100 *(initial)*) health points. Health rides the `player` row, so everyone sees the same health bar and death state from server truth.
-- **Sword attacks:** pressing `F` with a sword equipped damages the online, living trogg on the faced adjacent tile by `SWORD_DAMAGE` (25 *(initial)*). The client passes its current facing, but the server re-derives the attacker's tile, projects candidate targets, excludes the attacker, and only applies damage to a target actually on that adjacent tile (invariant 3).
-- **Thrown boulders and Hogs:** pressing `F` while carrying a boulder or Hog throws it in a straight cardinal line up to `THROWN_OBJECT_RANGE` (4 tiles *(initial)*). It damages the first online, living trogg it hits by `THROWN_OBJECT_DAMAGE` (40 *(initial)*) and then lands near the impact; if it hits no trogg, it lands at the farthest clear tile before range or a blocker. This is still an input-driven reducer, not a projectile simulation.
+- **Hog health:** each roaming Hog has `HOG_MAX_HEALTH` (60 *(initial)*) health points on the `hog` row. Damaged Hogs show a small health bar; at zero health the Hog row is removed from the world.
+- **Sword attacks:** pressing `F` with a sword equipped damages the online, living trogg on the faced adjacent tile by `SWORD_DAMAGE` (25 *(initial)*). If no trogg is on that tile, the same swing damages the faced Hog. The client passes its current facing, but the server re-derives the attacker's tile, projects candidate targets, excludes the attacker, and only applies damage to a target actually on that adjacent tile (invariant 3).
+- **Thrown boulders and Hogs:** pressing `F` while carrying a boulder or Hog throws it in a straight cardinal line up to `THROWN_OBJECT_RANGE` (4 tiles *(initial)*). It damages the first online, living trogg or Hog it hits by `THROWN_OBJECT_DAMAGE` (40 *(initial)*) and then lands near the impact; if it hits no damageable character, it lands at the farthest clear tile before range or a blocker. This is still an input-driven reducer, not a projectile simulation.
 - **No twitch checks:** combat has no projectiles, hitboxes, physics, cursor aiming, or per-frame attack checks.
-- **Death:** when damage takes a trogg to zero health, the server marks it `dead`, stops its motion on its current tile, and leaves it online so other players can see it. Dead troggs cannot move, push, interact, spawn objects, or use equipment. If a dying trogg is carrying a tile-sized object, the server tries to drop it at the death tile so nothing is orphaned.
-- **Respawn:** pressing `R` while dead calls `respawn`, which returns the trogg to the zone spawn at full health and clears `dead`. Respawn is a reducer, not a timer.
+- **Death:** when damage takes a trogg to zero health, the server marks it `dead`, stops its motion on its current tile, and leaves it online so other players can see it. Dead troggs cannot move, push, interact, spawn objects, or use equipment. If a dying trogg is carrying a tile-sized object, the server tries to drop it at the death tile so nothing is orphaned. Every inventory row, including equipped items, is removed from the trogg and dropped as `ground_item` rows nearby; stack quantities are preserved.
+- **Respawn:** death stamps `respawnAt` five seconds in the future (`PLAYER_RESPAWN_MS`, 5000 *(initial)*) and inserts a one-shot `player_respawn` scheduled row. Dead troggs show a visible respawn countdown. When the timer fires, the same `player` row returns to the zone spawn at full health with the same name, colour, and style.
 
 ### Crafting
 
@@ -231,7 +232,7 @@ One layer. **SpacetimeDB** is the durable store *and* the live feed: the tables 
 Dev mirrors prod: a local `spacetime start` instance runs the very module production runs — `just dev` publishes to it and regenerates the client bindings — so persistence is exercised the same way it runs in production. No Docker, no separate database to provision.
 
 ```text
-player         identity (PK), name, isGuest, zoneId, x, y, dirX, dirY, movedAt, online, lastChatAt, running, color, carrying, path, style, equippedMainHand, equipmentAction, equipmentActionAt, equippedMainHandInventoryId, faceX, faceY, health, dead
+player         identity (PK), name, isGuest, zoneId, x, y, dirX, dirY, movedAt, online, lastChatAt, running, color, carrying, path, style, equippedMainHand, equipmentAction, equipmentActionAt, equippedMainHandInventoryId, faceX, faceY, health, dead, respawnAt
                keyed by the connection's Identity. motion derived from origin (x,y) + movedAt: WASD uses
                dirX/dirY (0,0 = idle); running (shift held) picks run speed over walk speed in projectMotion,
                so it rides the intent like direction; click-to-move stores `path` as serialized waypoint tiles
@@ -246,7 +247,8 @@ player         identity (PK), name, isGuest, zoneId, x, y, dirX, dirY, movedAt, 
                equippedMainHandInventoryId: the specific owned inventory row equipped (0 = none);
                equipmentAction/equipmentActionAt: last synced use impulse for animation. faceX/faceY:
                standing facing, separate from movement intent so idle turns sync without deriving position.
-               health/dead: combat state; dead troggs stay online but cannot act until `respawn`.
+               health/dead/respawnAt: combat state; dead troggs stay online but cannot act while
+               the respawn countdown is active. `player_respawn` returns them to spawn after `respawnAt`.
                Appended last (schema-migration order; see module source).
                index: by_zone (zoneId)
 zones          slug, name, width, height, tilemap (per-tile walkability + scenery), checkpoint (unlock tile, null if none)
@@ -260,7 +262,7 @@ boulder        id (PK, auto-inc), zoneId, x, y     (tile coords)
                (or reset to the registry by the `resetBoulders` reducer, fired by the in-chat `/reset` command).
                Removed while a trogg carries it and re-inserted on put-down (see "Interacting").
                index: by_zone (zoneId)
-hog            id (PK, auto-inc), zoneId, x, y, dirX, dirY, movedAt, path, homeX, homeY
+hog            id (PK, auto-inc), zoneId, x, y, dirX, dirY, movedAt, path, homeX, homeY, health
                an ambient roaming Hog NPC (see "Hogs"). Intent-based motion like a player (position
                derived with projectMotion); server-owned, no identity. Solid: blocks troggs and other
                Hogs (troggs never block each other), so wanderHogs re-bases it tile by tile, stopping
@@ -269,11 +271,13 @@ hog            id (PK, auto-inc), zoneId, x, y, dirX, dirY, movedAt, path, homeX
                kept only so the shipped schema isn't reordered. Seeded from the ZONES registry
                on first connect, spawned by the `/spawn` debug command or Commands panel, moved only by the scheduled
                `wanderHogs` (or reset to the registry population by the `resetHogs` reducer, fired by the
-               in-chat `/reset hedgehogs` command). Removed while a trogg carries it and re-inserted on put-down (see "Interacting").
+               in-chat `/reset hedgehogs` command). `health` makes Hogs damageable; zero health deletes
+               the row. Removed while a trogg carries it and re-inserted on put-down (see "Interacting").
                index: by_zone (zoneId)
-ground_item    id (PK, auto-inc), zoneId, item, x, y
+ground_item    id (PK, auto-inc), zoneId, item, x, y, qty
                a pickup item lying on the floor. Seeded from the ZONES registry on first connect and removed
-               by `interact` when a trogg faces it and presses `E`. Items are not solid. index: by_zone (zoneId)
+               by `interact` when a trogg faces it and presses `E`. `qty` preserves dropped stack counts
+               when a dead trogg drops inventory. Items are not solid. index: by_zone (zoneId)
 inventory      id (PK, auto-inc), playerId, item, qty
                player-owned items. Each row occupies one of 10 visible carry slots. Stackable rows merge
                and can grow in-place; starting a new stack or adding a non-stackable item requires a free
@@ -285,6 +289,10 @@ player_connection connectionId (PK), playerId, connectedAt
                ids behind that identity. `clientConnected` inserts the socket; `clientDisconnected`
                removes it and only settles/drops/marks the trogg offline when no connections remain.
                index: by_player (playerId)
+player_respawn scheduledId (PK), playerId, scheduledAt
+               private one-shot scheduled rows inserted on trogg death. The scheduled `respawnPlayers`
+               reducer re-checks `player.dead` and `player.respawnAt`, then returns the same `player`
+               row to zone spawn at full health while preserving name, colour, style, and identity.
 hog_wander     scheduledId (PK, auto-inc), scheduledAt     (scheduled table)
                the Hog wander timer — SpacetimeDB's deterministic scheduler (invariant 1). Fires
                `wanderHogs`, which re-arms it only while a player is online. Private (no client reads it).
@@ -338,7 +346,7 @@ Roadmap notes are planning context, not permission gates. Pick work by current p
 
 Current playable foundation: durable SpacetimeDB tables are the store, anonymous SpacetimeDB Identity gives each browser a persistent trogg, and optional SpacetimeAuth OIDC lets a guest claim an account with `startClaim`/`redeemClaim`, `rename`, `player_named`, and `posthog.identify()`. Identity is issued by the connection and reducers authorize by `ctx.sender`; it is never client-asserted. Multiple live sockets for the same account share one trogg and are tracked through private per-connection presence.
 
-Implemented world systems: a static shared `ZONES` registry, zone-scoped subscriptions, per-tile walkability, cardinal grid-locked WASD movement, boulder pushing, pick-up-and-carry interaction (`E`), throwable boulders/Hogs, starter tool pickups, inventory/equipment with `I`, equipped-item use with `F`, sword attacks, health/death/respawn, roaming Hogs, hold-shift-to-run, sprite avatars, trogg recolouring/restyling via Appearance (`P`), chat bubbles/history, a small synced ghost-trogg cosmetic (`/ghost`), `/spawn`, `/reset` (boulders and Hogs), a help panel listing the live controls and commands, and a pre-alpha Commands panel for stress-test spawn/reset/ghost tools. Some of these have optional client-side flag gates for remote rollout or kill-switch use; the current code-read flags are configured in PostHog and still have code fallbacks for local or unconfigured environments.
+Implemented world systems: a static shared `ZONES` registry, zone-scoped subscriptions, per-tile walkability, cardinal grid-locked WASD movement, boulder pushing, pick-up-and-carry interaction (`E`), throwable boulders/Hogs, starter tool pickups, inventory/equipment with `I`, equipped-item use with `F`, sword attacks, trogg and Hog health, death drops, timed respawn, roaming Hogs, hold-shift-to-run, sprite avatars, trogg recolouring/restyling via Appearance (`P`), chat bubbles/history, a small synced ghost-trogg cosmetic (`/ghost`), `/spawn`, `/reset` (boulders and Hogs), a help panel listing the live controls and commands, and a pre-alpha Commands panel for stress-test spawn/reset/ghost tools. Some of these have optional client-side flag gates for remote rollout or kill-switch use; the current code-read flags are configured in PostHog and still have code fallbacks for local or unconfigured environments.
 
 Likely next work areas include starting-zone onboarding, click-to-move pathfinding around obstacles, gathering and XP, crafting, communal projects, Hog merchants, load events, LLM-driven Hogs, and optional PvE defense. These are intentionally fluid; implement the slice that best serves the current task.
 

@@ -35,4 +35,5 @@ export default __t.row({
   faceY: __t.i32().name("face_y"),
   health: __t.i32(),
   dead: __t.bool(),
+  respawnAt: __t.option(__t.timestamp()).name("respawn_at"),
 });
