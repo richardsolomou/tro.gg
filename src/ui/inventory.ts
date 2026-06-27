@@ -2,7 +2,7 @@ import { INVENTORY_SLOT_COUNT, ITEMS, isEquippableItem } from "@trogg/shared";
 import { logError } from "../analytics.js";
 import type { DbConnection } from "../net/module_bindings";
 import type { Inventory, Player } from "../net/module_bindings/types";
-import { equipItem } from "../net/procedures.js";
+import { discardItem, dropItem, equipItem } from "../net/procedures.js";
 import { hudLeft } from "./hud.js";
 import { registerKeybind } from "./keybinds.js";
 
@@ -32,18 +32,28 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
   const list = document.createElement("div");
   list.className = "inventory-list";
 
-  body.append(equipped, list);
+  const actions = document.createElement("div");
+  actions.className = "inventory-actions";
+  actions.hidden = true;
+
+  body.append(equipped, list, actions);
   root.append(toggle, body);
   hudLeft().appendChild(root);
 
   const rows = new Map<string, Inventory>();
   let mainHand = "";
   let mainHandInventoryId = 0n;
+  let selectedId: bigint | null = null;
+  let confirmDelete = false;
 
   const setOpen = (open: boolean) => {
     const opening = open && body.hidden;
     body.hidden = !open;
     toggle.setAttribute("aria-expanded", String(!body.hidden));
+    if (!open) {
+      selectedId = null;
+      confirmDelete = false;
+    }
     if (opening) window.dispatchEvent(new CustomEvent("hud-menu-open", { detail: "inventory" }));
   };
   const toggleOpen = () => setOpen(body.hidden === true);
@@ -68,16 +78,25 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
 
     const sorted = [...rows.values()].sort((a, b) => a.item.localeCompare(b.item) || Number(a.id - b.id));
 
+    if (selectedId !== null && !rows.has(selectedId.toString())) {
+      selectedId = null;
+      confirmDelete = false;
+    }
+
     for (const row of sorted) {
       const def = ITEMS[row.item as keyof typeof ITEMS];
+      const name = def?.name ?? row.item;
       const item = document.createElement("button");
       item.type = "button";
       item.className = "inventory-item";
       const equippedNow = row.id === mainHandInventoryId;
-      item.setAttribute("aria-label", `${equippedNow ? "Unequip" : "Equip"} ${def?.name ?? row.item}`);
+      const selectedNow = row.id === selectedId;
+      item.setAttribute("aria-label", `${name}${equippedNow ? ", equipped" : ""}`);
       item.setAttribute("aria-pressed", String(equippedNow));
-      item.title = def?.name ?? row.item;
-      item.disabled = !isEquippableItem(row.item);
+      item.setAttribute("aria-haspopup", "true");
+      item.setAttribute("aria-expanded", String(selectedNow));
+      if (selectedNow) item.classList.add("is-selected");
+      item.title = name;
       item.appendChild(itemIcon(row.item));
 
       if (row.qty > 1) {
@@ -87,9 +106,9 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
         item.appendChild(qty);
       }
       item.addEventListener("click", () => {
-        void equipItem(conn, equippedNow ? 0n : row.id).catch((err) => {
-          logError("Equip item request failed", { surface: "inventory", action: "equip_item", item: row.item, error: err });
-        });
+        selectedId = selectedNow ? null : row.id;
+        confirmDelete = false;
+        render();
       });
 
       list.appendChild(item);
@@ -103,6 +122,69 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
       empty.title = "Empty";
       list.appendChild(empty);
     }
+
+    renderActions();
+  };
+
+  const action = (label: string, onClick: () => void): HTMLButtonElement => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "inventory-action";
+    button.textContent = label;
+    button.addEventListener("click", onClick);
+    return button;
+  };
+
+  const run = (label: string, item: string, op: () => Promise<unknown>, analyticsAction: string) => {
+    void op().catch((err) => {
+      logError(`${label} request failed`, { surface: "inventory", action: analyticsAction, item, error: err });
+    });
+  };
+
+  const renderActions = () => {
+    actions.replaceChildren();
+    const row = selectedId !== null ? rows.get(selectedId.toString()) : undefined;
+    if (!row) {
+      actions.hidden = true;
+      return;
+    }
+    actions.hidden = false;
+    const def = ITEMS[row.item as keyof typeof ITEMS];
+
+    const name = document.createElement("span");
+    name.className = "inventory-action-name";
+    name.textContent = def?.name ?? row.item;
+    actions.appendChild(name);
+
+    const buttons = document.createElement("div");
+    buttons.className = "inventory-action-buttons";
+
+    if (confirmDelete) {
+      const confirm = action("Confirm delete", () => run("Discard item", row.item, () => discardItem(conn, row.id), "discard_item"));
+      confirm.classList.add("is-danger");
+      const cancel = action("Cancel", () => {
+        confirmDelete = false;
+        render();
+      });
+      buttons.append(confirm, cancel);
+      actions.appendChild(buttons);
+      return;
+    }
+
+    if (isEquippableItem(row.item)) {
+      const equippedNow = row.id === mainHandInventoryId;
+      buttons.appendChild(
+        action(equippedNow ? "Unequip" : "Equip", () => run("Equip item", row.item, () => equipItem(conn, equippedNow ? 0n : row.id), "equip_item")),
+      );
+    }
+    buttons.appendChild(action("Drop", () => run("Drop item", row.item, () => dropItem(conn, row.id), "drop_item")));
+    buttons.appendChild(
+      action("Delete", () => {
+        confirmDelete = true;
+        render();
+      }),
+    );
+    actions.appendChild(buttons);
   };
 
   const mine = (row: Inventory) => row.playerId.toHexString() === playerId;

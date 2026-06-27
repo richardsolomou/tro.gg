@@ -35,6 +35,8 @@ import {
 
 // Import all reducer arg schemas
 import ChatReducer from "./chat_reducer";
+import DiscardItemReducer from "./discard_item_reducer";
+import DropItemReducer from "./drop_item_reducer";
 import EquipItemReducer from "./equip_item_reducer";
 import FaceReducer from "./face_reducer";
 import HauntGhostReducer from "./haunt_ghost_reducer";
@@ -55,6 +57,8 @@ import UseEquippedReducer from "./use_equipped_reducer";
 
 // Import all procedure arg schemas
 import * as ChatActionProcedure from "./chat_action_procedure";
+import * as DiscardItemActionProcedure from "./discard_item_action_procedure";
+import * as DropItemActionProcedure from "./drop_item_action_procedure";
 import * as EquipItemActionProcedure from "./equip_item_action_procedure";
 import * as HauntGhostActionProcedure from "./haunt_ghost_action_procedure";
 import * as InteractActionProcedure from "./interact_action_procedure";
@@ -182,6 +186,8 @@ const tablesSchema = __schema({
 /** The schema information for all reducers in this module. This is defined the same way as the reducers would have been defined in the server, except the body of the reducer is omitted in code generation. */
 const reducersSchema = __reducers(
   __reducerSchema("chat", ChatReducer),
+  __reducerSchema("discard_item", DiscardItemReducer),
+  __reducerSchema("drop_item", DropItemReducer),
   __reducerSchema("equip_item", EquipItemReducer),
   __reducerSchema("face", FaceReducer),
   __reducerSchema("haunt_ghost", HauntGhostReducer),
@@ -204,6 +210,8 @@ const reducersSchema = __reducers(
 /** The schema information for all procedures in this module. This is defined the same way as the procedures would have been defined in the server. */
 const proceduresSchema = __procedures(
   __procedureSchema("chat_action", ChatActionProcedure.params, ChatActionProcedure.returnType),
+  __procedureSchema("discard_item_action", DiscardItemActionProcedure.params, DiscardItemActionProcedure.returnType),
+  __procedureSchema("drop_item_action", DropItemActionProcedure.params, DropItemActionProcedure.returnType),
   __procedureSchema("equip_item_action", EquipItemActionProcedure.params, EquipItemActionProcedure.returnType),
   __procedureSchema("haunt_ghost_action", HauntGhostActionProcedure.params, HauntGhostActionProcedure.returnType),
   __procedureSchema("interact_action", InteractActionProcedure.params, InteractActionProcedure.returnType),
