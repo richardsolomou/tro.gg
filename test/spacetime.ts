@@ -115,6 +115,7 @@ export function playerRow(identity: Id, over: Record<string, unknown> = {}) {
     equippedMainHandInventoryId: 0n,
     equipmentAction: "",
     equipmentActionAt: { microsSinceUnixEpoch: 0n },
+    style: -1,
     online: true,
     isGuest: true,
     movedAt: { microsSinceUnixEpoch: 0n },

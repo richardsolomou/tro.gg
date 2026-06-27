@@ -1,10 +1,9 @@
 import Phaser from "phaser";
-import { getZone, projectMotion, projectMotionState, snapToTile, STARTING_ZONE_SLUG, tileKey, timestampMs, troggColorFor, zoneBounds, type Coord, type Stamp, type ZoneBounds } from "@trogg/shared";
+import { getZone, hogStyleFor, projectMotion, projectMotionState, snapToTile, STARTING_ZONE_SLUG, tileKey, timestampMs, troggColorFor, troggStyleFor, zoneBounds, type Coord, type Stamp, type ZoneBounds } from "@trogg/shared";
 import type { DbConnection } from "../../net/module_bindings";
 import type { Boulder, GroundItem, Hog, Player } from "../../net/module_bindings/types";
 import { attachKeyboard } from "../../input.js";
 import { setupChat } from "../../ui/chat.js";
-import { mountInventory } from "../../ui/inventory.js";
 import { mountCommands } from "../../ui/commands.js";
 import { createSelfController, type SelfController } from "../../movement.js";
 import { ART, createEntities, GHOST_CHANCE, type BoulderView, type Entities, type GroundItemView, type HogView, type Tracked } from "../entities.js";
@@ -48,7 +47,7 @@ export class WorldScene extends Phaser.Scene {
   private terrain!: Terrain;
   private stage!: Phaser.GameObjects.Container;
   private destinationLayer!: Phaser.GameObjects.Container;
-  private itemLayer!: Phaser.GameObjects.Container;
+  private groundItemLayer!: Phaser.GameObjects.Container;
   private boulderLayer!: Phaser.GameObjects.Container;
   private hogLayer!: Phaser.GameObjects.Container;
   private clickZone!: Phaser.GameObjects.Zone;
@@ -123,10 +122,10 @@ export class WorldScene extends Phaser.Scene {
     this.stage.add(this.terrain.ground);
 
     this.destinationLayer = this.add.container(0, 0);
-    this.itemLayer = this.add.container(0, 0);
+    this.groundItemLayer = this.add.container(0, 0);
     this.boulderLayer = this.add.container(0, 0);
     this.hogLayer = this.add.container(0, 0);
-    this.stage.add([this.destinationLayer, this.itemLayer, this.boulderLayer, this.hogLayer]);
+    this.stage.add([this.destinationLayer, this.groundItemLayer, this.boulderLayer, this.hogLayer]);
 
     // An invisible interactive zone over the play field captures click-to-move. HUD
     // panels consume their own clicks (pointer-events), so only open-space clicks reach it.
@@ -156,7 +155,6 @@ export class WorldScene extends Phaser.Scene {
     this.wireGroundItems();
     this.wireBoulders();
     if (this.useHogs) this.wireHogs();
-    if (this.myId) mountInventory(conn, this.myId);
 
     attachKeyboard(
       (intent, immediate) => this.self.onIntent(intent, immediate),
@@ -194,10 +192,9 @@ export class WorldScene extends Phaser.Scene {
     const queries = [
       `SELECT * FROM player WHERE zone_id = '${this.slug}' AND online = true`,
       `SELECT * FROM chat_message WHERE zone_id = '${this.slug}'`,
-      `SELECT * FROM boulder WHERE zone_id = '${this.slug}'`,
       `SELECT * FROM ground_item WHERE zone_id = '${this.slug}'`,
+      `SELECT * FROM boulder WHERE zone_id = '${this.slug}'`,
     ];
-    if (this.myId) queries.push(`SELECT * FROM inventory WHERE player_id = '${this.myId}'`);
     if (this.useHogs) queries.push(`SELECT * FROM hog WHERE zone_id = '${this.slug}'`);
 
     conn
@@ -218,7 +215,7 @@ export class WorldScene extends Phaser.Scene {
     for (const view of this.hogs.values()) {
       const motion = projectMotionState(view.row, now - view.baseMs, this.hogBounds);
       this.entities.place(view.marker, motion.x, motion.y);
-      this.entities.driveSprite(view.sprite, "hog", motion.dirX, motion.dirY, false, view, now);
+      this.entities.driveSprite(view.sprite, "hog", view.style, motion.dirX, motion.dirY, false, view, now);
       const tile = snapToTile({ x: motion.x, y: motion.y });
       this.hogTiles.add(tileKey(tile.x, tile.y));
     }
@@ -260,21 +257,21 @@ export class WorldScene extends Phaser.Scene {
     // Markers and boulder sprites bake the tile size into their geometry, so a resize
     // redraws them; the tick repositions them next frame.
     for (const [id, entry] of this.tracked) this.rebuildMarker(id, entry);
+    for (const view of this.groundItems.values()) {
+      view.sprite.destroy();
+      view.sprite = this.entities.makeGroundItem(view.row.item);
+      this.entities.place(view.sprite, view.row.x, view.row.y);
+      this.groundItemLayer.add(view.sprite);
+    }
     for (const view of this.boulders.values()) {
       view.sprite.destroy();
       view.sprite = this.entities.makeBoulder();
       this.entities.place(view.sprite, view.row.x, view.row.y);
       this.boulderLayer.add(view.sprite);
     }
-    for (const view of this.groundItems.values()) {
-      view.sprite.destroy();
-      view.sprite = this.entities.makeGroundItem(view.row.item);
-      this.entities.place(view.sprite, view.row.x, view.row.y);
-      this.itemLayer.add(view.sprite);
-    }
     for (const view of this.hogs.values()) {
       view.marker.destroy();
-      const built = this.entities.makeHog(view.facing);
+      const built = this.entities.makeHog(view.style, view.facing);
       view.marker = built.marker;
       view.sprite = built.sprite;
       view.frameKey = built.frameKey;
@@ -286,13 +283,14 @@ export class WorldScene extends Phaser.Scene {
   private rebuildMarker(id: string, entry: Tracked) {
     if (entry.bubbleTimer) clearTimeout(entry.bubbleTimer);
     entry.marker.destroy();
-    const built = this.entities.makeMarker(entry.player.name, troggColorFor(entry.player.color, id), id === this.myId, entry.facing, this.useSprites);
+    entry.style = troggStyleFor(entry.player.style, id);
+    const built = this.entities.makeMarker(entry.player.name, troggColorFor(entry.player.color, id), entry.style, id === this.myId, entry.facing, this.useSprites);
     entry.marker = built.marker;
     entry.sprite = built.sprite;
     entry.frameKey = built.frameKey;
     entry.bubble = undefined;
     entry.bubbleTimer = undefined;
-    // The carried overlay was a child of the old marker, so it's gone too; re-add it.
+    // The overlays were children of the old marker, so they're gone too; re-add them.
     entry.carried = undefined;
     entry.carriedKind = "";
     entry.equipped = undefined;
@@ -323,12 +321,12 @@ export class WorldScene extends Phaser.Scene {
         entry.baseMs = timestampBaseMs(p.movedAt);
       }
 
-      // The nameplate and tint are baked into the marker at build time, so a rename or
-      // recolour only shows once the marker is rebuilt. Bare carry/equipment changes
-      // retarget their overlays.
-      if (_old.name !== p.name || _old.color !== p.color) this.rebuildMarker(id, entry);
+      // The nameplate, tint, and body style are baked into the marker at build time, so
+      // a rename, recolour, or restyle only shows once the marker is rebuilt (which
+      // re-applies overlays). Bare carrying/equipment changes just retarget overlays.
+      if (_old.name !== p.name || _old.color !== p.color || _old.style !== p.style) this.rebuildMarker(id, entry);
       else if (_old.carrying !== p.carrying) this.entities.applyCarry(entry);
-      else if (_old.equippedMainHand !== p.equippedMainHand) this.entities.applyEquipment(entry);
+      if (_old.equippedMainHand !== p.equippedMainHand || _old.equippedMainHandInventoryId !== p.equippedMainHandInventoryId) this.entities.applyEquipment(entry);
 
       // Pick-up / put-down are low-volume, so emit on the authoritative carrying
       // transition of your own trogg (GDD analytics: observe server truth).
@@ -343,8 +341,9 @@ export class WorldScene extends Phaser.Scene {
     const id = p.identity.toHexString();
     if (this.tracked.has(id)) return;
     const facing = facingFromDir(p.dirX, p.dirY, "down");
-    const { marker, sprite, frameKey } = this.entities.makeMarker(p.name, troggColorFor(p.color, id), id === this.myId, facing, this.useSprites);
-    const entry: Tracked = { marker, sprite, player: p, baseMs: timestampBaseMs(p.movedAt), facing, frameKey, carriedKind: "", equippedKind: "" };
+    const style = troggStyleFor(p.style, id);
+    const { marker, sprite, frameKey } = this.entities.makeMarker(p.name, troggColorFor(p.color, id), style, id === this.myId, facing, this.useSprites);
+    const entry: Tracked = { marker, sprite, player: p, baseMs: timestampBaseMs(p.movedAt), facing, style, frameKey, carriedKind: "", equippedKind: "" };
     const { x, y } = projectMotion(p, performance.now() - entry.baseMs, this.troggBounds);
     this.entities.place(marker, x, y);
     this.tracked.set(id, entry);
@@ -396,44 +395,46 @@ export class WorldScene extends Phaser.Scene {
     conn.db.boulder.onDelete((_ctx, b) => this.removeBoulder(b));
   }
 
-  private upsertGroundItem(item: GroundItem) {
-    const key = item.id.toString();
+  private upsertGroundItem(row: GroundItem) {
+    const key = row.id.toString();
     let view = this.groundItems.get(key);
     if (!view) {
-      view = { row: item, sprite: this.entities.makeGroundItem(item.item) };
+      view = { row, sprite: this.entities.makeGroundItem(row.item) };
       this.groundItems.set(key, view);
-      this.itemLayer.add(view.sprite);
-    } else if (view.row.item !== item.item) {
+      this.groundItemLayer.add(view.sprite);
+    } else if (view.row.item !== row.item) {
       view.sprite.destroy();
-      view.sprite = this.entities.makeGroundItem(item.item);
-      this.itemLayer.add(view.sprite);
+      view.sprite = this.entities.makeGroundItem(row.item);
+      this.groundItemLayer.add(view.sprite);
     }
-    view.row = item;
-    this.entities.place(view.sprite, item.x, item.y);
+    view.row = row;
+    this.entities.place(view.sprite, row.x, row.y);
   }
 
-  private removeGroundItem(item: GroundItem) {
-    const view = this.groundItems.get(item.id.toString());
+  private removeGroundItem(row: GroundItem) {
+    const key = row.id.toString();
+    const view = this.groundItems.get(key);
     view?.sprite.destroy();
-    this.groundItems.delete(item.id.toString());
+    this.groundItems.delete(key);
   }
 
   private wireGroundItems() {
     const conn = this.conn;
-    conn.db.groundItem.onInsert((_ctx, item) => this.upsertGroundItem(item));
-    conn.db.groundItem.onUpdate((_ctx, _old, item) => this.upsertGroundItem(item));
-    conn.db.groundItem.onDelete((_ctx, item) => this.removeGroundItem(item));
+    conn.db.groundItem.onInsert((_ctx, row) => this.upsertGroundItem(row));
+    conn.db.groundItem.onUpdate((_ctx, _old, row) => this.upsertGroundItem(row));
+    conn.db.groundItem.onDelete((_ctx, row) => this.removeGroundItem(row));
   }
 
   private addHog(h: Hog) {
     const id = h.id.toString();
     if (this.hogs.has(id)) return;
     const facing = facingFromDir(h.dirX, h.dirY, "down");
-    const { marker, sprite, frameKey } = this.entities.makeHog(facing);
+    const style = hogStyleFor(id);
+    const { marker, sprite, frameKey } = this.entities.makeHog(style, facing);
     const baseMs = timestampBaseMs(h.movedAt);
     const { x, y } = projectMotion(h, performance.now() - baseMs, this.hogBounds);
     this.entities.place(marker, x, y);
-    this.hogs.set(id, { marker, sprite, row: h, baseMs, facing, frameKey });
+    this.hogs.set(id, { marker, sprite, row: h, baseMs, facing, style, frameKey });
     this.hogLayer.add(marker);
   }
 

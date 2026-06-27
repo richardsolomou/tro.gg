@@ -1,5 +1,5 @@
 import { isFeatureEnabled } from "../analytics.js";
-import { closeHudMenus, hudToolbar } from "./hud.js";
+import { closeHudMenus, hudLeft } from "./hud.js";
 import { registerKeybind } from "./keybinds.js";
 import { currentCommandFlags } from "./chat_commands.js";
 
@@ -16,14 +16,14 @@ interface Section {
 }
 
 /**
- * The help panel as an HTML overlay: a top-left "?" toggle that opens a list
+ * The help panel as an HTML overlay: a top-left "? Help" toggle that opens a list
  * of controls and chat commands (GDD HUD note). The listed controls and commands
  * mirror the feature flags actually enabled this session, so the panel never
  * advertises a key or command that's switched off. Static reference, built once.
  */
 export function mountHelp(): void {
   const root = document.createElement("div");
-  root.className = "panel help";
+  root.className = "help";
 
   const toggle = document.createElement("button");
   toggle.type = "button";
@@ -67,12 +67,13 @@ export function mountHelp(): void {
   toggle.addEventListener("click", toggleOpen);
   registerKeybind({ id: "hud-help", matches: (event) => event.code === "KeyH" || event.key === "?", handler: toggleOpen });
   registerKeybind({ id: "hud-close", matches: (event) => event.code === "Escape", handler: () => closeHudMenus() });
+  // Accordion: opening any left-bar menu closes the others, so two drop-downs never overlap.
   window.addEventListener("hud-menu-open", ((event: Event) => {
     if ((event as CustomEvent<string>).detail !== "help") setOpen(false);
   }) as EventListener);
 
   root.append(toggle, body);
-  hudToolbar().appendChild(root);
+  hudLeft().appendChild(root);
 }
 
 /** The controls and commands to show, filtered to this session's enabled flags. */
@@ -87,8 +88,9 @@ function buildSections(): Section[] {
   const controls: Row[] = [
     { key: "WASD / Arrows", desc: "Move" },
     { key: "Click", desc: "Walk to a tile" },
-    { key: "? / H", desc: "Open help" },
-    { key: "I", desc: "Open inventory" },
+    { key: "? / H", desc: "Open Help" },
+    { key: "P", desc: "Open Appearance" },
+    { key: "I", desc: "Open Inventory" },
     { key: "Esc", desc: "Close menu" },
   ];
   if (canRun) controls.push({ key: "Hold Shift", desc: "Run" });

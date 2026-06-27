@@ -18,6 +18,8 @@ import {
   isGeneratedName,
   isItemId,
   isStackableItem,
+  isTroggStyleIndex,
+  STYLE_UNSET,
   isValidName,
   isWalkable,
   MAX_BOULDERS_PER_ZONE,
@@ -56,14 +58,14 @@ import {
  * `color` is the chosen avatar palette index (GDD "Avatars"), set by `recolor`; it
  * defaults to `COLOR_UNSET` (-1) so an unchosen trogg falls back to its id-derived
  * colour. `carrying` is the kind of tile-sized entity the trogg holds (GDD
- * "Interacting"), set by `interact`; "" when empty-handed. `equippedMainHand`
- * stores the item id currently shown in the trogg's main hand (GDD "Inventory" /
- * "Avatars and equipment"). `equippedMainHandInventoryId` points at the specific
- * owned inventory row, so duplicate swords/picks are distinct in the HUD even
- * though everyone else only needs the item id to render the held sprite.
- * `equipmentAction` + `equipmentActionAt` are the last visible equipment use
- * impulse, so every client can briefly animate a swing or chop from synced player
- * state.
+ * "Interacting"), set by `interact`; "" when empty-handed. `style` is the chosen
+ * avatar body style. `equippedMainHand` stores the item id currently shown in the
+ * trogg's main hand (GDD "Inventory" / "Avatars and equipment").
+ * `equippedMainHandInventoryId` points at the specific owned inventory row, so
+ * duplicate swords/picks are distinct in the HUD even though everyone else only
+ * needs the item id to render the held sprite. `equipmentAction` +
+ * `equipmentActionAt` are the last visible equipment use impulse, so every client
+ * can briefly animate a swing or chop from synced player state.
  */
 const player = table(
   { name: "player", public: true },
@@ -95,6 +97,10 @@ const player = table(
     // Click-to-move waypoints, serialized as "x,y;x,y;..." and interpreted by
     // shared `projectMotion` (GDD "Movement"). Empty = no path / direct WASD.
     path: t.string().default(""),
+    // Chosen avatar body style — an index into `TROGG_STYLES` (GDD "Avatars"), set by
+    // `restyle`. Defaults to `STYLE_UNSET` (-1) so an unchosen trogg falls back to its
+    // id-derived style, the mirror of `color`. Appended last per the migration note above.
+    style: t.i32().default(STYLE_UNSET),
     equippedMainHand: t.string().default(""),
     equipmentAction: t.string().default(""),
     equipmentActionAt: t.timestamp().default(Timestamp.UNIX_EPOCH),
@@ -208,8 +214,9 @@ const groundItem = table(
 );
 
 /**
- * Player inventory (GDD "Inventory"): one stack row per owned item id. Equipment
- * references an owned item on the player row; it does not remove quantity here.
+ * Player inventory (GDD "Inventory"): stackable items merge into one row;
+ * non-stackable equippables stay as distinct qty=1 rows. Equipment references an
+ * owned row on the player record; it does not remove quantity here.
  */
 const inventory = table(
   { name: "inventory", public: true },
@@ -302,6 +309,7 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
     color: COLOR_UNSET,
     carrying: "",
     path: "",
+    style: STYLE_UNSET,
     equippedMainHand: "",
     equipmentAction: "",
     equipmentActionAt: Timestamp.UNIX_EPOCH,
@@ -746,6 +754,21 @@ export const recolor = spacetimedb.reducer({ color: t.i32() }, (ctx, { color }) 
   if (!p) return;
   if (color === p.color || !isColorIndex(color)) return;
   ctx.db.player.identity.update({ ...p, color });
+});
+
+/**
+ * Restyle the caller's trogg (GDD "Avatars and equipment"): store a chosen index
+ * into the shared `TROGG_STYLES` list, replacing the id-derived default. The mirror
+ * of `recolor` on the other appearance axis (shape, not tint). The index is
+ * validated server-side (invariant 3); an out-of-range index or one already set is
+ * a silent no-op. The style rides the zone player sync, so the sprite swaps for
+ * everyone.
+ */
+export const restyle = spacetimedb.reducer({ style: t.i32() }, (ctx, { style }) => {
+  const p = ctx.db.player.identity.find(ctx.sender);
+  if (!p) return;
+  if (style === p.style || !isTroggStyleIndex(style)) return;
+  ctx.db.player.identity.update({ ...p, style });
 });
 
 /**

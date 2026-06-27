@@ -4,7 +4,9 @@ import { captureEvent, identifyUser, initAnalytics, isFeatureEnabled } from "./a
 import { clearStoredToken, clearPendingClaim, getPendingClaim } from "./identity.js";
 import { connect } from "./net/net.js";
 import { mountAccount } from "./ui/account.js";
+import { mountAppearance } from "./ui/appearance.js";
 import { mountHelp } from "./ui/help.js";
+import { mountInventory } from "./ui/inventory.js";
 import { startReconnect } from "./net/reconnect.js";
 import { watchForUpdate } from "./version.js";
 import { StartGame } from "./game/main.js";
@@ -49,11 +51,15 @@ async function main() {
     // with the live connection (game/main.ts, GDD "Camera and rendering").
     StartGame("game", { conn });
 
-    // HUD chrome (help, account) is HTML overlaid on the canvas (hud.css); chat is
-    // mounted by the scene since its speech bubbles live in the world.
+    // HUD chrome (help, appearance, account) is HTML overlaid on the canvas (hud.css);
+    // chat is mounted by the scene since its speech bubbles live in the world.
     mountHelp();
-    // Account UI owns rename/recolour for every player. Claim/sign-in controls only
-    // appear when SpacetimeAuth is configured for this build.
+    // Appearance (name/colour/style) is for every player, no auth needed; it sits in the
+    // top-left stack beside Help.
+    mountAppearance(conn);
+    if (conn.identity) mountInventory(conn, conn.identity.toHexString());
+    // The account panel is only the claim/sign-out control, so it's mounted only when
+    // SpacetimeAuth is configured for this build.
     if (isFeatureEnabled("auth-enabled")) mountAccount(conn, { signedIn, authAvailable: authConfigured() });
 
     // The frontend deploys separately from the backend (Cloudflare vs the VPS), so

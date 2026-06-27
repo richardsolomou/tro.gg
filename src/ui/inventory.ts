@@ -1,7 +1,7 @@
 import { ITEMS, isEquippableItem } from "@trogg/shared";
 import type { DbConnection } from "../net/module_bindings";
 import type { Inventory, Player } from "../net/module_bindings/types";
-import { hudToolbar } from "./hud.js";
+import { hudLeft } from "./hud.js";
 import { registerKeybind } from "./keybinds.js";
 
 /** Mount the compact inventory/equipment panel. Rows are driven by subscribed inventory state. */
@@ -10,7 +10,7 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
 
   const root = document.createElement("div");
   root.id = "inventory-panel";
-  root.className = "panel inventory";
+  root.className = "inventory";
 
   const toggle = document.createElement("button");
   toggle.type = "button";
@@ -32,7 +32,7 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
 
   body.append(equipped, list);
   root.append(toggle, body);
-  hudToolbar().appendChild(root);
+  hudLeft().appendChild(root);
 
   const rows = new Map<string, Inventory>();
   let mainHand = "";

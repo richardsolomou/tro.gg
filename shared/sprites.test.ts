@@ -5,18 +5,19 @@ import {
   FRAMES,
   FRAME_H,
   FRAME_W,
-  KINDS,
   SHEET_H,
   SHEET_W,
   frameRect,
   frames,
+  ghostDraw,
   paintSheet,
+  styleGroups,
   type PixelSink,
 } from "./sprites";
 
-test("the atlas covers every kind × facing × frame exactly once", () => {
+test("the atlas covers every style group × facing × frame exactly once", () => {
   const all = frames();
-  assert.equal(all.length, KINDS.length * FACINGS.length * FRAMES.length);
+  assert.equal(all.length, styleGroups().length * FACINGS.length * FRAMES.length);
   assert.equal(new Set(all.map((f) => f.name)).size, all.length);
 });
 
@@ -30,9 +31,9 @@ test("frames tile the sheet without overlap or gaps", () => {
   assert.equal(seen.size, frames().length);
 });
 
-test("frameRect names follow kind_facing_frame", () => {
-  assert.equal(frameRect("trogg", "down", "walk_a").name, "trogg_down_walk_a");
-  assert.equal(frameRect("hog", "left", "idle").name, "hog_left_idle");
+test("frameRect names follow kind_style_facing_frame", () => {
+  assert.equal(frameRect("trogg", "moss", "down", "walk_a").name, "trogg_moss_down_walk_a");
+  assert.equal(frameRect("hog", "ember", "left", "idle").name, "hog_ember_left_idle");
 });
 
 test("painting stays within the sheet bounds", () => {
@@ -43,6 +44,20 @@ test("painting stays within the sheet bounds", () => {
     },
   };
   paintSheet(sink);
+  assert.equal(out, 0);
+});
+
+test("the ghost paints within one frame's bounds and marks some pixels", () => {
+  let n = 0;
+  let out = 0;
+  const sink: PixelSink = {
+    set(x, y) {
+      n++;
+      if (x < 0 || y < 0 || x >= FRAME_W || y >= FRAME_H) out++;
+    },
+  };
+  ghostDraw(sink);
+  assert.ok(n > 0, "ghost painted nothing");
   assert.equal(out, 0);
 });
 
