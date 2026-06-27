@@ -105,7 +105,7 @@ Ambient **Hog** NPCs (the glossary's friendly hedgehogs) roam the zone on their 
 
 - 3/4 top-down (RuneScape-2004 / Stardew view), pixel art tiles and sprites.
 - Rendered with **Phaser 4** (WebGL canvas) on a Vite + TypeScript client, nearest-neighbour scaled for crisp pixels (`pixelArt`). The client subscribes to the zone's SpacetimeDB tables and draws them; all authority stays server-side (invariant 3).
-- Visible in-game HUD surfaces — chat history/input, account claim/rename controls, avatar colour swatches, and the help panel (a top-left "?" toggle listing the controls and chat commands a player can use) — are HTML/CSS overlays above the Phaser canvas, so the browser owns layout, text input, focus, IME, and resize. They use `pointer-events` so a click on a panel is consumed by the DOM and a click on open space falls through to the canvas (click-to-move). World-space labels and speech bubbles over troggs stay in the Phaser scene. The help panel lists only the controls and commands whose feature flags are enabled this session, so it never advertises a disabled key or command.
+- Visible in-game HUD surfaces — chat history/input, account claim/rename controls, avatar colour swatches, the help panel (a top-left "?" toggle listing the controls and chat commands a player can use), and the pre-alpha Commands panel beside it — are HTML/CSS overlays above the Phaser canvas, so the browser owns layout, text input, focus, IME, and resize. They use `pointer-events` so a click on a panel is consumed by the DOM and a click on open space falls through to the canvas (click-to-move). World-space labels and speech bubbles over troggs stay in the Phaser scene. The help panel and Commands panel list or expose only controls and commands whose feature flags are enabled this session, so they never advertise a disabled key or command.
 
 ### Audio
 
@@ -140,6 +140,7 @@ Ambient **Hog** NPCs (the glossary's friendly hedgehogs) roam the zone on their 
 - Chat history and the typing field are HTML overlays (a real `<input>`); speech bubbles over troggs render in the Phaser scene. Chat content is added as a DOM text node, never as HTML markup, so a message can't inject markup.
 - Server-side rate limit: 1 message/sec per player *(initial)*.
 - Message content is **never** sent to analytics.
+- **Pre-alpha commands:** debug commands can be typed in chat or fired from the top-left Commands panel for stress testing. `/spawn boulder [count]` and `/spawn hedgehog [count]` place one or more entities on nearby free tiles around the caller, starting with the tile they face; `count` defaults to 1, and the server clamps inserts to `MAX_BOULDERS_PER_ZONE` / `MAX_HOGS_PER_ZONE` and available floor, so the UI can be abused without bypassing caps. The Commands panel exposes the same spawn, reset, and ghost tools as buttons, plus quick batch counts and a local-only ghost burst.
 - **`/ghost`:** flickers the cosmetic ghost trogg at a random tile in the zone (behind `ghost-trogg`, fallback on, so anyone can summon it). Purely a client render — touches no table or reducer (invariant 3), so only the caller sees it. Off → it's just an ordinary chat line. The same cosmetic also haunts the origin tile by chance on launch.
 
 ### Identity
@@ -243,7 +244,7 @@ hog            id (PK, auto-inc), zoneId, x, y, dirX, dirY, movedAt, path, homeX
                flush against anything solid. dirX/dirY is its cardinal amble heading; path/homeX/homeY are
                retained columns from the earlier pathfinding wander, unused by the tile-by-tile amble and
                kept only so the shipped schema isn't reordered. Seeded from the ZONES registry
-               on first connect, spawned by the `/spawn` debug command, moved only by the scheduled
+               on first connect, spawned by the `/spawn` debug command or Commands panel, moved only by the scheduled
                `wanderHogs` (or reset to the registry population by the `resetHogs` reducer, fired by the
                in-chat `/reset hedgehogs` command). Removed while a trogg carries it and re-inserted on put-down (see "Interacting").
                index: by_zone (zoneId)
@@ -301,7 +302,7 @@ Roadmap notes are planning context, not permission gates. Pick work by current p
 
 Current playable foundation: durable SpacetimeDB tables are the store, anonymous SpacetimeDB Identity gives each browser a persistent trogg, and optional SpacetimeAuth OIDC lets a guest claim an account with `startClaim`/`redeemClaim`, `rename`, `player_named`, and `posthog.identify()`. Identity is issued by the connection and reducers authorize by `ctx.sender`; it is never client-asserted.
 
-Implemented world systems: a static shared `ZONES` registry, zone-scoped subscriptions, per-tile walkability, cardinal grid-locked WASD movement, boulder pushing, pick-up-and-carry interaction (`E`), ground item pickups, inventory/equipment with a main-hand slot, equipped item use (`F`), pickaxe mining for boulders, roaming Hogs, hold-shift-to-run, sprite avatars, chat bubbles/history, trogg recolouring, a small ghost-trogg cosmetic (launch haunt + `/ghost`), `/spawn`, `/reset` (boulders and Hogs), and a help panel listing the live controls and commands. Some of these have optional client-side flag gates for remote rollout or kill-switch use; the current code-read flags are configured in PostHog and still have code fallbacks for local or unconfigured environments.
+Implemented world systems: a static shared `ZONES` registry, zone-scoped subscriptions, per-tile walkability, cardinal grid-locked WASD movement, boulder pushing, pick-up-and-carry interaction (`E`), ground item pickups, inventory/equipment with a main-hand slot, equipped item use (`F`), pickaxe mining for boulders, roaming Hogs, hold-shift-to-run, sprite avatars, chat bubbles/history, trogg recolouring, a small ghost-trogg cosmetic (launch haunt + `/ghost`), `/spawn`, `/reset` (boulders and Hogs), a help panel listing the live controls and commands, and a pre-alpha Commands panel for stress-test spawn/reset/ghost tools. Some of these have optional client-side flag gates for remote rollout or kill-switch use; the current code-read flags are configured in PostHog and still have code fallbacks for local or unconfigured environments.
 
 Likely next work areas include starting-zone onboarding, click-to-move pathfinding around obstacles, full gathering and XP, crafting, communal projects, Hog merchants, load events, LLM-driven Hogs, and optional PvE defense. These are intentionally fluid; implement the slice that best serves the current task.
 

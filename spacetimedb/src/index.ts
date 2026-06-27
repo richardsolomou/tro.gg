@@ -26,6 +26,7 @@ import {
   snapToTile,
   SPACETIMEAUTH_ISSUER,
   spawnTile,
+  spawnTiles,
   STARTING_ZONE_SLUG,
   type Stamp,
   tileKey,
@@ -592,38 +593,44 @@ export const wanderHogs = spacetimedb.reducer({ timer: hogWander.rowType }, (ctx
 });
 
 /**
- * Spawn a boulder or Hog at the caller's location — the `/spawn` debug command
- * (optionally gated client-side by `spawn-command`). The server re-derives the
- * trogg's tile authoritatively (invariant 3) and places the entity on the tile
- * it faces, falling back to a free neighbour, so nothing lands inside a wall or
- * on another boulder. Refused once the zone is at its entity cap, so a scripted
- * client can't flood it (the client flag only gates the UI). An unknown kind, a
- * full zone, or a boxed-in trogg is a silent no-op.
+ * Spawn boulders or Hogs at the caller's location — the `/spawn` debug command
+ * and the pre-alpha Commands panel (optionally gated client-side by `spawn-command`).
+ * The server re-derives the trogg's tile authoritatively (invariant 3) and places
+ * entities on nearby free tiles, starting with the tile it faces, so nothing lands
+ * inside a wall or on another solid entity. Refused once the zone is at its entity
+ * cap, so a scripted client can't flood it (the client flag only gates the UI).
+ * An unknown kind, a non-positive count, a full zone, or a boxed-in trogg is a
+ * silent no-op.
  */
-export const spawn = spacetimedb.reducer({ kind: t.string() }, (ctx, { kind }) => {
+export const spawn = spacetimedb.reducer({ kind: t.string(), count: t.i32() }, (ctx, { kind, count }) => {
   if (kind !== "boulder" && kind !== "hog") return;
+  if (!Number.isSafeInteger(count) || count <= 0) return;
 
   const p = ctx.db.player.identity.find(ctx.sender);
   if (!p) return;
   const zone = getZone(p.zoneId);
   if (!zone) return;
 
-  if (kind === "boulder" && countRows(ctx.db.boulder.zoneId.filter(p.zoneId)) >= MAX_BOULDERS_PER_ZONE) return;
-  if (kind === "hog" && countRows(ctx.db.hog.zoneId.filter(p.zoneId)) >= MAX_HOGS_PER_ZONE) return;
+  const existing = kind === "boulder" ? countRows(ctx.db.boulder.zoneId.filter(p.zoneId)) : countRows(ctx.db.hog.zoneId.filter(p.zoneId));
+  const cap = kind === "boulder" ? MAX_BOULDERS_PER_ZONE : MAX_HOGS_PER_ZONE;
+  const wanted = Math.min(Math.floor(count), Math.max(0, cap - existing));
+  if (wanted <= 0) return;
 
-  // Drop the entity on free floor — never inside a wall or on top of anything solid
+  // Drop entities on free floor — never inside a wall or on top of anything solid
   // (a boulder, a Hog, or another trogg), now that Hogs and troggs collide.
   const occupied = solidTiles(ctx, p.zoneId, ctx.timestamp, p.identity);
   const pos = settle(ctx, p, ctx.timestamp);
-  const tile = spawnTile(zone, (x, y) => occupied.has(tileKey(x, y)), pos.x, pos.y, p.dirX, p.dirY);
-  if (!tile) return;
+  const tiles = spawnTiles(zone, (x, y) => occupied.has(tileKey(x, y)), pos.x, pos.y, p.dirX, p.dirY, wanted);
 
-  if (kind === "boulder") {
-    ctx.db.boulder.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y });
-  } else {
-    // A spawned Hog starts at rest and joins the roamers — the next wander tick
-    // gives it a heading like any other.
-    ctx.db.hog.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, path: "", homeX: tile.x, homeY: tile.y });
+  for (const tile of tiles) {
+    occupied.add(tileKey(tile.x, tile.y));
+    if (kind === "boulder") {
+      ctx.db.boulder.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y });
+    } else {
+      // A spawned Hog starts at rest and joins the roamers — the next wander tick
+      // gives it a heading like any other.
+      ctx.db.hog.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, path: "", homeX: tile.x, homeY: tile.y });
+    }
   }
 });
 

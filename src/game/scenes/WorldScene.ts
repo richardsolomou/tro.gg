@@ -5,6 +5,7 @@ import type { Boulder, GroundItem, Hog, Player } from "../../net/module_bindings
 import { attachKeyboard } from "../../input.js";
 import { setupChat } from "../../ui/chat.js";
 import { mountInventory } from "../../ui/inventory.js";
+import { mountCommands } from "../../ui/commands.js";
 import { createSelfController, type SelfController } from "../../movement.js";
 import { ART, createEntities, GHOST_CHANCE, type BoulderView, type Entities, type GroundItemView, type HogView, type Tracked } from "../entities.js";
 import { createTerrain, registerTerrainTextures, type Terrain } from "../terrain.js";
@@ -188,6 +189,7 @@ export class WorldScene extends Phaser.Scene {
     // Live once the initial rows have been delivered: backlog chat fills the
     // history panel silently, while later inserts also pop a bubble.
     if (isFeatureEnabled("chat-enabled")) setupChat(conn, this.entities, this.tracked, this.zone, this.sub, this.myId, this.stage);
+    mountCommands({ conn, zone: this.zone, onGhost: (tile) => this.entities.hauntGhost(this.stage, tile) });
 
     const queries = [
       `SELECT * FROM player WHERE zone_id = '${this.slug}' AND online = true`,
