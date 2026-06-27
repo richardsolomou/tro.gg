@@ -49,6 +49,13 @@ export const CHAT_RATE_LIMIT_MS = 1_000;
 export const CHAT_HISTORY_MAX = 50;
 
 /**
+ * Recent synced ghost haunts kept in zone state. Haunts are rendered only as fresh
+ * inserts by live subscribers; this cap just prevents the cosmetic event table from
+ * growing forever. (initial)
+ */
+export const GHOST_HAUNT_HISTORY_MAX = 50;
+
+/**
  * Tilemap glyphs (GDD "Zones"). Each character in a zone's `tiles` rows is one
  * tile. `WALL_TILE` (`#`) is the only unwalkable glyph — `isWalkable` treats it,
  * and only it, as solid; every other glyph is walkable floor. The non-wall glyphs
@@ -79,6 +86,74 @@ export const TILE_GLYPHS: ReadonlySet<string> = new Set([
 export interface Coord {
   x: number;
   y: number;
+}
+
+/** Item ids are canonical across inventory rows, equipment slots, and UI labels. */
+export const ITEM_IDS = ["stone", "pickaxe", "shovel", "sword"] as const;
+export type ItemId = (typeof ITEM_IDS)[number];
+
+export type EquipmentSlot = "mainHand";
+
+export interface ItemDef {
+  id: ItemId;
+  name: string;
+  stackable: boolean;
+  blurb: string;
+  slot?: EquipmentSlot;
+  sprite?: "pickaxe" | "shovel" | "sword";
+}
+
+/**
+ * Static item registry (GDD "Inventory"). Inventory rows store only item id and
+ * quantity; holdable items point at their equipment slot and sprite.
+ */
+export const ITEMS: Record<ItemId, ItemDef> = {
+  stone: {
+    id: "stone",
+    name: "Stone",
+    stackable: true,
+    blurb: "A useful chunk of cave rock.",
+  },
+  pickaxe: {
+    id: "pickaxe",
+    name: "Pickaxe",
+    stackable: false,
+    blurb: "Equipped in the main hand. Use it to mine boulders into stone.",
+    slot: "mainHand",
+    sprite: "pickaxe",
+  },
+  shovel: {
+    id: "shovel",
+    name: "Shovel",
+    stackable: false,
+    blurb: "Equipped in the main hand. It is ready for digging once soil rules exist.",
+    slot: "mainHand",
+    sprite: "shovel",
+  },
+  sword: {
+    id: "sword",
+    name: "Sword",
+    stackable: false,
+    blurb: "Equipped in the main hand. It swings, but combat waits for PvE events.",
+    slot: "mainHand",
+    sprite: "sword",
+  },
+};
+
+export function isItemId(item: string): item is ItemId {
+  return (ITEM_IDS as readonly string[]).includes(item);
+}
+
+export function isEquippableItem(item: string): item is ItemId {
+  return isItemId(item) && ITEMS[item].slot === "mainHand";
+}
+
+export function isStackableItem(item: string): item is ItemId {
+  return isItemId(item) && ITEMS[item].stackable;
+}
+
+export interface GroundItemSeed extends Coord {
+  item: ItemId;
 }
 
 /**
@@ -136,6 +211,9 @@ export function isGeneratedName(name: string): boolean {
  * `hogs` lists the starting tiles of the zone's ambient roaming Hogs (GDD
  * "Hogs"), seeded into the `hog` table on first connect and then moved only by the
  * scheduled `wanderHogs` reducer. They must start on walkable floor too.
+ *
+ * `items` lists starter pickup items. A pickup has a registry item id and a tile;
+ * pressing `E` while facing it moves the item into inventory and removes the row.
  */
 export interface Zone {
   slug: string;
@@ -145,6 +223,7 @@ export interface Zone {
   tiles: readonly string[];
   boulders: readonly Coord[];
   hogs: readonly Coord[];
+  items: readonly GroundItemSeed[];
 }
 
 /**
@@ -198,6 +277,11 @@ export const ZONES: Record<string, Zone> = {
       { x: 20, y: 12 },
       { x: 8, y: 13 },
     ],
+    items: [
+      { item: "pickaxe", x: 11, y: 7 },
+      { item: "shovel", x: 12, y: 7 },
+      { item: "sword", x: 13, y: 7 },
+    ],
   },
 };
 
@@ -249,6 +333,14 @@ export function assertZones(): void {
     for (const h of zone.hogs) {
       if (!isWalkable(zone, h.x, h.y)) {
         throw new Error(`zone ${zone.slug}: hog at (${h.x}, ${h.y}) is not on walkable floor`);
+      }
+    }
+    for (const item of zone.items) {
+      if (!isItemId(item.item)) {
+        throw new Error(`zone ${zone.slug}: ground item ${JSON.stringify(item.item)} is not registered`);
+      }
+      if (!isWalkable(zone, item.x, item.y)) {
+        throw new Error(`zone ${zone.slug}: ground item ${item.item} at (${item.x}, ${item.y}) is not on walkable floor`);
       }
     }
   }

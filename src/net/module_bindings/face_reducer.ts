@@ -11,6 +11,6 @@ import {
 } from "spacetimedb";
 
 export default {
-  kind: __t.string(),
-  count: __t.i32(),
+  dirX: __t.i32(),
+  dirY: __t.i32(),
 };

@@ -11,6 +11,5 @@ import {
 } from "spacetimedb";
 
 export default {
-  kind: __t.string(),
-  count: __t.i32(),
+  inventoryId: __t.u64(),
 };

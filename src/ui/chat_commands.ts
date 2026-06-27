@@ -1,8 +1,9 @@
-import type { Coord, Zone } from "@trogg/shared";
+import { MAX_BOULDERS_PER_ZONE, MAX_HOGS_PER_ZONE, type Zone } from "@trogg/shared";
 import type { DbConnection } from "../net/module_bindings";
 import type { ChatUI } from "./chat.js";
-import { captureEvent } from "../analytics.js";
+import { captureEvent, isFeatureEnabled } from "../analytics.js";
 import { audio } from "../audio.js";
+import { POSTHOG_KEY } from "../env.js";
 
 /** Which slash commands are live (each behind its own feature flag, resolved by the caller). */
 export interface ChatCommandFlags {
@@ -17,22 +18,29 @@ export interface ChatCommandContext {
   chat: ChatUI;
   zone: Zone;
   flags: ChatCommandFlags;
-  /** Flicker the cosmetic ghost at a tile — the one rendering effect a command needs,
-   *  injected so this module stays pure dispatch (no renderer). */
-  onGhost: (tile: Coord) => void;
+}
+
+/** Resolve the live command flags once per mounted HUD surface. */
+export function currentCommandFlags(): ChatCommandFlags {
+  return {
+    spawn: isFeatureEnabled("spawn-command", import.meta.env.DEV || !POSTHOG_KEY),
+    resetBoulders: isFeatureEnabled("boulder-reset"),
+    resetHogs: isFeatureEnabled("hog-reset"),
+    ghost: isFeatureEnabled("ghost-trogg"),
+  };
 }
 
 /**
  * Try to handle a chat line as a slash command, returning true if it was one (so the
- * caller skips broadcasting it as chat). `/spawn` and `/reset` fire server reducers;
- * `/ghost` is a client-only cosmetic. Anything else returns false and falls through to
- * chat. Each command is gated by its flag; a disabled command is just an ordinary line.
+ * caller skips broadcasting it as chat). `/spawn`, `/reset`, and `/ghost` fire server
+ * reducers. Anything else returns false and falls through to chat. Each command is
+ * gated by its flag; a disabled command is just an ordinary line.
  */
 export function handleChatCommand(text: string, ctx: ChatCommandContext): boolean {
-  const { conn, chat, zone, flags, onGhost } = ctx;
+  const { conn, chat, zone, flags } = ctx;
   if (flags.spawn && handleSpawnCommand(conn, chat, zone.slug, text)) return true;
   if (handleResetCommand(conn, chat, zone.slug, text, flags.resetBoulders, flags.resetHogs)) return true;
-  if (flags.ghost && handleGhostCommand(text, zone, onGhost)) return true;
+  if (flags.ghost && handleGhostCommand(conn, text)) return true;
   return false;
 }
 
@@ -40,35 +48,56 @@ export function handleChatCommand(text: string, ctx: ChatCommandContext): boolea
 const SPAWNABLE: Record<string, "boulder" | "hog"> = { boulder: "boulder", hedgehog: "hog", hog: "hog" };
 
 /**
- * Handle a chat line as a `/spawn <entity>` command. Returns true if it was a spawn
- * command (so the caller skips sending it as chat): a known entity fires the `spawn`
- * reducer; an unknown one or bad syntax posts a local usage hint. Anything not starting
- * with `/spawn` returns false and falls through to chat.
+ * Handle a chat line as a `/spawn <entity> [count]` command. Returns true if it
+ * was a spawn command (so the caller skips sending it as chat): a known entity
+ * fires the `spawn` reducer; an unknown one or bad syntax posts a local usage
+ * hint. The server enforces the real cap; the client range is just a friendlier
+ * pre-alpha control. Anything not starting with `/spawn` returns false and falls
+ * through to chat.
  */
 function handleSpawnCommand(conn: DbConnection, chat: ChatUI, zone: string, text: string): boolean {
-  const m = /^\/spawn(?:\s+(\S+))?\s*$/i.exec(text);
+  const m = /^\/spawn(?:\s+(\S+)(?:\s+(\S+))?)?\s*$/i.exec(text);
   if (!m) return false;
 
   const hint = (msg: string) => chat.addMessage("spawn", "spawn", msg, 0x9a8c70);
-  const arg = m[1]?.toLowerCase();
-  if (!arg) {
+  const first = m[1]?.toLowerCase();
+  const second = m[2]?.toLowerCase();
+  if (!first) {
     audio.playError();
     console.warn("Rejected spawn command", { zone, reason: "missing_kind" });
-    hint("usage: /spawn boulder | hedgehog");
+    hint("usage: /spawn boulder [count] | hedgehog [count]");
     return true;
   }
-  const kind = SPAWNABLE[arg];
+
+  const countFirst = parseSpawnCount(first);
+  const arg = countFirst ? second : first;
+  const countArg = countFirst ? first : second;
+  const kind = arg ? SPAWNABLE[arg] : undefined;
   if (!kind) {
     audio.playError();
     console.warn("Rejected spawn command", { zone, reason: "unknown_kind" });
-    hint(`unknown entity "${arg}" — try boulder or hedgehog`);
+    hint(`unknown entity "${arg ?? first}" — try boulder or hedgehog`);
+    return true;
+  }
+
+  const count = countArg ? parseSpawnCount(countArg) : 1;
+  if (!count) {
+    audio.playError();
+    hint(`count must be 1-${kind === "boulder" ? MAX_BOULDERS_PER_ZONE : MAX_HOGS_PER_ZONE}`);
     return true;
   }
   audio.playCommand();
-  conn.reducers.spawn({ kind });
+  conn.reducers.spawn({ kind, count });
   captureEvent("debug_entity_spawned", { zone, kind });
   console.info("Debug entity spawned", { zone, kind });
   return true;
+}
+
+function parseSpawnCount(raw: string): number | undefined {
+  if (!/^\d+$/.test(raw)) return undefined;
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value < 1) return undefined;
+  return value;
 }
 
 /** The `/reset` targets mapped to a stable key, so aliases resolve to one branch. */
@@ -126,13 +155,11 @@ function handleResetCommand(
 }
 
 /**
- * Handle a chat line as the `/ghost` command: flicker the cosmetic ghost trogg at a
- * random tile in the zone via `onGhost`. Purely a client render (touches no table or
- * reducer), so only the caller sees it. Returns true if it was the command; anything
- * else falls through to chat.
+ * Handle a chat line as the `/ghost` command: request a server-picked, zone-scoped
+ * cosmetic haunt. Returns true if it was the command; anything else falls through to chat.
  */
-function handleGhostCommand(text: string, zone: Zone, onGhost: (tile: Coord) => void): boolean {
+function handleGhostCommand(conn: DbConnection, text: string): boolean {
   if (!/^\/ghost\s*$/i.test(text)) return false;
-  onGhost({ x: Math.floor(Math.random() * zone.width), y: Math.floor(Math.random() * zone.height) });
+  conn.reducers.hauntGhost({});
   return true;
 }

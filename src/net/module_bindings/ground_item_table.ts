@@ -10,7 +10,10 @@ import {
   type Infer as __Infer,
 } from "spacetimedb";
 
-export default {
-  kind: __t.string(),
-  count: __t.i32(),
-};
+export default __t.row({
+  id: __t.u64().primaryKey(),
+  zoneId: __t.string().name("zone_id"),
+  item: __t.string(),
+  x: __t.i32(),
+  y: __t.i32(),
+});

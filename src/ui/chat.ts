@@ -1,12 +1,10 @@
 import { CHAT_BUBBLE_MS, CHAT_HISTORY_MAX, CHAT_MAX_CHARS, COLOR_UNSET, timestampMs, troggColorFor, type Zone } from "@trogg/shared";
-import type Phaser from "phaser";
 import type { DbConnection } from "../net/module_bindings";
 import type { Player } from "../net/module_bindings/types";
 import { cssColor } from "../ui_text.js";
 import { hudRoot } from "./hud.js";
-import { handleChatCommand } from "./chat_commands.js";
+import { currentCommandFlags, handleChatCommand } from "./chat_commands.js";
 import { captureEvent, isFeatureEnabled } from "../analytics.js";
-import { POSTHOG_KEY } from "../env.js";
 import { audio } from "../audio.js";
 import type { Entities, Tracked } from "../game/entities.js";
 
@@ -160,26 +158,13 @@ export function setupChat(
   zone: Zone,
   sub: { live: boolean },
   myId: string | undefined,
-  stage: Phaser.GameObjects.Container,
 ) {
   const slug = zone.slug;
-  // The `/spawn` debug command is typed in the chat box but isn't a chat line —
-  // it spawns an entity at the caller's tile (server-authoritative) instead of
-  // broadcasting. It has an optional flag; off → it's sent as plain chat.
-  // Defaults on outside production — local dev and PR preview builds ship no
-  // PostHog key — while in production the `spawn-command` flag governs it.
-  const spawnEnabled = isFeatureEnabled("spawn-command", import.meta.env.DEV || !POSTHOG_KEY);
-  // `/reset` snaps the zone's boulders (`boulder-reset`) or Hogs (`hog-reset`) back
-  // to their registry layout; each target is independently gated, so bare `/reset`
-  // and `/reset boulders` need boulders on, `/reset hedgehogs` needs Hogs on.
-  const resetBouldersEnabled = isFeatureEnabled("boulder-reset");
-  const resetHogsEnabled = isFeatureEnabled("hog-reset");
-  // `/ghost` flickers the cosmetic ghost at a random tile; same flag as the launch
-  // haunt (fallback on, so anyone can summon it), kept client-only.
-  const ghostEnabled = isFeatureEnabled("ghost-trogg");
+  // Slash commands are typed in the chat box but are not chat lines. Each command is
+  // independently feature-gated and dispatches through reducers.
+  const flags = currentCommandFlags();
   const chat = mountChat((text) => {
-    const flags = { spawn: spawnEnabled, resetBoulders: resetBouldersEnabled, resetHogs: resetHogsEnabled, ghost: ghostEnabled };
-    if (handleChatCommand(text, { conn, chat, zone, flags, onGhost: (tile) => entities.hauntGhost(stage, tile) })) return;
+    if (handleChatCommand(text, { conn, chat, zone, flags })) return;
     audio.playChatSend();
     conn.reducers.chat({ text });
   });

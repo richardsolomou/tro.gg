@@ -8,243 +8,723 @@
   },
   "note": "Avatar base bodies, generated from shared/sprites.ts — run `pnpm sprites` to regenerate.",
   "frames": {
-    "trogg_down_idle": {
+    "trogg_moss_down_idle": {
       "x": 0,
       "y": 0,
       "w": 16,
       "h": 24
     },
-    "trogg_down_walk_a": {
+    "trogg_moss_down_walk_a": {
       "x": 16,
       "y": 0,
       "w": 16,
       "h": 24
     },
-    "trogg_down_walk_b": {
+    "trogg_moss_down_walk_b": {
       "x": 32,
       "y": 0,
       "w": 16,
       "h": 24
     },
-    "trogg_down_run_a": {
+    "trogg_moss_down_run_a": {
       "x": 48,
       "y": 0,
       "w": 16,
       "h": 24
     },
-    "trogg_down_run_b": {
+    "trogg_moss_down_run_b": {
       "x": 64,
       "y": 0,
       "w": 16,
       "h": 24
     },
-    "trogg_up_idle": {
+    "trogg_moss_up_idle": {
       "x": 0,
       "y": 24,
       "w": 16,
       "h": 24
     },
-    "trogg_up_walk_a": {
+    "trogg_moss_up_walk_a": {
       "x": 16,
       "y": 24,
       "w": 16,
       "h": 24
     },
-    "trogg_up_walk_b": {
+    "trogg_moss_up_walk_b": {
       "x": 32,
       "y": 24,
       "w": 16,
       "h": 24
     },
-    "trogg_up_run_a": {
+    "trogg_moss_up_run_a": {
       "x": 48,
       "y": 24,
       "w": 16,
       "h": 24
     },
-    "trogg_up_run_b": {
+    "trogg_moss_up_run_b": {
       "x": 64,
       "y": 24,
       "w": 16,
       "h": 24
     },
-    "trogg_left_idle": {
+    "trogg_moss_left_idle": {
       "x": 0,
       "y": 48,
       "w": 16,
       "h": 24
     },
-    "trogg_left_walk_a": {
+    "trogg_moss_left_walk_a": {
       "x": 16,
       "y": 48,
       "w": 16,
       "h": 24
     },
-    "trogg_left_walk_b": {
+    "trogg_moss_left_walk_b": {
       "x": 32,
       "y": 48,
       "w": 16,
       "h": 24
     },
-    "trogg_left_run_a": {
+    "trogg_moss_left_run_a": {
       "x": 48,
       "y": 48,
       "w": 16,
       "h": 24
     },
-    "trogg_left_run_b": {
+    "trogg_moss_left_run_b": {
       "x": 64,
       "y": 48,
       "w": 16,
       "h": 24
     },
-    "trogg_right_idle": {
+    "trogg_moss_right_idle": {
       "x": 0,
       "y": 72,
       "w": 16,
       "h": 24
     },
-    "trogg_right_walk_a": {
+    "trogg_moss_right_walk_a": {
       "x": 16,
       "y": 72,
       "w": 16,
       "h": 24
     },
-    "trogg_right_walk_b": {
+    "trogg_moss_right_walk_b": {
       "x": 32,
       "y": 72,
       "w": 16,
       "h": 24
     },
-    "trogg_right_run_a": {
+    "trogg_moss_right_run_a": {
       "x": 48,
       "y": 72,
       "w": 16,
       "h": 24
     },
-    "trogg_right_run_b": {
+    "trogg_moss_right_run_b": {
       "x": 64,
       "y": 72,
       "w": 16,
       "h": 24
     },
-    "hog_down_idle": {
+    "trogg_stone_down_idle": {
       "x": 0,
       "y": 96,
       "w": 16,
       "h": 24
     },
-    "hog_down_walk_a": {
+    "trogg_stone_down_walk_a": {
       "x": 16,
       "y": 96,
       "w": 16,
       "h": 24
     },
-    "hog_down_walk_b": {
+    "trogg_stone_down_walk_b": {
       "x": 32,
       "y": 96,
       "w": 16,
       "h": 24
     },
-    "hog_down_run_a": {
+    "trogg_stone_down_run_a": {
       "x": 48,
       "y": 96,
       "w": 16,
       "h": 24
     },
-    "hog_down_run_b": {
+    "trogg_stone_down_run_b": {
       "x": 64,
       "y": 96,
       "w": 16,
       "h": 24
     },
-    "hog_up_idle": {
+    "trogg_stone_up_idle": {
       "x": 0,
       "y": 120,
       "w": 16,
       "h": 24
     },
-    "hog_up_walk_a": {
+    "trogg_stone_up_walk_a": {
       "x": 16,
       "y": 120,
       "w": 16,
       "h": 24
     },
-    "hog_up_walk_b": {
+    "trogg_stone_up_walk_b": {
       "x": 32,
       "y": 120,
       "w": 16,
       "h": 24
     },
-    "hog_up_run_a": {
+    "trogg_stone_up_run_a": {
       "x": 48,
       "y": 120,
       "w": 16,
       "h": 24
     },
-    "hog_up_run_b": {
+    "trogg_stone_up_run_b": {
       "x": 64,
       "y": 120,
       "w": 16,
       "h": 24
     },
-    "hog_left_idle": {
+    "trogg_stone_left_idle": {
       "x": 0,
       "y": 144,
       "w": 16,
       "h": 24
     },
-    "hog_left_walk_a": {
+    "trogg_stone_left_walk_a": {
       "x": 16,
       "y": 144,
       "w": 16,
       "h": 24
     },
-    "hog_left_walk_b": {
+    "trogg_stone_left_walk_b": {
       "x": 32,
       "y": 144,
       "w": 16,
       "h": 24
     },
-    "hog_left_run_a": {
+    "trogg_stone_left_run_a": {
       "x": 48,
       "y": 144,
       "w": 16,
       "h": 24
     },
-    "hog_left_run_b": {
+    "trogg_stone_left_run_b": {
       "x": 64,
       "y": 144,
       "w": 16,
       "h": 24
     },
-    "hog_right_idle": {
+    "trogg_stone_right_idle": {
       "x": 0,
       "y": 168,
       "w": 16,
       "h": 24
     },
-    "hog_right_walk_a": {
+    "trogg_stone_right_walk_a": {
       "x": 16,
       "y": 168,
       "w": 16,
       "h": 24
     },
-    "hog_right_walk_b": {
+    "trogg_stone_right_walk_b": {
       "x": 32,
       "y": 168,
       "w": 16,
       "h": 24
     },
-    "hog_right_run_a": {
+    "trogg_stone_right_run_a": {
       "x": 48,
       "y": 168,
       "w": 16,
       "h": 24
     },
-    "hog_right_run_b": {
+    "trogg_stone_right_run_b": {
       "x": 64,
       "y": 168,
+      "w": 16,
+      "h": 24
+    },
+    "trogg_ridge_down_idle": {
+      "x": 0,
+      "y": 192,
+      "w": 16,
+      "h": 24
+    },
+    "trogg_ridge_down_walk_a": {
+      "x": 16,
+      "y": 192,
+      "w": 16,
+      "h": 24
+    },
+    "trogg_ridge_down_walk_b": {
+      "x": 32,
+      "y": 192,
+      "w": 16,
+      "h": 24
+    },
+    "trogg_ridge_down_run_a": {
+      "x": 48,
+      "y": 192,
+      "w": 16,
+      "h": 24
+    },
+    "trogg_ridge_down_run_b": {
+      "x": 64,
+      "y": 192,
+      "w": 16,
+      "h": 24
+    },
+    "trogg_ridge_up_idle": {
+      "x": 0,
+      "y": 216,
+      "w": 16,
+      "h": 24
+    },
+    "trogg_ridge_up_walk_a": {
+      "x": 16,
+      "y": 216,
+      "w": 16,
+      "h": 24
+    },
+    "trogg_ridge_up_walk_b": {
+      "x": 32,
+      "y": 216,
+      "w": 16,
+      "h": 24
+    },
+    "trogg_ridge_up_run_a": {
+      "x": 48,
+      "y": 216,
+      "w": 16,
+      "h": 24
+    },
+    "trogg_ridge_up_run_b": {
+      "x": 64,
+      "y": 216,
+      "w": 16,
+      "h": 24
+    },
+    "trogg_ridge_left_idle": {
+      "x": 0,
+      "y": 240,
+      "w": 16,
+      "h": 24
+    },
+    "trogg_ridge_left_walk_a": {
+      "x": 16,
+      "y": 240,
+      "w": 16,
+      "h": 24
+    },
+    "trogg_ridge_left_walk_b": {
+      "x": 32,
+      "y": 240,
+      "w": 16,
+      "h": 24
+    },
+    "trogg_ridge_left_run_a": {
+      "x": 48,
+      "y": 240,
+      "w": 16,
+      "h": 24
+    },
+    "trogg_ridge_left_run_b": {
+      "x": 64,
+      "y": 240,
+      "w": 16,
+      "h": 24
+    },
+    "trogg_ridge_right_idle": {
+      "x": 0,
+      "y": 264,
+      "w": 16,
+      "h": 24
+    },
+    "trogg_ridge_right_walk_a": {
+      "x": 16,
+      "y": 264,
+      "w": 16,
+      "h": 24
+    },
+    "trogg_ridge_right_walk_b": {
+      "x": 32,
+      "y": 264,
+      "w": 16,
+      "h": 24
+    },
+    "trogg_ridge_right_run_a": {
+      "x": 48,
+      "y": 264,
+      "w": 16,
+      "h": 24
+    },
+    "trogg_ridge_right_run_b": {
+      "x": 64,
+      "y": 264,
+      "w": 16,
+      "h": 24
+    },
+    "hog_classic_down_idle": {
+      "x": 0,
+      "y": 288,
+      "w": 16,
+      "h": 24
+    },
+    "hog_classic_down_walk_a": {
+      "x": 16,
+      "y": 288,
+      "w": 16,
+      "h": 24
+    },
+    "hog_classic_down_walk_b": {
+      "x": 32,
+      "y": 288,
+      "w": 16,
+      "h": 24
+    },
+    "hog_classic_down_run_a": {
+      "x": 48,
+      "y": 288,
+      "w": 16,
+      "h": 24
+    },
+    "hog_classic_down_run_b": {
+      "x": 64,
+      "y": 288,
+      "w": 16,
+      "h": 24
+    },
+    "hog_classic_up_idle": {
+      "x": 0,
+      "y": 312,
+      "w": 16,
+      "h": 24
+    },
+    "hog_classic_up_walk_a": {
+      "x": 16,
+      "y": 312,
+      "w": 16,
+      "h": 24
+    },
+    "hog_classic_up_walk_b": {
+      "x": 32,
+      "y": 312,
+      "w": 16,
+      "h": 24
+    },
+    "hog_classic_up_run_a": {
+      "x": 48,
+      "y": 312,
+      "w": 16,
+      "h": 24
+    },
+    "hog_classic_up_run_b": {
+      "x": 64,
+      "y": 312,
+      "w": 16,
+      "h": 24
+    },
+    "hog_classic_left_idle": {
+      "x": 0,
+      "y": 336,
+      "w": 16,
+      "h": 24
+    },
+    "hog_classic_left_walk_a": {
+      "x": 16,
+      "y": 336,
+      "w": 16,
+      "h": 24
+    },
+    "hog_classic_left_walk_b": {
+      "x": 32,
+      "y": 336,
+      "w": 16,
+      "h": 24
+    },
+    "hog_classic_left_run_a": {
+      "x": 48,
+      "y": 336,
+      "w": 16,
+      "h": 24
+    },
+    "hog_classic_left_run_b": {
+      "x": 64,
+      "y": 336,
+      "w": 16,
+      "h": 24
+    },
+    "hog_classic_right_idle": {
+      "x": 0,
+      "y": 360,
+      "w": 16,
+      "h": 24
+    },
+    "hog_classic_right_walk_a": {
+      "x": 16,
+      "y": 360,
+      "w": 16,
+      "h": 24
+    },
+    "hog_classic_right_walk_b": {
+      "x": 32,
+      "y": 360,
+      "w": 16,
+      "h": 24
+    },
+    "hog_classic_right_run_a": {
+      "x": 48,
+      "y": 360,
+      "w": 16,
+      "h": 24
+    },
+    "hog_classic_right_run_b": {
+      "x": 64,
+      "y": 360,
+      "w": 16,
+      "h": 24
+    },
+    "hog_snow_down_idle": {
+      "x": 0,
+      "y": 384,
+      "w": 16,
+      "h": 24
+    },
+    "hog_snow_down_walk_a": {
+      "x": 16,
+      "y": 384,
+      "w": 16,
+      "h": 24
+    },
+    "hog_snow_down_walk_b": {
+      "x": 32,
+      "y": 384,
+      "w": 16,
+      "h": 24
+    },
+    "hog_snow_down_run_a": {
+      "x": 48,
+      "y": 384,
+      "w": 16,
+      "h": 24
+    },
+    "hog_snow_down_run_b": {
+      "x": 64,
+      "y": 384,
+      "w": 16,
+      "h": 24
+    },
+    "hog_snow_up_idle": {
+      "x": 0,
+      "y": 408,
+      "w": 16,
+      "h": 24
+    },
+    "hog_snow_up_walk_a": {
+      "x": 16,
+      "y": 408,
+      "w": 16,
+      "h": 24
+    },
+    "hog_snow_up_walk_b": {
+      "x": 32,
+      "y": 408,
+      "w": 16,
+      "h": 24
+    },
+    "hog_snow_up_run_a": {
+      "x": 48,
+      "y": 408,
+      "w": 16,
+      "h": 24
+    },
+    "hog_snow_up_run_b": {
+      "x": 64,
+      "y": 408,
+      "w": 16,
+      "h": 24
+    },
+    "hog_snow_left_idle": {
+      "x": 0,
+      "y": 432,
+      "w": 16,
+      "h": 24
+    },
+    "hog_snow_left_walk_a": {
+      "x": 16,
+      "y": 432,
+      "w": 16,
+      "h": 24
+    },
+    "hog_snow_left_walk_b": {
+      "x": 32,
+      "y": 432,
+      "w": 16,
+      "h": 24
+    },
+    "hog_snow_left_run_a": {
+      "x": 48,
+      "y": 432,
+      "w": 16,
+      "h": 24
+    },
+    "hog_snow_left_run_b": {
+      "x": 64,
+      "y": 432,
+      "w": 16,
+      "h": 24
+    },
+    "hog_snow_right_idle": {
+      "x": 0,
+      "y": 456,
+      "w": 16,
+      "h": 24
+    },
+    "hog_snow_right_walk_a": {
+      "x": 16,
+      "y": 456,
+      "w": 16,
+      "h": 24
+    },
+    "hog_snow_right_walk_b": {
+      "x": 32,
+      "y": 456,
+      "w": 16,
+      "h": 24
+    },
+    "hog_snow_right_run_a": {
+      "x": 48,
+      "y": 456,
+      "w": 16,
+      "h": 24
+    },
+    "hog_snow_right_run_b": {
+      "x": 64,
+      "y": 456,
+      "w": 16,
+      "h": 24
+    },
+    "hog_ember_down_idle": {
+      "x": 0,
+      "y": 480,
+      "w": 16,
+      "h": 24
+    },
+    "hog_ember_down_walk_a": {
+      "x": 16,
+      "y": 480,
+      "w": 16,
+      "h": 24
+    },
+    "hog_ember_down_walk_b": {
+      "x": 32,
+      "y": 480,
+      "w": 16,
+      "h": 24
+    },
+    "hog_ember_down_run_a": {
+      "x": 48,
+      "y": 480,
+      "w": 16,
+      "h": 24
+    },
+    "hog_ember_down_run_b": {
+      "x": 64,
+      "y": 480,
+      "w": 16,
+      "h": 24
+    },
+    "hog_ember_up_idle": {
+      "x": 0,
+      "y": 504,
+      "w": 16,
+      "h": 24
+    },
+    "hog_ember_up_walk_a": {
+      "x": 16,
+      "y": 504,
+      "w": 16,
+      "h": 24
+    },
+    "hog_ember_up_walk_b": {
+      "x": 32,
+      "y": 504,
+      "w": 16,
+      "h": 24
+    },
+    "hog_ember_up_run_a": {
+      "x": 48,
+      "y": 504,
+      "w": 16,
+      "h": 24
+    },
+    "hog_ember_up_run_b": {
+      "x": 64,
+      "y": 504,
+      "w": 16,
+      "h": 24
+    },
+    "hog_ember_left_idle": {
+      "x": 0,
+      "y": 528,
+      "w": 16,
+      "h": 24
+    },
+    "hog_ember_left_walk_a": {
+      "x": 16,
+      "y": 528,
+      "w": 16,
+      "h": 24
+    },
+    "hog_ember_left_walk_b": {
+      "x": 32,
+      "y": 528,
+      "w": 16,
+      "h": 24
+    },
+    "hog_ember_left_run_a": {
+      "x": 48,
+      "y": 528,
+      "w": 16,
+      "h": 24
+    },
+    "hog_ember_left_run_b": {
+      "x": 64,
+      "y": 528,
+      "w": 16,
+      "h": 24
+    },
+    "hog_ember_right_idle": {
+      "x": 0,
+      "y": 552,
+      "w": 16,
+      "h": 24
+    },
+    "hog_ember_right_walk_a": {
+      "x": 16,
+      "y": 552,
+      "w": 16,
+      "h": 24
+    },
+    "hog_ember_right_walk_b": {
+      "x": 32,
+      "y": 552,
+      "w": 16,
+      "h": 24
+    },
+    "hog_ember_right_run_a": {
+      "x": 48,
+      "y": 552,
+      "w": 16,
+      "h": 24
+    },
+    "hog_ember_right_run_b": {
+      "x": 64,
+      "y": 552,
       "w": 16,
       "h": 24
     }

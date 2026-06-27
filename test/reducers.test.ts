@@ -3,7 +3,9 @@ import { test } from "node:test";
 import {
   CHAT_HISTORY_MAX,
   CLAIM_CODE_TTL_MS,
+  GHOST_HAUNT_HISTORY_MAX,
   getZone,
+  isWalkable,
   MAX_BOULDERS_PER_ZONE,
   MAX_HOGS_PER_ZONE,
   parsePath,
@@ -11,6 +13,9 @@ import {
 } from "@trogg/shared";
 import {
   chat,
+  face,
+  equipItem,
+  hauntGhost,
   interact,
   move,
   moveTo,
@@ -20,10 +25,12 @@ import {
   recolor,
   redeemClaim,
   rename,
+  restyle,
   resetBoulders,
   resetHogs,
   spawn,
   startClaim,
+  useEquipped,
   wanderHogs,
 } from "../spacetimedb/src/index.ts";
 import { id, makeCtx, playerRow, type FakeCtx } from "./spacetime.ts";
@@ -44,15 +51,22 @@ function withPlayer(over: Record<string, unknown> = {}, ctxOver: Partial<Paramet
 test("spawn refuses a boulder once the zone is at its cap", () => {
   const { ctx } = withPlayer({ x: 5, y: 8 });
   for (let i = 0; i < MAX_BOULDERS_PER_ZONE; i++) ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 1, y: 1 });
-  spawn(ctx, { kind: "boulder" });
+  spawn(ctx, { kind: "boulder", count: 1 });
   assert.equal(ctx.db.boulder.rows().length, MAX_BOULDERS_PER_ZONE);
 });
 
 test("spawn adds a boulder when the zone is below the cap", () => {
   const { ctx } = withPlayer({ x: 5, y: 8 });
-  spawn(ctx, { kind: "boulder" });
+  spawn(ctx, { kind: "boulder", count: 1 });
   assert.equal(ctx.db.boulder.rows().length, 1);
   assert.equal(ctx.db.boulder.rows()[0].zoneId, ZONE);
+});
+
+test("spawn can add a counted batch without exceeding the boulder cap", () => {
+  const { ctx } = withPlayer({ x: 5, y: 8 });
+  for (let i = 0; i < MAX_BOULDERS_PER_ZONE - 2; i++) ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 1, y: 1 });
+  spawn(ctx, { kind: "boulder", count: 10 });
+  assert.equal(ctx.db.boulder.rows().length, MAX_BOULDERS_PER_ZONE);
 });
 
 // --- Two Hogs never converge onto one tile (the wanderHogs fix) ---
@@ -123,17 +137,38 @@ test("push refuses when a Hog stands beyond the boulder", () => {
 // --- Movement authority ---
 
 test("move rejects a diagonal intent and keeps the prior heading", () => {
-  const { ctx, me } = withPlayer({ dirX: 0, dirY: 1 });
+  const { ctx, me } = withPlayer({ dirX: 0, dirY: 1, faceX: 0, faceY: 1 });
   move(ctx, { dirX: 1, dirY: 1, running: false });
   const p = ctx.db.player.identity.find(me);
-  assert.deepEqual({ dirX: p.dirX, dirY: p.dirY }, { dirX: 0, dirY: 1 });
+  assert.deepEqual({ dirX: p.dirX, dirY: p.dirY, faceX: p.faceX, faceY: p.faceY }, { dirX: 0, dirY: 1, faceX: 0, faceY: 1 });
 });
 
-test("move stores an accepted cardinal intent", () => {
-  const { ctx, me } = withPlayer({ dirX: 0, dirY: 0 });
+test("move stores an accepted cardinal intent and synced facing", () => {
+  const { ctx, me } = withPlayer({ dirX: 0, dirY: 0, faceX: 0, faceY: 1 });
   move(ctx, { dirX: 1, dirY: 0, running: false });
   const p = ctx.db.player.identity.find(me);
-  assert.deepEqual({ dirX: p.dirX, dirY: p.dirY, path: p.path }, { dirX: 1, dirY: 0, path: "" });
+  assert.deepEqual({ dirX: p.dirX, dirY: p.dirY, path: p.path, faceX: p.faceX, faceY: p.faceY }, { dirX: 1, dirY: 0, path: "", faceX: 1, faceY: 0 });
+});
+
+test("move preserves synced facing when stopping", () => {
+  const { ctx, me } = withPlayer({ dirX: 1, dirY: 0, faceX: 1, faceY: 0 });
+  move(ctx, { dirX: 0, dirY: 0, running: false });
+  const p = ctx.db.player.identity.find(me);
+  assert.deepEqual({ dirX: p.dirX, dirY: p.dirY, faceX: p.faceX, faceY: p.faceY }, { dirX: 0, dirY: 0, faceX: 1, faceY: 0 });
+});
+
+test("face stores a standing turn without starting movement", () => {
+  const { ctx, me } = withPlayer({ x: 5, y: 8, dirX: 0, dirY: 0, faceX: 0, faceY: 1 });
+  face(ctx, { dirX: -1, dirY: 0 });
+  const p = ctx.db.player.identity.find(me);
+  assert.deepEqual({ x: p.x, y: p.y, dirX: p.dirX, dirY: p.dirY, faceX: p.faceX, faceY: p.faceY, path: p.path }, { x: 5, y: 8, dirX: 0, dirY: 0, faceX: -1, faceY: 0, path: "" });
+});
+
+test("face rejects a diagonal standing turn", () => {
+  const { ctx, me } = withPlayer({ faceX: 0, faceY: 1 });
+  face(ctx, { dirX: 1, dirY: 1 });
+  const p = ctx.db.player.identity.find(me);
+  assert.deepEqual({ faceX: p.faceX, faceY: p.faceY }, { faceX: 0, faceY: 1 });
 });
 
 // --- Interacting ---
@@ -144,6 +179,80 @@ test("interact picks up the boulder on the faced tile", () => {
   interact(ctx, { dirX: 1, dirY: 0 });
   assert.equal(ctx.db.boulder.rows().length, 0); // removed from the world
   assert.equal(ctx.db.player.identity.find(me).carrying, "boulder"); // now carried
+});
+
+test("interact picks up a faced ground item into inventory", () => {
+  const { ctx, me } = withPlayer({ x: 5, y: 8, carrying: "" });
+  ctx.db.groundItem.insert({ id: 0n, zoneId: ZONE, item: "pickaxe", x: 6, y: 8 });
+  interact(ctx, { dirX: 1, dirY: 0 });
+  assert.equal(ctx.db.groundItem.rows().length, 0);
+  assert.equal(ctx.db.inventory.rows().length, 1);
+  assert.equal(ctx.db.inventory.rows()[0].playerId.isEqual(me), true);
+  assert.equal(ctx.db.inventory.rows()[0].item, "pickaxe");
+});
+
+test("non-stackable equippable pickups stay as separate inventory rows", () => {
+  const { ctx, me } = withPlayer({ x: 5, y: 8, carrying: "" });
+  ctx.db.groundItem.insert({ id: 0n, zoneId: ZONE, item: "sword", x: 6, y: 8 });
+  interact(ctx, { dirX: 1, dirY: 0 });
+  ctx.db.groundItem.insert({ id: 0n, zoneId: ZONE, item: "sword", x: 5, y: 9 });
+  interact(ctx, { dirX: 0, dirY: 1 });
+
+  const swords = ctx.db.inventory.rows().filter((r: any) => r.playerId.isEqual(me) && r.item === "sword");
+  assert.equal(swords.length, 2);
+  assert.deepEqual(swords.map((r: any) => r.qty), [1, 1]);
+});
+
+test("equipItem equips only a specific owned equippable row", () => {
+  const { ctx, me } = withPlayer({});
+  equipItem(ctx, { inventoryId: 999n });
+  assert.equal(ctx.db.player.identity.find(me).equippedMainHand, "");
+  const first = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });
+  const second = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });
+  const stone = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "stone", qty: 3 });
+
+  equipItem(ctx, { inventoryId: first.id });
+  assert.equal(ctx.db.player.identity.find(me).equippedMainHand, "sword");
+  assert.equal(ctx.db.player.identity.find(me).equippedMainHandInventoryId, first.id);
+  equipItem(ctx, { inventoryId: stone.id });
+  assert.equal(ctx.db.player.identity.find(me).equippedMainHandInventoryId, first.id);
+  equipItem(ctx, { inventoryId: second.id });
+  assert.equal(ctx.db.player.identity.find(me).equippedMainHandInventoryId, second.id);
+});
+
+test("useEquipped mines a faced boulder with a pickaxe without stopping movement", () => {
+  const { ctx, me } = withPlayer({ x: 5, y: 8, dirX: 1, dirY: 0, running: true, equippedMainHand: "pickaxe" });
+  const pickaxe = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "pickaxe", qty: 1 });
+  ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedMainHandInventoryId: pickaxe.id });
+  ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 6, y: 8 });
+  useEquipped(ctx, { dirX: 1, dirY: 0 });
+  assert.equal(ctx.db.boulder.rows().length, 0);
+  assert.equal(ctx.db.inventory.rows().find((r: any) => r.item === "stone")?.qty, 1);
+  const p = ctx.db.player.identity.find(me);
+  assert.equal(p.equipmentAction, "pickaxe");
+  assert.deepEqual({ dirX: p.dirX, dirY: p.dirY, running: p.running, path: p.path }, { dirX: 1, dirY: 0, running: true, path: "" });
+});
+
+test("interact prioritizes the faced pickup when several entities are adjacent", () => {
+  const { ctx, me } = withPlayer({ x: 5, y: 8, carrying: "" });
+  ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 5, y: 7 });
+  hogAt_(ctx, 6, 8);
+  interact(ctx, { dirX: 1, dirY: 0 });
+  assert.equal(ctx.db.player.identity.find(me).carrying, "hog");
+  assert.equal(ctx.db.hog.rows().length, 0);
+  assert.equal(ctx.db.boulder.rows().length, 1);
+});
+
+test("interact prioritizes a faced ground item over other adjacent pickups", () => {
+  const { ctx, me } = withPlayer({ x: 5, y: 8, carrying: "" });
+  ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 5, y: 7 });
+  ctx.db.groundItem.insert({ id: 0n, zoneId: ZONE, item: "sword", x: 6, y: 8 });
+  interact(ctx, { dirX: 1, dirY: 0 });
+  assert.equal(ctx.db.groundItem.rows().length, 0);
+  assert.equal(ctx.db.boulder.rows().length, 1);
+  assert.equal(ctx.db.player.identity.find(me).carrying, "");
+  assert.equal(ctx.db.inventory.rows()[0].playerId.isEqual(me), true);
+  assert.equal(ctx.db.inventory.rows()[0].item, "sword");
 });
 
 // --- Chat ---
@@ -167,6 +276,32 @@ test("chat trims zone history to the cap, dropping the oldest line", () => {
   assert.equal(rows.find((r: any) => r.id === oldestId), undefined); // oldest dropped
 });
 
+// --- Ghost haunts ---
+
+test("hauntGhost inserts a zone-scoped haunt on a walkable tile", () => {
+  const { ctx } = withPlayer({}, { integerInRange: (_lo, hi) => hi });
+  hauntGhost(ctx);
+
+  const row = ctx.db.ghostHaunt.rows()[0];
+  assert.equal(row.zoneId, ZONE);
+  assert.equal(row.createdAt.microsSinceUnixEpoch, 0n);
+  assert.ok(isWalkable(getZone(ZONE)!, row.x, row.y));
+});
+
+test("hauntGhost trims old haunt rows to the cap", () => {
+  const { ctx } = withPlayer({});
+  for (let i = 0; i < GHOST_HAUNT_HISTORY_MAX; i++) {
+    ctx.db.ghostHaunt.insert({ id: 0n, zoneId: ZONE, x: 1, y: 1, createdAt: { microsSinceUnixEpoch: 0n } });
+  }
+  const oldestId = ctx.db.ghostHaunt.rows()[0].id;
+
+  hauntGhost(ctx);
+
+  const rows = ctx.db.ghostHaunt.rows();
+  assert.equal(rows.length, GHOST_HAUNT_HISTORY_MAX);
+  assert.equal(rows.find((r: any) => r.id === oldestId), undefined);
+});
+
 // --- helpers for the entity tables ---
 const hogAt_ = (ctx: FakeCtx, x: number, y: number) =>
   ctx.db.hog.insert({ id: 0n, zoneId: ZONE, x, y, dirX: 0, dirY: 0, movedAt: { microsSinceUnixEpoch: 0n }, path: "", homeX: x, homeY: y });
@@ -183,6 +318,7 @@ test("connecting as a guest inserts an online guest and lazily seeds the zone", 
   assert.equal(p.online, true);
   assert.equal(ctx.db.boulder.rows().length, getZone(ZONE)!.boulders.length);
   assert.equal(ctx.db.hog.rows().length, getZone(ZONE)!.hogs.length);
+  assert.equal(ctx.db.groundItem.rows().length, getZone(ZONE)!.items.length);
 });
 
 test("connecting with a SpacetimeAuth token inserts an account, not a guest", () => {
@@ -232,7 +368,7 @@ test("moveTo stores a cardinal route toward a reachable tile", () => {
   moveTo(ctx, { x: 8, y: 8, running: false });
   const p = ctx.db.player.identity.find(me);
   assert.equal(parsePath(p.path).at(-1)?.x, 8); // route ends at the target column
-  assert.deepEqual({ dirX: p.dirX, dirY: p.dirY }, { dirX: 1, dirY: 0 });
+  assert.deepEqual({ dirX: p.dirX, dirY: p.dirY, faceX: p.faceX, faceY: p.faceY }, { dirX: 1, dirY: 0, faceX: 1, faceY: 0 });
 });
 
 // --- Interacting: put-down, the cap on drop, and Hog pickup ---
@@ -312,6 +448,18 @@ test("recolor to an out-of-range index is rejected", () => {
   const { ctx, me } = withPlayer({ color: 0 });
   recolor(ctx, { color: 999 });
   assert.equal(ctx.db.player.identity.find(me).color, 0);
+});
+
+test("restyle to a valid style index updates the style", () => {
+  const { ctx, me } = withPlayer({ style: -1 });
+  restyle(ctx, { style: 1 });
+  assert.equal(ctx.db.player.identity.find(me).style, 1);
+});
+
+test("restyle to an out-of-range index is rejected", () => {
+  const { ctx, me } = withPlayer({ style: 0 });
+  restyle(ctx, { style: 999 });
+  assert.equal(ctx.db.player.identity.find(me).style, 0);
 });
 
 // --- startClaim (the nonce side of the upgrade) ---

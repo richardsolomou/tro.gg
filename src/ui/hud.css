@@ -1,5 +1,6 @@
 /*
- * HUD chrome — HTML/CSS overlays above the Phaser canvas (chat, account, help).
+ * HUD chrome — HTML/CSS overlays above the Phaser canvas (chat, account, help,
+ * appearance, inventory, commands).
  * Cave palette, shared with the landing page and the in-world art: ink #e8dcc4 on
  * #0a0806 stone, amber #f2c94c accents. The world (troggs, bubbles, terrain) is
  * drawn by Phaser; everything here is DOM, so the browser owns layout, text input,
@@ -27,6 +28,17 @@
   font-family: monospace;
   color: #e8dcc4;
   box-sizing: border-box;
+}
+
+#hud button {
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#hud button:focus-visible {
+  outline: 2px solid #e8dcc4;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px rgba(10, 8, 6, 0.75);
 }
 
 #hud .field {
@@ -125,27 +137,58 @@
   border-color: #e8dcc4;
 }
 
-/* ── Help (top-left) ─────────────────────────────────────────────────────── */
-#hud .help {
+/* ── Top-left toggle bar (Help, Appearance, Inventory, Commands) ──────────── */
+#hud .hud-left {
+  position: fixed;
   top: 12px;
   left: 12px;
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 8px;
   align-items: flex-start;
+  max-width: calc(100vw - 24px);
+  pointer-events: none; /* the gaps stay click-through… */
 }
-#hud .help-toggle {
-  width: auto;
-  padding: 0 10px;
+/* Each menu opts back into clicks and anchors its drop-down body, which is
+   absolutely placed below the bar so opening one toggle never shifts another. */
+#hud .hud-left > * {
+  pointer-events: auto;
+  position: relative;
+}
+#hud .help-body,
+#hud .inventory-body,
+#hud .command-body {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 6px;
+}
+#hud .hud-icon-button {
+  width: 32px;
   height: 28px;
-  font-size: 13px;
+  padding: 2px 5px;
+  display: grid;
+  place-items: center;
   color: #0a0806;
   background: #f2c94c;
   border: none;
   border-radius: 4px;
   cursor: pointer;
 }
+#hud .hud-icon-button svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+}
+#hud .help-toggle {
+  font-size: 16px;
+  font-weight: bold;
+  line-height: 1;
+}
 #hud .help-body {
+  width: max-content;
+  max-width: calc(100vw - 24px);
   padding: 12px;
   background: rgba(10, 8, 6, 0.82);
   border: 1px solid #2a2118;
@@ -171,4 +214,193 @@
 #hud .help-key {
   color: #f2c94c;
   white-space: nowrap;
+}
+
+/* ── Appearance ──────────────────────────────────────────────────────────── */
+#hud .appearance-toggle {
+  background: #e8dcc4; /* set apart from Help's amber toggle */
+}
+#hud .appearance-body {
+  width: min(248px, calc(100vw - 24px));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+#hud .appearance-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+#hud .style-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+#hud .style-option {
+  padding: 4px 10px;
+  height: 26px;
+  font-size: 12px;
+  color: #e8dcc4;
+  background: rgba(10, 8, 6, 0.82);
+  border: 1px solid #2a2118;
+  border-radius: 4px;
+  cursor: pointer;
+}
+#hud .style-option[aria-pressed="true"] {
+  color: #0a0806;
+  background: #e8dcc4;
+  border-color: #e8dcc4;
+}
+
+/* ── Inventory ───────────────────────────────────────────────────────────── */
+#hud .inventory-body {
+  width: 204px;
+  padding: 10px;
+  background: rgba(10, 8, 6, 0.82);
+  border: 1px solid #2a2118;
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+#hud .inventory-body[hidden] {
+  display: none;
+}
+#hud .inventory-equipped {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #9b8a6c;
+}
+#hud .inventory-equipped-slot {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  background: rgba(232, 220, 196, 0.08);
+  border: 1px solid #2a2118;
+  border-radius: 4px;
+}
+#hud .inventory-equipped-slot .item-icon {
+  width: 28px;
+  height: 28px;
+}
+#hud .inventory-empty {
+  grid-column: 1 / -1;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  font-size: 12px;
+  line-height: 16px;
+  color: #9b8a6c;
+  white-space: normal;
+  word-break: normal;
+  overflow-wrap: normal;
+}
+#hud .inventory-list {
+  display: grid;
+  grid-template-columns: repeat(4, 40px);
+  gap: 6px;
+}
+#hud .inventory-item {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  padding: 3px;
+  display: grid;
+  place-items: center;
+  color: #e8dcc4;
+  background: rgba(232, 220, 196, 0.08);
+  border: 1px solid #2a2118;
+  border-radius: 4px;
+  cursor: pointer;
+}
+#hud .inventory-item[aria-pressed="true"] {
+  border-color: #f2c94c;
+  background: rgba(242, 201, 76, 0.18);
+}
+#hud .inventory-item:disabled {
+  opacity: 0.9;
+  cursor: default;
+}
+#hud .inventory-item .item-icon {
+  width: 32px;
+  height: 32px;
+}
+#hud .inventory-qty {
+  position: absolute;
+  right: 2px;
+  bottom: 1px;
+  min-width: 12px;
+  height: 12px;
+  padding: 0 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  line-height: 12px;
+  color: #0a0806;
+  background: #e8dcc4;
+  border-radius: 2px;
+}
+
+/* ── Commands ────────────────────────────────────────────────────────────── */
+#hud .command-body {
+  width: min(330px, calc(100vw - 24px));
+  padding: 12px;
+  background: rgba(10, 8, 6, 0.86);
+  border: 1px solid #2a2118;
+  border-radius: 4px;
+  font-size: 13px;
+}
+#hud .command-body[hidden] {
+  display: none;
+}
+#hud .command-section + .command-section,
+#hud .command-status {
+  margin-top: 10px;
+}
+#hud .command-row {
+  display: grid;
+  grid-template-columns: minmax(74px, 0.6fr) 1fr;
+  gap: 6px;
+}
+#hud .command-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 6px;
+}
+#hud .command-segment {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+#hud .command-button {
+  min-width: 0;
+  height: 30px;
+  padding: 0 8px;
+  overflow: hidden;
+  color: #e8dcc4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: rgba(232, 220, 196, 0.14);
+  border: 1px solid #4a3a27;
+  border-radius: 4px;
+  cursor: pointer;
+}
+#hud .command-button[aria-pressed="true"] {
+  color: #0a0806;
+  background: #f2c94c;
+  border-color: #f2c94c;
+}
+#hud .command-count {
+  min-width: 0;
+}
+#hud .command-status {
+  color: #9b8a6c;
+  font-size: 12px;
 }

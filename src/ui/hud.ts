@@ -1,6 +1,7 @@
 import "./hud.css";
 
 let root: HTMLDivElement | undefined;
+let left: HTMLDivElement | undefined;
 
 /**
  * The HUD overlay above the Phaser canvas. `pointer-events: none` lets clicks on
@@ -14,4 +15,25 @@ export function hudRoot(): HTMLDivElement {
     document.body.appendChild(root);
   }
   return root;
+}
+
+/**
+ * The top-left bar the toggle menus (Help, Appearance, Inventory, Commands) share: their
+ * toggles sit side by side, and each menu's body drops *below* the bar (absolutely
+ * placed), so opening one never shoves another toggle. Only one body is open at a
+ * time — each menu listens for the `hud-menu-open` window event and closes when
+ * another opens. The bar stays click-through (pointer-events fall to the canvas);
+ * each child opts back in.
+ */
+export function hudLeft(): HTMLDivElement {
+  if (!left) {
+    left = document.createElement("div");
+    left.className = "hud-left";
+    hudRoot().appendChild(left);
+  }
+  return left;
+}
+
+export function closeHudMenus(): void {
+  window.dispatchEvent(new CustomEvent("hud-menu-open", { detail: "close" }));
 }
