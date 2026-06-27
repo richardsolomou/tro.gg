@@ -3,7 +3,9 @@ import { test } from "node:test";
 import {
   CHAT_HISTORY_MAX,
   CLAIM_CODE_TTL_MS,
+  GHOST_HAUNT_HISTORY_MAX,
   getZone,
+  isWalkable,
   MAX_BOULDERS_PER_ZONE,
   MAX_HOGS_PER_ZONE,
   parsePath,
@@ -11,6 +13,7 @@ import {
 } from "@trogg/shared";
 import {
   chat,
+  hauntGhost,
   interact,
   move,
   moveTo,
@@ -183,6 +186,32 @@ test("chat trims zone history to the cap, dropping the oldest line", () => {
   const rows = ctx.db.chatMessage.rows();
   assert.equal(rows.length, CHAT_HISTORY_MAX);
   assert.equal(rows.find((r: any) => r.id === oldestId), undefined); // oldest dropped
+});
+
+// --- Ghost haunts ---
+
+test("hauntGhost inserts a zone-scoped haunt on a walkable tile", () => {
+  const { ctx } = withPlayer({}, { integerInRange: (_lo, hi) => hi });
+  hauntGhost(ctx);
+
+  const row = ctx.db.ghostHaunt.rows()[0];
+  assert.equal(row.zoneId, ZONE);
+  assert.equal(row.createdAt.microsSinceUnixEpoch, 0n);
+  assert.ok(isWalkable(getZone(ZONE)!, row.x, row.y));
+});
+
+test("hauntGhost trims old haunt rows to the cap", () => {
+  const { ctx } = withPlayer({});
+  for (let i = 0; i < GHOST_HAUNT_HISTORY_MAX; i++) {
+    ctx.db.ghostHaunt.insert({ id: 0n, zoneId: ZONE, x: 1, y: 1, createdAt: { microsSinceUnixEpoch: 0n } });
+  }
+  const oldestId = ctx.db.ghostHaunt.rows()[0].id;
+
+  hauntGhost(ctx);
+
+  const rows = ctx.db.ghostHaunt.rows();
+  assert.equal(rows.length, GHOST_HAUNT_HISTORY_MAX);
+  assert.equal(rows.find((r: any) => r.id === oldestId), undefined);
 });
 
 // --- helpers for the entity tables ---

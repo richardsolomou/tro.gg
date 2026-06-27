@@ -125,7 +125,7 @@ Ambient **Hog** NPCs (the glossary's friendly hedgehogs) roam the zone on their 
 - **Trogg style (`trogg-restyle`):** styles come from a fixed list (`TROGG_STYLES` in `shared`: `moss`, `stone`, `ridge`) that vary the silhouette features (ear nubs / earless crag / horns) and base palette — same rig, different head and tone. A trogg picks one via the `restyle` reducer, which stores its chosen index on the `player` row (validated server-side, invariant 3). The optional flag controls whether the style buttons show in the Appearance panel.
 - **Trogg colour (`trogg-recolor`):** the tint comes from a fixed palette (`TROGG_COLORS` in `shared`), chosen via the `recolor` reducer (the mirror of `restyle` on the colour axis). The optional flag controls whether the palette swatches show in the Appearance panel.
 - **Hog variation.** Hogs have no `player` row to store a choice, so each Hog's skin is derived from its entity id (`HOG_STYLES`: `classic`, `snow`, `ember` — palette only, one shape), giving a zone a varied, stable crowd without a schema field. Hogs are never tinted.
-- **Ghost (`ghost-trogg`):** the cosmetic easter egg is its own bespoke sprite (`ghostDraw` — a hog draped in a pale sheet, two eye holes, scalloped hem), painted into a standalone texture and never tinted. A client-only render (invariant 3): it touches no table, so only the player who summons it sees it.
+- **Ghost (`ghost-trogg`):** the cosmetic easter egg is its own bespoke sprite (`ghostDraw` — a hog draped in a pale sheet, two eye holes, scalloped hem), painted into a standalone texture and never tinted. Summoning it inserts a zone-scoped `ghost_haunt` row; live clients in that zone render the fresh insert once, while late joiners ignore the replayed snapshot.
 - **Appearance panel.** Rename, recolour, and restyle are one top-left HUD toggle (beside Help) — everything about how your trogg *looks* in one place. The separate top-right account panel is only the claim/sign-out control (`auth-enabled`).
 
 ### Zones
@@ -144,8 +144,8 @@ Ambient **Hog** NPCs (the glossary's friendly hedgehogs) roam the zone on their 
 - Chat history and the typing field are HTML overlays (a real `<input>`); speech bubbles over troggs render in the Phaser scene. Chat content is added as a DOM text node, never as HTML markup, so a message can't inject markup.
 - Server-side rate limit: 1 message/sec per player *(initial)*.
 - Message content is **never** sent to analytics.
-- **Pre-alpha commands:** debug commands can be typed in chat or fired from the top-left Commands panel for stress testing. `/spawn boulder [count]` and `/spawn hedgehog [count]` place one or more entities on nearby free tiles around the caller, starting with the tile they face; `count` defaults to 1, and the server clamps inserts to `MAX_BOULDERS_PER_ZONE` / `MAX_HOGS_PER_ZONE` and available floor, so the UI can be abused without bypassing caps. The Commands panel exposes the same spawn, reset, and ghost tools as buttons, plus quick batch counts and a local-only ghost burst.
-- **`/ghost`:** flickers the cosmetic ghost (a draped-sheet apparition; see [Avatars](#avatars-and-equipment)) at a random tile in the zone (behind `ghost-trogg`, fallback on, so anyone can summon it). Purely a client render — touches no table or reducer (invariant 3), so only the caller sees it. Off → it's just an ordinary chat line. The same cosmetic also haunts the origin tile by chance on launch.
+- **Pre-alpha commands:** debug commands can be typed in chat or fired from the top-left Commands panel for stress testing. `/spawn boulder [count]` and `/spawn hedgehog [count]` place one or more entities on nearby free tiles around the caller, starting with the tile they face; `count` defaults to 1, and the server clamps inserts to `MAX_BOULDERS_PER_ZONE` / `MAX_HOGS_PER_ZONE` and available floor, so the UI can be abused without bypassing caps. The Commands panel exposes the same spawn, reset, and ghost tools as buttons, plus quick batch counts and a zone-wide ghost burst.
+- **`/ghost`:** flickers the cosmetic ghost (a draped-sheet apparition; see [Avatars](#avatars-and-equipment)) at a server-picked random walkable tile in the caller's zone (behind `ghost-trogg`, fallback on, so anyone can summon it). It inserts a capped `ghost_haunt` row so every live player in the map sees the same haunt; the row has no collision or durable gameplay effect, and late joiners ignore old rows. Off → it's just an ordinary chat line. The same synced cosmetic can also appear by chance on launch.
 
 ### Identity
 
@@ -253,6 +253,12 @@ hog            id (PK, auto-inc), zoneId, x, y, dirX, dirY, movedAt, path, homeX
 hog_wander     scheduledId (PK, auto-inc), scheduledAt     (scheduled table)
                the Hog wander timer — SpacetimeDB's deterministic scheduler (invariant 1). Fires
                `wanderHogs`, which re-arms it only while a player is online. Private (no client reads it).
+ghost_haunt    id (PK, auto-inc), zoneId, x, y, createdAt
+               a zone-scoped cosmetic fanout event for the ghost. `hauntGhost` chooses a random
+               walkable tile server-side, inserts the row, and trims each zone to
+               GHOST_HAUNT_HISTORY_MAX. Clients subscribe per zone and render fresh inserts only,
+               so everyone already in the map sees it once and late joiners don't replay old haunts.
+               index: by_zone (zoneId)
 actions        playerId, nodeId, kind, startedAt, endsAt
                index: by_player (playerId)
 chat_message   id (PK, auto-inc), zoneId, sender (Identity), name (denormalised), text, createdAt
@@ -299,7 +305,7 @@ Roadmap notes are planning context, not permission gates. Pick work by current p
 
 Current playable foundation: durable SpacetimeDB tables are the store, anonymous SpacetimeDB Identity gives each browser a persistent trogg, and optional SpacetimeAuth OIDC lets a guest claim an account with `startClaim`/`redeemClaim`, `rename`, `player_named`, and `posthog.identify()`. Identity is issued by the connection and reducers authorize by `ctx.sender`; it is never client-asserted.
 
-Implemented world systems: a static shared `ZONES` registry, zone-scoped subscriptions, per-tile walkability, cardinal grid-locked WASD movement, boulder pushing, pick-up-and-carry interaction (`E`), roaming Hogs, hold-shift-to-run, sprite avatars, chat bubbles/history, trogg recolouring, a small ghost-trogg cosmetic (launch haunt + `/ghost`), `/spawn`, `/reset` (boulders and Hogs), a help panel listing the live controls and commands, and a pre-alpha Commands panel for stress-test spawn/reset/ghost tools. Some of these have optional client-side flag gates for remote rollout or kill-switch use; the current code-read flags are configured in PostHog and still have code fallbacks for local or unconfigured environments.
+Implemented world systems: a static shared `ZONES` registry, zone-scoped subscriptions, per-tile walkability, cardinal grid-locked WASD movement, boulder pushing, pick-up-and-carry interaction (`E`), roaming Hogs, hold-shift-to-run, sprite avatars, chat bubbles/history, trogg recolouring, a small synced ghost-trogg cosmetic (launch haunt + `/ghost`), `/spawn`, `/reset` (boulders and Hogs), a help panel listing the live controls and commands, and a pre-alpha Commands panel for stress-test spawn/reset/ghost tools. Some of these have optional client-side flag gates for remote rollout or kill-switch use; the current code-read flags are configured in PostHog and still have code fallbacks for local or unconfigured environments.
 
 Likely next work areas include starting-zone onboarding, click-to-move pathfinding around obstacles, gathering and XP, inventory/equipment, crafting, communal projects, Hog merchants, load events, LLM-driven Hogs, and optional PvE defense. These are intentionally fluid; implement the slice that best serves the current task.
 

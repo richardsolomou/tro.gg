@@ -49,6 +49,13 @@ export const CHAT_RATE_LIMIT_MS = 1_000;
 export const CHAT_HISTORY_MAX = 50;
 
 /**
+ * Recent synced ghost haunts kept in zone state. Haunts are rendered only as fresh
+ * inserts by live subscribers; this cap just prevents the cosmetic event table from
+ * growing forever. (initial)
+ */
+export const GHOST_HAUNT_HISTORY_MAX = 50;
+
+/**
  * Tilemap glyphs (GDD "Zones"). Each character in a zone's `tiles` rows is one
  * tile. `WALL_TILE` (`#`) is the only unwalkable glyph — `isWalkable` treats it,
  * and only it, as solid; every other glyph is walkable floor. The non-wall glyphs

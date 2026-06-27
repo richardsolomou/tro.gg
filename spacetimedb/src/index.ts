@@ -11,6 +11,7 @@ import {
   facingTile,
   findPath,
   getZone,
+  GHOST_HAUNT_HISTORY_MAX,
   HOG_IDLE_CHANCE,
   HOG_STEP_INTERVAL_MS,
   HOG_TURN_CHANCE,
@@ -115,6 +116,23 @@ const chatMessage = table(
 );
 
 /**
+ * A zone-scoped cosmetic ghost haunt. A new row is the live fanout event: clients
+ * subscribed to the zone render fresh inserts once, while late joiners ignore the
+ * replayed snapshot. Rows are capped by `hauntGhost`, so the cosmetic event stream
+ * cannot grow without bound.
+ */
+const ghostHaunt = table(
+  { name: "ghost_haunt", public: true },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    zoneId: t.string().index("btree"),
+    x: t.i32(),
+    y: t.i32(),
+    createdAt: t.timestamp(),
+  },
+);
+
+/**
  * A pending account claim (GDD "Identity" — guest → account upgrade). A guest's
  * browser generates a random `code`, registers it under its own (guest) identity
  * via `startClaim`, then signs in and redeems it as the SpacetimeAuth identity via
@@ -200,7 +218,7 @@ const hogWander = table(
   },
 );
 
-const spacetimedb = schema({ player, chatMessage, claimCode, boulder, hog, hogWander });
+const spacetimedb = schema({ player, chatMessage, ghostHaunt, claimCode, boulder, hog, hogWander });
 export default spacetimedb;
 
 /** The reducer context, typed against this module's schema (db view + sender). */
@@ -650,6 +668,24 @@ export const chat = spacetimedb.reducer({ text: t.string() }, (ctx, { text }) =>
 });
 
 /**
+ * Flicker a cosmetic ghost in the caller's zone. The server chooses a random walkable
+ * tile and inserts a zone-scoped event row so every live subscriber in the map sees
+ * the same haunt. It has no collision or durable gameplay effect.
+ */
+export const hauntGhost = spacetimedb.reducer((ctx) => {
+  const p = ctx.db.player.identity.find(ctx.sender);
+  if (!p || !p.online) return;
+  const zone = getZone(p.zoneId);
+  if (!zone) return;
+
+  const tile = randomWalkableTile(ctx, zone);
+  if (!tile) return;
+
+  ctx.db.ghostHaunt.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y, createdAt: ctx.timestamp });
+  trimGhostHaunts(ctx, p.zoneId);
+});
+
+/**
  * Rename the caller's trogg (GDD "Identity": names are unique, 3–20 chars,
  * alphanumeric + hyphen). This is how a player swaps the generated `trogg-####`
  * for one they choose. Validation and the uniqueness scan run server-side
@@ -775,6 +811,25 @@ export const redeemClaim = spacetimedb.reducer({ code: t.string() }, (ctx, { cod
 function anyPlayerOnline(ctx: Ctx): boolean {
   for (const p of ctx.db.player.iter()) if (p.online) return true;
   return false;
+}
+
+/** Pick a walkable floor tile from a zone. Used for the cosmetic ghost haunt. */
+function randomWalkableTile(ctx: Ctx, zone: Zone): { x: number; y: number } | undefined {
+  const tiles: { x: number; y: number }[] = [];
+  for (let y = 0; y < zone.height; y++) {
+    for (let x = 0; x < zone.width; x++) {
+      if (isWalkable(zone, x, y)) tiles.push({ x, y });
+    }
+  }
+  if (tiles.length === 0) return undefined;
+  return tiles[ctx.random.integerInRange(0, tiles.length - 1)];
+}
+
+/** Cap old ghost event rows for a zone; haunts are only useful as fresh inserts. */
+function trimGhostHaunts(ctx: Ctx, zoneId: string): void {
+  const rows = [...ctx.db.ghostHaunt.zoneId.filter(zoneId)].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const excess = rows.length - GHOST_HAUNT_HISTORY_MAX;
+  for (let i = 0; i < excess; i++) ctx.db.ghostHaunt.id.delete(rows[i]!.id);
 }
 
 /** Arm a single one-shot Hog wander tick, unless one is already pending. The tick
