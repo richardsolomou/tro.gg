@@ -1,6 +1,18 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { COLOR_UNSET, isColorIndex, TROGG_COLORS, troggColor, troggColorFor } from "./avatar";
+import {
+  COLOR_UNSET,
+  STYLE_UNSET,
+  hogStyleFor,
+  isColorIndex,
+  isTroggStyleIndex,
+  TROGG_COLORS,
+  troggColor,
+  troggColorFor,
+  troggStyle,
+  troggStyleFor,
+} from "./avatar";
+import { HOG_STYLES, TROGG_STYLES } from "./sprites";
 
 test("a trogg's colour is stable for the same id", () => {
   assert.equal(troggColor("abcd1234"), troggColor("abcd1234"));
@@ -34,4 +46,31 @@ test("a chosen index resolves to its palette entry", () => {
 test("an unchosen colour falls back to the id-derived default", () => {
   assert.equal(troggColorFor(COLOR_UNSET, "abcd1234"), troggColor("abcd1234"));
   assert.equal(troggColorFor(TROGG_COLORS.length, "abcd1234"), troggColor("abcd1234"));
+});
+
+test("a trogg's style is stable for the same id and always from the list", () => {
+  assert.equal(troggStyle("abcd1234"), troggStyle("abcd1234"));
+  for (const id of ["a", "trogg-0001", "ffffffff", ""]) {
+    assert.ok((TROGG_STYLES as readonly string[]).includes(troggStyle(id)));
+  }
+});
+
+test("only in-range integers are selectable style indices", () => {
+  assert.ok(isTroggStyleIndex(0));
+  assert.ok(isTroggStyleIndex(TROGG_STYLES.length - 1));
+  assert.ok(!isTroggStyleIndex(STYLE_UNSET));
+  assert.ok(!isTroggStyleIndex(TROGG_STYLES.length));
+  assert.ok(!isTroggStyleIndex(1.5));
+});
+
+test("a chosen style index resolves to its entry, unchosen to the id default", () => {
+  for (let i = 0; i < TROGG_STYLES.length; i++) assert.equal(troggStyleFor(i, "any-id"), TROGG_STYLES[i]);
+  assert.equal(troggStyleFor(STYLE_UNSET, "abcd1234"), troggStyle("abcd1234"));
+});
+
+test("a Hog's style is stable for its id and always from the list", () => {
+  assert.equal(hogStyleFor("7"), hogStyleFor("7"));
+  for (const id of ["1", "2", "42", "999"]) {
+    assert.ok((HOG_STYLES as readonly string[]).includes(hogStyleFor(id)));
+  }
 });

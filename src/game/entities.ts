@@ -1,7 +1,7 @@
 import Phaser from "phaser";
 import { ANCHOR, FRAME_H, FRAME_W, type Facing, type Kind, type ProjectedMotion } from "@trogg/shared";
 import type { Boulder, Hog, Player } from "../net/module_bindings/types";
-import { AVATAR_TEX, avatarFrame, avatarFrameName, facingFromDir, GHOST_TEX } from "./avatars.js";
+import { AVATAR_TEX, avatarFrame, avatarFrameName, facingFromDir, GHOST_FRAME, GHOST_TEX } from "./avatars.js";
 import { cssColor, TEXT_RESOLUTION } from "../ui_text.js";
 import { audio } from "../audio.js";
 
@@ -9,10 +9,12 @@ import { audio } from "../audio.js";
 export const ART = 16;
 /** Size of a carried object's overlay relative to a full tile (GDD "Interacting"). */
 const CARRY_SCALE = 0.62;
-/** Odds a given launch is haunted by the ghost trogg. */
+/** Odds a given launch is haunted by the ghost. */
 export const GHOST_CHANCE = 1 / 20;
 /** How long the apparition holds before it fades. */
 const GHOST_FLICKER_MS = 500;
+/** The hedgehog skin a carried hog shows — a held hog has no id to derive one from. */
+const CARRIED_HOG_STYLE = "classic";
 
 /** Anything `place` can drop on a tile — a marker, a sprite, a stray graphic. */
 type Positionable = { setPosition(x: number, y: number): unknown };
@@ -26,6 +28,8 @@ export interface Tracked {
   baseMs: number;
   /** Last facing, kept so an idle trogg holds its heading rather than snapping. */
   facing: Facing;
+  /** The chosen/derived body style, baked into the marker; rebuilt when it changes. */
+  style: string;
   /** The frame key currently on the sprite, so the ticker only swaps on change. */
   frameKey: string;
   bubble?: Phaser.GameObjects.Container;
@@ -49,6 +53,8 @@ export interface HogView {
   row: Hog;
   baseMs: number;
   facing: Facing;
+  /** The hedgehog skin, derived from the Hog's id so a zone reads as a varied crowd. */
+  style: string;
   frameKey: string;
 }
 
@@ -87,7 +93,7 @@ export function createEntities(scene: Phaser.Scene, getTile: () => number) {
    * head extending up out of it. With the flag off it's the placeholder colour marker
    * (a tile-filling rect). Both carry a name label.
    */
-  const makeMarker = (name: string, color: number, self: boolean, facing: Facing, sprites: boolean) => {
+  const makeMarker = (name: string, color: number, style: string, self: boolean, facing: Facing, sprites: boolean) => {
     const tile = getTile();
     const marker = scene.add.container(0, 0);
     let sprite: Phaser.GameObjects.Sprite | undefined;
@@ -101,7 +107,7 @@ export function createEntities(scene: Phaser.Scene, getTile: () => number) {
         ring.lineStyle(2, 0xe8dcc4).strokeEllipse(tile / 2, feetY(), tile * 0.34 * 2, tile * 0.16 * 2);
         marker.add(ring);
       }
-      sprite = scene.make.sprite({ x: tile / 2, y: feetY(), key: AVATAR_TEX, frame: avatarFrameName("trogg", facing, frame), add: false });
+      sprite = scene.make.sprite({ x: tile / 2, y: feetY(), key: AVATAR_TEX, frame: avatarFrameName("trogg", style, facing, frame), add: false });
       // Anchor on the art's feet point (ANCHOR), not the frame's bottom edge, so the
       // feet — not the empty pixels below them — land on the tile centre.
       sprite.setOrigin(ANCHOR.x / FRAME_W, ANCHOR.y / FRAME_H);
@@ -135,7 +141,7 @@ export function createEntities(scene: Phaser.Scene, getTile: () => number) {
    *  for the placeholder marker (no sprite to swap). */
   const animate = (entry: Tracked, now: number, motion: ProjectedMotion) => {
     if (!entry.sprite) return;
-    driveSprite(entry.sprite, "trogg", motion.dirX, motion.dirY, entry.player.running, entry, now);
+    driveSprite(entry.sprite, "trogg", entry.style, motion.dirX, motion.dirY, entry.player.running, entry, now);
   };
 
   /**
@@ -147,6 +153,7 @@ export function createEntities(scene: Phaser.Scene, getTile: () => number) {
   const driveSprite = (
     sprite: Phaser.GameObjects.Sprite,
     kind: Kind,
+    style: string,
     dirX: number,
     dirY: number,
     running: boolean,
@@ -158,7 +165,7 @@ export function createEntities(scene: Phaser.Scene, getTile: () => number) {
     const frame = avatarFrame(moving, running, now);
     const key = `${state.facing}_${frame}`;
     if (key === state.frameKey) return;
-    sprite.setFrame(avatarFrameName(kind, state.facing, frame));
+    sprite.setFrame(avatarFrameName(kind, style, state.facing, frame));
     state.frameKey = key;
   };
 
@@ -196,7 +203,7 @@ export function createEntities(scene: Phaser.Scene, getTile: () => number) {
       b.setPosition((-tile * CARRY_SCALE) / 2, (-tile * CARRY_SCALE) / 2);
       wrap.add(b);
     } else if (kind === "hog") {
-      const sprite = scene.make.sprite({ x: 0, y: 0, key: AVATAR_TEX, frame: avatarFrameName("hog", "down", "idle"), add: false });
+      const sprite = scene.make.sprite({ x: 0, y: 0, key: AVATAR_TEX, frame: avatarFrameName("hog", CARRIED_HOG_STYLE, "down", "idle"), add: false });
       sprite.setOrigin(0.5, 0.85);
       sprite.setScale((tile / ART) * CARRY_SCALE);
       wrap.add(sprite);
@@ -226,11 +233,11 @@ export function createEntities(scene: Phaser.Scene, getTile: () => number) {
   /** A roaming Hog: the shared avatar sprite in its hedgehog skin, feet centred on the
    *  tile (like a trogg). No name label, tint, or ground ring — Hogs are ambient
    *  scenery, not players. */
-  const makeHog = (facing: Facing): { marker: Phaser.GameObjects.Container; sprite: Phaser.GameObjects.Sprite; frameKey: string } => {
+  const makeHog = (style: string, facing: Facing): { marker: Phaser.GameObjects.Container; sprite: Phaser.GameObjects.Sprite; frameKey: string } => {
     const tile = getTile();
     const marker = scene.add.container(0, 0);
     const frame = avatarFrame(false, false, 0);
-    const sprite = scene.make.sprite({ x: tile / 2, y: feetY(), key: AVATAR_TEX, frame: avatarFrameName("hog", facing, frame), add: false });
+    const sprite = scene.make.sprite({ x: tile / 2, y: feetY(), key: AVATAR_TEX, frame: avatarFrameName("hog", style, facing, frame), add: false });
     sprite.setOrigin(ANCHOR.x / FRAME_W, ANCHOR.y / FRAME_H);
     sprite.setScale(tile / ART);
     marker.add(sprite);
@@ -238,19 +245,19 @@ export function createEntities(scene: Phaser.Scene, getTile: () => number) {
   };
 
   /**
-   * Cosmetic easter egg (behind `ghost-trogg`): a pale trogg materialises on the
-   * given tile for a heartbeat, then fades — on launch by chance at the origin, or on
-   * demand at a random tile via the `/ghost` command. Purely a client render: it
+   * Cosmetic easter egg (behind `ghost-trogg`): a pale draped ghost materialises on
+   * the given tile for a heartbeat, then fades — on launch by chance at the origin, or
+   * on demand at a random tile via the `/ghost` command. Purely a client render: it
    * touches no table and no reducer (invariant 3), so it's never seen by anyone but
    * the player who summoned it.
    */
   const hauntGhost = (stage: Phaser.GameObjects.Container, tile: { x: number; y: number }) => {
     audio.playGhost();
     const ghost = scene.add.container(0, 0);
-    const sprite = scene.make.sprite({ x: getTile() / 2, y: feetY(), key: GHOST_TEX, frame: avatarFrameName("trogg", "down", "idle"), add: false });
+    const sprite = scene.make.sprite({ x: getTile() / 2, y: feetY(), key: GHOST_TEX, frame: GHOST_FRAME, add: false });
     sprite.setOrigin(ANCHOR.x / FRAME_W, ANCHOR.y / FRAME_H);
     sprite.setScale(getTile() / ART);
-    sprite.setAlpha(0.5);
+    sprite.setAlpha(0.8);
     ghost.add(sprite);
     place(ghost, tile.x, tile.y);
     stage.add(ghost);

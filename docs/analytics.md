@@ -27,6 +27,7 @@ snake_case. Low-volume by design — anything that could fire more than ~once/se
 | `client_update_available` | — | Polling spotted a newer deployed frontend than the running build (a Cloudflare-only deploy); the refresh prompt is shown. Measures how many players are on a stale client after a frontend deploy |
 | `player_named` | — | Guest upgrades to an account — fires when a claim is redeemed, alongside `identify()` (the OIDC subject), merging the guest's history |
 | `trogg_recolored` | `color` | Player picks an avatar colour — `color` is the chosen `TROGG_COLORS` palette index |
+| `trogg_restyled` | `style` | Player picks an avatar body style — `style` is the chosen `TROGG_STYLES` id (e.g. `stone`) |
 | `zone_entered` | `zone, from_zone` | Zone transition |
 | `action_started` | `action, node_type, zone` | Action begins |
 | `resource_gathered` | `node_type, item, zone` | Action completes |
@@ -52,7 +53,7 @@ Code currently reads these flag keys:
 
 | Flag | Controls | Fallback |
 | ---- | -------- | -------- |
-| `auth-enabled` | Account sign-in, claim, and rename UI | On, but the UI still requires `VITE_SPACETIMEAUTH_CLIENT_ID` |
+| `auth-enabled` | Account sign-in / claim panel (the top-right claim/sign-out control) | On, but the UI still requires `VITE_SPACETIMEAUTH_CLIENT_ID` |
 | `avatar-sprites` | Trogg sprite avatars vs the placeholder colour marker | On |
 | `ghost-trogg` | Client-only cosmetic ghost easter egg (launch haunt + `/ghost` command) | On |
 | `boulder-pushing` | Client push input for boulders | On |
@@ -63,9 +64,10 @@ Code currently reads these flag keys:
 | `boulder-reset` | `/reset` (or `/reset boulders`) boulder layout command | On |
 | `hog-reset` | `/reset hedgehogs` Hog population reset command | On |
 | `chat-enabled` | Chat panel and bubbles | On |
-| `trogg-recolor` | Colour swatches in the account panel | On |
+| `trogg-recolor` | Colour swatches in the Appearance panel | On |
+| `trogg-restyle` | Body-style buttons in the Appearance panel | On |
 
-PostHog project audit (2026-06-25): all code-read flags above are configured in PostHog project 314596 and active at 100% rollout (`interact` created 2026-06-25 with the carry mechanic; `hog-reset` created 2026-06-25 with the `/reset hedgehogs` command). Planned future flags should be added here, and created in PostHog, when code starts reading them.
+PostHog project audit (2026-06-27): all code-read flags above are configured in PostHog project 314596 and active at 100% rollout (`interact` created 2026-06-25 with the carry mechanic; `hog-reset` created 2026-06-25 with the `/reset hedgehogs` command; `trogg-restyle` created 2026-06-27 with avatar body styles). Planned future flags should be added here, and created in PostHog, when code starts reading them.
 
 ## Rules
 

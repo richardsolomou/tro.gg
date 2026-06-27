@@ -109,6 +109,7 @@ export function playerRow(identity: Id, over: Record<string, unknown> = {}) {
     running: false,
     path: "",
     carrying: "",
+    style: -1,
     online: true,
     isGuest: true,
     movedAt: { microsSinceUnixEpoch: 0n },

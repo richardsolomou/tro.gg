@@ -1,5 +1,5 @@
 import { isFeatureEnabled } from "../analytics.js";
-import { hudRoot } from "./hud.js";
+import { hudLeft } from "./hud.js";
 
 /** One control or command line: the key/command and what it does. */
 interface Row {
@@ -57,7 +57,7 @@ export function mountHelp(): void {
   });
 
   root.append(toggle, body);
-  hudRoot().appendChild(root);
+  hudLeft().appendChild(root);
 }
 
 /** The controls and commands to show, filtered to this session's enabled flags. */

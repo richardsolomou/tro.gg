@@ -1,6 +1,7 @@
 import "./hud.css";
 
 let root: HTMLDivElement | undefined;
+let left: HTMLDivElement | undefined;
 
 /**
  * The HUD overlay above the Phaser canvas. `pointer-events: none` lets clicks on
@@ -14,4 +15,19 @@ export function hudRoot(): HTMLDivElement {
     document.body.appendChild(root);
   }
   return root;
+}
+
+/**
+ * The top-left stack the toggle panels (Help, Appearance) share. A flex column, so
+ * opening one panel's body pushes the next toggle down instead of overlapping it —
+ * the column itself stays click-through (pointer-events fall to the canvas), each
+ * child opts back in.
+ */
+export function hudLeft(): HTMLDivElement {
+  if (!left) {
+    left = document.createElement("div");
+    left.className = "hud-left";
+    hudRoot().appendChild(left);
+  }
+  return left;
 }
