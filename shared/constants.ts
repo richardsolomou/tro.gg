@@ -93,6 +93,8 @@ export interface Coord {
 /** Item ids are canonical across inventory rows, equipment slots, and UI labels. */
 export const ITEM_IDS = ["stone", "pickaxe", "shovel", "sword"] as const;
 export type ItemId = (typeof ITEM_IDS)[number];
+export const SPAWNABLE_ITEM_IDS = ["pickaxe", "shovel", "sword"] as const satisfies readonly ItemId[];
+export type SpawnableItemId = (typeof SPAWNABLE_ITEM_IDS)[number];
 
 /** Inventory capacity (GDD "Inventory"): each row occupies one visible carry slot. (initial) */
 export const INVENTORY_SLOT_COUNT = 10;
@@ -147,6 +149,10 @@ export const ITEMS: Record<ItemId, ItemDef> = {
 
 export function isItemId(item: string): item is ItemId {
   return (ITEM_IDS as readonly string[]).includes(item);
+}
+
+export function isSpawnableItemId(item: string): item is SpawnableItemId {
+  return (SPAWNABLE_ITEM_IDS as readonly string[]).includes(item);
 }
 
 export function isEquippableItem(item: string): item is ItemId {

@@ -78,6 +78,12 @@ test("spawn can add a registered ground item", () => {
   assert.equal(ctx.db.groundItem.rows()[0].item, "sword");
 });
 
+test("spawn refuses registered items that are not exposed in the Commands panel", () => {
+  const { ctx } = withPlayer({ x: 5, y: 8 });
+  spawn(ctx, { kind: "item", item: "stone" });
+  assert.equal(ctx.db.groundItem.rows().length, 0);
+});
+
 test("spawn refuses ground items once the zone is at its cap", () => {
   const { ctx } = withPlayer({ x: 5, y: 8 });
   for (let i = 0; i < MAX_GROUND_ITEMS_PER_ZONE; i++) ctx.db.groundItem.insert({ id: 0n, zoneId: ZONE, item: "stone", x: 1, y: 1 });
@@ -90,6 +96,13 @@ test("spawn stores an explicit Hog sprite style", () => {
   spawn(ctx, { kind: "hog", item: "snow" });
   assert.equal(ctx.db.hog.rows().length, 1);
   assert.equal(ctx.db.hog.rows()[0].style, "snow");
+});
+
+test("spawn stores an explicit big Hog sprite style", () => {
+  const { ctx } = withPlayer({ x: 5, y: 8 });
+  spawn(ctx, { kind: "hog", item: "snow-big" });
+  assert.equal(ctx.db.hog.rows().length, 1);
+  assert.equal(ctx.db.hog.rows()[0].style, "snow-big");
 });
 
 // --- Two Hogs never converge onto one tile (the wanderHogs fix) ---

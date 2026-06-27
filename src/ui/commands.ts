@@ -1,5 +1,5 @@
 import avatarUrl from "../../assets/sprites/troggs-and-hogs.png";
-import { FRAME_H, FRAME_W, frameRect, HOG_STYLES, ITEMS, ITEM_IDS, SHEET_H, SHEET_W, type HogStyle, type ItemId, type Zone } from "@trogg/shared";
+import { FRAME_H, FRAME_W, frameRect, HOG_STYLES, ITEMS, SHEET_H, SHEET_W, SPAWNABLE_ITEM_IDS, type HogStyle, type SpawnableItemId, type Zone } from "@trogg/shared";
 import type { DbConnection } from "../net/module_bindings";
 import { captureEvent } from "../analytics.js";
 import { audio } from "../audio.js";
@@ -8,7 +8,7 @@ import { registerKeybind } from "./keybinds.js";
 import { currentCommandFlags, type ChatCommandFlags } from "./chat_commands.js";
 import { itemIcon } from "./inventory.js";
 
-type SpawnRequest = { kind: "boulder" } | { kind: "hog"; style: HogStyle } | { kind: "item"; item: ItemId };
+type SpawnRequest = { kind: "boulder" } | { kind: "hog"; style: HogStyle } | { kind: "item"; item: SpawnableItemId };
 
 export interface CommandPanelContext {
   conn: DbConnection;
@@ -92,10 +92,10 @@ function spawnSection(conn: DbConnection, status: HTMLElement): HTMLElement {
 
   grid.appendChild(spawnButton("Boulder", boulderIcon(), () => requestSpawn(conn, status, { kind: "boulder" })));
   for (const style of HOG_STYLES) {
-    const label = `${titleCase(style)} Hog`;
+    const label = `${titleCaseWords(style)} Hog`;
     grid.appendChild(spawnButton(label, hogIcon(style), () => requestSpawn(conn, status, { kind: "hog", style })));
   }
-  for (const item of ITEM_IDS) {
+  for (const item of SPAWNABLE_ITEM_IDS) {
     grid.appendChild(spawnButton(ITEMS[item].name, itemIcon(item), () => requestSpawn(conn, status, { kind: "item", item })));
   }
 
@@ -105,7 +105,7 @@ function spawnSection(conn: DbConnection, status: HTMLElement): HTMLElement {
 
 function requestSpawn(conn: DbConnection, status: HTMLElement, request: SpawnRequest) {
   const item = request.kind === "hog" ? request.style : request.kind === "item" ? request.item : "";
-  const label = request.kind === "boulder" ? "boulder" : request.kind === "hog" ? `${request.style} Hog` : ITEMS[request.item].name;
+  const label = request.kind === "boulder" ? "boulder" : request.kind === "hog" ? `${titleCaseWords(request.style)} Hog` : ITEMS[request.item].name;
   conn.reducers.spawn({ kind: request.kind, item });
   audio.playCommand();
   status.textContent = `spawned ${label}`;
@@ -224,6 +224,9 @@ function hogIcon(style: HogStyle): HTMLSpanElement {
   return icon;
 }
 
-function titleCase(value: string): string {
-  return `${value.slice(0, 1).toUpperCase()}${value.slice(1)}`;
+function titleCaseWords(value: string): string {
+  return value
+    .split("-")
+    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
+    .join(" ");
 }

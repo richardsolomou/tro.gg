@@ -21,6 +21,7 @@ import {
   isGeneratedName,
   isHogStyle,
   isItemId,
+  isSpawnableItemId,
   isStackableItem,
   isTroggStyleIndex,
   STYLE_UNSET,
@@ -700,7 +701,7 @@ export const wanderHogs = spacetimedb.reducer({ timer: hogWander.rowType }, (ctx
  */
 export const spawn = spacetimedb.reducer({ kind: t.string(), item: t.string() }, (ctx, { kind, item }) => {
   if (kind !== "boulder" && kind !== "hog" && kind !== "item") return;
-  if (kind === "item" && !isItemId(item)) return;
+  if (kind === "item" && !isSpawnableItemId(item)) return;
   if (kind === "hog" && item !== "" && !isHogStyle(item)) return;
 
   const p = ctx.db.player.identity.find(ctx.sender);
