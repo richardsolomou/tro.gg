@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { ANCHOR, FRAME_H, FRAME_W, ITEMS, timestampMs, hogSize, type Facing, type Kind, type ProjectedMotion } from "@trogg/shared";
+import { ANCHOR, FRAME_H, FRAME_W, HOG_MAX_HEALTH, ITEMS, PLAYER_MAX_HEALTH, timestampMs, hogSize, type Facing, type Kind, type ProjectedMotion, type Stamp } from "@trogg/shared";
 import type { Boulder, GroundItem, Hog, Player } from "../net/module_bindings/types";
 import { AVATAR_TEX, avatarFrame, avatarFrameName, facingFromDir, GHOST_FRAME, GHOST_TEX } from "./avatars.js";
 import { cssColor, TEXT_RESOLUTION } from "../ui_text.js";
@@ -54,6 +54,8 @@ export interface Tracked {
   equipped?: Phaser.GameObjects.Container;
   equippedKind: string;
   equippedFacing?: Facing;
+  /** Visible countdown while dead, refreshed from `respawnAt` each frame. */
+  respawnText?: Phaser.GameObjects.Text;
 }
 
 /** A boulder's live row plus its sprite. */
@@ -115,7 +117,7 @@ export function createEntities(scene: Phaser.Scene, getTile: () => number) {
    * head extending up out of it. With the flag off it's the placeholder colour marker
    * (a tile-filling rect). Both carry a name label.
    */
-  const makeMarker = (name: string, color: number, style: string, self: boolean, facing: Facing, sprites: boolean) => {
+  const makeMarker = (name: string, color: number, style: string, self: boolean, facing: Facing, sprites: boolean, health: number, dead: boolean, respawnAt?: Stamp) => {
     const tile = getTile();
     const marker = scene.add.container(0, 0);
     let sprite: Phaser.GameObjects.Sprite | undefined;
@@ -135,28 +137,55 @@ export function createEntities(scene: Phaser.Scene, getTile: () => number) {
       sprite.setOrigin(ANCHOR.x / FRAME_W, ANCHOR.y / FRAME_H);
       sprite.setScale(tile / ART);
       sprite.setTint(color);
+      if (dead) sprite.setAlpha(0.45);
       marker.add(sprite);
       frameKey = `${facing}_${frame}`;
     } else {
       const body = scene.add.graphics();
-      body.fillStyle(color, 1).fillRect(2, 2, tile - 4, tile - 4);
+      body.fillStyle(color, dead ? 0.45 : 1).fillRect(2, 2, tile - 4, tile - 4);
       // Your own trogg keeps its colour but gets an outline so you can pick it out.
       if (self) body.lineStyle(2, 0xe8dcc4).strokeRect(2, 2, tile - 4, tile - 4);
       marker.add(body);
     }
 
+    const labelY = sprites ? headTopY() - 8 : -8;
     const label = scene.make.text({
       x: tile / 2,
-      y: sprites ? headTopY() - 2 : -2,
+      y: labelY,
       text: name,
-      style: { fontFamily: "monospace", fontSize: "11px", color: cssColor(0xe8dcc4) },
+      style: { fontFamily: "monospace", fontSize: "11px", color: cssColor(dead ? 0x9b8a6c : 0xe8dcc4) },
       add: false,
     });
     label.setOrigin(0.5, 1);
     label.setResolution(TEXT_RESOLUTION);
     marker.add(label);
 
-    return { marker, sprite, frameKey };
+    const hp = Math.max(0, Math.min(PLAYER_MAX_HEALTH, health));
+    const ratio = PLAYER_MAX_HEALTH <= 0 ? 0 : hp / PLAYER_MAX_HEALTH;
+    const barW = Math.max(16, Math.round(tile * 0.68));
+    const barH = Math.max(3, Math.round(tile * 0.09));
+    const bar = scene.add.graphics();
+    const bx = Math.round((tile - barW) / 2);
+    const by = Math.round(labelY + 3);
+    bar.fillStyle(0x0a0806, 0.75).fillRect(bx - 1, by - 1, barW + 2, barH + 2);
+    bar.fillStyle(dead ? 0x4a3826 : ratio > 0.5 ? 0x76c26a : ratio > 0.25 ? 0xf2c94c : 0xc75c52, 1).fillRect(bx, by, Math.max(0, Math.round(barW * ratio)), barH);
+    marker.add(bar);
+
+    let respawnText: Phaser.GameObjects.Text | undefined;
+    if (dead && respawnAt) {
+      respawnText = scene.make.text({
+        x: tile / 2,
+        y: by + barH + 11,
+        text: respawnCountdown(respawnAt),
+        style: { fontFamily: "monospace", fontSize: "10px", color: cssColor(0xf2c94c) },
+        add: false,
+      });
+      respawnText.setOrigin(0.5, 0.5);
+      respawnText.setResolution(TEXT_RESOLUTION);
+      marker.add(respawnText);
+    }
+
+    return { marker, sprite, frameKey, respawnText };
   };
 
   /** Drive a trogg's facing and walk cycle from synced motion plus standing facing.
@@ -166,8 +195,14 @@ export function createEntities(scene: Phaser.Scene, getTile: () => number) {
     const faceX = moving ? motion.dirX : entry.player.faceX;
     const faceY = moving ? motion.dirY : entry.player.faceY;
     if (entry.sprite) driveSprite(entry.sprite, "trogg", entry.style, faceX, faceY, entry.player.running, entry, now, moving);
+    if (entry.respawnText && entry.player.respawnAt) entry.respawnText.setText(respawnCountdown(entry.player.respawnAt));
     applyEquipment(entry);
     animateEquipment(entry);
+  };
+
+  const respawnCountdown = (respawnAt: Stamp): string => {
+    const remaining = Math.max(0, timestampMs(respawnAt) - Date.now());
+    return `Respawn ${Math.ceil(remaining / 1000)}`;
   };
 
   /**
@@ -361,7 +396,7 @@ export function createEntities(scene: Phaser.Scene, getTile: () => number) {
   /** A roaming Hog: the shared avatar sprite in its hedgehog skin, feet centred on the
    *  tile (like a trogg). No name label, tint, or ground ring — Hogs are ambient
    *  scenery, not players. */
-  const makeHog = (style: string, facing: Facing): { marker: Phaser.GameObjects.Container; sprite: Phaser.GameObjects.Sprite; frameKey: string } => {
+  const makeHog = (style: string, facing: Facing, health: number): { marker: Phaser.GameObjects.Container; sprite: Phaser.GameObjects.Sprite; frameKey: string } => {
     const tile = getTile();
     const size = hogSize(style);
     const marker = scene.add.container(0, 0);
@@ -373,6 +408,18 @@ export function createEntities(scene: Phaser.Scene, getTile: () => number) {
     sprite.setOrigin(ANCHOR.x / FRAME_W, ANCHOR.y / FRAME_H);
     sprite.setScale((size * tile) / ART);
     marker.add(sprite);
+    const hp = Math.max(0, Math.min(HOG_MAX_HEALTH, health));
+    if (hp < HOG_MAX_HEALTH) {
+      const ratio = HOG_MAX_HEALTH <= 0 ? 0 : hp / HOG_MAX_HEALTH;
+      const barW = Math.max(14, Math.round(tile * 0.58));
+      const barH = Math.max(3, Math.round(tile * 0.08));
+      const bx = Math.round((tile - barW) / 2);
+      const by = Math.round(headTopY() - 7);
+      const bar = scene.add.graphics();
+      bar.fillStyle(0x0a0806, 0.72).fillRect(bx - 1, by - 1, barW + 2, barH + 2);
+      bar.fillStyle(ratio > 0.5 ? 0x76c26a : ratio > 0.25 ? 0xf2c94c : 0xc75c52, 1).fillRect(bx, by, Math.max(0, Math.round(barW * ratio)), barH);
+      marker.add(bar);
+    }
     return { marker, sprite, frameKey: `${facing}_${frame}` };
   };
 
