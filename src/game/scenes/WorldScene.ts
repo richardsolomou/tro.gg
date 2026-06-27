@@ -195,6 +195,7 @@ export class WorldScene extends Phaser.Scene {
       `SELECT * FROM ground_item WHERE zone_id = '${this.slug}'`,
       `SELECT * FROM boulder WHERE zone_id = '${this.slug}'`,
     ];
+    if (this.myId) queries.push(`SELECT * FROM inventory WHERE player_id = '${this.myId}'`);
     if (this.useHogs) queries.push(`SELECT * FROM hog WHERE zone_id = '${this.slug}'`);
 
     conn
