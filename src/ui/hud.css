@@ -1,5 +1,6 @@
 /*
- * HUD chrome — HTML/CSS overlays above the Phaser canvas (chat, account, help).
+ * HUD chrome — HTML/CSS overlays above the Phaser canvas (chat, account, help,
+ * commands).
  * Cave palette, shared with the landing page and the in-world art: ink #e8dcc4 on
  * #0a0806 stone, amber #f2c94c accents. The world (troggs, bubbles, terrain) is
  * drawn by Phaser; everything here is DOM, so the browser owns layout, text input,
@@ -134,6 +135,14 @@
   gap: 6px;
   align-items: flex-start;
 }
+#hud .commands {
+  top: 12px;
+  left: 94px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
 #hud .help-toggle {
   width: auto;
   padding: 0 10px;
@@ -171,4 +180,70 @@
 #hud .help-key {
   color: #f2c94c;
   white-space: nowrap;
+}
+
+/* ── Commands (top-left, beside Help) ────────────────────────────────────── */
+#hud .command-body {
+  width: min(330px, calc(100vw - 24px));
+  padding: 12px;
+  background: rgba(10, 8, 6, 0.86);
+  border: 1px solid #2a2118;
+  border-radius: 4px;
+  font-size: 13px;
+}
+#hud .command-body[hidden] {
+  display: none;
+}
+#hud .command-section + .command-section,
+#hud .command-status {
+  margin-top: 10px;
+}
+#hud .command-row {
+  display: grid;
+  grid-template-columns: minmax(74px, 0.6fr) 1fr;
+  gap: 6px;
+}
+#hud .command-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 6px;
+}
+#hud .command-segment {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+#hud .command-button {
+  min-width: 0;
+  height: 30px;
+  padding: 0 8px;
+  overflow: hidden;
+  color: #e8dcc4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: rgba(232, 220, 196, 0.14);
+  border: 1px solid #4a3a27;
+  border-radius: 4px;
+  cursor: pointer;
+}
+#hud .command-button[aria-pressed="true"] {
+  color: #0a0806;
+  background: #f2c94c;
+  border-color: #f2c94c;
+}
+#hud .command-count {
+  min-width: 0;
+}
+#hud .command-status {
+  color: #9b8a6c;
+  font-size: 12px;
+}
+
+@media (max-width: 520px) {
+  #hud .commands {
+    left: 12px;
+    top: 46px;
+  }
 }

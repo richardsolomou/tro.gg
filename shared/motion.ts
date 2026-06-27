@@ -187,15 +187,62 @@ export function snapToTile(pos: { x: number; y: number }): { x: number; y: numbe
 }
 
 /**
- * Pick a tile to drop a spawned entity on (the debug `/spawn` command): the tile
- * the player faces if it's free, else the nearest free orthogonal neighbour, else
- * the player's own tile — or null if every candidate is blocked. "Free" is a
- * walkable floor tile the `occupied` predicate doesn't claim (so a boulder never
- * spawns inside a wall or on another boulder). Idle players (no direction) skip
- * the facing tile and take a neighbour, so the entity lands beside them rather
- * than underfoot. Server-authoritative (invariant 3); position is rounded to the
- * player's current tile first.
+ * Pick tiles to drop spawned entities on (the debug `/spawn` command): the tile
+ * the player faces if it's free, then nearby free tiles around them, with their
+ * own tile after the immediate neighbours. "Free" is a walkable floor tile the
+ * `occupied` predicate doesn't claim. Idle players skip the facing preference and
+ * take neighbours first, so entities land beside them rather than underfoot.
+ * Returned tiles are unique. Server-authoritative (invariant 3); position is
+ * rounded to the player's current tile first.
  */
+export function spawnTiles(
+  zone: Zone,
+  occupied: (tileX: number, tileY: number) => boolean,
+  x: number,
+  y: number,
+  dirX: number,
+  dirY: number,
+  count: number,
+): Coord[] {
+  const px = Math.round(x);
+  const py = Math.round(y);
+  const wanted = Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0;
+  const free = (tx: number, ty: number) => isWalkable(zone, tx, ty) && !occupied(tx, ty);
+  const tiles: Coord[] = [];
+  const seen = new Set<string>();
+
+  const add = (tx: number, ty: number) => {
+    if (tiles.length >= wanted) return;
+    const key = `${tx},${ty}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    if (free(tx, ty)) tiles.push({ x: tx, y: ty });
+  };
+
+  if (dirX !== 0 || dirY !== 0) add(px + Math.sign(dirX), py + Math.sign(dirY));
+  add(px + 1, py);
+  add(px - 1, py);
+  add(px, py + 1);
+  add(px, py - 1);
+  add(px, py);
+
+  const maxRadius = zone.width + zone.height;
+  for (let radius = 2; tiles.length < wanted && radius <= maxRadius; radius++) {
+    for (let dy = -radius; dy <= radius && tiles.length < wanted; dy++) {
+      const dx = radius - Math.abs(dy);
+      if (dx === 0) {
+        add(px, py + dy);
+      } else {
+        add(px + dx, py + dy);
+        add(px - dx, py + dy);
+      }
+    }
+  }
+
+  return tiles;
+}
+
+/** Single-tile compatibility wrapper for the original `/spawn <entity>` command. */
 export function spawnTile(
   zone: Zone,
   occupied: (tileX: number, tileY: number) => boolean,
@@ -204,16 +251,7 @@ export function spawnTile(
   dirX: number,
   dirY: number,
 ): Coord | null {
-  const px = Math.round(x);
-  const py = Math.round(y);
-  const free = (tx: number, ty: number) => isWalkable(zone, tx, ty) && !occupied(tx, ty);
-
-  const candidates: Coord[] = [];
-  if (dirX !== 0 || dirY !== 0) candidates.push({ x: px + Math.sign(dirX), y: py + Math.sign(dirY) });
-  candidates.push({ x: px + 1, y: py }, { x: px - 1, y: py }, { x: px, y: py + 1 }, { x: px, y: py - 1 }, { x: px, y: py });
-
-  for (const c of candidates) if (free(c.x, c.y)) return c;
-  return null;
+  return spawnTiles(zone, occupied, x, y, dirX, dirY, 1)[0] ?? null;
 }
 
 /** Slack to keep tile-boundary floats off the edge when deriving a footprint. */

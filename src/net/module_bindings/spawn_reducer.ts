@@ -12,4 +12,5 @@ import {
 
 export default {
   kind: __t.string(),
+  count: __t.i32(),
 };
