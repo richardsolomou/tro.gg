@@ -18,10 +18,12 @@ truth. Don't hand-edit the PNG — change `shared/sprites.ts` and regenerate.
 The sheet is laid out as **columns = animation frames**, **rows = (kind × style)
 × facing** (GDD [Avatars and equipment](../../docs/gdd.md#avatars-and-equipment) —
 troggs and Hogs share one rig). A kind's styles come before the next kind's:
-trogg `moss` / `stone` / `ridge`, then hog `classic` / `snow` / `ember`
-(`TROGG_STYLES` / `HOG_STYLES` in `shared/sprites.ts`). Each frame is 16×24 art
-pixels (16 wide matches the tile; the extra height is 3/4-view head room),
-anchored at the feet so a sprite drops onto a tile by its base.
+trogg `moss` / `stone` / `ridge`, then hog `classic` / `snow` / `ember` /
+`buff` / `dino` / `chicken` (`TROGG_STYLES` / `HOG_STYLES` in `shared/sprites.ts`).
+Each frame is 16×24 art pixels (16 wide matches the tile; the extra height is
+3/4-view head room), anchored at the feet so a sprite drops onto a tile by its
+base. The big hogs (`buff`, `dino`) are authored at this same 16×24 but render at
+double size over a 2×2 footprint (`hogSize`); the `chicken` is an easter egg.
 
 | | idle | walk_a | walk_b | run_a | run_b |
 | --- | --- | --- | --- | --- | --- |
