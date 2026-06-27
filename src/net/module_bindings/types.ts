@@ -83,3 +83,4 @@ export const Player = __t.object("Player", {
   style: __t.i32(),
 });
 export type Player = __Infer<typeof Player>;
+

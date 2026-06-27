@@ -35,3 +35,4 @@ export type ResetHogsParams = __Infer<typeof ResetHogsReducer>;
 export type RestyleParams = __Infer<typeof RestyleReducer>;
 export type SpawnParams = __Infer<typeof SpawnReducer>;
 export type StartClaimParams = __Infer<typeof StartClaimReducer>;
+
