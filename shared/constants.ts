@@ -4,6 +4,8 @@
  * tuning or experiments are useful. See docs/gdd.md.
  */
 
+import { BIG_HOG_STYLES } from "./sprites";
+
 /** Movement speed shared by click-to-move and WASD. (initial) */
 export const MOVE_SPEED_TILES_PER_SEC = 4;
 
@@ -234,7 +236,18 @@ export function isGeneratedName(name: string): boolean {
  *
  * `items` lists starter pickup items. A pickup has a registry item id and a tile;
  * pressing `E` while facing it moves the item into inventory and removes the row.
+ *
+ * `bigHogs` lists the zone's rare 2×2 showpiece Hogs (GDD "Hogs") — a buff or dino
+ * placed at a chosen anchor (its top-left tile), seeded with an explicit `style` so
+ * it never rolls from the random crowd. Each needs its whole 2×2 footprint clear of
+ * walls; `assertZones` checks that.
  */
+export interface BigHog {
+  x: number;
+  y: number;
+  style: string;
+}
+
 export interface Zone {
   slug: string;
   name: string;
@@ -244,6 +257,7 @@ export interface Zone {
   boulders: readonly Coord[];
   hogs: readonly Coord[];
   items: readonly GroundItemSeed[];
+  bigHogs: readonly BigHog[];
 }
 
 /**
@@ -301,6 +315,12 @@ export const ZONES: Record<string, Zone> = {
       { item: "pickaxe", x: 11, y: 7 },
       { item: "shovel", x: 12, y: 7 },
       { item: "sword", x: 13, y: 7 },
+    ],
+    // Two giants (GDD "Hogs"): a buff hog on the open left flat, a dino on the right.
+    // Each anchor's 2×2 footprint is clear floor (rows 7-8 are an open band).
+    bigHogs: [
+      { x: 3, y: 7, style: "buff" },
+      { x: 18, y: 7, style: "dino" },
     ],
   },
 };
@@ -361,6 +381,17 @@ export function assertZones(): void {
       }
       if (!isWalkable(zone, item.x, item.y)) {
         throw new Error(`zone ${zone.slug}: ground item ${item.item} at (${item.x}, ${item.y}) is not on walkable floor`);
+      }
+    }
+    for (const h of zone.bigHogs) {
+      if (!(BIG_HOG_STYLES as readonly string[]).includes(h.style)) {
+        throw new Error(`zone ${zone.slug}: big hog at (${h.x}, ${h.y}) has non-big style ${JSON.stringify(h.style)}`);
+      }
+      // Every tile of the 2×2 footprint must be clear floor.
+      for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) {
+        if (!isWalkable(zone, h.x + dx, h.y + dy)) {
+          throw new Error(`zone ${zone.slug}: big hog at (${h.x}, ${h.y}) footprint tile (${h.x + dx}, ${h.y + dy}) is not walkable`);
+        }
       }
     }
   }

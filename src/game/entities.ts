@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { ANCHOR, FRAME_H, FRAME_W, ITEMS, timestampMs, type Facing, type Kind, type ProjectedMotion } from "@trogg/shared";
+import { ANCHOR, FRAME_H, FRAME_W, ITEMS, timestampMs, hogSize, type Facing, type Kind, type ProjectedMotion } from "@trogg/shared";
 import type { Boulder, GroundItem, Hog, Player } from "../net/module_bindings/types";
 import { AVATAR_TEX, avatarFrame, avatarFrameName, facingFromDir, GHOST_FRAME, GHOST_TEX } from "./avatars.js";
 import { cssColor, TEXT_RESOLUTION } from "../ui_text.js";
@@ -363,11 +363,15 @@ export function createEntities(scene: Phaser.Scene, getTile: () => number) {
    *  scenery, not players. */
   const makeHog = (style: string, facing: Facing): { marker: Phaser.GameObjects.Container; sprite: Phaser.GameObjects.Sprite; frameKey: string } => {
     const tile = getTile();
+    const size = hogSize(style);
     const marker = scene.add.container(0, 0);
     const frame = avatarFrame(false, false, 0);
-    const sprite = scene.make.sprite({ x: tile / 2, y: feetY(), key: AVATAR_TEX, frame: avatarFrameName("hog", style, facing, frame), add: false });
+    // A big (2×2) hog renders at `size`× scale, feet centred in its `size`-tile
+    // footprint (the marker sits on the footprint's top-left tile), head reaching up
+    // out of it — the same feet-centred placement a common hog gets in its one tile.
+    const sprite = scene.make.sprite({ x: (tile * size) / 2, y: (tile * size) / 2, key: AVATAR_TEX, frame: avatarFrameName("hog", style, facing, frame), add: false });
     sprite.setOrigin(ANCHOR.x / FRAME_W, ANCHOR.y / FRAME_H);
-    sprite.setScale(tile / ART);
+    sprite.setScale((size * tile) / ART);
     marker.add(sprite);
     return { marker, sprite, frameKey: `${facing}_${frame}` };
   };
