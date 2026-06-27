@@ -35,7 +35,9 @@ import {
 
 // Import all reducer arg schemas
 import ChatReducer from "./chat_reducer";
+import EquipItemReducer from "./equip_item_reducer";
 import FaceReducer from "./face_reducer";
+import HauntGhostReducer from "./haunt_ghost_reducer";
 import InteractReducer from "./interact_reducer";
 import MoveReducer from "./move_reducer";
 import MoveToReducer from "./move_to_reducer";
@@ -48,13 +50,17 @@ import ResetHogsReducer from "./reset_hogs_reducer";
 import RestyleReducer from "./restyle_reducer";
 import SpawnReducer from "./spawn_reducer";
 import StartClaimReducer from "./start_claim_reducer";
+import UseEquippedReducer from "./use_equipped_reducer";
 
 // Import all procedure arg schemas
 
 // Import all table schema definitions
 import BoulderRow from "./boulder_table";
 import ChatMessageRow from "./chat_message_table";
+import GhostHauntRow from "./ghost_haunt_table";
+import GroundItemRow from "./ground_item_table";
 import HogRow from "./hog_table";
+import InventoryRow from "./inventory_table";
 import PlayerRow from "./player_table";
 
 /** Type-only namespace exports for generated type groups. */
@@ -89,6 +95,34 @@ const tablesSchema = __schema({
       { name: 'chat_message_id_key', constraint: 'unique', columns: ['id'] },
     ],
   }, ChatMessageRow),
+  ghostHaunt: __table({
+    name: 'ghost_haunt',
+    indexes: [
+      { accessor: 'id', name: 'ghost_haunt_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+      { accessor: 'zoneId', name: 'ghost_haunt_zone_id_idx_btree', algorithm: 'btree', columns: [
+        'zoneId',
+      ] },
+    ],
+    constraints: [
+      { name: 'ghost_haunt_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, GhostHauntRow),
+  groundItem: __table({
+    name: 'ground_item',
+    indexes: [
+      { accessor: 'id', name: 'ground_item_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+      { accessor: 'zoneId', name: 'ground_item_zone_id_idx_btree', algorithm: 'btree', columns: [
+        'zoneId',
+      ] },
+    ],
+    constraints: [
+      { name: 'ground_item_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, GroundItemRow),
   hog: __table({
     name: 'hog',
     indexes: [
@@ -103,6 +137,20 @@ const tablesSchema = __schema({
       { name: 'hog_id_key', constraint: 'unique', columns: ['id'] },
     ],
   }, HogRow),
+  inventory: __table({
+    name: 'inventory',
+    indexes: [
+      { accessor: 'id', name: 'inventory_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+      { accessor: 'playerId', name: 'inventory_player_id_idx_btree', algorithm: 'btree', columns: [
+        'playerId',
+      ] },
+    ],
+    constraints: [
+      { name: 'inventory_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, InventoryRow),
   player: __table({
     name: 'player',
     indexes: [
@@ -122,7 +170,9 @@ const tablesSchema = __schema({
 /** The schema information for all reducers in this module. This is defined the same way as the reducers would have been defined in the server, except the body of the reducer is omitted in code generation. */
 const reducersSchema = __reducers(
   __reducerSchema("chat", ChatReducer),
+  __reducerSchema("equip_item", EquipItemReducer),
   __reducerSchema("face", FaceReducer),
+  __reducerSchema("haunt_ghost", HauntGhostReducer),
   __reducerSchema("interact", InteractReducer),
   __reducerSchema("move", MoveReducer),
   __reducerSchema("move_to", MoveToReducer),
@@ -135,6 +185,7 @@ const reducersSchema = __reducers(
   __reducerSchema("restyle", RestyleReducer),
   __reducerSchema("spawn", SpawnReducer),
   __reducerSchema("start_claim", StartClaimReducer),
+  __reducerSchema("use_equipped", UseEquippedReducer),
 );
 
 /** The schema information for all procedures in this module. This is defined the same way as the procedures would have been defined in the server. */

@@ -35,11 +35,14 @@ const KEY_VECTORS: Record<string, Dir> = {
  * where it is. Reports only on transitions (invariant 2: input-driven, never per-frame).
  * `onInteract` fires on the interact key (`E`) — a discrete press (auto-repeat ignored),
  * the generic action key the world layer uses to pick up / put down (GDD "Interacting").
+ * `onUseEquipped` fires on `F`, a discrete use of the currently equipped main-hand
+ * item (GDD "Avatars and equipment").
  * Returns a teardown that detaches the listeners.
  */
 export function attachKeyboard(
   onIntent: (intent: MoveIntent, immediate?: boolean) => void,
   onInteract: () => void,
+  onUseEquipped: () => void,
   canRun: boolean,
 ): () => void {
   const held = new Set<string>();
@@ -75,6 +78,12 @@ export function attachKeyboard(
       if (e.repeat) return; // discrete press, not auto-repeat
       e.preventDefault();
       onInteract();
+      return;
+    }
+    if (e.code === "KeyF") {
+      if (e.repeat) return;
+      e.preventDefault();
+      onUseEquipped();
       return;
     }
     if (SHIFT_CODES.has(e.code)) {

@@ -1,12 +1,12 @@
 import Phaser from "phaser";
 import { getZone, hogStyleFor, projectMotion, projectMotionState, snapToTile, STARTING_ZONE_SLUG, tileKey, timestampMs, troggColorFor, troggStyleFor, zoneBounds, type Coord, type Stamp, type ZoneBounds } from "@trogg/shared";
 import type { DbConnection } from "../../net/module_bindings";
-import type { Boulder, Hog, Player } from "../../net/module_bindings/types";
+import type { Boulder, GroundItem, Hog, Player } from "../../net/module_bindings/types";
 import { attachKeyboard } from "../../input.js";
 import { setupChat } from "../../ui/chat.js";
 import { mountCommands } from "../../ui/commands.js";
 import { createSelfController, type SelfController } from "../../movement.js";
-import { ART, createEntities, GHOST_CHANCE, type BoulderView, type Entities, type HogView, type Tracked } from "../entities.js";
+import { ART, createEntities, GHOST_CHANCE, type BoulderView, type Entities, type GroundItemView, type HogView, type Tracked } from "../entities.js";
 import { createTerrain, registerTerrainTextures, type Terrain } from "../terrain.js";
 import { facingFromDir, registerAvatarTextures } from "../avatars.js";
 import { captureEvent, isFeatureEnabled } from "../../analytics.js";
@@ -53,6 +53,7 @@ export class WorldScene extends Phaser.Scene {
   private terrain!: Terrain;
   private stage!: Phaser.GameObjects.Container;
   private destinationLayer!: Phaser.GameObjects.Container;
+  private groundItemLayer!: Phaser.GameObjects.Container;
   private boulderLayer!: Phaser.GameObjects.Container;
   private hogLayer!: Phaser.GameObjects.Container;
   private clickZone!: Phaser.GameObjects.Zone;
@@ -60,6 +61,7 @@ export class WorldScene extends Phaser.Scene {
 
   private readonly tracked = new Map<string, Tracked>();
   private readonly boulders = new Map<string, BoulderView>();
+  private readonly groundItems = new Map<string, GroundItemView>();
   private readonly hogs = new Map<string, HogView>();
 
   // Tiles boulders occupy, and tiles Hogs occupy (rebuilt each frame from their
@@ -82,6 +84,7 @@ export class WorldScene extends Phaser.Scene {
 
   private useSprites = false;
   private useHogs = false;
+  private useGhost = false;
   private canRun = false;
   private useInteract = false;
 
@@ -108,6 +111,7 @@ export class WorldScene extends Phaser.Scene {
     // ambient roaming Hogs, hold-shift-to-run, and the interact key.
     this.useSprites = isFeatureEnabled("avatar-sprites");
     this.useHogs = isFeatureEnabled("roaming-hogs");
+    this.useGhost = isFeatureEnabled("ghost-trogg");
     this.canRun = isFeatureEnabled("running");
     this.useInteract = isFeatureEnabled("interact");
 
@@ -126,9 +130,10 @@ export class WorldScene extends Phaser.Scene {
     this.stage.add(this.terrain.ground);
 
     this.destinationLayer = this.add.container(0, 0);
+    this.groundItemLayer = this.add.container(0, 0);
     this.boulderLayer = this.add.container(0, 0);
     this.hogLayer = this.add.container(0, 0);
-    this.stage.add([this.destinationLayer, this.boulderLayer, this.hogLayer]);
+    this.stage.add([this.destinationLayer, this.groundItemLayer, this.boulderLayer, this.hogLayer]);
 
     // An invisible interactive zone over the play field captures click-to-move. HUD
     // panels consume their own clicks (pointer-events), so only open-space clicks reach it.
@@ -155,8 +160,10 @@ export class WorldScene extends Phaser.Scene {
     });
 
     this.wirePlayers();
+    this.wireGroundItems();
     this.wireBoulders();
     if (this.useHogs) this.wireHogs();
+    if (this.useGhost) this.wireGhostHaunts();
 
     attachKeyboard(
       (intent, immediate) => this.self.onIntent(intent, immediate),
@@ -166,6 +173,9 @@ export class WorldScene extends Phaser.Scene {
         // it re-derives the tile and acts only on what's actually adjacent (invariant 3).
         if (!this.useInteract) return;
         conn.reducers.interact({ dirX: this.self.facing.dirX, dirY: this.self.facing.dirY });
+      },
+      () => {
+        conn.reducers.useEquipped({ dirX: this.self.facing.dirX, dirY: this.self.facing.dirY });
       },
       this.canRun,
     );
@@ -180,24 +190,29 @@ export class WorldScene extends Phaser.Scene {
     this.scale.on(Phaser.Scale.Events.RESIZE, this.layout, this);
     this.layout();
 
-    // Cosmetic join easter egg. Each launch has a chance of a haunt at the origin.
-    if (isFeatureEnabled("ghost-trogg") && Math.random() < GHOST_CHANCE) this.entities.hauntGhost(this.stage, { x: 0, y: 0 });
-
     // Live once the initial rows have been delivered: backlog chat fills the
     // history panel silently, while later inserts also pop a bubble.
-    if (isFeatureEnabled("chat-enabled")) setupChat(conn, this.entities, this.tracked, this.zone, this.sub, this.myId, this.stage);
-    mountCommands({ conn, zone: this.zone, onGhost: (tile) => this.entities.hauntGhost(this.stage, tile) });
+    if (isFeatureEnabled("chat-enabled")) setupChat(conn, this.entities, this.tracked, this.zone, this.sub, this.myId);
+    mountCommands({ conn, zone: this.zone });
 
     const queries = [
       `SELECT * FROM player WHERE zone_id = '${this.slug}' AND online = true`,
       `SELECT * FROM chat_message WHERE zone_id = '${this.slug}'`,
+      `SELECT * FROM ground_item WHERE zone_id = '${this.slug}'`,
       `SELECT * FROM boulder WHERE zone_id = '${this.slug}'`,
     ];
+    if (this.myId) queries.push(`SELECT * FROM inventory WHERE player_id = '${this.myId}'`);
     if (this.useHogs) queries.push(`SELECT * FROM hog WHERE zone_id = '${this.slug}'`);
+    if (this.useGhost) queries.push(`SELECT * FROM ghost_haunt WHERE zone_id = '${this.slug}'`);
 
     conn
       .subscriptionBuilder()
-      .onApplied(() => (this.sub.live = true))
+      .onApplied(() => {
+        this.sub.live = true;
+        // Cosmetic join easter egg. Each launch has a chance to request a synced
+        // zone haunt, so everyone in the map sees the same apparition.
+        if (this.useGhost && Math.random() < GHOST_CHANCE) conn.reducers.hauntGhost({});
+      })
       .subscribe(queries);
   }
 
@@ -255,6 +270,12 @@ export class WorldScene extends Phaser.Scene {
     // Markers and boulder sprites bake the tile size into their geometry, so a resize
     // redraws them; the tick repositions them next frame.
     for (const [id, entry] of this.tracked) this.rebuildMarker(id, entry);
+    for (const view of this.groundItems.values()) {
+      view.sprite.destroy();
+      view.sprite = this.entities.makeGroundItem(view.row.item);
+      this.entities.place(view.sprite, view.row.x, view.row.y);
+      this.groundItemLayer.add(view.sprite);
+    }
     for (const view of this.boulders.values()) {
       view.sprite.destroy();
       view.sprite = this.entities.makeBoulder();
@@ -282,13 +303,17 @@ export class WorldScene extends Phaser.Scene {
     entry.frameKey = built.frameKey;
     entry.bubble = undefined;
     entry.bubbleTimer = undefined;
-    // The carried overlay was a child of the old marker, so it's gone too; re-add it.
+    // The overlays were children of the old marker, so they're gone too; re-add them.
     entry.carried = undefined;
     entry.carriedKind = "";
+    entry.equipped = undefined;
+    entry.equippedKind = "";
+    entry.equippedFacing = undefined;
     const { x, y } = projectMotion(entry.player, performance.now() - entry.baseMs, this.troggBounds);
     this.entities.place(entry.marker, x, y);
     this.stage.add(entry.marker);
     this.entities.applyCarry(entry);
+    this.entities.applyEquipment(entry);
   }
 
   private wirePlayers() {
@@ -311,9 +336,10 @@ export class WorldScene extends Phaser.Scene {
 
       // The nameplate, tint, and body style are baked into the marker at build time, so
       // a rename, recolour, or restyle only shows once the marker is rebuilt (which
-      // re-applies the carried overlay). A bare carrying change just retargets the overlay.
+      // re-applies overlays). Bare carrying/equipment changes just retarget overlays.
       if (_old.name !== p.name || _old.color !== p.color || _old.style !== p.style) this.rebuildMarker(id, entry);
       else if (_old.carrying !== p.carrying) this.entities.applyCarry(entry);
+      if (_old.equippedMainHand !== p.equippedMainHand || _old.equippedMainHandInventoryId !== p.equippedMainHandInventoryId) this.entities.applyEquipment(entry);
 
       // Pick-up / put-down are low-volume, so emit on the authoritative carrying
       // transition of your own trogg (GDD analytics: observe server truth).
@@ -331,12 +357,13 @@ export class WorldScene extends Phaser.Scene {
     const facing = facingFromDir(face.dirX, face.dirY, "down");
     const style = troggStyleFor(p.style, id);
     const { marker, sprite, frameKey } = this.entities.makeMarker(p.name, troggColorFor(p.color, id), style, id === this.myId, facing, this.useSprites);
-    const entry: Tracked = { marker, sprite, player: p, baseMs: timestampBaseMs(p.movedAt), facing, style, frameKey, carriedKind: "" };
+    const entry: Tracked = { marker, sprite, player: p, baseMs: timestampBaseMs(p.movedAt), facing, style, frameKey, carriedKind: "", equippedKind: "" };
     const { x, y } = projectMotion(p, performance.now() - entry.baseMs, this.troggBounds);
     this.entities.place(marker, x, y);
     this.tracked.set(id, entry);
     this.stage.add(marker);
     this.entities.applyCarry(entry);
+    this.entities.applyEquipment(entry);
   }
 
   private removePlayer(id: string) {
@@ -382,6 +409,36 @@ export class WorldScene extends Phaser.Scene {
     conn.db.boulder.onDelete((_ctx, b) => this.removeBoulder(b));
   }
 
+  private upsertGroundItem(row: GroundItem) {
+    const key = row.id.toString();
+    let view = this.groundItems.get(key);
+    if (!view) {
+      view = { row, sprite: this.entities.makeGroundItem(row.item) };
+      this.groundItems.set(key, view);
+      this.groundItemLayer.add(view.sprite);
+    } else if (view.row.item !== row.item) {
+      view.sprite.destroy();
+      view.sprite = this.entities.makeGroundItem(row.item);
+      this.groundItemLayer.add(view.sprite);
+    }
+    view.row = row;
+    this.entities.place(view.sprite, row.x, row.y);
+  }
+
+  private removeGroundItem(row: GroundItem) {
+    const key = row.id.toString();
+    const view = this.groundItems.get(key);
+    view?.sprite.destroy();
+    this.groundItems.delete(key);
+  }
+
+  private wireGroundItems() {
+    const conn = this.conn;
+    conn.db.groundItem.onInsert((_ctx, row) => this.upsertGroundItem(row));
+    conn.db.groundItem.onUpdate((_ctx, _old, row) => this.upsertGroundItem(row));
+    conn.db.groundItem.onDelete((_ctx, row) => this.removeGroundItem(row));
+  }
+
   private addHog(h: Hog) {
     const id = h.id.toString();
     if (this.hogs.has(id)) return;
@@ -419,5 +476,14 @@ export class WorldScene extends Phaser.Scene {
       if (changedHeading && Math.random() < 0.35) audio.playHog();
     });
     conn.db.hog.onDelete((_ctx, h) => this.removeHog(h));
+  }
+
+  private wireGhostHaunts() {
+    this.conn.db.ghostHaunt.onInsert((_ctx, haunt) => {
+      // The subscription replays recent rows on join; only render live inserts so
+      // old haunts don't flicker for a late subscriber.
+      if (!this.sub.live) return;
+      this.entities.hauntGhost(this.stage, { x: haunt.x, y: haunt.y });
+    });
   }
 }

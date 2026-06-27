@@ -1,8 +1,9 @@
-import { MAX_BOULDERS_PER_ZONE, MAX_HOGS_PER_ZONE, type Coord, type Zone } from "@trogg/shared";
+import { MAX_BOULDERS_PER_ZONE, MAX_HOGS_PER_ZONE, type Zone } from "@trogg/shared";
 import type { DbConnection } from "../net/module_bindings";
 import { captureEvent } from "../analytics.js";
 import { audio } from "../audio.js";
 import { hudLeft } from "./hud.js";
+import { registerKeybind } from "./keybinds.js";
 import { currentCommandFlags, type ChatCommandFlags } from "./chat_commands.js";
 
 type SpawnKind = "boulder" | "hog";
@@ -10,12 +11,11 @@ type SpawnKind = "boulder" | "hog";
 export interface CommandPanelContext {
   conn: DbConnection;
   zone: Zone;
-  onGhost: (tile: Coord) => void;
 }
 
 /** Mount the pre-alpha command panel beside Help. It exposes the same debug
  * commands as chat, but as bounded controls for stress testing. */
-export function mountCommands({ conn, zone, onGhost }: CommandPanelContext): void {
+export function mountCommands({ conn, zone }: CommandPanelContext): void {
   const flags = currentCommandFlags();
   if (!flags.spawn && !flags.resetBoulders && !flags.resetHogs && !flags.ghost) return;
 
@@ -24,8 +24,11 @@ export function mountCommands({ conn, zone, onGhost }: CommandPanelContext): voi
 
   const toggle = document.createElement("button");
   toggle.type = "button";
-  toggle.className = "help-toggle command-toggle";
-  toggle.textContent = "Commands";
+  toggle.className = "hud-icon-button command-toggle";
+  toggle.setAttribute("aria-label", "Commands");
+  toggle.setAttribute("aria-keyshortcuts", "`");
+  toggle.title = "Commands (`)";
+  toggle.appendChild(commandIcon());
 
   const body = document.createElement("div");
   body.className = "command-body";
@@ -36,20 +39,48 @@ export function mountCommands({ conn, zone, onGhost }: CommandPanelContext): voi
 
   if (flags.spawn) body.appendChild(spawnSection(conn, status));
   if (flags.resetBoulders || flags.resetHogs) body.appendChild(resetSection(conn, zone.slug, flags, status));
-  if (flags.ghost) body.appendChild(ghostSection(zone, onGhost, status));
+  if (flags.ghost) body.appendChild(ghostSection(conn, status));
   body.appendChild(status);
 
-  toggle.addEventListener("click", () => {
-    const opening = body.hidden;
-    body.hidden = !opening;
+  const setOpen = (open: boolean) => {
+    const opening = open && body.hidden;
+    body.hidden = !open;
+    toggle.setAttribute("aria-expanded", String(!body.hidden));
     if (opening) window.dispatchEvent(new CustomEvent("hud-menu-open", { detail: "commands" }));
-  });
+  };
+  const toggleOpen = () => setOpen(body.hidden === true);
+  toggle.addEventListener("click", toggleOpen);
+  registerKeybind({ id: "hud-commands", matches: (event) => event.code === "Backquote", handler: toggleOpen });
   window.addEventListener("hud-menu-open", ((event: Event) => {
-    if ((event as CustomEvent<string>).detail !== "commands") body.hidden = true;
+    if ((event as CustomEvent<string>).detail !== "commands") setOpen(false);
   }) as EventListener);
 
   root.append(toggle, body);
   hudLeft().appendChild(root);
+}
+
+function svg(width: number, height: number): SVGSVGElement {
+  const node = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  node.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  node.setAttribute("aria-hidden", "true");
+  node.setAttribute("focusable", "false");
+  return node;
+}
+
+function el(name: string, attrs: Record<string, string | number>): SVGElement {
+  const node = document.createElementNS("http://www.w3.org/2000/svg", name);
+  for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, String(value));
+  return node;
+}
+
+function commandIcon(): SVGSVGElement {
+  const icon = svg(24, 24);
+  icon.append(
+    el("rect", { x: 4, y: 5, width: 16, height: 14, rx: 2, fill: "none", stroke: "currentColor", "stroke-width": 2 }),
+    el("path", { d: "M8 10l3 2-3 2", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round" }),
+    el("path", { d: "M13 15h4", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round" }),
+  );
+  return icon;
 }
 
 function spawnSection(conn: DbConnection, status: HTMLElement): HTMLElement {
@@ -146,21 +177,21 @@ function resetSection(conn: DbConnection, zone: string, flags: ChatCommandFlags,
   return section;
 }
 
-function ghostSection(zone: Zone, onGhost: (tile: Coord) => void, status: HTMLElement): HTMLElement {
+function ghostSection(conn: DbConnection, status: HTMLElement): HTMLElement {
   const section = commandSection("Ghost");
   const grid = document.createElement("div");
   grid.className = "command-grid";
 
   const once = commandButton("Ghost once");
   once.addEventListener("click", () => {
-    haunt(zone, onGhost, 1);
-    status.textContent = "flickered one ghost";
+    haunt(conn, 1);
+    status.textContent = "requested one ghost";
   });
 
   const burst = commandButton("Ghost burst");
   burst.addEventListener("click", () => {
-    haunt(zone, onGhost, 8);
-    status.textContent = "flickered eight ghosts";
+    haunt(conn, 8);
+    status.textContent = "requested eight ghosts";
   });
 
   grid.append(once, burst);
@@ -168,10 +199,8 @@ function ghostSection(zone: Zone, onGhost: (tile: Coord) => void, status: HTMLEl
   return section;
 }
 
-function haunt(zone: Zone, onGhost: (tile: Coord) => void, count: number) {
-  for (let i = 0; i < count; i++) {
-    onGhost({ x: Math.floor(Math.random() * zone.width), y: Math.floor(Math.random() * zone.height) });
-  }
+function haunt(conn: DbConnection, count: number) {
+  for (let i = 0; i < count; i++) conn.reducers.hauntGhost({});
 }
 
 function commandSection(title: string): HTMLElement {
