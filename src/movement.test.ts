@@ -150,6 +150,31 @@ test("a server row that matches a pending move is an ack, not a snap", () => {
   assert.notEqual(h.entry.baseMs, 1000);
 });
 
+test("a stale non-motion self row does not snap over pending local movement", () => {
+  const h = harness();
+  h.self.onIntent(right, true); // optimistic move(right), server has not acked it yet
+  const predictedBaseMs = h.entry.baseMs;
+  const server = {
+    x: 0,
+    y: 0,
+    dirX: 0,
+    dirY: 0,
+    faceX: 0,
+    faceY: 1,
+    running: false,
+    path: "",
+    movedAt: { microsSinceUnixEpoch: 0n },
+    equipmentAction: "sword",
+    equipmentActionAt: { microsSinceUnixEpoch: 9n },
+  } as unknown as Player;
+
+  h.self.reconcile(h.entry, server);
+
+  assert.deepEqual({ x: h.entry.player.x, y: h.entry.player.y, dirX: h.entry.player.dirX, dirY: h.entry.player.dirY }, { x: 0, y: 0, dirX: 1, dirY: 0 });
+  assert.equal(h.entry.player.equipmentAction, "sword");
+  assert.equal(h.entry.baseMs, predictedBaseMs);
+});
+
 test("a server row that matches nothing snaps to authority", () => {
   const h = harness();
   const server = { x: 7, y: 3, dirX: 0, dirY: 0, faceX: 0, faceY: -1, running: false, path: "", movedAt: { microsSinceUnixEpoch: 9n } } as unknown as Player;
