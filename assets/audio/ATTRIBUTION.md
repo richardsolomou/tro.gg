@@ -18,8 +18,8 @@ All assets currently in this folder are listed as Creative Commons Zero (CC0) by
 | `hogs/freesound-cc0-previews/` | Hog eating candidate. These are public high-quality MP3 previews; Freesound original downloads require login. | https://freesound.org/people/tatratank/sounds/541421/ | tatratank | CC0 |
 | `ui/kenney-ui-audio/` | Chat send, button click, account panel, recolor, and command feedback. Includes Kenney's original `License.txt`. | https://kenney.nl/assets/ui-audio | Kenney | CC0 |
 | `ui/assorted-menu-level-up/` | Additional menu confirm/error, item pickup, and success/failure candidates. | https://opengameart.org/content/7-assorted-sound-effects-menu-level-up | Joth | CC0 |
-| `ghost/opengameart-ghost/` | `/ghost` flicker, launch haunt, and low-volume spooky one-shots. | https://opengameart.org/content/ghost | Ogrebane | CC0 |
-| `ghost/opengameart-ghost/` | Breath layer for ghost flicker or ambience. | https://opengameart.org/content/ghost-breath | qubodup | CC0 |
+| `ghost/opengameart-ghost/` | `/ghost` haunt, launch haunt, and low-volume spooky one-shots. | https://opengameart.org/content/ghost | Ogrebane | CC0 |
+| `ghost/opengameart-ghost/` | Breath layer for ghost haunt or ambience. | https://opengameart.org/content/ghost-breath | qubodup | CC0 |
 | `ghost/opengameart-ghost/` | Ghost moans. Use sparingly and pitch/volume down for the current light tone. | https://opengameart.org/content/ghost-monster-voice-moaning-growling | qubodup | CC0 |
 | `ambient/loopable-dungeon-ambience/` | Low-volume cave/hub ambience loop. | https://opengameart.org/content/loopable-dungeon-ambience | JaggedStone | CC0 |
 
