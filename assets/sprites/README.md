@@ -1,18 +1,26 @@
 # Avatar sprites
 
 `troggs-and-hogs.png` is the avatar **base body** sprite sheet for troggs and
-Hogs, with `troggs-and-hogs.atlas.json` describing the frame grid. Both are
-generated — the concept-inspired pixel art lives in [`shared/sprite_art.ts`](../../shared/sprite_art.ts)
-as indexed 32×48 text pixel maps, while [`shared/sprites.ts`](../../shared/sprites.ts)
-defines the rig, frame layout, and renderer. Regenerate with:
+Hogs, with `troggs-and-hogs.atlas.json` describing the frame grid. Everything
+here is generated through a two-stage pipeline:
 
 ```sh
-pnpm sprites   # or: just sprites
+pnpm sprite-art   # paint logic → shared/sprite_art.ts (indexed pixel maps)
+pnpm sprites      # indexed maps → troggs-and-hogs.png + .atlas.json
 ```
 
-The committed PNG is the reviewable artifact; the indexed source art is the
-source of truth. Don't hand-edit the PNG — change `shared/sprite_art.ts` and
-regenerate.
+1. [`tools/gen-sprite-art.ts`](../../tools/gen-sprite-art.ts) holds the
+   reference-inspired pixel art as readable **paint logic** (the same
+   code-authored-pixel approach as the procedural terrain in `terrain.ts`) and
+   emits [`shared/sprite_art.ts`](../../shared/sprite_art.ts) as indexed 32×48
+   text pixel maps.
+2. [`shared/sprites.ts`](../../shared/sprites.ts) defines the rig, frame layout,
+   and renderer that blits those maps; the generator in `tools/gen-spritesheet.ts`
+   writes the committed PNG/atlas from them.
+
+The paint logic in `tools/gen-sprite-art.ts` is the **source of truth**:
+`shared/sprite_art.ts` and the PNG are both generated artifacts. Edit the draw
+code and rerun both steps — don't hand-edit the maps or the PNG.
 
 ## Layout
 
