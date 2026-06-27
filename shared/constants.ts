@@ -108,6 +108,14 @@ export type SpawnableItemId = (typeof SPAWNABLE_ITEM_IDS)[number];
 /** Inventory capacity (GDD "Inventory"): each row occupies one visible carry slot. (initial) */
 export const INVENTORY_SLOT_COUNT = 10;
 
+/** Trogg/Hog combat health, damage, and respawn timing. (initial) */
+export const PLAYER_MAX_HEALTH = 100;
+export const HOG_MAX_HEALTH = 60;
+export const SWORD_DAMAGE = 25;
+export const THROWN_OBJECT_DAMAGE = 40;
+export const THROWN_OBJECT_RANGE = 4;
+export const PLAYER_RESPAWN_MS = 5000;
+
 export type EquipmentSlot = "mainHand";
 
 export interface ItemDef {
@@ -150,7 +158,7 @@ export const ITEMS: Record<ItemId, ItemDef> = {
     id: "sword",
     name: "Sword",
     stackable: false,
-    blurb: "Equipped in the main hand. It swings, but combat waits for PvE events.",
+    blurb: "Equipped in the main hand. Use it to attack a faced adjacent trogg.",
     slot: "mainHand",
     sprite: "sword",
   },

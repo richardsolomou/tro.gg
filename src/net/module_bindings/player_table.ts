@@ -34,4 +34,7 @@ export default __t.row({
   faceX: __t.i32().name("face_x"),
   faceY: __t.i32().name("face_y"),
   carryingStyle: __t.string().name("carrying_style"),
+  health: __t.i32(),
+  dead: __t.bool(),
+  respawnAt: __t.option(__t.timestamp()).name("respawn_at"),
 });
