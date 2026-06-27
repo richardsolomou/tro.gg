@@ -13,13 +13,26 @@ const CARRY_SCALE = 0.62;
 const EQUIPMENT_ACTION_MS = 240;
 /** Odds a given launch is haunted by the ghost. */
 export const GHOST_CHANCE = 1 / 20;
-/** How long the apparition holds before it fades. */
-const GHOST_FLICKER_MS = 500;
+/** How long the apparition spends materialising. */
+const GHOST_FADE_IN_MS = 900;
+/** How long the apparition lingers at full presence. */
+const GHOST_HOLD_MS = 2400;
+/** How long the apparition spends dissolving. */
+const GHOST_FADE_OUT_MS = 1200;
+/** Peak opacity for the ghost sheet. */
+const GHOST_PEAK_ALPHA = 0.82;
+/** How far the ghost can drift from its summoned tile, as a tile fraction. */
+const GHOST_DRIFT_TILES = 0.44;
 /** The hedgehog skin a carried hog shows — a held hog has no id to derive one from. */
 const CARRIED_HOG_STYLE = "classic";
 
 /** Anything `place` can drop on a tile — a marker, a sprite, a stray graphic. */
 type Positionable = { setPosition(x: number, y: number): unknown };
+
+function ghostSeed(id: bigint | undefined, x: number, y: number): number {
+  const idPart = id === undefined ? 0 : Number(id % 2_147_483_647n);
+  return (idPart ^ Math.imul(x + 1, 374_761_393) ^ Math.imul(y + 1, 668_265_263)) >>> 0;
+}
 
 /** A player's sprite plus the client-clock instant its current intent arrived. */
 export interface Tracked {
@@ -361,22 +374,39 @@ export function createEntities(scene: Phaser.Scene, getTile: () => number) {
 
   /**
    * Cosmetic easter egg (behind `ghost-trogg`): a pale draped ghost materialises on
-   * the given tile for a heartbeat, then fades. The local launch chance, `/ghost`, and
-   * command panel all request `hauntGhost`; every live client in the zone renders the
-   * resulting `ghost_haunt` insert.
+   * the given tile, drifts gently, lingers, then fades. The local launch chance,
+   * `/ghost`, and command panel all request `hauntGhost`; every live client in the
+   * zone renders the resulting `ghost_haunt` insert.
    */
-  const hauntGhost = (stage: Phaser.GameObjects.Container, tile: { x: number; y: number }) => {
+  const hauntGhost = (stage: Phaser.GameObjects.Container, tile: { x: number; y: number; id?: bigint }) => {
     audio.playGhost();
     const ghost = scene.add.container(0, 0);
     const sprite = scene.make.sprite({ x: getTile() / 2, y: feetY(), key: GHOST_TEX, frame: GHOST_FRAME, add: false });
     sprite.setOrigin(ANCHOR.x / FRAME_W, ANCHOR.y / FRAME_H);
     sprite.setScale(getTile() / ART);
-    sprite.setAlpha(0.8);
     ghost.add(sprite);
+    ghost.setAlpha(0);
     place(ghost, tile.x, tile.y);
     stage.add(ghost);
 
-    setTimeout(() => ghost.destroy(), GHOST_FLICKER_MS);
+    const seed = ghostSeed(tile.id, tile.x, tile.y);
+    const angle = ((seed % 360) * Math.PI) / 180;
+    const drift = getTile() * GHOST_DRIFT_TILES;
+    const dx = Math.cos(angle) * drift;
+    const dy = Math.sin(angle) * drift * 0.72;
+    const fadeOutDelayMs = GHOST_FADE_IN_MS + GHOST_HOLD_MS;
+    const lifetimeMs = fadeOutDelayMs + GHOST_FADE_OUT_MS;
+
+    scene.tweens.add({ targets: ghost, alpha: GHOST_PEAK_ALPHA, duration: GHOST_FADE_IN_MS, ease: "Sine.easeInOut" });
+    scene.tweens.add({ targets: ghost, x: ghost.x + dx, y: ghost.y + dy, duration: lifetimeMs, ease: "Sine.easeInOut" });
+    scene.tweens.add({
+      targets: ghost,
+      alpha: 0,
+      duration: GHOST_FADE_OUT_MS,
+      delay: fadeOutDelayMs,
+      ease: "Sine.easeInOut",
+      onComplete: () => ghost.destroy(),
+    });
   };
 
   /** Build a speech bubble floating just above a head — `topY` is the head top in sprite

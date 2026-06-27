@@ -481,9 +481,9 @@ export class WorldScene extends Phaser.Scene {
   private wireGhostHaunts() {
     this.conn.db.ghostHaunt.onInsert((_ctx, haunt) => {
       // The subscription replays recent rows on join; only render live inserts so
-      // old haunts don't flicker for a late subscriber.
+      // old haunts don't replay for a late subscriber.
       if (!this.sub.live) return;
-      this.entities.hauntGhost(this.stage, { x: haunt.x, y: haunt.y });
+      this.entities.hauntGhost(this.stage, { x: haunt.x, y: haunt.y, id: haunt.id });
     });
   }
 }
