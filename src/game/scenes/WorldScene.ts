@@ -8,7 +8,7 @@ import { createSelfController, type SelfController } from "../../movement.js";
 import { ART, createEntities, GHOST_CHANCE, type BoulderView, type Entities, type HogView, type Tracked } from "../entities.js";
 import { createTerrain, registerTerrainTextures, type Terrain } from "../terrain.js";
 import { facingFromDir, registerAvatarTextures } from "../avatars.js";
-import { captureEvent, isFeatureEnabled } from "../../analytics.js";
+import { captureEvent, captureLog, isFeatureEnabled } from "../../analytics.js";
 import { audio } from "../../audio.js";
 
 /** Fraction of the viewport the zone fills, leaving a rim of cave around it. */
@@ -103,6 +103,13 @@ export class WorldScene extends Phaser.Scene {
     this.useHogs = isFeatureEnabled("roaming-hogs");
     this.canRun = isFeatureEnabled("running");
     this.useInteract = isFeatureEnabled("interact");
+    captureLog("info", "World scene created", {
+      zone: this.slug,
+      avatar_sprites: this.useSprites,
+      roaming_hogs: this.useHogs,
+      running: this.canRun,
+      interact: this.useInteract,
+    });
 
     // The collision sets are read live by these bounds and by the controller, so the
     // per-frame tick only has to refill the sets, never rewire anything.
@@ -305,6 +312,8 @@ export class WorldScene extends Phaser.Scene {
       // overlay). A bare carrying change just retargets the overlay.
       if (_old.name !== p.name || _old.color !== p.color) this.rebuildMarker(id, entry);
       else if (_old.carrying !== p.carrying) this.entities.applyCarry(entry);
+
+      if (id === this.myId && _old.name !== p.name) captureEvent("trogg_renamed", { zone: this.slug });
 
       // Pick-up / put-down are low-volume, so emit on the authoritative carrying
       // transition of your own trogg (GDD analytics: observe server truth).

@@ -15,6 +15,7 @@ The PostHog plan: every product gets a real job when it is useful. This document
 | Error tracking | Client + server errors |
 | Surveys | In-game feedback prompts |
 | AI observability | LLM-driven Hogs — traces, cost, quality |
+| Logs | Structured client diagnostics tied to user/session context |
 
 ## Events
 
@@ -25,7 +26,10 @@ snake_case. Low-volume by design — anything that could fire more than ~once/se
 | `player_joined` | `zone, is_guest` | Session starts and the trogg exists in the world |
 | `connection_lost` | — | Live SpacetimeDB socket dropped after being connected (usually a backend redeploy); the client begins auto-reconnecting. Best-effort — fired just before the recovery reload, so it measures deploy disruption |
 | `client_update_available` | — | Polling spotted a newer deployed frontend than the running build (a Cloudflare-only deploy); the refresh prompt is shown. Measures how many players are on a stale client after a frontend deploy |
+| `account_claim_started` | — | Player starts the guest → account claim flow and is about to leave for SpacetimeAuth |
+| `account_signed_out` | — | Signed-in player explicitly signs out from the account panel |
 | `player_named` | — | Guest upgrades to an account — fires when a claim is redeemed, alongside `identify()` (the OIDC subject), merging the guest's history |
+| `trogg_renamed` | `zone` | Player's own name changes after the authoritative player row updates |
 | `trogg_recolored` | `color` | Player picks an avatar colour — `color` is the chosen `TROGG_COLORS` palette index |
 | `zone_entered` | `zone, from_zone` | Zone transition |
 | `action_started` | `action, node_type, zone` | Action begins |
@@ -35,6 +39,7 @@ snake_case. Low-volume by design — anything that could fire more than ~once/se
 | `chat_sent` | `zone` | Message sent — **no content** |
 | `boulders_reset` | `zone` | Player runs the in-chat `/reset` (or `/reset boulders`) command |
 | `hedgehogs_reset` | `zone` | Player runs the in-chat `/reset hedgehogs` command |
+| `debug_entity_spawned` | `zone, kind` | Player runs `/spawn` for a supported debug entity — `kind` is `boulder` or `hog` |
 | `object_picked_up` | `zone, kind` | Player picks up a tile-sized object — `kind` is `boulder` or `hog` |
 | `object_dropped` | `zone, kind` | Player puts down what they were carrying |
 | `item_crafted` | `recipe, qty` | Item crafting succeeds |
@@ -65,7 +70,13 @@ Code currently reads these flag keys:
 | `chat-enabled` | Chat panel and bubbles | On |
 | `trogg-recolor` | Colour swatches in the account panel | On |
 
-PostHog project audit (2026-06-25): all code-read flags above are configured in PostHog project 314596 and active at 100% rollout (`interact` created 2026-06-25 with the carry mechanic; `hog-reset` created 2026-06-25 with the `/reset hedgehogs` command). Planned future flags should be added here, and created in PostHog, when code starts reading them.
+PostHog project audit (2026-06-27): all 12 code-read flags above are configured in PostHog project 314596 and active. They are intentionally still in use because they cover remote rollback, production-only debug command governance, or visible UI capabilities that should not advertise disabled controls. No new flag is needed for the observability pass; planned future flags should be added here, and created in PostHog, when code starts reading them. Previous project audit (2026-06-25): all code-read flags above were configured in PostHog project 314596 and active at 100% rollout (`interact` created 2026-06-25 with the carry mechanic; `hog-reset` created 2026-06-25 with the `/reset hedgehogs` command).
+
+## Error tracking and logs
+
+The browser SDK initializes with exception autocapture for unhandled errors and unhandled promise rejections. Handled failures in startup, account claim/sign-in, silent auth refresh, and reducer-backed account actions call `captureException()` with stable `surface` / `action` context.
+
+Structured logs go through PostHog Logs with `service.name = trogg-web`, the Vite build stamp as `service.version`, and the Vite mode as `deployment.environment`. Console-log autocapture is off by default; manual logs record startup, world boot flags, account actions, deploy recovery, version prompts, and debug command outcomes without chat content or arbitrary command text.
 
 ## Rules
 

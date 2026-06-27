@@ -1,6 +1,6 @@
 import { COLOR_UNSET, isColorIndex, isValidName, NAME_MAX_CHARS, TROGG_COLORS } from "@trogg/shared";
 import type { DbConnection } from "../net/module_bindings";
-import { captureEvent, isFeatureEnabled } from "../analytics.js";
+import { captureEvent, captureException, captureLog, isFeatureEnabled } from "../analytics.js";
 import { signIn, signOut } from "../auth.js";
 import { setPendingClaim } from "../identity.js";
 import { cssColor } from "../ui_text.js";
@@ -56,6 +56,8 @@ export function mountAccount(conn: DbConnection, opts: { signedIn: boolean; auth
     action.textContent = opts.signedIn ? "Sign out" : "Claim account with Discord";
     action.addEventListener("click", async () => {
       if (opts.signedIn) {
+        captureEvent("account_signed_out");
+        captureLog("info", "Account signed out", { surface: "account" });
         await signOut();
         window.location.reload();
         return;
@@ -65,13 +67,24 @@ export function mountAccount(conn: DbConnection, opts: { signedIn: boolean; auth
       const code = crypto.randomUUID();
       try {
         await conn.reducers.startClaim({ code });
-      } catch {
+      } catch (err) {
+        captureException(err, { surface: "account", action: "start_claim" });
+        captureLog("warn", "Account claim start failed", { surface: "account" });
         status.textContent = "Couldn't start sign-in. Try again.";
         action.disabled = false;
         return;
       }
       setPendingClaim(code);
-      await signIn();
+      captureEvent("account_claim_started");
+      captureLog("info", "Account claim started", { surface: "account" });
+      try {
+        await signIn();
+      } catch (err) {
+        captureException(err, { surface: "account", action: "sign_in_redirect" });
+        captureLog("error", "Sign-in redirect failed", { surface: "account" });
+        status.textContent = "Couldn't open sign-in. Try again.";
+        action.disabled = false;
+      }
     });
     root.appendChild(action);
   }
@@ -83,10 +96,18 @@ export function mountAccount(conn: DbConnection, opts: { signedIn: boolean; auth
   const rename = async (raw: string) => {
     const name = raw.trim();
     if (!isValidName(name)) {
+      captureLog("warn", "Rejected invalid rename", { surface: "account", reason: "invalid_name" });
       status.textContent = "3-20 letters, numbers or hyphens.";
       return;
     }
-    await conn.reducers.rename({ name });
+    try {
+      await conn.reducers.rename({ name });
+    } catch (err) {
+      captureException(err, { surface: "account", action: "rename" });
+      captureLog("error", "Rename reducer failed", { surface: "account" });
+      status.textContent = "Couldn't rename. Try again.";
+      return;
+    }
     status.textContent = myName() === name ? "Saved." : "That name's taken.";
     refresh();
   };

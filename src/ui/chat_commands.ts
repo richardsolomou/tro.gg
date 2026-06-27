@@ -1,7 +1,7 @@
 import type { Coord, Zone } from "@trogg/shared";
 import type { DbConnection } from "../net/module_bindings";
 import type { ChatUI } from "./chat.js";
-import { captureEvent } from "../analytics.js";
+import { captureEvent, captureLog } from "../analytics.js";
 import { audio } from "../audio.js";
 
 /** Which slash commands are live (each behind its own feature flag, resolved by the caller). */
@@ -30,7 +30,7 @@ export interface ChatCommandContext {
  */
 export function handleChatCommand(text: string, ctx: ChatCommandContext): boolean {
   const { conn, chat, zone, flags, onGhost } = ctx;
-  if (flags.spawn && handleSpawnCommand(conn, chat, text)) return true;
+  if (flags.spawn && handleSpawnCommand(conn, chat, zone.slug, text)) return true;
   if (handleResetCommand(conn, chat, zone.slug, text, flags.resetBoulders, flags.resetHogs)) return true;
   if (flags.ghost && handleGhostCommand(text, zone, onGhost)) return true;
   return false;
@@ -45,7 +45,7 @@ const SPAWNABLE: Record<string, "boulder" | "hog"> = { boulder: "boulder", hedge
  * reducer; an unknown one or bad syntax posts a local usage hint. Anything not starting
  * with `/spawn` returns false and falls through to chat.
  */
-function handleSpawnCommand(conn: DbConnection, chat: ChatUI, text: string): boolean {
+function handleSpawnCommand(conn: DbConnection, chat: ChatUI, zone: string, text: string): boolean {
   const m = /^\/spawn(?:\s+(\S+))?\s*$/i.exec(text);
   if (!m) return false;
 
@@ -53,17 +53,21 @@ function handleSpawnCommand(conn: DbConnection, chat: ChatUI, text: string): boo
   const arg = m[1]?.toLowerCase();
   if (!arg) {
     audio.playError();
+    captureLog("warn", "Rejected spawn command", { zone, reason: "missing_kind" });
     hint("usage: /spawn boulder | hedgehog");
     return true;
   }
   const kind = SPAWNABLE[arg];
   if (!kind) {
     audio.playError();
+    captureLog("warn", "Rejected spawn command", { zone, reason: "unknown_kind" });
     hint(`unknown entity "${arg}" — try boulder or hedgehog`);
     return true;
   }
   audio.playCommand();
   conn.reducers.spawn({ kind });
+  captureEvent("debug_entity_spawned", { zone, kind });
+  captureLog("info", "Debug entity spawned", { zone, kind });
   return true;
 }
 

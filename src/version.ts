@@ -1,4 +1,4 @@
-import { captureEvent } from "./analytics.js";
+import { captureEvent, captureLog } from "./analytics.js";
 
 /**
  * Notices when a newer frontend has been deployed and offers the player a refresh.
@@ -45,6 +45,7 @@ async function checkVersion(): Promise<void> {
   if (!deployed || deployed === __BUILD_ID__) return;
   prompted = true;
   captureEvent("client_update_available");
+  captureLog("info", "Client update available", { current_build: __BUILD_ID__, deployed_build: deployed });
   showUpdateBanner();
 }
 
