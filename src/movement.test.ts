@@ -148,6 +148,33 @@ test("a click queues a destination and routes from a tile centre", () => {
   assert.deepEqual(h.moveTos.at(-1), { x: 4, y: 2 });
 });
 
+test("rapid clicks on the same tile don't re-route until the first is acked", () => {
+  const h = harness();
+  h.self.onClick({ x: 4, y: 0 });
+  h.self.update(h.entry, h.motion(0, 0, 0, 0, true), 0); // idle, centred → fires the first moveTo
+  assert.equal(h.moveTos.length, 1);
+  h.self.onClick({ x: 4, y: 0 }); // clicked again before the server answers
+  h.self.update(h.entry, h.motion(0, 0, 0, 0, true), 16); // still idle, ack not back yet
+  assert.equal(h.moveTos.length, 1); // no duplicate route — a second would reset movedAt and rewind for everyone
+});
+
+test("after the route is acked, a held click re-routes only at the next tile centre", () => {
+  const h = harness();
+  h.self.onClick({ x: 4, y: 0 });
+  h.self.update(h.entry, h.motion(0, 0, 0, 0, true), 0); // fires the first moveTo
+  // Server answers: trogg now pathing east toward (4,0) from (0,0).
+  const server = { x: 0, y: 0, dirX: 1, dirY: 0, running: false, path: "1,0;2,0;3,0;4,0", movedAt: { microsSinceUnixEpoch: 5n } } as unknown as Player;
+  h.self.reconcile(h.entry, server);
+  h.moveTos.length = 0;
+  h.self.onClick({ x: 4, y: 0 }); // re-click the same tile mid-route
+  h.self.update(h.entry, h.motion(0.1, 0, 1, 0), 32); // just left the centre (prev NaN after reconcile) → no off-centre fire
+  assert.equal(h.moveTos.length, 0);
+  h.self.update(h.entry, h.motion(0.5, 0, 1, 0), 40); // mid-tile → no fire
+  assert.equal(h.moveTos.length, 0);
+  h.self.update(h.entry, h.motion(1, 0, 1, 0), 48); // reached the next centre → one clean re-route
+  assert.equal(h.moveTos.length, 1);
+});
+
 test("clicking a tile we're already on clears the marker instead of retrying forever", () => {
   const h = harness();
   h.self.onClick({ x: 0, y: 0 }); // our own tile
