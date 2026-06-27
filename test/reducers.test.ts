@@ -10,7 +10,9 @@ import {
   MAX_BOULDERS_PER_ZONE,
   MAX_HOGS_PER_ZONE,
   parsePath,
+  PLAYER_MAX_HEALTH,
   SPACETIMEAUTH_ISSUER,
+  SWORD_DAMAGE,
 } from "@trogg/shared";
 import {
   chat,
@@ -29,6 +31,7 @@ import {
   restyle,
   resetBoulders,
   resetHogs,
+  respawn,
   spawn,
   startClaim,
   useEquipped,
@@ -269,6 +272,47 @@ test("useEquipped does not mine a boulder when there is no slot for a new stone 
 
   assert.equal(ctx.db.boulder.id.find(boulder.id)?.x, 6);
   assert.equal(ctx.db.inventory.rows().some((r: any) => r.item === "stone"), false);
+});
+
+test("useEquipped damages a faced adjacent trogg with a sword", () => {
+  const { ctx, me } = withPlayer({ x: 5, y: 8, equippedMainHand: "sword" });
+  const sword = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });
+  ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedMainHandInventoryId: sword.id });
+  const other = id("other");
+  ctx.db.player.insert(playerRow(other, { x: 6, y: 8, health: PLAYER_MAX_HEALTH }));
+
+  useEquipped(ctx, { dirX: 1, dirY: 0 });
+
+  const target = ctx.db.player.identity.find(other);
+  assert.equal(target.health, PLAYER_MAX_HEALTH - SWORD_DAMAGE);
+  assert.equal(target.dead, false);
+  assert.equal(ctx.db.player.identity.find(me).equipmentAction, "sword");
+});
+
+test("a sword hit at zero health kills, stops, and respawn restores the trogg", () => {
+  const { ctx, me } = withPlayer({ x: 5, y: 8, equippedMainHand: "sword" });
+  const sword = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });
+  ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedMainHandInventoryId: sword.id });
+  const other = id("other");
+  ctx.db.player.insert(playerRow(other, { x: 6, y: 8, dirX: 1, dirY: 0, running: true, health: SWORD_DAMAGE }));
+
+  useEquipped(ctx, { dirX: 1, dirY: 0 });
+
+  let target = ctx.db.player.identity.find(other);
+  assert.equal(target.health, 0);
+  assert.equal(target.dead, true);
+  assert.deepEqual({ x: target.x, y: target.y, dirX: target.dirX, dirY: target.dirY, running: target.running, path: target.path }, { x: 6, y: 8, dirX: 0, dirY: 0, running: false, path: "" });
+
+  (ctx as any).sender = other;
+  move(ctx, { dirX: -1, dirY: 0, running: false });
+  target = ctx.db.player.identity.find(other);
+  assert.deepEqual({ x: target.x, y: target.y, dirX: target.dirX, dirY: target.dirY, dead: target.dead }, { x: 6, y: 8, dirX: 0, dirY: 0, dead: true });
+
+  respawn(ctx);
+  target = ctx.db.player.identity.find(other);
+  assert.equal(target.health, PLAYER_MAX_HEALTH);
+  assert.equal(target.dead, false);
+  assert.deepEqual({ x: target.x, y: target.y }, { x: 12, y: 8 });
 });
 
 test("interact prioritizes the faced pickup when several entities are adjacent", () => {

@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { ANCHOR, FRAME_H, FRAME_W, ITEMS, timestampMs, type Facing, type Kind, type ProjectedMotion } from "@trogg/shared";
+import { ANCHOR, FRAME_H, FRAME_W, ITEMS, PLAYER_MAX_HEALTH, timestampMs, type Facing, type Kind, type ProjectedMotion } from "@trogg/shared";
 import type { Boulder, GroundItem, Hog, Player } from "../net/module_bindings/types";
 import { AVATAR_TEX, avatarFrame, avatarFrameName, facingFromDir, GHOST_FRAME, GHOST_TEX } from "./avatars.js";
 import { cssColor, TEXT_RESOLUTION } from "../ui_text.js";
@@ -118,7 +118,7 @@ export function createEntities(scene: Phaser.Scene, getTile: () => number) {
    * head extending up out of it. With the flag off it's the placeholder colour marker
    * (a tile-filling rect). Both carry a name label.
    */
-  const makeMarker = (name: string, color: number, style: string, self: boolean, facing: Facing, sprites: boolean) => {
+  const makeMarker = (name: string, color: number, style: string, self: boolean, facing: Facing, sprites: boolean, health: number, dead: boolean) => {
     const tile = getTile();
     const marker = scene.add.container(0, 0);
     let sprite: Phaser.GameObjects.Sprite | undefined;
@@ -138,26 +138,39 @@ export function createEntities(scene: Phaser.Scene, getTile: () => number) {
       sprite.setOrigin(ANCHOR.x / FRAME_W, ANCHOR.y / FRAME_H);
       sprite.setScale(tile / ART);
       sprite.setTint(color);
+      if (dead) sprite.setAlpha(0.45);
       marker.add(sprite);
       frameKey = `${facing}_${frame}`;
     } else {
       const body = scene.add.graphics();
-      body.fillStyle(color, 1).fillRect(2, 2, tile - 4, tile - 4);
+      body.fillStyle(color, dead ? 0.45 : 1).fillRect(2, 2, tile - 4, tile - 4);
       // Your own trogg keeps its colour but gets an outline so you can pick it out.
       if (self) body.lineStyle(2, 0xe8dcc4).strokeRect(2, 2, tile - 4, tile - 4);
       marker.add(body);
     }
 
+    const labelY = sprites ? headTopY() - 8 : -8;
     const label = scene.make.text({
       x: tile / 2,
-      y: sprites ? headTopY() - 2 : -2,
+      y: labelY,
       text: name,
-      style: { fontFamily: "monospace", fontSize: "11px", color: cssColor(0xe8dcc4) },
+      style: { fontFamily: "monospace", fontSize: "11px", color: cssColor(dead ? 0x9b8a6c : 0xe8dcc4) },
       add: false,
     });
     label.setOrigin(0.5, 1);
     label.setResolution(TEXT_RESOLUTION);
     marker.add(label);
+
+    const hp = Math.max(0, Math.min(PLAYER_MAX_HEALTH, health));
+    const ratio = PLAYER_MAX_HEALTH <= 0 ? 0 : hp / PLAYER_MAX_HEALTH;
+    const barW = Math.max(16, Math.round(tile * 0.68));
+    const barH = Math.max(3, Math.round(tile * 0.09));
+    const bar = scene.add.graphics();
+    const bx = Math.round((tile - barW) / 2);
+    const by = Math.round(labelY + 3);
+    bar.fillStyle(0x0a0806, 0.75).fillRect(bx - 1, by - 1, barW + 2, barH + 2);
+    bar.fillStyle(dead ? 0x4a3826 : ratio > 0.5 ? 0x76c26a : ratio > 0.25 ? 0xf2c94c : 0xc75c52, 1).fillRect(bx, by, Math.max(0, Math.round(barW * ratio)), barH);
+    marker.add(bar);
 
     return { marker, sprite, frameKey };
   };

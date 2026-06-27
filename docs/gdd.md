@@ -119,7 +119,7 @@ Ambient **Hog** NPCs (the glossary's friendly hedgehogs) roam the zone on their 
 - A trogg (and a Hog) is a **layered sprite**: a base body plus composable overlay layers, drawn per facing (down/up/left/right) and per animation frame (idle/walk). Troggs and Hogs share the rig, so equipment renders the same on either.
 - **Held items** (torch, pick, axe, sword, shield) render as per-hand layers — a **main hand** and an **off hand**, so combinations like sword + shield work. Each hand has its own anchor point and z-order per direction/frame (e.g. the off-hand arm and its item sit behind the body when facing up, in front when facing down). A new holdable is a new item sprite, not a new character.
 - **Armor (later)** layers the same way over body slots (head, torso). The rig reserves the layer order now; armor sprites are added with the mechanic.
-- What's equipped rides the zone's player sync, so others see what you're holding. Pressing `F` uses the equipped main-hand item without stopping movement: a pickaxe mines a faced boulder into Stone, while sword and shovel currently show their synced use animation only. Held-item rendering is built extensibly from the first shipped tools.
+- What's equipped rides the zone's player sync, so others see what you're holding. Pressing `F` uses the equipped main-hand item without stopping movement: a pickaxe mines a faced boulder into Stone, a sword attacks a faced adjacent trogg, and a shovel currently shows its synced use animation only. Held-item rendering is built extensibly from the first shipped tools.
 - **Sprite avatars (`avatar-sprites`):** a trogg renders as the layered avatar sprite — programmer pixel art generated from `shared/sprites.ts` (per body style × 4 facings × idle/walk/run, troggs and Hogs sharing one rig), feet anchored at the centre of the tile (not its bottom edge, so a grid-locked trogg stands in the middle of its tile). The per-trogg colour rides as a sprite **tint**, so the same trogg is the same colour for everyone, every session; your own trogg gets a ground ring so you can pick it out. The committed sprite sheet asset (`assets/sprites/`) is the reviewable export; the client paints the same art into a texture at runtime.
 - **Placeholder marker (kill-switch fallback):** with `avatar-sprites` off, a trogg draws as a solid tile-filling marker in its colour (own trogg outlined) — the original placeholder, kept as the flag's fallback.
 - **Two appearance axes — style and colour.** A trogg's look is a **body style** (the sprite shape) plus a **colour tint** over it; the two are independent, so any style can wear any colour. Each is the value the trogg chose, or — until it chooses — a stable default derived from its durable id (a deterministic projection, like a level from XP; `STYLE_UNSET` / `COLOR_UNSET` = -1 are the unchosen sentinels). Both ride the zone player sync, so the sprite (and the trogg's chat-name colour) update everywhere they're shown.
@@ -189,6 +189,15 @@ New node types are added by extending this table — keep it the registry.
 - Items are defined in a static registry (id, name, stackable, blurb). Holdable/wearable items also carry their slot and sprite. No item randomization.
 - Equipping sets `player.equippedMainHand` and `player.equippedMainHandInventoryId` to an owned row (the item stays counted in inventory; equipment just references it). `0` unequips. See [Avatars and equipment](#avatars-and-equipment).
 
+### Combat
+
+Pre-alpha combat is deliberately small and tile-based. It is player-vs-player for now, because troggs are the only damageable characters in the world; future PvE defense events use the same slow, stat-driven grammar rather than twitch mechanics.
+
+- **Health:** each trogg has `PLAYER_MAX_HEALTH` (100 *(initial)*) health points. Health rides the `player` row, so everyone sees the same health bar and death state from server truth.
+- **Sword attacks:** pressing `F` with a sword equipped damages the online, living trogg on the faced adjacent tile by `SWORD_DAMAGE` (25 *(initial)*). The client passes its current facing, but the server re-derives the attacker's tile, projects candidate targets, excludes the attacker, and only applies damage to a target actually on that adjacent tile (invariant 3). There are no projectiles, hitboxes, physics, cursor aiming, or per-frame attack checks.
+- **Death:** when damage takes a trogg to zero health, the server marks it `dead`, stops its motion on its current tile, and leaves it online so other players can see it. Dead troggs cannot move, push, interact, spawn objects, or use equipment. If a dying trogg is carrying a tile-sized object, the server tries to drop it at the death tile so nothing is orphaned.
+- **Respawn:** pressing `R` while dead calls `respawn`, which returns the trogg to the zone spawn at full health and clears `dead`. Respawn is a reducer, not a timer.
+
 ### Crafting
 
 - Recipes: inputs → output, optional skill/level requirement, crafted at stations in the Hog town (e.g., torches, better picks).
@@ -206,7 +215,7 @@ New node types are added by extending this table — keep it the registry.
 
 ### Defense events
 
-- PvE only. Things come out of the dark; the tribe defends the Hogs. Event-based combat: scheduled waves, slow stat-driven resolution, click-to-engage. No projectiles, no physics, no real-time aiming — ever (invariant 7).
+- Things come out of the dark; the tribe defends the Hogs. Event-based PvE combat: scheduled waves, slow stat-driven resolution, click-to-engage. No projectiles, no physics, no real-time aiming — ever (invariant 7).
 
 ### AI inhabitants
 
@@ -219,7 +228,7 @@ One layer. **SpacetimeDB** is the durable store *and* the live feed: the tables 
 Dev mirrors prod: a local `spacetime start` instance runs the very module production runs — `just dev` publishes to it and regenerates the client bindings — so persistence is exercised the same way it runs in production. No Docker, no separate database to provision.
 
 ```text
-player         identity (PK), name, isGuest, zoneId, x, y, dirX, dirY, movedAt, online, lastChatAt, running, color, carrying, path, style, equippedMainHand, equipmentAction, equipmentActionAt, equippedMainHandInventoryId, faceX, faceY
+player         identity (PK), name, isGuest, zoneId, x, y, dirX, dirY, movedAt, online, lastChatAt, running, color, carrying, path, style, equippedMainHand, equipmentAction, equipmentActionAt, equippedMainHandInventoryId, faceX, faceY, health, dead
                keyed by the connection's Identity. motion derived from origin (x,y) + movedAt: WASD uses
                dirX/dirY (0,0 = idle); running (shift held) picks run speed over walk speed in projectMotion,
                so it rides the intent like direction; click-to-move stores `path` as serialized waypoint tiles
@@ -234,6 +243,7 @@ player         identity (PK), name, isGuest, zoneId, x, y, dirX, dirY, movedAt, 
                equippedMainHandInventoryId: the specific owned inventory row equipped (0 = none);
                equipmentAction/equipmentActionAt: last synced use impulse for animation. faceX/faceY:
                standing facing, separate from movement intent so idle turns sync without deriving position.
+               health/dead: combat state; dead troggs stay online but cannot act until `respawn`.
                Appended last (schema-migration order; see module source).
                index: by_zone (zoneId)
 zones          slug, name, width, height, tilemap (per-tile walkability + scenery), checkpoint (unlock tile, null if none)
@@ -314,7 +324,7 @@ projects       slug, zoneId, status, requirements, contributed
 4. Analytics events are low-volume and never contain chat content or PII beyond the player name (full rules in [analytics.md](analytics.md)).
 5. Feature flags are operational controls, not a blanket requirement. Add or configure one when a feature needs remote rollout, a kill-switch, an experiment, or live tuning; otherwise keep the code simple. Any flag key the code reads must be registered in [analytics.md](analytics.md) with its fallback behavior, and the matching PostHog flag must be created or updated in the configured project during the same task.
 6. The game is playable at the end of every session. No half-wired states on `main`.
-7. No PvP. No twitch combat: any PvE is event-based, stat-driven, and slow — no projectiles, physics, or real-time aiming. No procedural generation.
+7. No twitch combat: combat is tile-based, stat-driven, and slow — no projectiles, physics, real-time aiming, or per-frame attack checks. No procedural generation.
 8. No secrets in the repo — env vars only, `.env*` is gitignored. This repo is public.
 9. Glossary names are canonical across code, schema, events, and UI.
 10. No preemptive scaling work. Optimizations from the scaling answer key are built only when a dashboard graph justifies them. No instancing below ~1,000 concurrent in a zone.
@@ -325,7 +335,7 @@ Roadmap notes are planning context, not permission gates. Pick work by current p
 
 Current playable foundation: durable SpacetimeDB tables are the store, anonymous SpacetimeDB Identity gives each browser a persistent trogg, and optional SpacetimeAuth OIDC lets a guest claim an account with `startClaim`/`redeemClaim`, `rename`, `player_named`, and `posthog.identify()`. Identity is issued by the connection and reducers authorize by `ctx.sender`; it is never client-asserted. Multiple live sockets for the same account share one trogg and are tracked through private per-connection presence.
 
-Implemented world systems: a static shared `ZONES` registry, zone-scoped subscriptions, per-tile walkability, cardinal grid-locked WASD movement, boulder pushing, pick-up-and-carry interaction (`E`), starter tool pickups, inventory/equipment with `I`, equipped-item use with `F`, roaming Hogs, hold-shift-to-run, sprite avatars, trogg recolouring/restyling via Appearance (`P`), chat bubbles/history, a small synced ghost-trogg cosmetic (launch haunt + `/ghost`), `/spawn`, `/reset` (boulders and Hogs), a help panel listing the live controls and commands, and a pre-alpha Commands panel for stress-test spawn/reset/ghost tools. Some of these have optional client-side flag gates for remote rollout or kill-switch use; the current code-read flags are configured in PostHog and still have code fallbacks for local or unconfigured environments.
+Implemented world systems: a static shared `ZONES` registry, zone-scoped subscriptions, per-tile walkability, cardinal grid-locked WASD movement, boulder pushing, pick-up-and-carry interaction (`E`), starter tool pickups, inventory/equipment with `I`, equipped-item use with `F`, sword attacks, health/death/respawn, roaming Hogs, hold-shift-to-run, sprite avatars, trogg recolouring/restyling via Appearance (`P`), chat bubbles/history, a small synced ghost-trogg cosmetic (launch haunt + `/ghost`), `/spawn`, `/reset` (boulders and Hogs), a help panel listing the live controls and commands, and a pre-alpha Commands panel for stress-test spawn/reset/ghost tools. Some of these have optional client-side flag gates for remote rollout or kill-switch use; the current code-read flags are configured in PostHog and still have code fallbacks for local or unconfigured environments.
 
 Likely next work areas include starting-zone onboarding, click-to-move pathfinding around obstacles, gathering and XP, crafting, communal projects, Hog merchants, load events, LLM-driven Hogs, and optional PvE defense. These are intentionally fluid; implement the slice that best serves the current task.
 

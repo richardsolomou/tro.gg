@@ -166,7 +166,10 @@ export class WorldScene extends Phaser.Scene {
     if (this.useGhost) this.wireGhostHaunts();
 
     attachKeyboard(
-      (intent, immediate) => this.self.onIntent(intent, immediate),
+      (intent, immediate) => {
+        if (this.myId && this.tracked.get(this.myId)?.player.dead) return;
+        this.self.onIntent(intent, immediate);
+      },
       () => {
         // Interact with the faced tile (GDD "Interacting"): pick up / put down. The
         // server has no synced standing facing, so pass the trogg's current heading;
@@ -177,6 +180,9 @@ export class WorldScene extends Phaser.Scene {
       () => {
         conn.reducers.useEquipped({ dirX: this.self.facing.dirX, dirY: this.self.facing.dirY });
       },
+      () => {
+        conn.reducers.respawn({});
+      },
       this.canRun,
     );
 
@@ -184,6 +190,7 @@ export class WorldScene extends Phaser.Scene {
       const x = Math.floor(localX / this.tile);
       const y = Math.floor(localY / this.tile);
       if (x < 0 || y < 0 || x >= this.zone.width || y >= this.zone.height) return;
+      if (this.myId && this.tracked.get(this.myId)?.player.dead) return;
       this.self.onClick({ x, y });
     });
 
@@ -239,6 +246,7 @@ export class WorldScene extends Phaser.Scene {
       this.entities.animate(entry, now, motion);
 
       if (entry.player.identity.toHexString() !== this.myId) continue;
+      if (entry.player.dead) continue;
       this.self.update(entry, motion, now);
     }
   }
@@ -297,7 +305,16 @@ export class WorldScene extends Phaser.Scene {
     if (entry.bubbleTimer) clearTimeout(entry.bubbleTimer);
     entry.marker.destroy();
     entry.style = troggStyleFor(entry.player.style, id);
-    const built = this.entities.makeMarker(entry.player.name, troggColorFor(entry.player.color, id), entry.style, id === this.myId, entry.facing, this.useSprites);
+    const built = this.entities.makeMarker(
+      entry.player.name,
+      troggColorFor(entry.player.color, id),
+      entry.style,
+      id === this.myId,
+      entry.facing,
+      this.useSprites,
+      entry.player.health,
+      entry.player.dead,
+    );
     entry.marker = built.marker;
     entry.sprite = built.sprite;
     entry.frameKey = built.frameKey;
@@ -334,10 +351,10 @@ export class WorldScene extends Phaser.Scene {
         entry.baseMs = timestampBaseMs(p.movedAt);
       }
 
-      // The nameplate, tint, and body style are baked into the marker at build time, so
-      // a rename, recolour, or restyle only shows once the marker is rebuilt (which
-      // re-applies overlays). Bare carrying/equipment changes just retarget overlays.
-      if (_old.name !== p.name || _old.color !== p.color || _old.style !== p.style) this.rebuildMarker(id, entry);
+      // The nameplate, tint, body style, and health bar are baked into the marker at
+      // build time, so those changes rebuild it (which re-applies overlays). Bare
+      // carrying/equipment changes just retarget overlays.
+      if (_old.name !== p.name || _old.color !== p.color || _old.style !== p.style || _old.health !== p.health || _old.dead !== p.dead) this.rebuildMarker(id, entry);
       else if (_old.carrying !== p.carrying) this.entities.applyCarry(entry);
       if (_old.equippedMainHand !== p.equippedMainHand || _old.equippedMainHandInventoryId !== p.equippedMainHandInventoryId) this.entities.applyEquipment(entry);
 
@@ -356,7 +373,7 @@ export class WorldScene extends Phaser.Scene {
     const face = playerFacing(p);
     const facing = facingFromDir(face.dirX, face.dirY, "down");
     const style = troggStyleFor(p.style, id);
-    const { marker, sprite, frameKey } = this.entities.makeMarker(p.name, troggColorFor(p.color, id), style, id === this.myId, facing, this.useSprites);
+    const { marker, sprite, frameKey } = this.entities.makeMarker(p.name, troggColorFor(p.color, id), style, id === this.myId, facing, this.useSprites, p.health, p.dead);
     const entry: Tracked = { marker, sprite, player: p, baseMs: timestampBaseMs(p.movedAt), facing, style, frameKey, carriedKind: "", equippedKind: "" };
     const { x, y } = projectMotion(p, performance.now() - entry.baseMs, this.troggBounds);
     this.entities.place(marker, x, y);

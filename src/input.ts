@@ -36,13 +36,15 @@ const KEY_VECTORS: Record<string, Dir> = {
  * `onInteract` fires on the interact key (`E`) — a discrete press (auto-repeat ignored),
  * the generic action key the world layer uses to pick up / put down (GDD "Interacting").
  * `onUseEquipped` fires on `F`, a discrete use of the currently equipped main-hand
- * item (GDD "Avatars and equipment").
+ * item (GDD "Avatars and equipment"). `onRespawn` fires on `R`; the reducer is a
+ * no-op unless the trogg is dead.
  * Returns a teardown that detaches the listeners.
  */
 export function attachKeyboard(
   onIntent: (intent: MoveIntent, immediate?: boolean) => void,
   onInteract: () => void,
   onUseEquipped: () => void,
+  onRespawn: () => void,
   canRun: boolean,
 ): () => void {
   const held = new Set<string>();
@@ -84,6 +86,12 @@ export function attachKeyboard(
       if (e.repeat) return;
       e.preventDefault();
       onUseEquipped();
+      return;
+    }
+    if (e.code === "KeyR") {
+      if (e.repeat) return;
+      e.preventDefault();
+      onRespawn();
       return;
     }
     if (SHIFT_CODES.has(e.code)) {

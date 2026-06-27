@@ -27,6 +27,7 @@ import {
   isWalkable,
   MAX_BOULDERS_PER_ZONE,
   MAX_HOGS_PER_ZONE,
+  PLAYER_MAX_HEALTH,
   projectMotion,
   serializePath,
   snapToTile,
@@ -34,6 +35,7 @@ import {
   spawnTile,
   spawnTiles,
   STARTING_ZONE_SLUG,
+  SWORD_DAMAGE,
   type Stamp,
   tileKey,
   walkableCardinals,
@@ -70,7 +72,9 @@ import {
  * duplicate swords/picks are distinct in the HUD even though everyone else only
  * needs the item id to render the held sprite. `equipmentAction` +
  * `equipmentActionAt` are the last visible equipment use impulse, so every client
- * can briefly animate a swing or chop from synced player state.
+ * can briefly animate a swing or chop from synced player state. `health` and
+ * `dead` are the pre-alpha combat state: sword hits reduce health, and a dead
+ * trogg stays online but cannot move or act until it respawns.
  */
 const player = table(
   { name: "player", public: true },
@@ -114,6 +118,8 @@ const player = table(
     // fresh guests; movement reducers keep it in step with the current heading.
     faceX: t.i32().default(0),
     faceY: t.i32().default(1),
+    health: t.i32().default(PLAYER_MAX_HEALTH),
+    dead: t.bool().default(false),
   },
 );
 
@@ -367,6 +373,8 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
     equipmentAction: "",
     equipmentActionAt: Timestamp.UNIX_EPOCH,
     equippedMainHandInventoryId: 0n,
+    health: PLAYER_MAX_HEALTH,
+    dead: false,
   });
 });
 
@@ -439,6 +447,7 @@ export const onDisconnect = spacetimedb.clientDisconnected((ctx) => {
 export const move = spacetimedb.reducer({ dirX: t.i32(), dirY: t.i32(), running: t.bool() }, (ctx, { dirX, dirY, running }) => {
   const p = ctx.db.player.identity.find(ctx.sender);
   if (!p) return;
+  if (p.dead) return;
   const dir = cardinal(dirX, dirY);
   if (!dir) return;
   const settled = settle(ctx, p, ctx.timestamp);
@@ -465,6 +474,7 @@ export const move = spacetimedb.reducer({ dirX: t.i32(), dirY: t.i32(), running:
 export const face = spacetimedb.reducer({ dirX: t.i32(), dirY: t.i32() }, (ctx, { dirX, dirY }) => {
   const p = ctx.db.player.identity.find(ctx.sender);
   if (!p) return;
+  if (p.dead) return;
   const dir = cardinal(dirX, dirY);
   if (!dir || (dir.dirX === 0 && dir.dirY === 0)) return;
   const settled = settle(ctx, p, ctx.timestamp);
@@ -491,6 +501,7 @@ export const face = spacetimedb.reducer({ dirX: t.i32(), dirY: t.i32() }, (ctx, 
 export const moveTo = spacetimedb.reducer({ x: t.i32(), y: t.i32(), running: t.bool() }, (ctx, target) => {
   const p = ctx.db.player.identity.find(ctx.sender);
   if (!p) return;
+  if (p.dead) return;
   const zone = getZone(p.zoneId);
   if (!zone) return;
 
@@ -527,6 +538,7 @@ export const moveTo = spacetimedb.reducer({ x: t.i32(), y: t.i32(), running: t.b
 export const push = spacetimedb.reducer((ctx) => {
   const p = ctx.db.player.identity.find(ctx.sender);
   if (!p) return;
+  if (p.dead) return;
   const zone = getZone(p.zoneId);
   if (!zone) return;
 
@@ -562,6 +574,7 @@ export const push = spacetimedb.reducer((ctx) => {
 export const interact = spacetimedb.reducer({ dirX: t.i32(), dirY: t.i32() }, (ctx, { dirX, dirY }) => {
   const p = ctx.db.player.identity.find(ctx.sender);
   if (!p) return;
+  if (p.dead) return;
   const zone = getZone(p.zoneId);
   if (!zone) return;
 
@@ -701,6 +714,7 @@ export const spawn = spacetimedb.reducer({ kind: t.string(), count: t.i32() }, (
 
   const p = ctx.db.player.identity.find(ctx.sender);
   if (!p) return;
+  if (p.dead) return;
   const zone = getZone(p.zoneId);
   if (!zone) return;
 
@@ -895,12 +909,13 @@ export const equipItem = spacetimedb.reducer({ inventoryId: t.u64() }, (ctx, { i
  * Use the equipped main-hand item (GDD "Avatars and equipment"). The row update
  * is a visible, low-volume impulse every client can animate. It preserves the
  * current movement intent — using a tool never turns into a stop. Pickaxes also
- * mine the faced boulder into one Stone inventory item; sword and shovel
- * currently have no world effect beyond the synced use animation.
+ * mine the faced boulder into one Stone inventory item. Swords damage the faced
+ * adjacent online trogg; at zero health the target dies and can respawn.
  */
 export const useEquipped = spacetimedb.reducer({ dirX: t.i32(), dirY: t.i32() }, (ctx, { dirX, dirY }) => {
   const p = ctx.db.player.identity.find(ctx.sender);
   if (!p) return;
+  if (p.dead) return;
   const equipped = equippedInventoryRow(ctx, p);
   if (!equipped) return;
   const dir = cardinal(dirX, dirY);
@@ -917,6 +932,11 @@ export const useEquipped = spacetimedb.reducer({ dirX: t.i32(), dirY: t.i32() },
     if (b) {
       if (addInventory(ctx, p.identity, "stone", 1)) ctx.db.boulder.id.delete(b.id);
     }
+  } else if (equipped.item === "sword") {
+    const ax = Math.round(pos.x) + dir.dirX;
+    const ay = Math.round(pos.y) + dir.dirY;
+    const target = playerAt(ctx, p.zoneId, ax, ay, ctx.timestamp, p.identity);
+    if (target) damagePlayer(ctx, target, SWORD_DAMAGE);
   }
 
   ctx.db.player.identity.update({
@@ -925,6 +945,27 @@ export const useEquipped = spacetimedb.reducer({ dirX: t.i32(), dirY: t.i32() },
     equippedMainHandInventoryId: equipped.id,
     equipmentAction: equipped.item,
     equipmentActionAt: ctx.timestamp,
+  });
+});
+
+/** Respawn a dead trogg at its zone spawn with full health. */
+export const respawn = spacetimedb.reducer((ctx) => {
+  const p = ctx.db.player.identity.find(ctx.sender);
+  if (!p || !p.dead) return;
+  const zone = getZone(p.zoneId);
+  if (!zone) return;
+  const at = spawnAt(zone);
+  ctx.db.player.identity.update({
+    ...p,
+    x: at.x,
+    y: at.y,
+    dirX: 0,
+    dirY: 0,
+    running: false,
+    path: "",
+    health: PLAYER_MAX_HEALTH,
+    dead: false,
+    movedAt: ctx.timestamp,
   });
 });
 
@@ -1297,6 +1338,58 @@ function hogAt(ctx: Ctx, zoneId: string, x: number, y: number, now: Stamp) {
     if (Math.round(pos.x) === x && Math.round(pos.y) === y) return h;
   }
   return undefined;
+}
+
+/**
+ * The online, living trogg currently on a tile in a zone, or undefined. Troggs do
+ * not collide with each other, but sword attacks need a server-authoritative target
+ * under the faced adjacent tile. Project each candidate at `now` with the same
+ * bounds a trogg uses for movement, then round to its rendered tile.
+ */
+function playerAt(ctx: Ctx, zoneId: string, x: number, y: number, now: Stamp, exclude?: Ctx["sender"]) {
+  const zone = getZone(zoneId);
+  if (!zone) return undefined;
+  const blockers = troggBlockers(ctx, zoneId, now);
+  const bounds = zoneBounds(zone, (tx, ty) => blockers.has(tileKey(tx, ty)));
+  for (const p of ctx.db.player.zoneId.filter(zoneId)) {
+    if (!p.online || p.dead) continue;
+    if (exclude && p.identity.isEqual(exclude)) continue;
+    const pos = projectMotion(p, elapsedMs(p.movedAt, now), bounds);
+    if (Math.round(pos.x) === x && Math.round(pos.y) === y) return p;
+  }
+  return undefined;
+}
+
+/** Apply weapon damage to a trogg; zero health kills and stops it on its current tile. */
+function damagePlayer(ctx: Ctx, target: NonNullable<ReturnType<typeof playerAt>>, amount: number): void {
+  const health = Math.max(0, target.health - amount);
+  if (health > 0) {
+    ctx.db.player.identity.update({ ...target, health });
+    return;
+  }
+
+  const settled = settle(ctx, target, ctx.timestamp);
+  let carrying = target.carrying;
+  if (carrying !== "") {
+    const zone = getZone(target.zoneId);
+    const occupied = solidTiles(ctx, target.zoneId, ctx.timestamp, target.identity);
+    const face = facingDir(target);
+    if (zone && placeCarried(ctx, zone, carrying, occupied, settled.x, settled.y, face.dirX, face.dirY)) carrying = "";
+  }
+
+  ctx.db.player.identity.update({
+    ...target,
+    x: settled.x,
+    y: settled.y,
+    dirX: 0,
+    dirY: 0,
+    running: false,
+    path: "",
+    carrying,
+    health: 0,
+    dead: true,
+    movedAt: ctx.timestamp,
+  });
 }
 
 /** Adjacent pickup candidates, with the faced tile first when the client has a heading. */

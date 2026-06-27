@@ -122,6 +122,8 @@ export function playerRow(identity: Id, over: Record<string, unknown> = {}) {
     equipmentAction: "",
     equipmentActionAt: { microsSinceUnixEpoch: 0n },
     style: -1,
+    health: 100,
+    dead: false,
     online: true,
     isGuest: true,
     movedAt: { microsSinceUnixEpoch: 0n },
