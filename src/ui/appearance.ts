@@ -12,6 +12,7 @@ import type { DbConnection } from "../net/module_bindings";
 import { captureEvent, isFeatureEnabled } from "../analytics.js";
 import { cssColor } from "../ui_text.js";
 import { hudLeft } from "./hud.js";
+import { registerKeybind } from "./keybinds.js";
 
 /** Human label for a trogg style id (GDD "Avatars"); the id is the sprite key. */
 const STYLE_LABELS: Record<string, string> = { moss: "Moss", stone: "Stone", ridge: "Ridge" };
@@ -36,20 +37,27 @@ export function mountAppearance(conn: DbConnection): void {
 
   const toggle = document.createElement("button");
   toggle.type = "button";
-  toggle.className = "help-toggle";
-  toggle.textContent = "✦ Appearance";
+  toggle.className = "hud-icon-button appearance-toggle";
+  toggle.setAttribute("aria-label", "Appearance");
+  toggle.setAttribute("aria-keyshortcuts", "P");
+  toggle.title = "Appearance (P)";
+  toggle.appendChild(appearanceIcon());
 
   const body = document.createElement("div");
   body.className = "help-body appearance-body";
   body.hidden = true;
-  toggle.addEventListener("click", () => {
-    const opening = body.hidden;
-    body.hidden = !opening;
+  const setOpen = (open: boolean) => {
+    const opening = open && body.hidden;
+    body.hidden = !open;
+    toggle.setAttribute("aria-expanded", String(!body.hidden));
     if (opening) window.dispatchEvent(new CustomEvent("hud-menu-open", { detail: "appearance" }));
-  });
+  };
+  const toggleOpen = () => setOpen(body.hidden === true);
+  toggle.addEventListener("click", toggleOpen);
+  registerKeybind({ id: "hud-appearance", matches: (event) => event.code === "KeyP", handler: toggleOpen });
   // Accordion: opening any left-bar menu closes the others, so two drop-downs never overlap.
   window.addEventListener("hud-menu-open", ((event: Event) => {
-    if ((event as CustomEvent<string>).detail !== "appearance") body.hidden = true;
+    if ((event as CustomEvent<string>).detail !== "appearance") setOpen(false);
   }) as EventListener);
 
   const status = document.createElement("div");
@@ -167,4 +175,27 @@ function section(title: string, control: HTMLElement): HTMLDivElement {
   label.textContent = title;
   block.append(label, control);
   return block;
+}
+
+function svg(width: number, height: number): SVGSVGElement {
+  const node = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  node.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  node.setAttribute("aria-hidden", "true");
+  node.setAttribute("focusable", "false");
+  return node;
+}
+
+function el(name: string, attrs: Record<string, string | number>): SVGElement {
+  const node = document.createElementNS("http://www.w3.org/2000/svg", name);
+  for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, String(value));
+  return node;
+}
+
+function appearanceIcon(): SVGSVGElement {
+  const icon = svg(24, 24);
+  icon.append(
+    el("path", { d: "M12 4l2.1 4.9L19 11l-4.9 2.1L12 18l-2.1-4.9L5 11l4.9-2.1L12 4Z", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linejoin": "round" }),
+    el("path", { d: "M18 4l.8 1.9L21 7l-2.2 1.1L18 10l-.8-1.9L15 7l2.2-1.1L18 4Z", fill: "currentColor" }),
+  );
+  return icon;
 }

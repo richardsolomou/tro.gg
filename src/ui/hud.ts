@@ -18,7 +18,7 @@ export function hudRoot(): HTMLDivElement {
 }
 
 /**
- * The top-left bar the toggle menus (Help, Commands, Appearance) share: their
+ * The top-left bar the toggle menus (Help, Appearance, Inventory, Commands) share: their
  * toggles sit side by side, and each menu's body drops *below* the bar (absolutely
  * placed), so opening one never shoves another toggle. Only one body is open at a
  * time — each menu listens for the `hud-menu-open` window event and closes when
@@ -32,4 +32,8 @@ export function hudLeft(): HTMLDivElement {
     hudRoot().appendChild(left);
   }
   return left;
+}
+
+export function closeHudMenus(): void {
+  window.dispatchEvent(new CustomEvent("hud-menu-open", { detail: "close" }));
 }
