@@ -34,10 +34,22 @@ export type FrameName = "idle" | "walk_a" | "walk_b" | "run_a" | "run_b";
  * (the unchosen / id-derived fallback resolves through it).
  */
 export const TROGG_STYLES = ["moss", "stone", "ridge"] as const;
-export const HOG_STYLES = ["classic", "snow", "ember"] as const;
+/** Every hog style painted into the sheet. The common three fill the random roaming
+ *  crowd; the big two (buff, dino) are placed showpieces that span a 2×2 footprint
+ *  and render at double size; the chicken is an easter egg, summoned, never random. */
+export const HOG_STYLES = ["classic", "snow", "ember", "buff", "dino", "chicken"] as const;
+/** The small hogs that fill the id-derived random crowd (see `hogStyleFor`). */
+export const COMMON_HOG_STYLES = ["classic", "snow", "ember"] as const;
+/** Hogs that occupy a 2×2 tile footprint and render at double size (GDD "Hogs"). */
+export const BIG_HOG_STYLES = ["buff", "dino"] as const;
 export type TroggStyle = (typeof TROGG_STYLES)[number];
 export type HogStyle = (typeof HOG_STYLES)[number];
 export type Style = TroggStyle | HogStyle;
+
+/** A hog style's tile-footprint span: 2 for the big showpieces, 1 for the rest. */
+export function hogSize(style: string): number {
+  return (BIG_HOG_STYLES as readonly string[]).includes(style) ? 2 : 1;
+}
 
 /** The styles a kind offers, default first. */
 export function stylesOf(kind: Kind): readonly string[] {
@@ -286,7 +298,16 @@ function paintFrame(sink: PixelSink, kind: Kind, style: string, facing: Facing, 
   // left is the mirror of right, so author both profiles as "side".
   const view = facing === "left" || facing === "right" ? "side" : facing;
   if (kind === "trogg") troggDraw(p, view, frame, TROGG_SKINS[style] ?? TROGG_SKINS.moss!);
-  else hogDraw(p, view, frame, HOG_SKINS[style] ?? HOG_SKINS.classic!);
+  else hogPaint(p, view, frame, style);
+}
+
+/** Dispatch a hog frame: the bespoke showpieces have their own shapes; the common
+ *  styles share one body painted with their palette. */
+function hogPaint(p: PixelSink, view: View, frame: FrameName, style: string): void {
+  if (style === "buff") return buffDraw(p, view, frame);
+  if (style === "dino") return dinoDraw(p, view, frame);
+  if (style === "chicken") return chickenDraw(p, view, frame);
+  hogDraw(p, view, frame, HOG_SKINS[style] ?? HOG_SKINS.classic!);
 }
 
 type View = "down" | "up" | "side";
@@ -451,6 +472,174 @@ const hogDraw = (p: PixelSink, view: View, frame: FrameName, h: HogSkin): void =
   // snout + nose
   blob(p, 7.5, 16 + b, 1.8, 1.6, h.faceLt, h.out);
   dot(p, 7, 16 + b, h.nose); dot(p, 8, 16 + b, h.nose);
+};
+
+// ── buff hog ────────────────────────────────────────────────────────────────────
+// A swole hedgehog throwing a double-biceps flex (GDD "Hogs": big showpiece, 2×2).
+// Authored at the shared 16×24 and rendered at double size, so it reads huge.
+
+const BUFF = {
+  out: 0x2a1d10,
+  skin: 0xcaa06a, // tan muscle
+  skinLt: 0xe3c089,
+  skinDk: 0x9c7038,
+  face: 0xf2e4c2,
+  quill: 0x6e5334,
+  quillDk: 0x40301c,
+  eye: 0x1c140c,
+} as const;
+
+const buffDraw = (p: PixelSink, view: View, frame: FrameName): void => {
+  const c = BUFF;
+  const b = bodyBob(frame);
+  groundShadow(p);
+  feet(p, frame, c.skinDk, c.out, 20, 5.5, 9.5);
+  // thick thighs
+  blob(p, 6, 17 + b, 1.7, 2, c.skin, c.out);
+  blob(p, 9, 17 + b, 1.7, 2, c.skin, c.out);
+
+  if (view === "up") {
+    // broad back: lats taper to the waist, quill ridge down the spine, raised arms
+    blob(p, 7.5, 12 + b, 5.4, 4, c.skin, c.out);
+    rect(p, 7, 9 + b, 2, 5, c.skinDk);
+    blob(p, 2.6, 8 + b, 1.7, 2.4, c.skin, c.out); // raised arms
+    blob(p, 12.4, 8 + b, 1.7, 2.4, c.skin, c.out);
+    quillDome(p, 7.5, 7 + b, 2.4, 1.8, HOG_SKINS.classic!);
+    return;
+  }
+
+  const side = view === "side";
+  // barrel chest + pecs
+  blob(p, 7.5, 13 + b, side ? 4.6 : 5.2, 3.8, c.skin, c.out);
+  disc(p, 5.6, 12 + b, 1.7, 1.5, c.skinLt);
+  disc(p, 9.4, 12 + b, 1.7, 1.5, c.skinLt);
+  dot(p, 7.5, 14 + b, c.skinDk); dot(p, 7.5, 15 + b, c.skinDk); // ab seam
+
+  // raised arms, fists up by the head — the flex
+  for (const s of [-1, 1]) {
+    const sx = 7.5 + s * 4;
+    blob(p, sx, 10 + b, 1.9, 2.1, c.skin, c.out); // bicep ball
+    blob(p, sx - s * 1.2, 7.5 + b, 1.3, 1.6, c.skinLt, c.out); // forearm/fist toward head
+  }
+
+  // small head with quill hair + hedgehog face between the arms
+  quillDome(p, 7.5, 5.5 + b, 2.7, 2.1, HOG_SKINS.classic!);
+  disc(p, 7.5, 7.5 + b, 2.1, 1.8, c.face);
+  dot(p, 6.6, 7.4 + b, c.eye); dot(p, 8.4, 7.4 + b, c.eye);
+  dot(p, 7.5, 8.4 + b, c.out); // determined mouth
+};
+
+// ── dino hog ────────────────────────────────────────────────────────────────────
+// A hedgehog in a T-rex costume — green body, toothy hood, the hog face in the maw
+// (GDD "Hogs": big showpiece, 2×2). Like buff, authored at 16×24 and rendered double.
+
+const DINO = {
+  out: 0x223315,
+  body: 0x6fa84a,
+  bodyLt: 0x8cc25e,
+  bodyDk: 0x4e7d33,
+  belly: 0xb6d188,
+  face: 0xf2e4c2,
+  tooth: 0xf3eedf,
+  eye: 0x1c140c,
+} as const;
+
+/** Sawtooth dino ridge along an arc — the costume's spiky back. */
+function dinoRidge(p: PixelSink, cx: number, top: number, span: number, dk: number): void {
+  for (let x = cx - span; x <= cx + span; x += 2) dot(p, x, top - 1, dk);
+}
+
+const dinoDraw = (p: PixelSink, view: View, frame: FrameName): void => {
+  const c = DINO;
+  const b = bodyBob(frame);
+  groundShadow(p);
+  feet(p, frame, c.bodyDk, c.out, 20, 5, 10);
+
+  if (view === "up") {
+    blob(p, 7.5, 13 + b, 5.4, 4.4, c.body, c.out);
+    rect(p, 7, 9 + b, 2, 6, c.bodyDk); // spine
+    dinoRidge(p, 7.5, 9 + b, 4, c.bodyDk);
+    blob(p, 2.4, 16 + b, 1.6, 1.2, c.bodyDk, c.out); // tail stub
+    return;
+  }
+
+  if (view === "side") {
+    // tail left, big jaw right, the classic T-rex profile
+    blob(p, 2.4, 15 + b, 2.4, 1.4, c.body, c.out); // tail
+    blob(p, 7.5, 13 + b, 4.4, 3.8, c.body, c.out); // body
+    disc(p, 8, 14.5 + b, 2.6, 2.2, c.belly);
+    blob(p, 4, 12 + b, 1, 1.4, c.bodyDk, c.out); // little arm
+    dinoRidge(p, 6.5, 9 + b, 3, c.bodyDk);
+    // head + open jaw to the right
+    blob(p, 11.5, 11 + b, 2.8, 2.4, c.body, c.out);
+    rect(p, 10, 11 + b, 5, 1, c.out); // mouth gap
+    for (let x = 10; x <= 14; x += 2) { dot(p, x, 10 + b, c.tooth); dot(p, x + 1, 12 + b, c.tooth); }
+    disc(p, 11.5, 11.6 + b, 1.1, 1, c.face); // hog face in the maw
+    dot(p, 12, 11.4 + b, c.eye);
+    dot(p, 12.6, 8.6 + b, c.eye); // dino eye on the snout
+    return;
+  }
+
+  // down: facing camera — toothy green hood, hog face peeking from the jaw
+  blob(p, 7.5, 14 + b, 5.4, 4.2, c.body, c.out);
+  disc(p, 7.5, 15 + b, 3, 2.6, c.belly);
+  blob(p, 3.4, 13 + b, 1, 1.4, c.bodyDk, c.out); // arms
+  blob(p, 11.6, 13 + b, 1, 1.4, c.bodyDk, c.out);
+  // hood + eyes up top
+  blob(p, 7.5, 8 + b, 4.2, 3.2, c.body, c.out);
+  dinoRidge(p, 7.5, 5.5 + b, 3, c.bodyDk);
+  dot(p, 5.6, 6.6 + b, c.eye); dot(p, 9.4, 6.6 + b, c.eye);
+  // open mouth with teeth, hog face inside
+  rect(p, 5, 9 + b, 6, 1, c.out);
+  for (let x = 5; x <= 10; x += 2) dot(p, x, 8 + b, c.tooth);
+  disc(p, 7.5, 10.5 + b, 2, 1.7, c.face);
+  dot(p, 6.7, 10.4 + b, c.eye); dot(p, 8.3, 10.4 + b, c.eye);
+  dot(p, 7.5, 11.4 + b, c.out);
+};
+
+// ── chicken hog (easter egg) ─────────────────────────────────────────────────────
+// A hedgehog in a chicken costume — cream body, red comb, the hog face under a beak
+// (GDD "Hogs": easter egg, normal 1×1 size). Authored, summoned, never in the crowd.
+
+const CHICK = {
+  out: 0x2a2018,
+  body: 0xf0e9da,
+  bodyDk: 0xd8cfbc,
+  comb: 0xc0392b,
+  beak: 0xe08a2b,
+  face: 0xf2e4c2,
+  eye: 0x1c140c,
+} as const;
+
+const chickenDraw = (p: PixelSink, view: View, frame: FrameName): void => {
+  const c = CHICK;
+  const b = bodyBob(frame);
+  groundShadow(p);
+  // orange feet
+  blob(p, 6.5, 20, 1, 0.9, c.beak, c.out);
+  blob(p, 9, 20, 1, 0.9, c.beak, c.out);
+
+  if (view === "up") {
+    blob(p, 7.5, 13 + b, 5, 4.4, c.body, c.out);
+    blob(p, 4, 17 + b, 1.6, 1.4, c.comb, c.out); // tail feathers
+    dot(p, 7, 5 + b, c.comb); dot(p, 7.5, 4.5 + b, c.comb); dot(p, 8, 5 + b, c.comb);
+    return;
+  }
+
+  // plump round body + stubby wings
+  blob(p, 7.5, 14 + b, 5, 4.2, c.body, c.out);
+  disc(p, 7.5, 15 + b, 3, 2.6, c.bodyDk);
+  blob(p, 3.4, 13.5 + b, 1.3, 1.8, c.body, c.out);
+  blob(p, 11.6, 13.5 + b, 1.3, 1.8, c.body, c.out);
+  // red tail feathers (one side)
+  blob(p, 3, 12 + b, 1.2, 1.4, c.comb, c.out);
+  // comb on top
+  dot(p, 6.6, 5 + b, c.comb); dot(p, 7.5, 4.4 + b, c.comb); dot(p, 8.4, 5 + b, c.comb);
+  // hog face under a beak
+  disc(p, 7.5, 9.5 + b, 2.3, 2, c.face);
+  dot(p, 6.5, 9.3 + b, c.eye); dot(p, 8.5, 9.3 + b, c.eye);
+  rect(p, 7, 10.6 + b, 2, 1, c.beak); // beak
+  if (view === "side") dot(p, 10, 9.3 + b, c.eye); // profile eye nudge
 };
 
 // ── ghost ──────────────────────────────────────────────────────────────────────
