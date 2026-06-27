@@ -59,6 +59,15 @@ function withMotion(p: Player, motion: MotionSnapshot): Player {
   return { ...p, x: motion.x, y: motion.y, dirX: motion.dirX, dirY: motion.dirY, running: motion.running, path: motion.path };
 }
 
+function withFacing(p: Player, intent: MoveIntent): Player {
+  if (isIdle(intent)) return p;
+  return { ...p, faceX: intent.dirX, faceY: intent.dirY };
+}
+
+function playerFacing(p: Pick<Player, "faceX" | "faceY">): MoveIntent {
+  return { dirX: p.faceX, dirY: p.faceY, running: false };
+}
+
 /**
  * Has the trogg reached a tile centre on the axis it's moving along, since the last
  * frame? True when it lands on one (within float slack — also covers a trogg parked
@@ -182,6 +191,13 @@ export function createSelfController(deps: SelfControllerDeps) {
     showDestination(tile);
   };
 
+  const syncFacingFromSelfRow = () => {
+    const self = getSelf();
+    if (!self || pendingSelfMoves.length > 0) return;
+    const synced = playerFacing(self.player);
+    if (!isIdle(synced)) facing = synced;
+  };
+
   const sendMove = (entry: Tracked, intent: MoveIntent, x: number, y: number, now: number) => {
     const origin = snapToTile({ x, y });
     const motion: MotionSnapshot = { ...intent, x: origin.x, y: origin.y, path: "" };
@@ -196,10 +212,24 @@ export function createSelfController(deps: SelfControllerDeps) {
     lastRebaseTile = tileKey(origin.x, origin.y);
     if (!isIdle(intent)) {
       facing = intent;
+      entry.player = withFacing(entry.player, intent);
       entry.facing = facingFromDir(intent.dirX, intent.dirY, entry.facing);
       if (wasIdle) audio.playFootstep(intent.running);
     }
     conn.reducers.move(intent);
+  };
+
+  const sendFace = (entry: Tracked, intent: MoveIntent, x: number, y: number, now: number) => {
+    if (isIdle(intent) || sameIntent(intent, facing)) return;
+    const origin = snapToTile({ x, y });
+    facing = intent;
+    entry.player = withFacing(withMotion(entry.player, { x: origin.x, y: origin.y, dirX: 0, dirY: 0, running: false, path: "" }), intent);
+    entry.baseMs = now;
+    sent = { dirX: 0, dirY: 0, running: false };
+    prevX = Number.NaN;
+    prevY = Number.NaN;
+    entry.facing = facingFromDir(intent.dirX, intent.dirY, entry.facing);
+    conn.reducers.face({ dirX: intent.dirX, dirY: intent.dirY });
   };
 
   const playFootstepAtCentre = (x: number, y: number, intent: MoveIntent) => {
@@ -235,9 +265,8 @@ export function createSelfController(deps: SelfControllerDeps) {
     pushBlocked = intoBoulder;
   };
 
-  const turn = (entry: Tracked, now: number) => {
-    facing = desired;
-    entry.facing = facingFromDir(desired.dirX, desired.dirY, entry.facing);
+  const turn = (entry: Tracked, x: number, y: number, now: number) => {
+    sendFace(entry, desired, x, y, now);
     walkAfter = now + TURN_TAP_MS;
   };
 
@@ -309,15 +338,14 @@ export function createSelfController(deps: SelfControllerDeps) {
       // Want to go, but a Hog is flush ahead. Wait facing it — no stale walking intent to
       // overshoot — and keep `walkAfter` in the past so the frame it clears we walk at
       // once (no turn-in-place beat: we were already committed to this direction).
-      facing = desired;
-      entry.facing = facingFromDir(desired.dirX, desired.dirY, entry.facing);
+      sendFace(entry, desired, x, y, now);
       walkAfter = now;
       return;
     }
     if (fresh) {
       // Press the way we already face → walk at once; a new direction → turn in place.
       if (sameIntent(desired, facing)) sendMove(entry, desired, x, y, now);
-      else turn(entry, now);
+      else turn(entry, x, y, now);
       return;
     }
     // Holding the faced direction past the turn beat → start walking.
@@ -433,12 +461,14 @@ export function createSelfController(deps: SelfControllerDeps) {
       prevY = Number.NaN;
       pushBlocked = false;
     }
+    if (p.faceX !== 0 || p.faceY !== 0) facing = playerFacing(p);
     syncDestinationFromPath(p.path);
   };
 
   /** Handle a keyboard intent (a direction or idle). `immediate` (focus loss) stops the
    *  trogg now rather than at the next centre, since a backgrounded tab can't animate it. */
   const onIntent = (intent: MoveIntent, immediate = false) => {
+    syncFacingFromSelfRow();
     desired = intent;
     destinationPath = "";
     // A keypress takes over from click-to-move: drop any click waiting for a centre.

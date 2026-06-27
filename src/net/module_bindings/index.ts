@@ -36,6 +36,7 @@ import {
 // Import all reducer arg schemas
 import ChatReducer from "./chat_reducer";
 import EquipItemReducer from "./equip_item_reducer";
+import FaceReducer from "./face_reducer";
 import HauntGhostReducer from "./haunt_ghost_reducer";
 import InteractReducer from "./interact_reducer";
 import MoveReducer from "./move_reducer";
@@ -170,6 +171,7 @@ const tablesSchema = __schema({
 const reducersSchema = __reducers(
   __reducerSchema("chat", ChatReducer),
   __reducerSchema("equip_item", EquipItemReducer),
+  __reducerSchema("face", FaceReducer),
   __reducerSchema("haunt_ghost", HauntGhostReducer),
   __reducerSchema("interact", InteractReducer),
   __reducerSchema("move", MoveReducer),

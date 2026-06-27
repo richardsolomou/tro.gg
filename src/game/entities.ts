@@ -162,10 +162,13 @@ export function createEntities(scene: Phaser.Scene, getTile: () => number) {
     return { marker, sprite, frameKey };
   };
 
-  /** Drive a trogg's facing and walk cycle from its synced motion intent. No-op
-   *  for the placeholder marker (no sprite to swap). */
+  /** Drive a trogg's facing and walk cycle from synced motion plus standing facing.
+   *  No-op for the placeholder marker (no sprite to swap). */
   const animate = (entry: Tracked, now: number, motion: ProjectedMotion) => {
-    if (entry.sprite) driveSprite(entry.sprite, "trogg", entry.style, motion.dirX, motion.dirY, entry.player.running, entry, now);
+    const moving = motion.dirX !== 0 || motion.dirY !== 0;
+    const faceX = moving ? motion.dirX : entry.player.faceX;
+    const faceY = moving ? motion.dirY : entry.player.faceY;
+    if (entry.sprite) driveSprite(entry.sprite, "trogg", entry.style, faceX, faceY, entry.player.running, entry, now, moving);
     applyEquipment(entry);
     animateEquipment(entry);
   };
@@ -185,8 +188,8 @@ export function createEntities(scene: Phaser.Scene, getTile: () => number) {
     running: boolean,
     state: { facing: Facing; frameKey: string },
     now: number,
+    moving = dirX !== 0 || dirY !== 0,
   ) => {
-    const moving = dirX !== 0 || dirY !== 0;
     state.facing = facingFromDir(dirX, dirY, state.facing);
     const frame = avatarFrame(moving, running, now);
     const key = `${state.facing}_${frame}`;

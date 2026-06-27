@@ -55,8 +55,10 @@ import {
  * visitor who reconnects with the same stored token resumes the same trogg.
  * Motion is intent-based (invariants 1 & 2): the row holds an origin (x, y), a
  * WASD direction, `running`, and `movedAt`; position over time is derived, and
- * settled back into (x, y) on the next input or on disconnect. `running` (shift
- * held) rides the intent so every client derives the same speed (GDD "Movement").
+ * settled back into (x, y) on the next input or on disconnect. `faceX`/`faceY`
+ * carry the standing facing separately from movement intent, so a tap-to-turn
+ * syncs to other clients without pretending the trogg is walking. `running`
+ * (shift held) rides the intent so every client derives the same speed (GDD "Movement").
  * `color` is the chosen avatar palette index (GDD "Avatars"), set by `recolor`; it
  * defaults to `COLOR_UNSET` (-1) so an unchosen trogg falls back to its id-derived
  * colour. `carrying` is the kind of tile-sized entity the trogg holds (GDD
@@ -101,12 +103,16 @@ const player = table(
     path: t.string().default(""),
     // Chosen avatar body style — an index into `TROGG_STYLES` (GDD "Avatars"), set by
     // `restyle`. Defaults to `STYLE_UNSET` (-1) so an unchosen trogg falls back to its
-    // id-derived style, the mirror of `color`. Appended last per the migration note above.
+    // id-derived style, the mirror of `color`.
     style: t.i32().default(STYLE_UNSET),
     equippedMainHand: t.string().default(""),
     equipmentAction: t.string().default(""),
     equipmentActionAt: t.timestamp().default(Timestamp.UNIX_EPOCH),
     equippedMainHandInventoryId: t.u64().default(0n),
+    // Standing facing, independent of motion. Defaults to down for existing rows and
+    // fresh guests; movement reducers keep it in step with the current heading.
+    faceX: t.i32().default(0),
+    faceY: t.i32().default(1),
   },
 );
 
@@ -329,6 +335,8 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
     carrying: "",
     path: "",
     style: STYLE_UNSET,
+    faceX: 0,
+    faceY: 1,
     equippedMainHand: "",
     equipmentAction: "",
     equipmentActionAt: Timestamp.UNIX_EPOCH,
@@ -382,7 +390,8 @@ export const onDisconnect = spacetimedb.clientDisconnected((ctx) => {
   if (carrying !== "") {
     const zone = getZone(p.zoneId);
     const occupied = solidTiles(ctx, p.zoneId, ctx.timestamp, p.identity);
-    if (zone && placeCarried(ctx, zone, carrying, occupied, settled.x, settled.y, p.dirX, p.dirY)) carrying = "";
+    const face = facingDir(p);
+    if (zone && placeCarried(ctx, zone, carrying, occupied, settled.x, settled.y, face.dirX, face.dirY)) carrying = "";
   }
   ctx.db.player.identity.update({ ...p, x: settled.x, y: settled.y, dirX: 0, dirY: 0, running: false, path: "", online: false, carrying });
 });
@@ -393,7 +402,9 @@ export const onDisconnect = spacetimedb.clientDisconnected((ctx) => {
  * to where the trogg is now (so elapsed travel under the old direction — and the
  * old speed — isn't lost or replayed), then store the new direction, `running`,
  * and timestamp. `running` (shift held) rides the intent so all clients derive the
- * same faster speed (GDD "Movement"). Position is never ticked (invariant 1). A
+ * same faster speed (GDD "Movement"). Non-idle movement also updates the synced
+ * standing facing, so stopping preserves the heading other clients just saw.
+ * Position is never ticked (invariant 1). A
  * diagonal intent is rejected, not coerced (invariant 3 — never trust the client):
  * the trogg holds its prior motion.
  */
@@ -411,6 +422,34 @@ export const move = spacetimedb.reducer({ dirX: t.i32(), dirY: t.i32(), running:
     dirY: dir.dirY,
     running,
     path: "",
+    faceX: dir.dirX === 0 && dir.dirY === 0 ? p.faceX : dir.dirX,
+    faceY: dir.dirX === 0 && dir.dirY === 0 ? p.faceY : dir.dirY,
+    movedAt: ctx.timestamp,
+  });
+});
+
+/**
+ * A standing turn (GDD "Movement" tap-to-turn). Facing is input-driven like movement:
+ * the client sends it only on a direction transition, never per frame. The reducer
+ * settles and stops current motion before storing the facing, so a forged mid-walk
+ * `face` call can't make the trogg glide sideways (invariant 3).
+ */
+export const face = spacetimedb.reducer({ dirX: t.i32(), dirY: t.i32() }, (ctx, { dirX, dirY }) => {
+  const p = ctx.db.player.identity.find(ctx.sender);
+  if (!p) return;
+  const dir = cardinal(dirX, dirY);
+  if (!dir || (dir.dirX === 0 && dir.dirY === 0)) return;
+  const settled = settle(ctx, p, ctx.timestamp);
+  ctx.db.player.identity.update({
+    ...p,
+    x: settled.x,
+    y: settled.y,
+    dirX: 0,
+    dirY: 0,
+    running: false,
+    path: "",
+    faceX: dir.dirX,
+    faceY: dir.dirY,
     movedAt: ctx.timestamp,
   });
 });
@@ -441,6 +480,8 @@ export const moveTo = spacetimedb.reducer({ x: t.i32(), y: t.i32(), running: t.b
     dirY: first ? first.y - start.y : 0,
     running: target.running,
     path: serializePath(path),
+    faceX: first ? first.x - start.x : p.faceX,
+    faceY: first ? first.y - start.y : p.faceY,
     movedAt: ctx.timestamp,
   });
 });
@@ -645,7 +686,8 @@ export const spawn = spacetimedb.reducer({ kind: t.string(), count: t.i32() }, (
   // (a boulder, a Hog, or another trogg), now that Hogs and troggs collide.
   const occupied = solidTiles(ctx, p.zoneId, ctx.timestamp, p.identity);
   const pos = settle(ctx, p, ctx.timestamp);
-  const tiles = spawnTiles(zone, (x, y) => occupied.has(tileKey(x, y)), pos.x, pos.y, p.dirX, p.dirY, wanted);
+  const face = facingDir(p);
+  const tiles = spawnTiles(zone, (x, y) => occupied.has(tileKey(x, y)), pos.x, pos.y, face.dirX, face.dirY, wanted);
 
   for (const tile of tiles) {
     occupied.add(tileKey(tile.x, tile.y));
@@ -913,7 +955,8 @@ export const redeemClaim = spacetimedb.reducer({ code: t.string() }, (ctx, { cod
     } else {
       const zone = getZone(guest.zoneId);
       const occupied = solidTiles(ctx, guest.zoneId, ctx.timestamp, guest.identity);
-      if (zone) placeCarried(ctx, zone, guest.carrying, occupied, guest.x, guest.y, guest.dirX, guest.dirY);
+      const face = facingDir(guest);
+      if (zone) placeCarried(ctx, zone, guest.carrying, occupied, guest.x, guest.y, face.dirX, face.dirY);
     }
   }
 
@@ -1253,6 +1296,12 @@ function placeCarried(
     return false;
   }
   return true;
+}
+
+/** The direction a trogg visually faces: current motion while moving, standing facing otherwise. */
+function facingDir(p: { dirX: number; dirY: number; faceX: number; faceY: number }): { dirX: number; dirY: number } {
+  if (p.dirX !== 0 || p.dirY !== 0) return { dirX: p.dirX, dirY: p.dirY };
+  return { dirX: p.faceX, dirY: p.faceY };
 }
 
 /** Coerce an untrusted axis input to -1, 0, or 1. */

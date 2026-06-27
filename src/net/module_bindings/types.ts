@@ -102,6 +102,8 @@ export const Player = __t.object("Player", {
   equipmentAction: __t.string(),
   equipmentActionAt: __t.timestamp(),
   equippedMainHandInventoryId: __t.u64(),
+  faceX: __t.i32(),
+  faceY: __t.i32(),
 });
 export type Player = __Infer<typeof Player>;
 

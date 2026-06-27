@@ -109,6 +109,8 @@ export function playerRow(identity: Id, over: Record<string, unknown> = {}) {
     y: 5,
     dirX: 0,
     dirY: 0,
+    faceX: 0,
+    faceY: 1,
     running: false,
     path: "",
     carrying: "",
