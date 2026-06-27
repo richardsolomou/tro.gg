@@ -64,6 +64,7 @@ export const Hog = __t.object("Hog", {
   path: __t.string(),
   homeX: __t.i32(),
   homeY: __t.i32(),
+  style: __t.string(),
 });
 export type Hog = __Infer<typeof Hog>;
 
@@ -106,4 +107,3 @@ export const Player = __t.object("Player", {
   faceY: __t.i32(),
 });
 export type Player = __Infer<typeof Player>;
-

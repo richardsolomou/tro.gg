@@ -154,7 +154,7 @@ function inventoryIcon(): SVGSVGElement {
   return icon;
 }
 
-function itemIcon(item: string): SVGSVGElement {
+export function itemIcon(item: string): SVGSVGElement {
   const icon = svg(32, 32);
   icon.classList.add("item-icon");
 

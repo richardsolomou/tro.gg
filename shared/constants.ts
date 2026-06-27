@@ -32,14 +32,16 @@ export const HOG_TURN_CHANCE = 0.15;
 export const HOG_IDLE_CHANCE = 0.25;
 
 /**
- * Per-zone entity ceilings (GDD "Data model"). `/spawn` and carried-object drops insert
- * boulders/Hogs into the shared zone, so the server refuses once a zone is at its cap —
- * a scripted client can't flood a zone with entities and inflate every `wanderHogs` tick.
+ * Per-zone entity ceilings (GDD "Data model"). The Commands panel and carried-object
+ * drops insert boulders/Hogs/items into the shared zone, so the server refuses once a
+ * zone is at its cap — a scripted client can't flood a zone with entities and inflate
+ * every `wanderHogs` tick.
  * Enforced server-side (invariant 3); the client feature flags only gate the UI, not the
  * reducer. Far above the registry seeds (2 boulders, 6 Hogs) — purely a DoS ceiling. (initial)
  */
 export const MAX_HOGS_PER_ZONE = 64;
 export const MAX_BOULDERS_PER_ZONE = 64;
+export const MAX_GROUND_ITEMS_PER_ZONE = 128;
 
 /** Chat. (initial) */
 export const CHAT_MAX_CHARS = 200;

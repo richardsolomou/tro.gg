@@ -375,7 +375,7 @@ export function createEntities(scene: Phaser.Scene, getTile: () => number) {
   /**
    * Cosmetic easter egg (behind `ghost-trogg`): a pale draped ghost materialises on
    * the given tile, drifts gently, lingers, then fades. The local launch chance,
-   * `/ghost`, and command panel all request `hauntGhost`; every live client in the
+   * launch haunt and the Commands panel request `hauntGhost`; every live client in the
    * zone renders the resulting `ghost_haunt` insert.
    */
   const hauntGhost = (stage: Phaser.GameObjects.Container, tile: { x: number; y: number; id?: bigint }) => {

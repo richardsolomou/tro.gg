@@ -8,6 +8,7 @@ import {
   INVENTORY_SLOT_COUNT,
   isWalkable,
   MAX_BOULDERS_PER_ZONE,
+  MAX_GROUND_ITEMS_PER_ZONE,
   MAX_HOGS_PER_ZONE,
   parsePath,
   SPACETIMEAUTH_ISSUER,
@@ -52,22 +53,43 @@ function withPlayer(over: Record<string, unknown> = {}, ctxOver: Partial<Paramet
 test("spawn refuses a boulder once the zone is at its cap", () => {
   const { ctx } = withPlayer({ x: 5, y: 8 });
   for (let i = 0; i < MAX_BOULDERS_PER_ZONE; i++) ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 1, y: 1 });
-  spawn(ctx, { kind: "boulder", count: 1 });
+  spawn(ctx, { kind: "boulder", item: "" });
   assert.equal(ctx.db.boulder.rows().length, MAX_BOULDERS_PER_ZONE);
 });
 
 test("spawn adds a boulder when the zone is below the cap", () => {
   const { ctx } = withPlayer({ x: 5, y: 8 });
-  spawn(ctx, { kind: "boulder", count: 1 });
+  spawn(ctx, { kind: "boulder", item: "" });
   assert.equal(ctx.db.boulder.rows().length, 1);
   assert.equal(ctx.db.boulder.rows()[0].zoneId, ZONE);
 });
 
-test("spawn can add a counted batch without exceeding the boulder cap", () => {
+test("spawn adds only one boulder per reducer call", () => {
   const { ctx } = withPlayer({ x: 5, y: 8 });
   for (let i = 0; i < MAX_BOULDERS_PER_ZONE - 2; i++) ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 1, y: 1 });
-  spawn(ctx, { kind: "boulder", count: 10 });
-  assert.equal(ctx.db.boulder.rows().length, MAX_BOULDERS_PER_ZONE);
+  spawn(ctx, { kind: "boulder", item: "" });
+  assert.equal(ctx.db.boulder.rows().length, MAX_BOULDERS_PER_ZONE - 1);
+});
+
+test("spawn can add a registered ground item", () => {
+  const { ctx } = withPlayer({ x: 5, y: 8 });
+  spawn(ctx, { kind: "item", item: "sword" });
+  assert.equal(ctx.db.groundItem.rows().length, 1);
+  assert.equal(ctx.db.groundItem.rows()[0].item, "sword");
+});
+
+test("spawn refuses ground items once the zone is at its cap", () => {
+  const { ctx } = withPlayer({ x: 5, y: 8 });
+  for (let i = 0; i < MAX_GROUND_ITEMS_PER_ZONE; i++) ctx.db.groundItem.insert({ id: 0n, zoneId: ZONE, item: "stone", x: 1, y: 1 });
+  spawn(ctx, { kind: "item", item: "sword" });
+  assert.equal(ctx.db.groundItem.rows().length, MAX_GROUND_ITEMS_PER_ZONE);
+});
+
+test("spawn stores an explicit Hog sprite style", () => {
+  const { ctx } = withPlayer({ x: 5, y: 8 });
+  spawn(ctx, { kind: "hog", item: "snow" });
+  assert.equal(ctx.db.hog.rows().length, 1);
+  assert.equal(ctx.db.hog.rows()[0].style, "snow");
 });
 
 // --- Two Hogs never converge onto one tile (the wanderHogs fix) ---
@@ -77,8 +99,8 @@ test("two Hogs heading at the same tile do not both claim it", () => {
   const ctx = makeCtx({ sender: me, now: 0n, random: 0.99, integerInRange: (lo) => lo });
   ctx.db.player.insert(playerRow(me, { x: 2, y: 2, online: true }));
   // A at (5,8) heading right and B at (7,8) heading left both want the empty tile (6,8).
-  ctx.db.hog.insert({ id: 0n, zoneId: ZONE, x: 5, y: 8, dirX: 1, dirY: 0, movedAt: { microsSinceUnixEpoch: 0n }, path: "", homeX: 5, homeY: 8 });
-  ctx.db.hog.insert({ id: 0n, zoneId: ZONE, x: 7, y: 8, dirX: -1, dirY: 0, movedAt: { microsSinceUnixEpoch: 0n }, path: "", homeX: 7, homeY: 8 });
+  ctx.db.hog.insert({ id: 0n, zoneId: ZONE, x: 5, y: 8, dirX: 1, dirY: 0, movedAt: { microsSinceUnixEpoch: 0n }, path: "", homeX: 5, homeY: 8, style: "" });
+  ctx.db.hog.insert({ id: 0n, zoneId: ZONE, x: 7, y: 8, dirX: -1, dirY: 0, movedAt: { microsSinceUnixEpoch: 0n }, path: "", homeX: 7, homeY: 8, style: "" });
 
   wanderHogs(ctx, {});
 
@@ -129,7 +151,7 @@ test("push shoves a boulder onto clear floor and re-bases the trogg flush", () =
 test("push refuses when a Hog stands beyond the boulder", () => {
   const { ctx } = withPlayer({ x: 5, y: 8, dirX: 1, dirY: 0 });
   ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 6, y: 8 });
-  ctx.db.hog.insert({ id: 0n, zoneId: ZONE, x: 7, y: 8, dirX: 0, dirY: 0, movedAt: { microsSinceUnixEpoch: 0n }, path: "", homeX: 7, homeY: 8 });
+  ctx.db.hog.insert({ id: 0n, zoneId: ZONE, x: 7, y: 8, dirX: 0, dirY: 0, movedAt: { microsSinceUnixEpoch: 0n }, path: "", homeX: 7, homeY: 8, style: "" });
   push(ctx);
   const b = ctx.db.boulder.rows()[0];
   assert.deepEqual({ x: b.x, y: b.y }, { x: 6, y: 8 }); // unmoved
@@ -342,7 +364,7 @@ test("hauntGhost trims old haunt rows to the cap", () => {
 
 // --- helpers for the entity tables ---
 const hogAt_ = (ctx: FakeCtx, x: number, y: number) =>
-  ctx.db.hog.insert({ id: 0n, zoneId: ZONE, x, y, dirX: 0, dirY: 0, movedAt: { microsSinceUnixEpoch: 0n }, path: "", homeX: x, homeY: y });
+  ctx.db.hog.insert({ id: 0n, zoneId: ZONE, x, y, dirX: 0, dirY: 0, movedAt: { microsSinceUnixEpoch: 0n }, path: "", homeX: x, homeY: y, style: "" });
 
 // --- Connect / disconnect lifecycle ---
 
