@@ -2,6 +2,7 @@ import { ITEMS, isEquippableItem } from "@trogg/shared";
 import type { DbConnection } from "../net/module_bindings";
 import type { Inventory, Player } from "../net/module_bindings/types";
 import { hudToolbar } from "./hud.js";
+import { registerKeybind } from "./keybinds.js";
 
 /** Mount the compact inventory/equipment panel. Rows are driven by subscribed inventory state. */
 export function mountInventory(conn: DbConnection, playerId: string): void {
@@ -15,7 +16,8 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
   toggle.type = "button";
   toggle.className = "hud-icon-button inventory-toggle";
   toggle.setAttribute("aria-label", "Inventory");
-  toggle.title = "Inventory";
+  toggle.setAttribute("aria-keyshortcuts", "I");
+  toggle.title = "Inventory (I)";
   toggle.appendChild(inventoryIcon());
 
   const body = document.createElement("div");
@@ -36,17 +38,17 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
   let mainHand = "";
   let mainHandInventoryId = 0n;
 
-  toggle.addEventListener("click", () => {
-    const opening = body.hidden;
-    body.hidden = !opening;
+  const setOpen = (open: boolean) => {
+    const opening = open && body.hidden;
+    body.hidden = !open;
     toggle.setAttribute("aria-expanded", String(!body.hidden));
     if (opening) window.dispatchEvent(new CustomEvent("hud-menu-open", { detail: "inventory" }));
-  });
+  };
+  const toggleOpen = () => setOpen(body.hidden === true);
+  toggle.addEventListener("click", toggleOpen);
+  registerKeybind({ id: "hud-inventory", matches: (event) => event.code === "KeyI", handler: toggleOpen });
   window.addEventListener("hud-menu-open", ((event: Event) => {
-    if ((event as CustomEvent<string>).detail !== "inventory") {
-      body.hidden = true;
-      toggle.setAttribute("aria-expanded", "false");
-    }
+    if ((event as CustomEvent<string>).detail !== "inventory") setOpen(false);
   }) as EventListener);
 
   const render = () => {

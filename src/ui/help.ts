@@ -1,5 +1,6 @@
 import { isFeatureEnabled } from "../analytics.js";
-import { hudToolbar } from "./hud.js";
+import { closeHudMenus, hudToolbar } from "./hud.js";
+import { registerKeybind } from "./keybinds.js";
 import { currentCommandFlags } from "./chat_commands.js";
 
 /** One control or command line: the key/command and what it does. */
@@ -29,7 +30,8 @@ export function mountHelp(): void {
   toggle.className = "hud-icon-button help-toggle";
   toggle.textContent = "?";
   toggle.setAttribute("aria-label", "Help");
-  toggle.title = "Help";
+  toggle.setAttribute("aria-keyshortcuts", "H ?");
+  toggle.title = "Help (? / H)";
 
   const body = document.createElement("div");
   body.className = "help-body";
@@ -55,17 +57,18 @@ export function mountHelp(): void {
     body.appendChild(block);
   }
 
-  toggle.addEventListener("click", () => {
-    const opening = body.hidden;
-    body.hidden = !opening;
+  const setOpen = (open: boolean) => {
+    const opening = open && body.hidden;
+    body.hidden = !open;
     toggle.setAttribute("aria-expanded", String(!body.hidden));
     if (opening) window.dispatchEvent(new CustomEvent("hud-menu-open", { detail: "help" }));
-  });
+  };
+  const toggleOpen = () => setOpen(body.hidden === true);
+  toggle.addEventListener("click", toggleOpen);
+  registerKeybind({ id: "hud-help", matches: (event) => event.code === "KeyH" || event.key === "?", handler: toggleOpen });
+  registerKeybind({ id: "hud-close", matches: (event) => event.code === "Escape", handler: () => closeHudMenus() });
   window.addEventListener("hud-menu-open", ((event: Event) => {
-    if ((event as CustomEvent<string>).detail !== "help") {
-      body.hidden = true;
-      toggle.setAttribute("aria-expanded", "false");
-    }
+    if ((event as CustomEvent<string>).detail !== "help") setOpen(false);
   }) as EventListener);
 
   root.append(toggle, body);
@@ -79,15 +82,20 @@ function buildSections(): Section[] {
   const pushEnabled = isFeatureEnabled("boulder-pushing");
   const chatEnabled = isFeatureEnabled("chat-enabled");
   const commandFlags = currentCommandFlags();
+  const commandPanelEnabled = commandFlags.spawn || commandFlags.resetBoulders || commandFlags.resetHogs || commandFlags.ghost;
 
   const controls: Row[] = [
     { key: "WASD / Arrows", desc: "Move" },
     { key: "Click", desc: "Walk to a tile" },
+    { key: "? / H", desc: "Open help" },
+    { key: "I", desc: "Open inventory" },
+    { key: "Esc", desc: "Close menu" },
   ];
   if (canRun) controls.push({ key: "Hold Shift", desc: "Run" });
   if (useInteract) controls.push({ key: "E", desc: "Pick up / put down" });
   controls.push({ key: "F", desc: "Use equipped item" });
   if (pushEnabled) controls.push({ key: "Walk into a boulder", desc: "Push it" });
+  if (commandPanelEnabled) controls.push({ key: "`", desc: "Open Commands" });
   if (chatEnabled) controls.push({ key: "Enter", desc: "Open chat" });
 
   const sections: Section[] = [{ title: "Controls", rows: controls }];

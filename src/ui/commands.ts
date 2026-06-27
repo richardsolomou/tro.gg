@@ -3,6 +3,7 @@ import type { DbConnection } from "../net/module_bindings";
 import { captureEvent } from "../analytics.js";
 import { audio } from "../audio.js";
 import { hudToolbar } from "./hud.js";
+import { registerKeybind } from "./keybinds.js";
 import { currentCommandFlags, type ChatCommandFlags } from "./chat_commands.js";
 
 type SpawnKind = "boulder" | "hog";
@@ -26,7 +27,8 @@ export function mountCommands({ conn, zone, onGhost }: CommandPanelContext): voi
   toggle.type = "button";
   toggle.className = "hud-icon-button command-toggle";
   toggle.setAttribute("aria-label", "Commands");
-  toggle.title = "Commands";
+  toggle.setAttribute("aria-keyshortcuts", "`");
+  toggle.title = "Commands (`)";
   toggle.appendChild(commandIcon());
 
   const body = document.createElement("div");
@@ -41,17 +43,17 @@ export function mountCommands({ conn, zone, onGhost }: CommandPanelContext): voi
   if (flags.ghost) body.appendChild(ghostSection(zone, onGhost, status));
   body.appendChild(status);
 
-  toggle.addEventListener("click", () => {
-    const opening = body.hidden;
-    body.hidden = !opening;
+  const setOpen = (open: boolean) => {
+    const opening = open && body.hidden;
+    body.hidden = !open;
     toggle.setAttribute("aria-expanded", String(!body.hidden));
     if (opening) window.dispatchEvent(new CustomEvent("hud-menu-open", { detail: "commands" }));
-  });
+  };
+  const toggleOpen = () => setOpen(body.hidden === true);
+  toggle.addEventListener("click", toggleOpen);
+  registerKeybind({ id: "hud-commands", matches: (event) => event.code === "Backquote", handler: toggleOpen });
   window.addEventListener("hud-menu-open", ((event: Event) => {
-    if ((event as CustomEvent<string>).detail !== "commands") {
-      body.hidden = true;
-      toggle.setAttribute("aria-expanded", "false");
-    }
+    if ((event as CustomEvent<string>).detail !== "commands") setOpen(false);
   }) as EventListener);
 
   root.append(toggle, body);

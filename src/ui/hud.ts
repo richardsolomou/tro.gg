@@ -28,3 +28,7 @@ export function hudToolbar(): HTMLDivElement {
   }
   return toolbar;
 }
+
+export function closeHudMenus(): void {
+  window.dispatchEvent(new CustomEvent("hud-menu-open", { detail: "close" }));
+}
