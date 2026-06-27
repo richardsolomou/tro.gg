@@ -2,8 +2,8 @@
 
 `troggs-and-hogs.png` is the avatar **base body** sprite sheet for troggs and
 Hogs, with `troggs-and-hogs.atlas.json` describing the frame grid. Both are
-generated — the pixel art lives in [`shared/sprites.ts`](../../shared/sprites.ts)
-as pure paint logic (the same programmer-pixel-art approach as the procedural
+generated — the concept-inspired pixel art lives in [`shared/sprites.ts`](../../shared/sprites.ts)
+as pure paint logic (the same code-authored-pixel approach as the procedural
 terrain in `src/game/terrain.ts`). Regenerate with:
 
 ```sh
