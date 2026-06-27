@@ -125,6 +125,115 @@
   border-color: #e8dcc4;
 }
 
+/* -- Inventory (beside Help) ---------------------------------------------- */
+#hud .inventory {
+  top: 12px;
+  left: 92px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+#hud .inventory-toggle {
+  width: 32px;
+  height: 28px;
+  padding: 2px 5px;
+  color: #0a0806;
+  background: #f2c94c;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+#hud .inventory-toggle svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+}
+#hud .inventory-body {
+  width: 204px;
+  padding: 10px;
+  background: rgba(10, 8, 6, 0.82);
+  border: 1px solid #2a2118;
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+#hud .inventory-body[hidden] {
+  display: none;
+}
+#hud .inventory-equipped {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #9b8a6c;
+}
+#hud .inventory-equipped-slot {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  background: rgba(232, 220, 196, 0.08);
+  border: 1px solid #2a2118;
+  border-radius: 4px;
+}
+#hud .inventory-equipped-slot .item-icon {
+  width: 28px;
+  height: 28px;
+}
+#hud .inventory-empty {
+  font-size: 12px;
+  color: #9b8a6c;
+}
+#hud .inventory-list {
+  display: grid;
+  grid-template-columns: repeat(4, 40px);
+  gap: 6px;
+}
+#hud .inventory-item {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  padding: 3px;
+  display: grid;
+  place-items: center;
+  color: #e8dcc4;
+  background: rgba(232, 220, 196, 0.08);
+  border: 1px solid #2a2118;
+  border-radius: 4px;
+  cursor: pointer;
+}
+#hud .inventory-item[aria-pressed="true"] {
+  border-color: #f2c94c;
+  background: rgba(242, 201, 76, 0.18);
+}
+#hud .inventory-item:disabled {
+  opacity: 0.9;
+  cursor: default;
+}
+#hud .inventory-item .item-icon {
+  width: 32px;
+  height: 32px;
+}
+#hud .inventory-qty {
+  position: absolute;
+  right: 2px;
+  bottom: 1px;
+  min-width: 12px;
+  height: 12px;
+  padding: 0 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  line-height: 12px;
+  color: #0a0806;
+  background: #e8dcc4;
+  border-radius: 2px;
+}
+
 /* ── Help (top-left) ─────────────────────────────────────────────────────── */
 #hud .help {
   top: 12px;

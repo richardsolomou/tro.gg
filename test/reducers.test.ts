@@ -11,6 +11,7 @@ import {
 } from "@trogg/shared";
 import {
   chat,
+  equipItem,
   interact,
   move,
   moveTo,
@@ -24,6 +25,7 @@ import {
   resetHogs,
   spawn,
   startClaim,
+  useEquipped,
   wanderHogs,
 } from "../spacetimedb/src/index.ts";
 import { id, makeCtx, playerRow, type FakeCtx } from "./spacetime.ts";
@@ -146,6 +148,39 @@ test("interact picks up the boulder on the faced tile", () => {
   assert.equal(ctx.db.player.identity.find(me).carrying, "boulder"); // now carried
 });
 
+test("interact picks up a faced ground item into inventory", () => {
+  const { ctx, me } = withPlayer({ x: 5, y: 8, carrying: "" });
+  ctx.db.groundItem.insert({ id: 0n, zoneId: ZONE, item: "pickaxe", x: 6, y: 8 });
+  interact(ctx, { dirX: 1, dirY: 0 });
+  assert.equal(ctx.db.groundItem.rows().length, 0);
+  assert.equal(ctx.db.inventory.rows().length, 1);
+  assert.equal(ctx.db.inventory.rows()[0].playerId.isEqual(me), true);
+  assert.equal(ctx.db.inventory.rows()[0].item, "pickaxe");
+});
+
+test("equipItem equips only an owned equippable item", () => {
+  const { ctx, me } = withPlayer({});
+  equipItem(ctx, { item: "pickaxe" });
+  assert.equal(ctx.db.player.identity.find(me).equippedMainHand, "");
+  ctx.db.inventory.insert({ id: 0n, playerId: me, item: "pickaxe", qty: 1 });
+  equipItem(ctx, { item: "pickaxe" });
+  assert.equal(ctx.db.player.identity.find(me).equippedMainHand, "pickaxe");
+  equipItem(ctx, { item: "stone" });
+  assert.equal(ctx.db.player.identity.find(me).equippedMainHand, "pickaxe");
+});
+
+test("useEquipped mines a faced boulder with a pickaxe without stopping movement", () => {
+  const { ctx, me } = withPlayer({ x: 5, y: 8, dirX: 1, dirY: 0, running: true, equippedMainHand: "pickaxe" });
+  ctx.db.inventory.insert({ id: 0n, playerId: me, item: "pickaxe", qty: 1 });
+  ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 6, y: 8 });
+  useEquipped(ctx, { dirX: 1, dirY: 0 });
+  assert.equal(ctx.db.boulder.rows().length, 0);
+  assert.equal(ctx.db.inventory.rows().find((r: any) => r.item === "stone")?.qty, 1);
+  const p = ctx.db.player.identity.find(me);
+  assert.equal(p.equipmentAction, "pickaxe");
+  assert.deepEqual({ dirX: p.dirX, dirY: p.dirY, running: p.running, path: p.path }, { dirX: 1, dirY: 0, running: true, path: "" });
+});
+
 // --- Chat ---
 
 test("chat enforces the per-player rate limit", () => {
@@ -183,6 +218,7 @@ test("connecting as a guest inserts an online guest and lazily seeds the zone", 
   assert.equal(p.online, true);
   assert.equal(ctx.db.boulder.rows().length, getZone(ZONE)!.boulders.length);
   assert.equal(ctx.db.hog.rows().length, getZone(ZONE)!.hogs.length);
+  assert.equal(ctx.db.groundItem.rows().length, getZone(ZONE)!.items.length);
 });
 
 test("connecting with a SpacetimeAuth token inserts an account, not a guest", () => {

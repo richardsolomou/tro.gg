@@ -1,6 +1,6 @@
 import Phaser from "phaser";
-import { ANCHOR, FRAME_H, FRAME_W, type Facing, type Kind, type ProjectedMotion } from "@trogg/shared";
-import type { Boulder, Hog, Player } from "../net/module_bindings/types";
+import { ANCHOR, FRAME_H, FRAME_W, ITEMS, timestampMs, type Facing, type Kind, type ProjectedMotion } from "@trogg/shared";
+import type { Boulder, GroundItem, Hog, Player } from "../net/module_bindings/types";
 import { AVATAR_TEX, avatarFrame, avatarFrameName, facingFromDir, GHOST_TEX } from "./avatars.js";
 import { cssColor, TEXT_RESOLUTION } from "../ui_text.js";
 import { audio } from "../audio.js";
@@ -9,6 +9,8 @@ import { audio } from "../audio.js";
 export const ART = 16;
 /** Size of a carried object's overlay relative to a full tile (GDD "Interacting"). */
 const CARRY_SCALE = 0.62;
+/** How long a visible equipment use impulse lasts. */
+const EQUIPMENT_ACTION_MS = 240;
 /** Odds a given launch is haunted by the ghost trogg. */
 export const GHOST_CHANCE = 1 / 20;
 /** How long the apparition holds before it fades. */
@@ -34,11 +36,21 @@ export interface Tracked {
   carried?: Phaser.GameObjects.Container;
   /** Which kind the overlay shows ("" = none), so it only rebuilds on change. */
   carriedKind: string;
+  /** The equipped main-hand overlay, drawn near the hand rather than above the head. */
+  equipped?: Phaser.GameObjects.Container;
+  equippedKind: string;
+  equippedFacing?: Facing;
 }
 
 /** A boulder's live row plus its sprite. */
 export interface BoulderView {
   row: Boulder;
+  sprite: Phaser.GameObjects.Container;
+}
+
+/** A ground item pickup plus its sprite. */
+export interface GroundItemView {
+  row: GroundItem;
   sprite: Phaser.GameObjects.Container;
 }
 
@@ -134,8 +146,9 @@ export function createEntities(scene: Phaser.Scene, getTile: () => number) {
   /** Drive a trogg's facing and walk cycle from its synced motion intent. No-op
    *  for the placeholder marker (no sprite to swap). */
   const animate = (entry: Tracked, now: number, motion: ProjectedMotion) => {
-    if (!entry.sprite) return;
-    driveSprite(entry.sprite, "trogg", motion.dirX, motion.dirY, entry.player.running, entry, now);
+    if (entry.sprite) driveSprite(entry.sprite, "trogg", motion.dirX, motion.dirY, entry.player.running, entry, now);
+    applyEquipment(entry);
+    animateEquipment(entry);
   };
 
   /**
@@ -177,6 +190,65 @@ export function createEntities(scene: Phaser.Scene, getTile: () => number) {
     body.fillStyle(0x8a7257, 1).fillRoundedRect(inset + px, inset + px, size * 0.4, size * 0.4, radius * 0.6);
     sprite.add(body);
     return sprite;
+  };
+
+  const toolColor = (item: string): number => {
+    if (item === "pickaxe") return 0xaec4c8;
+    if (item === "shovel") return 0xc79b56;
+    if (item === "sword") return 0xdce9ee;
+    return 0x9b8a6c;
+  };
+
+  /** A compact programmer-art item glyph used both on the floor and in hand. */
+  const makeItemGlyph = (item: string, scale = 1): Phaser.GameObjects.Container | undefined => {
+    if (item === "stone") {
+      const wrap = scene.add.container(0, 0);
+      const g = scene.add.graphics();
+      g.fillStyle(0x6b5640, 1).fillRoundedRect(-4, -3, 8, 6, 3);
+      g.lineStyle(1, 0x2a2118, 1).strokeRoundedRect(-4, -3, 8, 6, 3);
+      wrap.add(g);
+      wrap.setScale(scale);
+      return wrap;
+    }
+
+    const def = ITEMS[item as keyof typeof ITEMS];
+    if (!def?.sprite) return undefined;
+    const wrap = scene.add.container(0, 0);
+    const g = scene.add.graphics();
+    const metal = toolColor(item);
+    const handle = 0x6b3f24;
+    if (item === "pickaxe") {
+      g.lineStyle(2, handle, 1).lineBetween(0, 5, 0, -7);
+      g.lineStyle(2, metal, 1).lineBetween(-6, -7, 6, -7);
+      g.lineStyle(1, 0xe8dcc4, 1).lineBetween(-4, -8, 4, -8);
+    } else if (item === "shovel") {
+      g.lineStyle(2, handle, 1).lineBetween(0, 5, 0, -6);
+      g.fillStyle(metal, 1).fillEllipse(0, -8, 8, 6);
+      g.lineStyle(1, 0x2a2118, 1).strokeEllipse(0, -8, 8, 6);
+    } else if (item === "sword") {
+      g.lineStyle(2, metal, 1).lineBetween(0, 6, 0, -9);
+      g.lineStyle(2, 0xf2c94c, 1).lineBetween(-4, 1, 4, 1);
+      g.lineStyle(2, handle, 1).lineBetween(0, 2, 0, 7);
+    }
+    wrap.add(g);
+    wrap.setScale(scale);
+    return wrap;
+  };
+
+  /** A pickup item lying on the floor, distinct from an equipped hand overlay. */
+  const makeGroundItem = (item: string): Phaser.GameObjects.Container => {
+    const tile = getTile();
+    const wrap = scene.add.container(0, 0);
+    const shadow = scene.add.graphics();
+    shadow.fillStyle(0x0a0806, 0.35).fillEllipse(tile / 2, tile * 0.68, tile * 0.42, tile * 0.18);
+    wrap.add(shadow);
+    const glyph = makeItemGlyph(item, Math.max(1.2, tile / ART));
+    if (glyph) {
+      glyph.setPosition(tile / 2, tile * 0.56);
+      glyph.setRotation(item === "sword" ? Math.PI / 4 : item === "pickaxe" ? -Math.PI / 4 : 0.2);
+      wrap.add(glyph);
+    }
+    return wrap;
   };
 
   /**
@@ -221,6 +293,46 @@ export function createEntities(scene: Phaser.Scene, getTile: () => number) {
       entry.carried = overlay;
       entry.carriedKind = kind;
     }
+  };
+
+  const equipmentAnchor = (entry: Tracked): { x: number; y: number; rotation: number; scale: number } => {
+    const tile = getTile();
+    const baseY = entry.sprite ? feetY() - tile * 0.42 : tile * 0.5;
+    if (entry.facing === "left") return { x: tile * 0.28, y: baseY, rotation: -0.8, scale: tile / ART };
+    if (entry.facing === "right") return { x: tile * 0.72, y: baseY, rotation: 0.8, scale: tile / ART };
+    if (entry.facing === "up") return { x: tile * 0.36, y: baseY - tile * 0.08, rotation: -0.35, scale: tile / ART };
+    return { x: tile * 0.66, y: baseY, rotation: 0.35, scale: tile / ART };
+  };
+
+  /** Sync the main-hand equipment overlay to `player.equippedMainHand`. */
+  const applyEquipment = (entry: Tracked): void => {
+    const item = entry.player.equippedMainHand;
+    if (item === entry.equippedKind && entry.facing === entry.equippedFacing) return;
+    entry.equipped?.destroy();
+    entry.equipped = undefined;
+    entry.equippedKind = "";
+    entry.equippedFacing = undefined;
+    const anchor = equipmentAnchor(entry);
+    const glyph = makeItemGlyph(item, anchor.scale);
+    if (!glyph) return;
+    glyph.setPosition(anchor.x, anchor.y);
+    glyph.setRotation(anchor.rotation);
+    entry.marker.add(glyph);
+    entry.equipped = glyph;
+    entry.equippedKind = item;
+    entry.equippedFacing = entry.facing;
+  };
+
+  /** Briefly exaggerate the equipped item when the server syncs an equipment use. */
+  const animateEquipment = (entry: Tracked): void => {
+    if (!entry.equipped || entry.player.equipmentAction !== entry.equippedKind) return;
+    const age = Date.now() - timestampMs(entry.player.equipmentActionAt);
+    const t = Math.max(0, Math.min(1, age / EQUIPMENT_ACTION_MS));
+    const anchor = equipmentAnchor(entry);
+    const swing = age >= 0 && age < EQUIPMENT_ACTION_MS ? Math.sin(t * Math.PI) : 0;
+    const side = entry.facing === "left" || entry.facing === "up" ? -1 : 1;
+    entry.equipped.setRotation(anchor.rotation + swing * 0.85 * side);
+    entry.equipped.setPosition(anchor.x + swing * side * getTile() * 0.08, anchor.y - swing * getTile() * 0.08);
   };
 
   /** A roaming Hog: the shared avatar sprite in its hedgehog skin, feet centred on the
@@ -280,7 +392,7 @@ export function createEntities(scene: Phaser.Scene, getTile: () => number) {
     return bubble;
   };
 
-  return { headTopY, place, centre, makeMarker, animate, driveSprite, makeBoulder, applyCarry, makeHog, hauntGhost, makeBubble };
+  return { headTopY, place, centre, makeMarker, animate, driveSprite, makeBoulder, makeGroundItem, applyCarry, applyEquipment, makeHog, hauntGhost, makeBubble };
 }
 
 export type Entities = ReturnType<typeof createEntities>;

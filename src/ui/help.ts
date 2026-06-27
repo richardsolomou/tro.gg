@@ -77,6 +77,7 @@ function buildSections(): Section[] {
   ];
   if (canRun) controls.push({ key: "Hold Shift", desc: "Run" });
   if (useInteract) controls.push({ key: "E", desc: "Pick up / put down" });
+  controls.push({ key: "F", desc: "Use equipped item" });
   if (pushEnabled) controls.push({ key: "Walk into a boulder", desc: "Push it" });
   if (chatEnabled) controls.push({ key: "Enter", desc: "Open chat" });
 

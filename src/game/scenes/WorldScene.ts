@@ -1,11 +1,12 @@
 import Phaser from "phaser";
 import { getZone, projectMotion, projectMotionState, snapToTile, STARTING_ZONE_SLUG, tileKey, timestampMs, troggColorFor, zoneBounds, type Coord, type Stamp, type ZoneBounds } from "@trogg/shared";
 import type { DbConnection } from "../../net/module_bindings";
-import type { Boulder, Hog, Player } from "../../net/module_bindings/types";
+import type { Boulder, GroundItem, Hog, Player } from "../../net/module_bindings/types";
 import { attachKeyboard } from "../../input.js";
 import { setupChat } from "../../ui/chat.js";
+import { mountInventory } from "../../ui/inventory.js";
 import { createSelfController, type SelfController } from "../../movement.js";
-import { ART, createEntities, GHOST_CHANCE, type BoulderView, type Entities, type HogView, type Tracked } from "../entities.js";
+import { ART, createEntities, GHOST_CHANCE, type BoulderView, type Entities, type GroundItemView, type HogView, type Tracked } from "../entities.js";
 import { createTerrain, registerTerrainTextures, type Terrain } from "../terrain.js";
 import { facingFromDir, registerAvatarTextures } from "../avatars.js";
 import { captureEvent, isFeatureEnabled } from "../../analytics.js";
@@ -46,6 +47,7 @@ export class WorldScene extends Phaser.Scene {
   private terrain!: Terrain;
   private stage!: Phaser.GameObjects.Container;
   private destinationLayer!: Phaser.GameObjects.Container;
+  private itemLayer!: Phaser.GameObjects.Container;
   private boulderLayer!: Phaser.GameObjects.Container;
   private hogLayer!: Phaser.GameObjects.Container;
   private clickZone!: Phaser.GameObjects.Zone;
@@ -53,6 +55,7 @@ export class WorldScene extends Phaser.Scene {
 
   private readonly tracked = new Map<string, Tracked>();
   private readonly boulders = new Map<string, BoulderView>();
+  private readonly groundItems = new Map<string, GroundItemView>();
   private readonly hogs = new Map<string, HogView>();
 
   // Tiles boulders occupy, and tiles Hogs occupy (rebuilt each frame from their
@@ -119,9 +122,10 @@ export class WorldScene extends Phaser.Scene {
     this.stage.add(this.terrain.ground);
 
     this.destinationLayer = this.add.container(0, 0);
+    this.itemLayer = this.add.container(0, 0);
     this.boulderLayer = this.add.container(0, 0);
     this.hogLayer = this.add.container(0, 0);
-    this.stage.add([this.destinationLayer, this.boulderLayer, this.hogLayer]);
+    this.stage.add([this.destinationLayer, this.itemLayer, this.boulderLayer, this.hogLayer]);
 
     // An invisible interactive zone over the play field captures click-to-move. HUD
     // panels consume their own clicks (pointer-events), so only open-space clicks reach it.
@@ -148,8 +152,10 @@ export class WorldScene extends Phaser.Scene {
     });
 
     this.wirePlayers();
+    this.wireGroundItems();
     this.wireBoulders();
     if (this.useHogs) this.wireHogs();
+    if (this.myId) mountInventory(conn, this.myId);
 
     attachKeyboard(
       (intent, immediate) => this.self.onIntent(intent, immediate),
@@ -159,6 +165,9 @@ export class WorldScene extends Phaser.Scene {
         // it re-derives the tile and acts only on what's actually adjacent (invariant 3).
         if (!this.useInteract) return;
         conn.reducers.interact({ dirX: this.self.facing.dirX, dirY: this.self.facing.dirY });
+      },
+      () => {
+        conn.reducers.useEquipped({ dirX: this.self.facing.dirX, dirY: this.self.facing.dirY });
       },
       this.canRun,
     );
@@ -184,7 +193,9 @@ export class WorldScene extends Phaser.Scene {
       `SELECT * FROM player WHERE zone_id = '${this.slug}' AND online = true`,
       `SELECT * FROM chat_message WHERE zone_id = '${this.slug}'`,
       `SELECT * FROM boulder WHERE zone_id = '${this.slug}'`,
+      `SELECT * FROM ground_item WHERE zone_id = '${this.slug}'`,
     ];
+    if (this.myId) queries.push(`SELECT * FROM inventory WHERE player_id = '${this.myId}'`);
     if (this.useHogs) queries.push(`SELECT * FROM hog WHERE zone_id = '${this.slug}'`);
 
     conn
@@ -253,6 +264,12 @@ export class WorldScene extends Phaser.Scene {
       this.entities.place(view.sprite, view.row.x, view.row.y);
       this.boulderLayer.add(view.sprite);
     }
+    for (const view of this.groundItems.values()) {
+      view.sprite.destroy();
+      view.sprite = this.entities.makeGroundItem(view.row.item);
+      this.entities.place(view.sprite, view.row.x, view.row.y);
+      this.itemLayer.add(view.sprite);
+    }
     for (const view of this.hogs.values()) {
       view.marker.destroy();
       const built = this.entities.makeHog(view.facing);
@@ -276,10 +293,14 @@ export class WorldScene extends Phaser.Scene {
     // The carried overlay was a child of the old marker, so it's gone too; re-add it.
     entry.carried = undefined;
     entry.carriedKind = "";
+    entry.equipped = undefined;
+    entry.equippedKind = "";
+    entry.equippedFacing = undefined;
     const { x, y } = projectMotion(entry.player, performance.now() - entry.baseMs, this.troggBounds);
     this.entities.place(entry.marker, x, y);
     this.stage.add(entry.marker);
     this.entities.applyCarry(entry);
+    this.entities.applyEquipment(entry);
   }
 
   private wirePlayers() {
@@ -301,10 +322,11 @@ export class WorldScene extends Phaser.Scene {
       }
 
       // The nameplate and tint are baked into the marker at build time, so a rename or
-      // recolour only shows once the marker is rebuilt (which re-applies the carried
-      // overlay). A bare carrying change just retargets the overlay.
+      // recolour only shows once the marker is rebuilt. Bare carry/equipment changes
+      // retarget their overlays.
       if (_old.name !== p.name || _old.color !== p.color) this.rebuildMarker(id, entry);
       else if (_old.carrying !== p.carrying) this.entities.applyCarry(entry);
+      else if (_old.equippedMainHand !== p.equippedMainHand) this.entities.applyEquipment(entry);
 
       // Pick-up / put-down are low-volume, so emit on the authoritative carrying
       // transition of your own trogg (GDD analytics: observe server truth).
@@ -320,12 +342,13 @@ export class WorldScene extends Phaser.Scene {
     if (this.tracked.has(id)) return;
     const facing = facingFromDir(p.dirX, p.dirY, "down");
     const { marker, sprite, frameKey } = this.entities.makeMarker(p.name, troggColorFor(p.color, id), id === this.myId, facing, this.useSprites);
-    const entry: Tracked = { marker, sprite, player: p, baseMs: timestampBaseMs(p.movedAt), facing, frameKey, carriedKind: "" };
+    const entry: Tracked = { marker, sprite, player: p, baseMs: timestampBaseMs(p.movedAt), facing, frameKey, carriedKind: "", equippedKind: "" };
     const { x, y } = projectMotion(p, performance.now() - entry.baseMs, this.troggBounds);
     this.entities.place(marker, x, y);
     this.tracked.set(id, entry);
     this.stage.add(marker);
     this.entities.applyCarry(entry);
+    this.entities.applyEquipment(entry);
   }
 
   private removePlayer(id: string) {
@@ -369,6 +392,35 @@ export class WorldScene extends Phaser.Scene {
       this.upsertBoulder(b);
     });
     conn.db.boulder.onDelete((_ctx, b) => this.removeBoulder(b));
+  }
+
+  private upsertGroundItem(item: GroundItem) {
+    const key = item.id.toString();
+    let view = this.groundItems.get(key);
+    if (!view) {
+      view = { row: item, sprite: this.entities.makeGroundItem(item.item) };
+      this.groundItems.set(key, view);
+      this.itemLayer.add(view.sprite);
+    } else if (view.row.item !== item.item) {
+      view.sprite.destroy();
+      view.sprite = this.entities.makeGroundItem(item.item);
+      this.itemLayer.add(view.sprite);
+    }
+    view.row = item;
+    this.entities.place(view.sprite, item.x, item.y);
+  }
+
+  private removeGroundItem(item: GroundItem) {
+    const view = this.groundItems.get(item.id.toString());
+    view?.sprite.destroy();
+    this.groundItems.delete(item.id.toString());
+  }
+
+  private wireGroundItems() {
+    const conn = this.conn;
+    conn.db.groundItem.onInsert((_ctx, item) => this.upsertGroundItem(item));
+    conn.db.groundItem.onUpdate((_ctx, _old, item) => this.upsertGroundItem(item));
+    conn.db.groundItem.onDelete((_ctx, item) => this.removeGroundItem(item));
   }
 
   private addHog(h: Hog) {
