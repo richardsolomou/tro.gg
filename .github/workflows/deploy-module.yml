@@ -55,9 +55,9 @@ jobs:
 
       - name: Verify committed bindings match the module schema
         run: |
-          spacetime generate --lang typescript --out-dir src/module_bindings --module-path spacetimedb -y
-          if ! git diff --exit-code src/module_bindings; then
-            echo "::error::src/module_bindings is stale — run 'just generate' and commit the result."
+          spacetime generate --lang typescript --out-dir src/net/module_bindings --module-path spacetimedb -y
+          if ! git diff --exit-code src/net/module_bindings; then
+            echo "::error::src/net/module_bindings is stale — run 'just generate' and commit the result."
             exit 1
           fi
 

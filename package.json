@@ -17,7 +17,7 @@
   },
   "dependencies": {
     "oidc-client-ts": "^3.5.0",
-    "pixi.js": "^8.19.0",
+    "phaser": "^4.2.0",
     "posthog-js": "^1.391.2",
     "spacetimedb": "2.6.*"
   },

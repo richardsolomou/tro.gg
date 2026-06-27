@@ -59,7 +59,7 @@ Code currently reads these flag keys:
 | `interact` | Interact key (`E`) — pick up / put down tile-sized objects | On |
 | `roaming-hogs` | Hog rendering and subscription | On |
 | `running` | Hold-shift-to-run input | On |
-| `spawn-command` | `/spawn` debug command | On in local dev, off in production builds |
+| `spawn-command` | `/spawn` debug command | On outside production (local dev + preview builds, which ship no PostHog key); flag-governed in production |
 | `boulder-reset` | `/reset` (or `/reset boulders`) boulder layout command | On |
 | `hog-reset` | `/reset hedgehogs` Hog population reset command | On |
 | `chat-enabled` | Chat panel and bubbles | On |

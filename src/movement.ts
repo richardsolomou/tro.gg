@@ -11,10 +11,10 @@ import {
   type Stamp,
   type ZoneBounds,
 } from "@trogg/shared";
-import type { DbConnection } from "./module_bindings";
-import type { Player } from "./module_bindings/types";
+import type { DbConnection } from "./net/module_bindings";
+import type { Player } from "./net/module_bindings/types";
 import type { MoveIntent } from "./input.js";
-import type { Tracked } from "./entities.js";
+import type { Tracked } from "./game/entities.js";
 
 /** How long a new direction must be held before the trogg walks rather than just
  *  turning in place — the tap-vs-hold window (GDD "Movement"). Tune for feel. */
@@ -98,7 +98,7 @@ export interface SelfControllerDeps {
   /** Map a server `movedAt` onto the local monotonic clock (shared with the world). */
   toBaseMs: (movedAt: Stamp) => number;
   /** Resolve the next facing from a direction and the last facing (pure; injected to
-   *  keep this module free of the avatar/pixi layer). */
+   *  keep this module free of the avatar/render layer). */
   facingFromDir: (dirX: number, dirY: number, last: Facing) => Facing;
   audio: MovementAudio;
 }

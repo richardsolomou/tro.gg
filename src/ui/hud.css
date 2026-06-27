@@ -1,0 +1,174 @@
+/*
+ * HUD chrome — HTML/CSS overlays above the Phaser canvas (chat, account, help).
+ * Cave palette, shared with the landing page and the in-world art: ink #e8dcc4 on
+ * #0a0806 stone, amber #f2c94c accents. The world (troggs, bubbles, terrain) is
+ * drawn by Phaser; everything here is DOM, so the browser owns layout, text input,
+ * focus, and resize.
+ */
+
+#hud {
+  position: fixed;
+  inset: 0;
+  pointer-events: none; /* clicks fall through to the canvas… */
+  font-family: monospace;
+  color: #e8dcc4;
+  z-index: 100;
+}
+
+#hud .panel {
+  position: fixed;
+  pointer-events: auto; /* …except on a panel, which consumes the click */
+  box-sizing: border-box;
+}
+
+/* Shared controls */
+#hud input,
+#hud button {
+  font-family: monospace;
+  color: #e8dcc4;
+  box-sizing: border-box;
+}
+
+#hud .field {
+  width: 100%;
+  height: 30px;
+  padding: 0 8px;
+  font-size: 13px;
+  background: rgba(10, 8, 6, 0.82);
+  border: 1px solid #2a2118;
+  border-radius: 4px;
+  outline: none;
+}
+#hud .field::placeholder {
+  color: #9b8a6c;
+}
+#hud .field:focus {
+  background: rgba(10, 8, 6, 0.92);
+  border-color: #e8dcc4;
+}
+
+#hud .btn {
+  width: 100%;
+  height: 30px;
+  font-size: 13px;
+  color: #0a0806;
+  background: #e8dcc4;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+#hud .btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* ── Chat (bottom-left) ──────────────────────────────────────────────────── */
+#hud .chat {
+  left: 12px;
+  bottom: 12px;
+  width: min(340px, calc(100vw - 24px));
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+#hud .chat-log {
+  height: min(30vh, 220px);
+  padding: 6px 8px;
+  overflow-y: auto;
+  background: rgba(10, 8, 6, 0.55);
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 19px;
+  word-break: break-word;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+#hud .chat-line {
+  white-space: pre-wrap;
+}
+#hud .chat-name {
+  font-weight: bold;
+}
+
+/* ── Account (top-right) ─────────────────────────────────────────────────── */
+#hud .account {
+  top: 12px;
+  right: 12px;
+  width: min(280px, calc(100vw - 24px));
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: rgba(10, 8, 6, 0.55);
+  border-radius: 4px;
+}
+#hud .account-status {
+  font-size: 12px;
+  color: #9b8a6c;
+  min-height: 14px;
+}
+#hud .swatches {
+  display: grid;
+  grid-template-columns: repeat(8, 22px);
+  gap: 6px;
+}
+#hud .swatch {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 2px solid rgba(10, 8, 6, 0.35);
+  border-radius: 4px;
+  cursor: pointer;
+}
+#hud .swatch[aria-pressed="true"] {
+  border-color: #e8dcc4;
+}
+
+/* ── Help (top-left) ─────────────────────────────────────────────────────── */
+#hud .help {
+  top: 12px;
+  left: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+#hud .help-toggle {
+  width: auto;
+  padding: 0 10px;
+  height: 28px;
+  font-size: 13px;
+  color: #0a0806;
+  background: #f2c94c;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+#hud .help-body {
+  padding: 12px;
+  background: rgba(10, 8, 6, 0.82);
+  border: 1px solid #2a2118;
+  border-radius: 4px;
+  font-size: 13px;
+}
+#hud .help-body[hidden] {
+  display: none;
+}
+#hud .help-section-title {
+  color: #9b8a6c;
+  font-size: 12px;
+  margin: 0 0 4px;
+}
+#hud .help-section + .help-section {
+  margin-top: 10px;
+}
+#hud .help-rows {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 2px 14px;
+}
+#hud .help-key {
+  color: #f2c94c;
+  white-space: nowrap;
+}

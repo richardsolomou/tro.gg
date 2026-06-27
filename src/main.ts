@@ -1,27 +1,16 @@
-import { Application } from "pixi.js";
 import { STARTING_ZONE_SLUG } from "@trogg/shared";
-import { mountAccount } from "./account.js";
 import { accountSubject, authConfigured, completeSignIn, currentIdToken } from "./auth.js";
 import { captureEvent, identifyUser, initAnalytics, isFeatureEnabled } from "./analytics.js";
 import { clearStoredToken, clearPendingClaim, getPendingClaim } from "./identity.js";
-import { connect } from "./net.js";
-import { startReconnect } from "./reconnect.js";
+import { connect } from "./net/net.js";
+import { mountAccount } from "./ui/account.js";
+import { mountHelp } from "./ui/help.js";
+import { startReconnect } from "./net/reconnect.js";
 import { watchForUpdate } from "./version.js";
-import { mountWorld } from "./world.js";
+import { StartGame } from "./game/main.js";
 
 async function main() {
   initAnalytics();
-
-  const app = new Application();
-  await app.init({
-    background: "#0a0806",
-    resizeTo: window,
-    resolution: Math.min(window.devicePixelRatio || 1, 2),
-    autoDensity: true,
-    antialias: false,
-    roundPixels: true,
-  });
-  document.getElementById("game")!.appendChild(app.canvas);
 
   try {
     // If this load is the redirect back from SpacetimeAuth, finish the exchange
@@ -56,14 +45,21 @@ async function main() {
       if (subject) identifyUser(subject);
     }
 
-    mountWorld(app, conn);
+    // Phaser owns the canvas and the world render loop; StartGame boots the scene
+    // with the live connection (game/main.ts, GDD "Camera and rendering").
+    StartGame("game", { conn });
+
+    // HUD chrome (help, account) is HTML overlaid on the canvas (hud.css); chat is
+    // mounted by the scene since its speech bubbles live in the world.
+    mountHelp();
+    // Account UI owns rename/recolour for every player. Claim/sign-in controls only
+    // appear when SpacetimeAuth is configured for this build.
+    if (isFeatureEnabled("auth-enabled")) mountAccount(conn, { signedIn, authAvailable: authConfigured() });
+
     // The frontend deploys separately from the backend (Cloudflare vs the VPS), so
     // a client-only deploy fires no socket disconnect — poll for it instead and
     // offer a refresh when newer assets ship (version.ts).
     watchForUpdate();
-    // Account UI owns rename/recolour for every player. Claim/sign-in controls only
-    // appear when SpacetimeAuth is configured for this build.
-    if (isFeatureEnabled("auth-enabled")) mountAccount(app, conn, { signedIn, authAvailable: authConfigured() });
   } catch (err) {
     console.error("Failed to connect to SpacetimeDB:", err);
   }

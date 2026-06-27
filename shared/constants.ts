@@ -54,7 +54,7 @@ export const CHAT_HISTORY_MAX = 50;
  * and only it, as solid; every other glyph is walkable floor. The non-wall glyphs
  * are cosmetic floor variants (gravel, moss, shallow water, glowmoss) so a zone
  * reads as varied terrain rather than one flat stone fill — they change how a tile
- * is drawn (`src/terrain.ts`), never how it collides. Water is a shallow puddle
+ * is drawn (`src/game/terrain.ts`), never how it collides. Water is a shallow puddle
  * the trogg wades through, so it stays walkable; an impassable pool would be a
  * `#`-class glyph instead. `assertZones` rejects any glyph not listed here.
  */

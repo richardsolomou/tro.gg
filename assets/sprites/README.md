@@ -4,7 +4,7 @@
 Hogs, with `troggs-and-hogs.atlas.json` describing the frame grid. Both are
 generated — the pixel art lives in [`shared/sprites.ts`](../../shared/sprites.ts)
 as pure paint logic (the same programmer-pixel-art approach as the procedural
-terrain in `src/terrain.ts`). Regenerate with:
+terrain in `src/game/terrain.ts`). Regenerate with:
 
 ```sh
 pnpm sprites   # or: just sprites
@@ -34,6 +34,6 @@ in the atlas, e.g. `trogg_down_walk_a`, `hog_left_idle`.
 This is the **base body only**. Held-item and armour overlays (the GDD's per-hand
 main/off layers) reuse this frame grid and anchor when they land (M2+); the rig
 reserves their order now. The sheet is **not yet wired into rendering** — M0 still
-draws the placeholder colour marker (`shared/avatar.ts`, `src/world.ts`). It's
+draws the placeholder colour marker (`shared/avatar.ts`, `src/game/scenes/WorldScene.ts`). It's
 the spritesheet base the GDD "Mascot integration" open thread points at, ready
 for when avatar sprites land.

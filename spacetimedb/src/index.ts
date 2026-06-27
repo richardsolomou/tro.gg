@@ -206,8 +206,8 @@ export const init = spacetimedb.init(() => {});
  * separate load step.
  */
 export const onConnect = spacetimedb.clientConnected((ctx) => {
-  // The boulder/hog tables are new, so init (first-publish only) never seeded them
-  // on an already-published module; seed lazily on connect, idempotently.
+  // init runs first-publish only, so it can't seed a table added to an already-published
+  // module; seed lazily on connect, idempotently.
   const startingZone = getZone(STARTING_ZONE_SLUG)!;
   seedBoulders(ctx, startingZone);
   seedHogs(ctx, startingZone);

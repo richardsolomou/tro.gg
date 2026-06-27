@@ -49,7 +49,7 @@ async function checkVersion(): Promise<void> {
 }
 
 /**
- * A dismissible DOM banner (not a Pixi node, so it shows even if the renderer is
+ * A dismissible DOM banner (not a canvas node, so it shows even if the renderer is
  * busy). Inline-styled because the play page ships no stylesheet of its own.
  */
 function showUpdateBanner(): void {

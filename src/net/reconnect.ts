@@ -1,4 +1,4 @@
-import { captureEvent } from "./analytics.js";
+import { captureEvent } from "../analytics.js";
 import { connect } from "./net.js";
 
 /**
@@ -14,7 +14,7 @@ import { connect } from "./net.js";
  * Once a probe connects we reload rather than re-wire the live connection: every
  * table is server-authoritative and re-derived from subscriptions on connect, and
  * the stored Identity token resumes the same trogg (GDD "Guest persistence"), so a
- * clean reload loses nothing and avoids rebuilding every subscription and Pixi
+ * clean reload loses nothing and avoids rebuilding every subscription and Phaser
  * object by hand. Nothing is orphaned — the server settles the trogg on disconnect
  * (GDD invariant 1).
  */
@@ -67,7 +67,7 @@ function sleep(ms: number): Promise<void> {
 let overlay: HTMLElement | null = null;
 
 /**
- * A DOM overlay, not a Pixi node: the renderer keeps running on stale state after
+ * A DOM overlay, not a canvas node: the renderer keeps running on stale state after
  * a drop, so a plain element on top is the reliable way to tell the player we're
  * working on it. Styled inline because the play page (play/index.html) ships no
  * stylesheet of its own.

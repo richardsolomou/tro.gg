@@ -1,9 +1,9 @@
-import { Application, Container, Graphics, Sprite, Text } from "pixi.js";
+import Phaser from "phaser";
 import { ANCHOR, FRAME_H, FRAME_W, type Facing, type Kind, type ProjectedMotion } from "@trogg/shared";
-import type { Boulder, Hog, Player } from "./module_bindings/types";
-import { avatarFrame, avatarTexture, facingFromDir, ghostTexture } from "./avatars.js";
-import { TEXT_RESOLUTION } from "./ui_text.js";
-import { audio } from "./audio.js";
+import type { Boulder, Hog, Player } from "../net/module_bindings/types";
+import { AVATAR_TEX, avatarFrame, avatarFrameName, facingFromDir, GHOST_TEX } from "./avatars.js";
+import { cssColor, TEXT_RESOLUTION } from "../ui_text.js";
+import { audio } from "../audio.js";
 
 /** Art pixels per tile — terrain tiles are drawn at this and scaled up crisply. */
 export const ART = 16;
@@ -14,21 +14,24 @@ export const GHOST_CHANCE = 1 / 20;
 /** How long the apparition holds before it fades. */
 const GHOST_FLICKER_MS = 500;
 
+/** Anything `place` can drop on a tile — a marker, a sprite, a stray graphic. */
+type Positionable = { setPosition(x: number, y: number): unknown };
+
 /** A player's sprite plus the client-clock instant its current intent arrived. */
 export interface Tracked {
-  marker: Container;
+  marker: Phaser.GameObjects.Container;
   /** The trogg sprite, or undefined when the `avatar-sprites` flag is off. */
-  sprite?: Sprite;
+  sprite?: Phaser.GameObjects.Sprite;
   player: Player;
   baseMs: number;
   /** Last facing, kept so an idle trogg holds its heading rather than snapping. */
   facing: Facing;
   /** The frame key currently on the sprite, so the ticker only swaps on change. */
   frameKey: string;
-  bubble?: Container;
+  bubble?: Phaser.GameObjects.Container;
   bubbleTimer?: ReturnType<typeof setTimeout>;
   /** The overlay sprite for what the trogg carries (GDD "Interacting"), if any. */
-  carried?: Container;
+  carried?: Phaser.GameObjects.Container;
   /** Which kind the overlay shows ("" = none), so it only rebuilds on change. */
   carriedKind: string;
 }
@@ -36,13 +39,13 @@ export interface Tracked {
 /** A boulder's live row plus its sprite. */
 export interface BoulderView {
   row: Boulder;
-  sprite: Container;
+  sprite: Phaser.GameObjects.Container;
 }
 
 /** A roaming Hog's sprite plus the client-clock instant its current intent arrived. */
 export interface HogView {
-  marker: Container;
-  sprite: Sprite;
+  marker: Phaser.GameObjects.Container;
+  sprite: Phaser.GameObjects.Sprite;
   row: Hog;
   baseMs: number;
   facing: Facing;
@@ -51,12 +54,12 @@ export interface HogView {
 
 /**
  * Avatar/scenery builders and tile-space placement, all sized off the live `TILE`
- * metric (`getTile`, which the world resizes in its layout). They build PixiJS display
- * objects from game state — no netcode or prediction — so the world and chat layers
- * share one rig. `feetY`/`headTopY` give the in-cell anchor points labels and bubbles
- * hang off of.
+ * metric (`getTile`, which the world resizes in its layout). They build Phaser
+ * display objects from game state — no netcode or prediction — so the world and
+ * chat layers share one rig. `feetY`/`headTopY` give the in-cell anchor points
+ * labels and bubbles hang off of. All objects are created on `scene`.
  */
-export function createEntities(getTile: () => number) {
+export function createEntities(scene: Phaser.Scene, getTile: () => number) {
   /**
    * Screen-space y of a trogg's feet within its tile cell, relative to the cell's
    * top-left (where `place` anchors the marker). The feet sit at the cell's vertical
@@ -67,14 +70,14 @@ export function createEntities(getTile: () => number) {
   /** Screen-space y of the top of a trogg's head, for placing labels and bubbles. */
   const headTopY = () => feetY() - FRAME_H * (getTile() / ART);
 
-  const place = (marker: Container, x: number, y: number) => {
+  const place = (marker: Positionable, x: number, y: number) => {
     const tile = getTile();
-    marker.position.set(x * tile, y * tile);
+    marker.setPosition(x * tile, y * tile);
   };
 
-  const centre = (app: Application, stage: Container, width: number, height: number) => {
+  const centre = (stage: Phaser.GameObjects.Container, viewW: number, viewH: number, cols: number, rows: number) => {
     const tile = getTile();
-    stage.position.set((app.renderer.width - width * tile) / 2, (app.renderer.height - height * tile) / 2);
+    stage.setPosition((viewW - cols * tile) / 2, (viewH - rows * tile) / 2);
   };
 
   /**
@@ -86,41 +89,44 @@ export function createEntities(getTile: () => number) {
    */
   const makeMarker = (name: string, color: number, self: boolean, facing: Facing, sprites: boolean) => {
     const tile = getTile();
-    const marker = new Container();
-    let sprite: Sprite | undefined;
+    const marker = scene.add.container(0, 0);
+    let sprite: Phaser.GameObjects.Sprite | undefined;
     let frameKey = "";
 
     if (sprites) {
       const frame = avatarFrame(false, false, 0);
       // Self gets a bright ground ring under the feet so you can pick yourself out.
       if (self) {
-        const ring = new Graphics().ellipse(tile / 2, feetY(), tile * 0.34, tile * 0.16).stroke({ width: 2, color: 0xe8dcc4 });
-        marker.addChild(ring);
+        const ring = scene.add.graphics();
+        ring.lineStyle(2, 0xe8dcc4).strokeEllipse(tile / 2, feetY(), tile * 0.34 * 2, tile * 0.16 * 2);
+        marker.add(ring);
       }
-      sprite = new Sprite(avatarTexture("trogg", facing, frame));
+      sprite = scene.make.sprite({ x: tile / 2, y: feetY(), key: AVATAR_TEX, frame: avatarFrameName("trogg", facing, frame), add: false });
       // Anchor on the art's feet point (ANCHOR), not the frame's bottom edge, so the
       // feet — not the empty pixels below them — land on the tile centre.
-      sprite.anchor.set(ANCHOR.x / FRAME_W, ANCHOR.y / FRAME_H);
-      sprite.scale.set(tile / ART);
-      sprite.position.set(tile / 2, feetY());
-      sprite.tint = color;
-      marker.addChild(sprite);
+      sprite.setOrigin(ANCHOR.x / FRAME_W, ANCHOR.y / FRAME_H);
+      sprite.setScale(tile / ART);
+      sprite.setTint(color);
+      marker.add(sprite);
       frameKey = `${facing}_${frame}`;
     } else {
-      const body = new Graphics().rect(2, 2, tile - 4, tile - 4).fill(color);
+      const body = scene.add.graphics();
+      body.fillStyle(color, 1).fillRect(2, 2, tile - 4, tile - 4);
       // Your own trogg keeps its colour but gets an outline so you can pick it out.
-      if (self) body.rect(2, 2, tile - 4, tile - 4).stroke({ width: 2, color: 0xe8dcc4 });
-      marker.addChild(body);
+      if (self) body.lineStyle(2, 0xe8dcc4).strokeRect(2, 2, tile - 4, tile - 4);
+      marker.add(body);
     }
 
-    const label = new Text({
+    const label = scene.make.text({
+      x: tile / 2,
+      y: sprites ? headTopY() - 2 : -2,
       text: name,
-      style: { fontFamily: "monospace", fontSize: 11, fill: 0xe8dcc4 },
-      resolution: TEXT_RESOLUTION,
+      style: { fontFamily: "monospace", fontSize: "11px", color: cssColor(0xe8dcc4) },
+      add: false,
     });
-    label.anchor.set(0.5, 1);
-    label.position.set(tile / 2, sprites ? headTopY() - 2 : -2);
-    marker.addChild(label);
+    label.setOrigin(0.5, 1);
+    label.setResolution(TEXT_RESOLUTION);
+    marker.add(label);
 
     return { marker, sprite, frameKey };
   };
@@ -139,7 +145,7 @@ export function createEntities(getTile: () => number) {
    * only — Hogs always walk). Only touches the GPU when the frame actually changes.
    */
   const driveSprite = (
-    sprite: Sprite,
+    sprite: Phaser.GameObjects.Sprite,
     kind: Kind,
     dirX: number,
     dirY: number,
@@ -152,25 +158,24 @@ export function createEntities(getTile: () => number) {
     const frame = avatarFrame(moving, running, now);
     const key = `${state.facing}_${frame}`;
     if (key === state.frameKey) return;
-    sprite.texture = avatarTexture(kind, state.facing, frame);
+    sprite.setFrame(avatarFrameName(kind, state.facing, frame));
     state.frameKey = key;
   };
 
   /** A pushable boulder: a rounded stone filling its tile, with a lit top-left face. */
   const makeBoulder = () => {
     const tile = getTile();
-    const sprite = new Container();
+    const sprite = scene.add.container(0, 0);
     const inset = Math.max(2, Math.round(tile * 0.1));
     const size = tile - inset * 2;
     const radius = Math.max(3, Math.round(tile * 0.28));
     const px = Math.max(1, Math.round(tile / ART));
-    const body = new Graphics()
-      .roundRect(inset, inset, size, size, radius)
-      .fill(0x6b5640)
-      .stroke({ width: px, color: 0x2a2118, alignment: 0 });
+    const body = scene.add.graphics();
+    body.fillStyle(0x6b5640, 1).fillRoundedRect(inset, inset, size, size, radius);
+    body.lineStyle(px, 0x2a2118, 1).strokeRoundedRect(inset, inset, size, size, radius);
     // A small highlight reads as a lit facet under the cave's torchlight.
-    body.roundRect(inset + px, inset + px, size * 0.4, size * 0.4, radius * 0.6).fill(0x8a7257);
-    sprite.addChild(body);
+    body.fillStyle(0x8a7257, 1).fillRoundedRect(inset + px, inset + px, size * 0.4, size * 0.4, radius * 0.6);
+    sprite.add(body);
     return sprite;
   };
 
@@ -180,23 +185,26 @@ export function createEntities(getTile: () => number) {
    * tile-sized thing all read the same held way. `topY` is the head top in sprite
    * mode, the cell top for the placeholder marker. Unknown kind → no overlay.
    */
-  const makeCarried = (kind: string, topY: number): Container | undefined => {
+  const makeCarried = (kind: string, topY: number): Phaser.GameObjects.Container | undefined => {
     const tile = getTile();
-    const wrap = new Container();
+    const wrap = scene.add.container(0, 0);
     if (kind === "boulder") {
       const b = makeBoulder();
-      b.pivot.set(tile / 2, tile / 2);
-      b.scale.set(CARRY_SCALE);
-      wrap.addChild(b);
+      // The boulder spans [0, tile]; scale it down and shift so its centre — not its
+      // corner — sits on the wrap origin (Phaser containers transform about (0, 0)).
+      b.setScale(CARRY_SCALE);
+      b.setPosition((-tile * CARRY_SCALE) / 2, (-tile * CARRY_SCALE) / 2);
+      wrap.add(b);
     } else if (kind === "hog") {
-      const sprite = new Sprite(avatarTexture("hog", "down", "idle"));
-      sprite.anchor.set(0.5, 0.85);
-      sprite.scale.set((tile / ART) * CARRY_SCALE);
-      wrap.addChild(sprite);
+      const sprite = scene.make.sprite({ x: 0, y: 0, key: AVATAR_TEX, frame: avatarFrameName("hog", "down", "idle"), add: false });
+      sprite.setOrigin(0.5, 0.85);
+      sprite.setScale((tile / ART) * CARRY_SCALE);
+      wrap.add(sprite);
     } else {
+      wrap.destroy();
       return undefined;
     }
-    wrap.position.set(tile / 2, topY - 2);
+    wrap.setPosition(tile / 2, topY - 2);
     return wrap;
   };
 
@@ -204,12 +212,12 @@ export function createEntities(getTile: () => number) {
   const applyCarry = (entry: Tracked): void => {
     const kind = entry.player.carrying;
     if (kind === entry.carriedKind) return;
-    entry.carried?.destroy({ children: true });
+    entry.carried?.destroy();
     entry.carried = undefined;
     entry.carriedKind = "";
     const overlay = makeCarried(kind, entry.sprite ? headTopY() : 0);
     if (overlay) {
-      entry.marker.addChild(overlay);
+      entry.marker.add(overlay);
       entry.carried = overlay;
       entry.carriedKind = kind;
     }
@@ -218,15 +226,14 @@ export function createEntities(getTile: () => number) {
   /** A roaming Hog: the shared avatar sprite in its hedgehog skin, feet centred on the
    *  tile (like a trogg). No name label, tint, or ground ring — Hogs are ambient
    *  scenery, not players. */
-  const makeHog = (facing: Facing): { marker: Container; sprite: Sprite; frameKey: string } => {
+  const makeHog = (facing: Facing): { marker: Phaser.GameObjects.Container; sprite: Phaser.GameObjects.Sprite; frameKey: string } => {
     const tile = getTile();
-    const marker = new Container();
+    const marker = scene.add.container(0, 0);
     const frame = avatarFrame(false, false, 0);
-    const sprite = new Sprite(avatarTexture("hog", facing, frame));
-    sprite.anchor.set(ANCHOR.x / FRAME_W, ANCHOR.y / FRAME_H);
-    sprite.scale.set(tile / ART);
-    sprite.position.set(tile / 2, feetY());
-    marker.addChild(sprite);
+    const sprite = scene.make.sprite({ x: tile / 2, y: feetY(), key: AVATAR_TEX, frame: avatarFrameName("hog", facing, frame), add: false });
+    sprite.setOrigin(ANCHOR.x / FRAME_W, ANCHOR.y / FRAME_H);
+    sprite.setScale(tile / ART);
+    marker.add(sprite);
     return { marker, sprite, frameKey: `${facing}_${frame}` };
   };
 
@@ -237,39 +244,39 @@ export function createEntities(getTile: () => number) {
    * touches no table and no reducer (invariant 3), so it's never seen by anyone but
    * the player who summoned it.
    */
-  const hauntGhost = (stage: Container, tile: { x: number; y: number }) => {
+  const hauntGhost = (stage: Phaser.GameObjects.Container, tile: { x: number; y: number }) => {
     audio.playGhost();
-    const ghost = new Container();
-    const sprite = new Sprite(ghostTexture("down", "idle"));
-    sprite.anchor.set(ANCHOR.x / FRAME_W, ANCHOR.y / FRAME_H);
-    sprite.scale.set(getTile() / ART);
-    sprite.position.set(getTile() / 2, feetY());
-    sprite.alpha = 0.5;
-    ghost.addChild(sprite);
+    const ghost = scene.add.container(0, 0);
+    const sprite = scene.make.sprite({ x: getTile() / 2, y: feetY(), key: GHOST_TEX, frame: avatarFrameName("trogg", "down", "idle"), add: false });
+    sprite.setOrigin(ANCHOR.x / FRAME_W, ANCHOR.y / FRAME_H);
+    sprite.setScale(getTile() / ART);
+    sprite.setAlpha(0.5);
+    ghost.add(sprite);
     place(ghost, tile.x, tile.y);
-    stage.addChild(ghost);
+    stage.add(ghost);
 
-    setTimeout(() => ghost.destroy({ children: true }), GHOST_FLICKER_MS);
+    setTimeout(() => ghost.destroy(), GHOST_FLICKER_MS);
   };
 
   /** Build a speech bubble floating just above a head — `topY` is the head top in sprite
    *  mode, the cell top for the placeholder marker. */
-  const makeBubble = (text: string, topY: number): Container => {
-    const bubble = new Container();
-    const label = new Text({
+  const makeBubble = (text: string, topY: number): Phaser.GameObjects.Container => {
+    const bubble = scene.add.container(0, 0);
+    const label = scene.make.text({
+      x: 0,
+      y: 3,
       text,
-      style: { fontFamily: "monospace", fontSize: 11, fill: 0x0a0806, align: "center", wordWrap: true, wordWrapWidth: 150 },
-      resolution: TEXT_RESOLUTION,
+      style: { fontFamily: "monospace", fontSize: "11px", color: cssColor(0x0a0806), align: "center", wordWrap: { width: 150 } },
+      add: false,
     });
-    label.anchor.set(0.5, 1);
+    label.setOrigin(0.5, 1);
+    label.setResolution(TEXT_RESOLUTION);
     const padX = 5;
     const padY = 3;
-    const bg = new Graphics()
-      .roundRect(-label.width / 2 - padX, -label.height - padY, label.width + padX * 2, label.height + padY * 2, 4)
-      .fill(0xe8dcc4);
-    label.position.set(0, padY);
-    bubble.addChild(bg, label);
-    bubble.position.set(getTile() / 2, topY - 16);
+    const bg = scene.add.graphics();
+    bg.fillStyle(0xe8dcc4, 1).fillRoundedRect(-label.width / 2 - padX, -label.height - padY, label.width + padX * 2, label.height + padY * 2, 4);
+    bubble.add([bg, label]);
+    bubble.setPosition(getTile() / 2, topY - 16);
     return bubble;
   };
 
