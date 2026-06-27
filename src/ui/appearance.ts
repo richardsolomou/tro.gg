@@ -11,7 +11,7 @@ import {
 import type { DbConnection } from "../net/module_bindings";
 import { captureEvent, isFeatureEnabled } from "../analytics.js";
 import { cssColor } from "../ui_text.js";
-import { hudLeft } from "./hud.js";
+import { collapseLeftPanels, hudLeft } from "./hud.js";
 
 /** Human label for a trogg style id (GDD "Avatars"); the id is the sprite key. */
 const STYLE_LABELS: Record<string, string> = { moss: "Moss", stone: "Stone", ridge: "Ridge" };
@@ -43,7 +43,9 @@ export function mountAppearance(conn: DbConnection): void {
   body.className = "help-body appearance-body";
   body.hidden = true;
   toggle.addEventListener("click", () => {
-    body.hidden = !body.hidden;
+    const willOpen = body.hidden;
+    collapseLeftPanels();
+    body.hidden = !willOpen;
   });
 
   const status = document.createElement("div");

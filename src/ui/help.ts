@@ -1,5 +1,5 @@
 import { isFeatureEnabled } from "../analytics.js";
-import { hudLeft } from "./hud.js";
+import { collapseLeftPanels, hudLeft } from "./hud.js";
 
 /** One control or command line: the key/command and what it does. */
 interface Row {
@@ -53,7 +53,9 @@ export function mountHelp(): void {
   }
 
   toggle.addEventListener("click", () => {
-    body.hidden = !body.hidden;
+    const willOpen = body.hidden;
+    collapseLeftPanels();
+    body.hidden = !willOpen;
   });
 
   root.append(toggle, body);

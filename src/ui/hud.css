@@ -125,28 +125,32 @@
   border-color: #e8dcc4;
 }
 
-/* ── Top-left toggle stack (Help, Appearance) ────────────────────────────── */
+/* ── Top-left toggle bar (Help, Appearance side by side) ─────────────────── */
 #hud .hud-left {
   position: fixed;
   top: 12px;
   left: 12px;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   gap: 8px;
   align-items: flex-start;
-  max-width: calc(100vw - 24px);
   pointer-events: none; /* the gaps stay click-through… */
 }
 #hud .hud-left > * {
   pointer-events: auto; /* …each toggle/panel consumes its own clicks */
 }
 
+/* Each panel anchors its drop-down body, which is absolutely placed below the bar
+   so opening one toggle never shifts the other. */
 #hud .help,
 #hud .appearance {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  align-items: flex-start;
+  position: relative;
+}
+#hud .help-body {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 6px;
 }
 #hud .help-toggle {
   width: auto;
