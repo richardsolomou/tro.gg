@@ -190,7 +190,7 @@ test("connecting as a guest inserts an online guest and lazily seeds the zone", 
   assert.equal(p.isGuest, true);
   assert.equal(p.online, true);
   assert.equal(ctx.db.boulder.rows().length, getZone(ZONE)!.boulders.length);
-  assert.equal(ctx.db.hog.rows().length, getZone(ZONE)!.hogs.length);
+  assert.equal(ctx.db.hog.rows().length, getZone(ZONE)!.hogs.length + getZone(ZONE)!.bigHogs.length);
 });
 
 test("connecting with a SpacetimeAuth token inserts an account, not a guest", () => {
@@ -284,7 +284,7 @@ test("resetHogs restores the zone's registry Hog population", () => {
   hogAt_(ctx, 1, 1);
   hogAt_(ctx, 2, 2);
   resetHogs(ctx);
-  assert.equal(ctx.db.hog.rows().length, getZone(ZONE)!.hogs.length);
+  assert.equal(ctx.db.hog.rows().length, getZone(ZONE)!.hogs.length + getZone(ZONE)!.bigHogs.length);
 });
 
 // --- Rename / recolor (validation + uniqueness) ---

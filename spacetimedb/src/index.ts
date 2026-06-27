@@ -180,6 +180,11 @@ const hog = table(
     // (the -1 default is its pre-migration sentinel). Kept only to avoid a column reorder.
     homeX: t.i32().default(-1),
     homeY: t.i32().default(-1),
+    // Explicit hedgehog style (GDD "Hogs"): "" = a common roamer whose skin the client
+    // derives from the id; "buff"/"dino" = a 2×2 showpiece; "chicken" = the easter egg.
+    // The server reads `hogSize(style)` for the footprint, so the style alone carries the
+    // size. Appended last per the migration note on the player table.
+    style: t.string().default(""),
   },
 );
 
@@ -280,11 +285,16 @@ function seedBoulders(ctx: Ctx, zone: Zone): void {
   }
 }
 
-/** Seed a zone's roaming Hogs from the registry, unless it already has some. */
+/** Seed a zone's Hogs from the registry, unless it already has some — the common
+ *  roamers (style "" → client-derived skin) and the rare 2×2 showpieces (explicit
+ *  style, so `hogSize` makes them big). */
 function seedHogs(ctx: Ctx, zone: Zone): void {
   if ([...ctx.db.hog.zoneId.filter(zone.slug)].length > 0) return;
   for (const h of zone.hogs) {
-    ctx.db.hog.insert({ id: 0n, zoneId: zone.slug, x: h.x, y: h.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, path: "", homeX: h.x, homeY: h.y });
+    ctx.db.hog.insert({ id: 0n, zoneId: zone.slug, x: h.x, y: h.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, path: "", homeX: h.x, homeY: h.y, style: "" });
+  }
+  for (const h of zone.bigHogs) {
+    ctx.db.hog.insert({ id: 0n, zoneId: zone.slug, x: h.x, y: h.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, path: "", homeX: h.x, homeY: h.y, style: h.style });
   }
 }
 
@@ -578,7 +588,7 @@ export const spawn = spacetimedb.reducer({ kind: t.string(), count: t.i32() }, (
     } else {
       // A spawned Hog starts at rest and joins the roamers — the next wander tick
       // gives it a heading like any other.
-      ctx.db.hog.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, path: "", homeX: tile.x, homeY: tile.y });
+      ctx.db.hog.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, path: "", homeX: tile.x, homeY: tile.y, style: "" });
     }
   }
 });
@@ -972,7 +982,7 @@ function placeCarried(
     ctx.db.boulder.insert({ id: 0n, zoneId: zone.slug, x: tile.x, y: tile.y });
   } else if (kind === "hog") {
     if (countRows(ctx.db.hog.zoneId.filter(zone.slug)) >= MAX_HOGS_PER_ZONE) return false;
-    ctx.db.hog.insert({ id: 0n, zoneId: zone.slug, x: tile.x, y: tile.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, path: "", homeX: tile.x, homeY: tile.y });
+    ctx.db.hog.insert({ id: 0n, zoneId: zone.slug, x: tile.x, y: tile.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, path: "", homeX: tile.x, homeY: tile.y, style: "" });
   } else {
     return false;
   }
