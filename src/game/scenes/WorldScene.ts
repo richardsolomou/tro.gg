@@ -12,6 +12,7 @@ import { facingFromDir, registerAvatarTextures } from "../avatars.js";
 import { isFeatureEnabled, logError, logInfo } from "../../analytics.js";
 import { audio } from "../../audio.js";
 import { interact, useEquipped } from "../../net/procedures.js";
+import { playerMotionChanged } from "../../motion_sync.js";
 
 /** Fraction of the viewport the zone fills, leaving a rim of cave around it. */
 const ZONE_FILL = 0.92;
@@ -338,11 +339,15 @@ export class WorldScene extends Phaser.Scene {
       if (id === this.myId) {
         this.self.reconcile(entry, p);
       } else {
-        // Rebase extrapolation to the server's `movedAt` on the local monotonic clock,
-        // not receipt time, so a deployed client doesn't trail the server by its network
-        // latency (which would show as correction jitter).
+        const motionChanged = playerMotionChanged(entry.player, p);
         entry.player = p;
-        entry.baseMs = timestampBaseMs(p.movedAt);
+        if (motionChanged) {
+          // Rebase extrapolation to the server's `movedAt` on the local monotonic clock,
+          // not receipt time, so a deployed client doesn't trail the server by its network
+          // latency (which would show as correction jitter). Non-motion row updates, such
+          // as equipment swings, keep the existing base so walking does not visibly restart.
+          entry.baseMs = timestampBaseMs(p.movedAt);
+        }
       }
 
       // The nameplate, tint, and body style are baked into the marker at build time, so
