@@ -182,6 +182,10 @@ export function createSelfController(deps: SelfControllerDeps) {
   let destinationPath = "";
   // Optimistically-applied self moves awaiting their server ack, oldest first.
   const pendingSelfMoves: MotionSnapshot[] = [];
+  // Last authoritative motion accepted from the server. Non-motion row updates can
+  // arrive while a local move is still pending; if they carry this older motion,
+  // merge their visual fields without snapping the optimistic prediction backward.
+  let acknowledgedMotion: MotionSnapshot | null = null;
   // A duplicate signed-in tab sees the same player row as "self", but should act as
   // an observer until this tab receives local keyboard input. Without this, an idle
   // observer adopts another tab's WASD motion as `sent`, then emits an idle `move` at
@@ -208,6 +212,7 @@ export function createSelfController(deps: SelfControllerDeps) {
     const motion: MotionSnapshot = { ...intent, x: origin.x, y: origin.y, path: "" };
     const wasIdle = isIdle(sent);
     sent = intent;
+    acknowledgedMotion ??= playerMotion(entry.player);
     pendingSelfMoves.push(motion);
     entry.player = withMotion(entry.player, motion);
     entry.baseMs = now;
@@ -456,11 +461,16 @@ export function createSelfController(deps: SelfControllerDeps) {
     const pendingIndex = pendingSelfMoves.findIndex((motion) => sameMotion(motion, serverMotion));
     if (pendingIndex >= 0) {
       pendingSelfMoves.splice(0, pendingIndex + 1);
+      acknowledgedMotion = serverMotion;
       entry.player = withMotion(p, playerMotion(entry.player));
     } else if (sameMotion(playerMotion(entry.player), serverMotion)) {
+      acknowledgedMotion = serverMotion;
+      entry.player = withMotion(p, playerMotion(entry.player));
+    } else if (pendingSelfMoves.length > 0 && acknowledgedMotion && sameMotion(serverMotion, acknowledgedMotion)) {
       entry.player = withMotion(p, playerMotion(entry.player));
     } else {
       pendingSelfMoves.length = 0;
+      acknowledgedMotion = serverMotion;
       entry.player = p;
       entry.baseMs = toBaseMs(p.movedAt);
       sent = keyboardControlling ? playerIntent(p) : { dirX: 0, dirY: 0, running: false };
