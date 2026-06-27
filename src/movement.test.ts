@@ -160,6 +160,25 @@ test("a server row that matches nothing snaps to authority", () => {
   assert.equal(h.entry.baseMs, 1000); // re-based to the server stamp via toBaseMs
 });
 
+test("an idle duplicate tab observing WASD movement does not send a stop", () => {
+  const h = harness();
+  const server = { x: 0, y: 0, dirX: 1, dirY: 0, faceX: 1, faceY: 0, running: false, path: "", movedAt: { microsSinceUnixEpoch: 9n } } as unknown as Player;
+  h.self.reconcile(h.entry, server); // another tab started walking this shared trogg
+  h.self.update(h.entry, h.motion(1, 0, 1, 0), 1000); // observer reaches a tile centre
+  assert.equal(h.moves.length, 0);
+});
+
+test("a duplicate tab can take over WASD once it receives local keyboard input", () => {
+  const h = harness();
+  const server = { x: 0, y: 0, dirX: 1, dirY: 0, faceX: 1, faceY: 0, running: false, path: "", movedAt: { microsSinceUnixEpoch: 9n } } as unknown as Player;
+  h.self.reconcile(h.entry, server);
+  h.self.onIntent(down);
+  h.self.update(h.entry, h.motion(1, 0, 1, 0), 1000);
+  assert.deepEqual(h.faces.at(-1), { dirX: 0, dirY: 1 });
+  h.self.update(h.entry, h.motion(1, 0, 0, 0), 2000);
+  assert.deepEqual(h.moves.at(-1), down);
+});
+
 test("a push blocked by a Hog beyond the boulder retries until it clears", () => {
   const h = harness();
   h.boulderTiles.add("1,0"); // boulder directly ahead

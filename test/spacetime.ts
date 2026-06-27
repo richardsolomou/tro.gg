@@ -59,6 +59,7 @@ function makeTable(cfg: TableConfig) {
 
 export interface FakeCtxOpts {
   sender: Id;
+  connectionId?: Id | null;
   /** Microseconds since epoch for `ctx.timestamp`. */
   now?: bigint;
   /** JWT issuer — set to the SpacetimeAuth issuer to act as an authed account caller. */
@@ -76,6 +77,7 @@ export function makeCtx(opts: FakeCtxOpts) {
 
   return {
     sender: opts.sender,
+    connectionId: opts.connectionId ?? id("conn"),
     timestamp: { microsSinceUnixEpoch: opts.now ?? 0n },
     senderAuth: {
       hasJWT: opts.issuer != null,
@@ -88,6 +90,7 @@ export function makeCtx(opts: FakeCtxOpts) {
       hog: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
       groundItem: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
       inventory: makeTable({ pk: "id", autoInc: true, indexes: ["playerId"] }),
+      playerConnection: makeTable({ pk: "connectionId", indexes: ["playerId"] }),
       chatMessage: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
       ghostHaunt: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
       claimCode: makeTable({ pk: "code" }),
