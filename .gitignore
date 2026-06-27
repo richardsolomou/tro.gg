@@ -1,4 +1,8 @@
 node_modules/
+# pnpm is the only package manager (see packageManager in package.json); keep
+# stray npm/yarn lockfiles out so they can't drift from pnpm-lock.yaml.
+package-lock.json
+yarn.lock
 .env*
 !.env.example
 !**/.env.example
