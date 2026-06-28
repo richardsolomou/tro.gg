@@ -60,9 +60,9 @@ export function forward(facing: Facing): Joint {
 
 const TROGG_FRONT: Record<JointName, Joint> = {
   mainShoulder: { x: 5, y: 23 },
-  mainHand: { x: 5, y: 36 },
+  mainHand: { x: 5, y: 33 },
   offShoulder: { x: 27, y: 23 },
-  offHand: { x: 27, y: 36 },
+  offHand: { x: 27, y: 33 },
   nearHip: { x: 11.5, y: 35 },
   farHip: { x: 20.5, y: 35 },
   nearFoot: { x: 11, y: 40 },
@@ -73,9 +73,9 @@ const TROGG_FRONT: Record<JointName, Joint> = {
 const TROGG_BACK: Record<JointName, Joint> = {
   ...TROGG_FRONT,
   mainShoulder: { x: 27, y: 23 },
-  mainHand: { x: 27, y: 36 },
+  mainHand: { x: 27, y: 33 },
   offShoulder: { x: 5, y: 23 },
-  offHand: { x: 5, y: 36 },
+  offHand: { x: 5, y: 33 },
 };
 
 /** Right profile: the near (main) arm in front, the far (off) arm behind. */
