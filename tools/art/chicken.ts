@@ -31,9 +31,10 @@ export function chickenDraw(p: PixelSink, view: View, frame: FrameName): void {
   shaded(p, 19, FEET_Y + footLift(frame, false), 2, 1.8, c.beak, c.beakDk);
 
   if (view === "up") {
-    shaded(p, 15.5, 27 + b, 10, 9, c.body, c.bodyDk);
-    disc(p, 6, 33 + b, 2.6, 2.2, c.tail); disc(p, 4.6, 31 + b, 2, 1.8, c.tail);
-    rect(p, 14, 9 + b, 3, 2, c.comb);
+    shaded(p, 15.5, 27 + b, 10, 9, c.body, c.bodyDk); // body
+    shaded(p, 15.5, 16 + b, 5, 5, c.body, c.bodyDk); // back of the head
+    disc(p, 13.5, 10 + b, 1.6, 2, c.comb); disc(p, 15.5, 9 + b, 1.8, 2.4, c.comb); disc(p, 17.5, 10 + b, 1.6, 2, c.comb); // comb crown
+    disc(p, 6, 33 + b, 2.6, 2.2, c.tail); disc(p, 4.6, 31 + b, 2, 1.8, c.tail); // tail
     return;
   }
 
