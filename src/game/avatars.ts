@@ -1,5 +1,6 @@
 import Phaser from "phaser";
 import { FRAME_H, FRAME_W, frameName, frames, ghostDraw, paintSheet, rgbaSink, SHEET_H, SHEET_W, type Facing, type FrameName, type Kind, type PixelSink } from "@trogg/shared";
+import { STRIKE_PEAK } from "./equipment.js";
 
 /**
  * Client-side avatar textures. The trogg/Hog art is defined once in
@@ -81,4 +82,11 @@ export function avatarFrame(moving: boolean, running: boolean, nowMs: number): F
   const even = Math.floor(nowMs / (running ? RUN_STEP_MS : WALK_STEP_MS)) % 2 === 0;
   if (running) return even ? "run_a" : "run_b";
   return even ? "walk_a" : "walk_b";
+}
+
+/** The body pose for an equipment use, by progress through the action: a brief wind-up, then
+ *  the strike pose held through the recovery (matching `STRIKE_PEAK`). The rig extends the main
+ *  arm in each, so the trogg's arm actually reaches. */
+export function attackFrame(phase: number): FrameName {
+  return phase < STRIKE_PEAK ? "attack_a" : "attack_b";
 }

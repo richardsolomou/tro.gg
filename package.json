@@ -15,7 +15,10 @@
     "test": "TSX_TSCONFIG_PATH=test/tsconfig.json node --import tsx --test \"shared/*.test.ts\" \"src/*.test.ts\" \"test/*.test.ts\"",
     "sprite-art": "tsx tools/gen-sprite-art.ts",
     "item-art": "tsx tools/gen-item-art.ts",
-    "sprites": "tsx tools/gen-spritesheet.ts"
+    "sprites": "tsx tools/gen-spritesheet.ts",
+    "art": "pnpm run sprite-art && pnpm run item-art && pnpm run sprites",
+    "art:check": "pnpm run art && pnpm run typecheck && pnpm run test",
+    "art:preview": "tsx tools/preview-sprites.ts"
   },
   "dependencies": {
     "oidc-client-ts": "^3.5.0",

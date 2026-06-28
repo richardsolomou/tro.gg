@@ -13,6 +13,10 @@
 
 import type { PixelSink } from "../shared/sprites.ts";
 
+// Silhouette outline + compositing live in shared so the client runtime can run the same
+// outline over a composited layer stack (composite-then-outline avatars, GDD).
+export { compositeOver, opaque, outlinePass } from "../shared/raster.ts";
+
 /** Indexing alphabet for the emitted maps. Kept in sync with the generated files. */
 export const PIXEL_KEYS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!#$%&()*+,-/:;<=>?@[]^_{|}~";
 
@@ -67,47 +71,6 @@ export function shaded(p: PixelSink, cx: number, cy: number, rx: number, ry: num
 // ── outline, composite, quantise ────────────────────────────────────────────────
 
 /** True where the layer pixel is painted (any alpha). */
-export function opaque(layer: Uint8Array, x: number, y: number, w: number, h: number): boolean {
-  if (x < 0 || y < 0 || x >= w || y >= h) return false;
-  return layer[(y * w + x) * 4 + 3]! > 0;
-}
-
-/** Dilate a 1px outline in `colour` into every transparent pixel that touches a
- *  painted one — the clean GSC border around the whole silhouette. */
-export function outlinePass(layer: Uint8Array, colour: number, w: number, h: number): void {
-  const r = (colour >> 16) & 0xff;
-  const g = (colour >> 8) & 0xff;
-  const bl = colour & 0xff;
-  const targets: number[] = [];
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const i = (y * w + x) * 4;
-      if (layer[i + 3]! > 0) continue;
-      let near = false;
-      for (let dy = -1; dy <= 1 && !near; dy++) for (let dx = -1; dx <= 1; dx++) {
-        if ((dx || dy) && opaque(layer, x + dx, y + dy, w, h)) { near = true; break; }
-      }
-      if (near) targets.push(i);
-    }
-  }
-  for (const i of targets) { layer[i] = r; layer[i + 1] = g; layer[i + 2] = bl; layer[i + 3] = 255; }
-}
-
-/** Source-over composite `src` onto `dst` (same dimensions, RGBA). */
-export function compositeOver(dst: Uint8Array, src: Uint8Array): void {
-  for (let i = 0; i < dst.length; i += 4) {
-    const sa = src[i + 3]! / 255;
-    if (sa === 0) continue;
-    const da = dst[i + 3]! / 255;
-    const oa = sa + da * (1 - sa);
-    const blend = (s: number, d: number) => Math.round((s * sa + d * da * (1 - sa)) / oa);
-    dst[i] = blend(src[i]!, dst[i]!);
-    dst[i + 1] = blend(src[i + 1]!, dst[i + 1]!);
-    dst[i + 2] = blend(src[i + 2]!, dst[i + 2]!);
-    dst[i + 3] = Math.round(oa * 255);
-  }
-}
-
 /** Turn a painted RGBA buffer into an indexed palette + key-map of size w×h. */
 export function quantize(data: Uint8Array, w: number, h: number): IndexedArt {
   const palette: number[] = [];

@@ -331,6 +331,7 @@ export class WorldScene extends Phaser.Scene {
     );
     entry.marker = built.marker;
     entry.sprite = built.sprite;
+    entry.baseColor = troggColorFor(entry.player.color, id);
     entry.frameKey = built.frameKey;
     entry.respawnText = built.respawnText;
     entry.bubble = undefined;
@@ -378,6 +379,10 @@ export class WorldScene extends Phaser.Scene {
         entry.equipmentActionBaseMs = performance.now();
       }
 
+      // A drop in health is a hit — play the recoil/flash flinch (survives the marker rebuild
+      // the health change triggers, since it rides the persistent entry).
+      if (!p.dead && p.health < _old.health) entry.flinchBaseMs = performance.now();
+
       // The nameplate, tint, body style, and health bar are baked into the marker at
       // build time, so those changes rebuild it (which re-applies overlays). Bare
       // carrying/equipment changes just retarget overlays.
@@ -407,8 +412,9 @@ export class WorldScene extends Phaser.Scene {
     const face = playerFacing(p);
     const facing = facingFromDir(face.dirX, face.dirY, "down");
     const style = troggStyleFor(p.style, id);
-    const { marker, sprite, frameKey, respawnText } = this.entities.makeMarker(p.name, troggColorFor(p.color, id), style, id === this.myId, facing, this.useSprites, p.health, p.dead, p.respawnAt);
-    const entry: Tracked = { marker, sprite, player: p, baseMs: timestampBaseMs(p.movedAt), facing, style, frameKey, respawnText, carriedKind: "", carriedStyle: "", equippedKind: "" };
+    const color = troggColorFor(p.color, id);
+    const { marker, sprite, frameKey, respawnText } = this.entities.makeMarker(p.name, color, style, id === this.myId, facing, this.useSprites, p.health, p.dead, p.respawnAt);
+    const entry: Tracked = { marker, sprite, player: p, baseMs: timestampBaseMs(p.movedAt), facing, style, baseColor: color, frameKey, respawnText, carriedKind: "", carriedStyle: "", equippedKind: "" };
     const { x, y } = projectMotion(p, performance.now() - entry.baseMs, this.troggBounds);
     this.entities.place(marker, x, y);
     this.tracked.set(id, entry);

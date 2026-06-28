@@ -1,8 +1,12 @@
 /**
- * Avatar animation rig + shared anatomy helpers for the creature art modules in
- * this folder. The walk/run frame maths (stride, foot lift, body bob, run lean)
- * and the bits every creature reuses (feet, eyes) live here so each creature
- * file stays just its own silhouette + palette.
+ * Avatar paint helpers shared by the creature art modules in this folder: the bits
+ * every creature reuses (feet, eyes), the legacy walk/run frame maths still used by
+ * the baked hog rig (stride, foot lift, body bob, run lean), and `drawArm` for
+ * rig-driven limbs.
+ *
+ * The skeleton/pose *data* (joint rest positions and the per-frame offsets that drive
+ * gait and attack) lives in `shared/rig.ts` so the runtime can read the same joints;
+ * this file only turns joints into pixels.
  *
  * Standalone Node (tsx) — not part of the client or the module bundle.
  */
@@ -55,4 +59,17 @@ export function feet(p: PixelSink, frame: FrameName, base: number, shade: number
 export function eye(p: PixelSink, x: number, y: number, dark: number, glint: number): void {
   rect(p, x, y, 2, 3, dark);
   dot(p, x, y, glint);
+}
+
+/** A limb as a tapered capsule of shaded discs from a joint to its end (shoulder→hand,
+ *  hip→foot). Driven by the shared skeleton/pose (`shared/rig.ts`), so moving the end
+ *  joint — a gait swing or an attack reach — bends/extends the drawn limb. */
+export function drawArm(p: PixelSink, x0: number, y0: number, x1: number, y1: number, thickness: number, base: number, shade: number): void {
+  const dx = x1 - x0;
+  const dy = y1 - y0;
+  const steps = Math.max(2, Math.ceil(Math.hypot(dx, dy) / 1.2));
+  for (let i = 0; i <= steps; i++) {
+    const u = i / steps;
+    shaded(p, x0 + dx * u, y0 + dy * u, thickness, thickness, base, shade);
+  }
 }

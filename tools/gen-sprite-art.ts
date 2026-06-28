@@ -44,11 +44,13 @@ function outlineColour(kind: Kind, style: string): number {
 }
 
 function drawCharacter(p: PixelSink, kind: Kind, style: string, view: View, frame: FrameName): void {
-  if (kind === "trogg") troggDraw(p, view, frame, TROGG_SKINS[style] ?? TROGG_SKINS.moss!);
-  else if (style === "buff") buffDraw(p, view, frame);
-  else if (style === "dino") dinoDraw(p, view, frame);
-  else if (style === "chicken") chickenDraw(p, view, frame);
-  else hogDraw(p, view, frame, HOG_SKINS[style] ?? HOG_SKINS.classic!);
+  if (kind === "trogg") return troggDraw(p, view, frame, TROGG_SKINS[style] ?? TROGG_SKINS.moss!);
+  // Only troggs wield, so non-trogg kinds have no attack pose — render those frames as idle.
+  const f: FrameName = frame === "attack_a" || frame === "attack_b" ? "idle" : frame;
+  if (style === "buff") buffDraw(p, view, f);
+  else if (style === "dino") dinoDraw(p, view, f);
+  else if (style === "chicken") chickenDraw(p, view, f);
+  else hogDraw(p, view, f, HOG_SKINS[style] ?? HOG_SKINS.classic!);
 }
 
 function paintFrame(kind: Kind, style: string, facing: Facing, frame: FrameName): Uint8Array {

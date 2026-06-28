@@ -2,6 +2,8 @@
 
 Read [docs/gdd.md](docs/gdd.md) before changing game rules, data model, shared constants, or user-facing mechanics. It is the source of truth for glossary, durable design decisions, and current system behavior. Its "How to use this document" and "Invariants" sections are binding. [docs/analytics.md](docs/analytics.md) is binding when adding or changing custom events, experiments, or feature flags. [docs/world.md](docs/world.md) is canonical for setting, tone, and naming in UI copy. [docs/challenge.md](docs/challenge.md) is human-facing background; you rarely need it.
 
+Before touching creature or item pixel art, read [tools/art/README.md](tools/art/README.md) — the art pipeline, the rig/skeleton, the preview commands, and the rule never to read or hand-edit the generated `shared/sprite_art.ts` / `shared/item_art.ts`. Edit the paint code in `tools/art/*` (or `tools/gen-item-art.ts`) and run `pnpm art` to regenerate. Iterate cheaply with `pnpm art:preview --ascii <frame>`; render a contact sheet (`--sheet=trogg_moss`) for visual sign-off.
+
 Roadmap notes in the docs are planning context, not permission gates. Do not block useful work because older notes placed it later. When you ship or change a mechanic, schema, constant, event, or flag, update the relevant docs in the same change so the spec never drifts from the code. If code starts reading a PostHog feature flag, create or update the real flag in the configured PostHog project during the same task, with the intended rollout; don't leave flag creation as a manual follow-up.
 
 ## Delivery workflow

@@ -283,6 +283,10 @@
   border: 1px solid #2a2118;
   border-radius: 4px;
 }
+/* Item icons are the world pixel art on a small canvas — keep the pixels crisp. */
+#hud canvas.item-icon {
+  image-rendering: pixelated;
+}
 #hud .inventory-equipped-slot .item-icon {
   width: 28px;
   height: 28px;

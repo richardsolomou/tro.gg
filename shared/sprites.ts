@@ -11,7 +11,7 @@ import { AVATAR_FRAME_ART, GHOST_ART, PIXEL_KEYS, type IndexedSpriteArt } from "
 
 export type Kind = "trogg" | "hog";
 export type Facing = "down" | "up" | "left" | "right";
-export type FrameName = "idle" | "walk_a" | "walk_b" | "run_a" | "run_b";
+export type FrameName = "idle" | "walk_a" | "walk_b" | "run_a" | "run_b" | "attack_a" | "attack_b";
 
 /**
  * Cosmetic body variants within a kind (GDD "Avatars and equipment"). A style
@@ -51,7 +51,7 @@ export const ANCHOR = { x: 16, y: 44 } as const;
 
 export const KINDS: readonly Kind[] = ["trogg", "hog"] as const;
 export const FACINGS: readonly Facing[] = ["down", "up", "left", "right"] as const;
-export const FRAMES: readonly FrameName[] = ["idle", "walk_a", "walk_b", "run_a", "run_b"] as const;
+export const FRAMES: readonly FrameName[] = ["idle", "walk_a", "walk_b", "run_a", "run_b", "attack_a", "attack_b"] as const;
 
 /** Every (kind, style) row group in sheet order: a kind's styles, then the next
  *  kind's. Each group owns `FACINGS.length` rows. */

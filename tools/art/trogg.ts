@@ -6,12 +6,18 @@
  * big three-toed feet; mottled stone-olive hide (refs: idle.png). Styles vary by
  * palette and brow: `moss`/`stone` are smooth-skulled, `ridge` is bonier.
  *
+ * The body (torso/head/shoulders) is painted here; the arms and legs are placed
+ * from the shared skeleton (`shared/rig.ts`) and drawn as limbs from each joint, so
+ * gait and the attack reach are pose data, not bespoke per-frame maths — and a held
+ * item rides the same hand joint the runtime reads.
+ *
  * Standalone Node (tsx) — not part of the client or the module bundle.
  */
 
 import { disc, dot, line, rect, shaded } from "../pixel_paint.ts";
-import { bodyBob, footLift, isRun, RUN_LEAN, stride, FEET_Y, type View } from "./rig.ts";
-import type { FrameName, PixelSink } from "../../shared/sprites.ts";
+import { drawArm, isRun, RUN_LEAN, type View } from "./rig.ts";
+import { jointAt, rootBob, skeletonFor, type JointName } from "../../shared/rig.ts";
+import type { Facing, FrameName, PixelSink } from "../../shared/sprites.ts";
 
 interface TroggSkin {
   out: number;
@@ -83,19 +89,26 @@ function troggFaceFront(p: PixelSink, c: TroggSkin, cy: number): void {
   dot(p, 14, cy + 5, c.tooth); dot(p, 17, cy + 5, c.tooth); // upper teeth biting down
 }
 
+/** A bent leg: a thick thigh at the hip and a big foot at its planted/lifted end. */
+function troggLeg(p: PixelSink, hip: { x: number; y: number }, foot: { x: number; y: number }, c: TroggSkin, dark: boolean): void {
+  shaded(p, hip.x, hip.y, 3.2, 4, dark ? c.shade : c.base, dark ? c.out : c.shade);
+  troggFoot(p, foot.x, foot.y, c);
+}
+
 export function troggDraw(p: PixelSink, view: View, frame: FrameName, c: TroggSkin): void {
-  const b = bodyBob(frame);
+  const facing: Facing = view === "side" ? "right" : view;
+  const b = rootBob(frame);
   const run = isRun(frame);
   const hb = b + (run ? 1 : 0);
   const lean = view === "side" && run ? RUN_LEAN : 0;
-  const sw = stride(frame) * (run ? 3 : 2);
+  const behind = skeletonFor("trogg", facing).behind;
+  const J = (j: JointName) => jointAt("trogg", facing, frame, j);
 
   if (view === "side") {
-    // far leg + arm behind (darker), set back
-    shaded(p, 13, 36 + b, 2.9, 4, c.shade, c.out);
-    troggFoot(p, 13, FEET_Y + footLift(frame, false), c);
-    shaded(p, 12, 29 + b, 2.7, 6, c.shade, c.out);
-    troggFist(p, 12, 36 + b - sw, c);
+    // far (off) arm + far leg, set back and darker
+    drawArm(p, J("offShoulder").x, J("offShoulder").y, J("offHand").x, J("offHand").y, 2.7, c.shade, c.out);
+    troggFist(p, J("offHand").x, J("offHand").y, c);
+    troggLeg(p, J("farHip"), J("farFoot"), c, true);
     // upright trunk with a forward belly
     shaded(p, 16 + lean, 30 + b, 6, 7, c.base, c.shade);
     disc(p, 18 + lean, 31 + b, 3.4, 3.8, c.light);
@@ -110,31 +123,30 @@ export function troggDraw(p: PixelSink, view: View, frame: FrameName, c: TroggSk
     troggEye(p, 20 + lean, 18 + hb, c);
     rect(p, 20 + lean, 23 + hb, 6, 2, c.out); // underbite mouth
     rect(p, 20 + lean, 22 + hb, 1, 2, c.tooth); rect(p, 24 + lean, 22 + hb, 1, 2, c.tooth);
-    // near leg + arm in front
-    shaded(p, 18, 36 + b, 3, 4, c.base, c.shade);
-    troggFoot(p, 18.5, FEET_Y + footLift(frame, true), c);
-    shaded(p, 19 + lean, 30 + b, 2.9, 6, c.base, c.shade);
-    troggFist(p, 20 + lean, 36 + b + sw, c);
+    // near leg + near (main) arm in front; `lean` carries the run hunch onto the arm
+    troggLeg(p, J("nearHip"), J("nearFoot"), c, false);
+    drawArm(p, J("mainShoulder").x + lean, J("mainShoulder").y, J("mainHand").x + lean, J("mainHand").y, 2.9, c.base, c.shade);
+    troggFist(p, J("mainHand").x + lean, J("mainHand").y, c);
     return;
   }
 
   // short bent legs in a wide stance + big feet
-  shaded(p, 11.5, 35 + b, 3.2, 4, c.base, c.shade);
-  shaded(p, 20.5, 35 + b, 3.2, 4, c.base, c.shade);
-  troggFoot(p, 11, FEET_Y + footLift(frame, true), c);
-  troggFoot(p, 21, FEET_Y + footLift(frame, false), c);
-  // long thick arms dangling outside the torso to heavy fists
-  shaded(p, 6, 28 + b, 3.2, 7, c.base, c.shade);
-  shaded(p, 26, 28 + b, 3.2, 7, c.base, c.shade);
-  troggFist(p, 6, 35 + b + sw, c);
-  troggFist(p, 26, 35 + b - sw, c);
-  // torso with a lit chest/belly
-  shaded(p, 16, 30 + b, 6.2, 7, c.base, c.shade);
-  disc(p, 16, 31 + b, 4, 4.6, c.light);
+  troggLeg(p, J("nearHip"), J("nearFoot"), c, false);
+  troggLeg(p, J("farHip"), J("farFoot"), c, false);
+  // off arm hangs free outside the torso; the main arm too unless it sits behind
+  drawArm(p, J("offShoulder").x, J("offShoulder").y, J("offHand").x, J("offHand").y, 3, c.base, c.shade);
+  troggFist(p, J("offHand").x, J("offHand").y, c);
+  if (behind) {
+    drawArm(p, J("mainShoulder").x, J("mainShoulder").y, J("mainHand").x, J("mainHand").y, 3, c.base, c.shade);
+    troggFist(p, J("mainHand").x, J("mainHand").y, c);
+  }
+  // torso — narrower than the shoulder span, so a clear notch sets the arms apart
+  shaded(p, 16, 30 + b, 5.6, 7, c.base, c.shade);
+  disc(p, 16, 31 + b, 3.8, 4.4, c.light);
   line(p, 16, 26 + b, 16, 36 + b, c.shade);
-  // hulking shoulders raised high around the neck — the hunch
-  shaded(p, 9, 22 + b, 5, 4.4, c.base, c.shade);
-  shaded(p, 23, 22 + b, 5, 4.4, c.base, c.shade);
+  // hulking shoulders raised high, capping the arms onto the neck — the hunch
+  shaded(p, 9.5, 22 + b, 4.6, 4.2, c.base, c.shade);
+  shaded(p, 22.5, 22 + b, 4.6, 4.2, c.base, c.shade);
   // skull head sunk low and forward between the shoulders
   shaded(p, 16, 16 + hb, 6.2, 6.6, c.base, c.shade);
   troggMottle(p, c, b);
@@ -143,7 +155,13 @@ export function troggDraw(p: PixelSink, view: View, frame: FrameName, c: TroggSk
     // back of a hunched skull: lit crown, dark nape running down the spine
     disc(p, 16, 14 + hb, 5, 3.2, c.light);
     rect(p, 14, 22 + b, 4, 12, c.shade);
-    return;
+  } else {
+    troggFaceFront(p, c, 16 + hb);
   }
-  troggFaceFront(p, c, 16 + hb);
+
+  // main arm in front (drawn last) when it isn't tucked behind the body
+  if (!behind) {
+    drawArm(p, J("mainShoulder").x, J("mainShoulder").y, J("mainHand").x, J("mainHand").y, 3, c.base, c.shade);
+    troggFist(p, J("mainHand").x, J("mainHand").y, c);
+  }
 }
