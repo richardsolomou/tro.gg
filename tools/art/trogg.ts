@@ -112,17 +112,17 @@ export function troggDraw(p: PixelSink, view: View, frame: FrameName, c: TroggSk
     // upright trunk with a forward belly
     shaded(p, 16 + lean, 30 + b, 6, 7, c.base, c.shade);
     disc(p, 18 + lean, 31 + b, 3.4, 3.8, c.light);
-    // hunched shoulder/upper back rising behind the neck
-    shaded(p, 13 + lean * 0.5, 23 + b, 5.4, 5, c.base, c.shade);
+    // hunched shoulder/upper back rising behind the neck, raised to fill under the head
+    shaded(p, 13 + lean * 0.5, 21 + b, 5.4, 5.5, c.base, c.shade);
     troggMottle(p, c, b);
-    // head set high on the shoulders, leaning forward (right), jutting muzzle
-    shaded(p, 20 + lean, 19 + hb, 5, 5, c.base, c.shade);
-    disc(p, 24 + lean, 21 + hb, 2.5, 2.2, c.muzzle);
-    if (c.ridge) dot(p, 17 + lean, 16 + hb, c.light);
-    rect(p, 16 + lean, 17 + hb, 8, 1, c.out); // brow shelf
-    troggEye(p, 20 + lean, 18 + hb, c);
-    rect(p, 20 + lean, 23 + hb, 6, 2, c.out); // underbite mouth
-    rect(p, 20 + lean, 22 + hb, 1, 2, c.tooth); rect(p, 24 + lean, 22 + hb, 1, 2, c.tooth);
+    // head set high on the shoulders (same crown height as the front), leaning forward, jutting muzzle
+    shaded(p, 20 + lean, 16 + hb, 5, 5.5, c.base, c.shade);
+    disc(p, 24 + lean, 18 + hb, 2.5, 2.2, c.muzzle);
+    if (c.ridge) dot(p, 17 + lean, 13 + hb, c.light);
+    rect(p, 16 + lean, 14 + hb, 8, 1, c.out); // brow shelf
+    troggEye(p, 20 + lean, 15 + hb, c);
+    rect(p, 20 + lean, 20 + hb, 6, 2, c.out); // underbite mouth
+    rect(p, 20 + lean, 19 + hb, 1, 2, c.tooth); rect(p, 24 + lean, 19 + hb, 1, 2, c.tooth);
     // near leg + near (main) arm in front; `lean` carries the run hunch onto the arm
     troggLeg(p, J("nearHip"), J("nearFoot"), c, false);
     drawArm(p, J("mainShoulder").x + lean, J("mainShoulder").y, J("mainHand").x + lean, J("mainHand").y, 2.9, c.base, c.shade);
