@@ -53,15 +53,19 @@ export function dinoDraw(p: PixelSink, view: View, frame: FrameName): void {
     disc(p, 23, 24 + b, 2.6, 2.2, c.face);
     dot(p, 24, 23.5 + b, c.eye);
     dot(p, 25.5, 16.5 + b, c.eye);
+    // near arm reaching down to the wielding hand (~hog side hand 20,32)
+    shaded(p, 18, 26 + b, 2, 3, c.body, c.bodyDk);
+    shaded(p, 20, 31 + b, 2.3, 2.3, c.body, c.bodyDk);
     return;
   }
 
-  // front: scaly body, belly, ridge, little arms, toothy hood, hog face
+  // front: scaly body, belly, ridge, arms to the rig hands, toothy hood, hog face
   dinoRidge(p, 15.5, 9 + b, 8, c);
   shaded(p, 15.5, 29 + b, 11, 9, c.body, c.bodyDk);
   disc(p, 15.5, 31 + b, 6, 5.2, c.belly);
-  shaded(p, 6, 27 + b, 2, 2.8, c.body, c.bodyDk);
-  shaded(p, 25, 27 + b, 2, 2.8, c.body, c.bodyDk);
+  // arms reaching down to fists on the hog hand joints (5,33)/(26,33), so it can wield
+  shaded(p, 7, 28 + b, 2.2, 3, c.body, c.bodyDk); shaded(p, 5, 33 + b, 2.3, 2.3, c.body, c.bodyDk);
+  shaded(p, 24, 28 + b, 2.2, 3, c.body, c.bodyDk); shaded(p, 26, 33 + b, 2.3, 2.3, c.body, c.bodyDk);
   // toothy hood framing the face
   shaded(p, 15.5, 16 + b, 9, 6.8, c.body, c.bodyDk);
   rect(p, 11, 12 + b, 2, 2, c.eye); rect(p, 19, 12 + b, 2, 2, c.eye);
