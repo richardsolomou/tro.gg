@@ -89,6 +89,8 @@ export interface HogView {
   /** The hedgehog skin, derived from the Hog's id so a zone reads as a varied crowd. */
   style: string;
   frameKey: string;
+  /** Local monotonic start of the current hit-flinch (recoil + flash), or undefined when none. */
+  flinchBaseMs?: number;
 }
 
 /**
@@ -230,6 +232,25 @@ export function createEntities(scene: Phaser.Scene, getTile: () => number) {
     if (fl.flash) entry.sprite.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
     else entry.sprite.setTint(entry.baseColor).setTintMode(Phaser.TintModes.MULTIPLY);
     if (entry.equipped) entry.equipped.setPosition(entry.equipped.x - f.x * k, entry.equipped.y - f.y * k);
+  };
+
+  /** The same hit-flinch for a Hog: recoil opposite its facing plus a white flash. Hogs carry no
+   *  tint, so the flash clears back to none. The sprite rests at the centre of its footprint. */
+  const applyHogFlinch = (view: HogView, now: number): void => {
+    if (view.flinchBaseMs === undefined) return;
+    const c = (getTile() * hogSize(view.style)) / 2;
+    const fl = flinchPose(now - view.flinchBaseMs);
+    if (!fl) {
+      view.flinchBaseMs = undefined;
+      view.sprite.setPosition(c, c);
+      view.sprite.setTint(0xffffff).setTintMode(Phaser.TintModes.MULTIPLY);
+      return;
+    }
+    const f = forward(view.facing);
+    const k = getTile() * 0.1 * fl.shove;
+    view.sprite.setPosition(c - f.x * k, c - f.y * k);
+    if (fl.flash) view.sprite.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
+    else view.sprite.setTint(0xffffff).setTintMode(Phaser.TintModes.MULTIPLY);
   };
 
   /** Progress [0,1) through the current equipment-use action, or undefined when none is
@@ -501,7 +522,7 @@ export function createEntities(scene: Phaser.Scene, getTile: () => number) {
     return bubble;
   };
 
-  return { headTopY, place, centre, makeMarker, animate, driveSprite, makeBoulder, makeGroundItem, applyCarry, applyEquipment, makeHog, hauntGhost, makeBubble };
+  return { headTopY, place, centre, makeMarker, animate, driveSprite, makeBoulder, makeGroundItem, applyCarry, applyEquipment, makeHog, applyHogFlinch, hauntGhost, makeBubble };
 }
 
 export type Entities = ReturnType<typeof createEntities>;

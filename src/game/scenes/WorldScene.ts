@@ -247,6 +247,7 @@ export class WorldScene extends Phaser.Scene {
       const motion = projectMotionState({ ...view.row, size }, now - view.baseMs, this.hogBounds);
       this.entities.place(view.marker, motion.x, motion.y);
       this.entities.driveSprite(view.sprite, "hog", view.style, motion.dirX, motion.dirY, false, view, now);
+      this.entities.applyHogFlinch(view, now);
       const tile = snapToTile({ x: motion.x, y: motion.y });
       // A big hog blocks its whole footprint, so troggs (and our own prediction)
       // collide with the giant's body, not just its anchor tile.
@@ -541,7 +542,12 @@ export class WorldScene extends Phaser.Scene {
     const conn = this.conn;
     conn.db.hog.onInsert((_ctx, h) => this.addHog(h));
     conn.db.hog.onUpdate((_ctx, _old, h) => {
+      const damaged = h.health < _old.health;
       this.updateHog(h);
+      if (damaged) {
+        const view = this.hogs.get(h.id.toString());
+        if (view) view.flinchBaseMs = performance.now();
+      }
       if (!this.sub.live) return;
       const changedHeading = _old.dirX !== h.dirX || _old.dirY !== h.dirY;
       if (changedHeading && Math.random() < 0.35) audio.playHog();
