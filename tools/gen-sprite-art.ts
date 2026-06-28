@@ -82,19 +82,19 @@ interface TroggSkin {
   out: number;
   base: number;
   shade: number;
-  belly: number; // lighter chest
-  bone: number; // pale skull face mask
+  light: number; // lit highlights — chest, brow, cheekbones
+  muzzle: number; // the slightly lighter jutting snout
   eye: number;
   pupil: number;
   tooth: number;
-  /** Crown ornament: soft `ears`, stubby `horns`, or an earless craggy skull. */
-  crest: "ears" | "horns" | "none";
+  /** A heavier bony brow/crown ridge marks `ridge`; the others are smooth-skulled. */
+  ridge: boolean;
 }
 
 const TROGG_SKINS: Record<string, TroggSkin> = {
-  moss: { out: 0x161a0f, base: 0x77834d, shade: 0x4d5731, belly: 0x9aa468, bone: 0xbab487, eye: 0xff3b28, pupil: 0x3a0a06, tooth: 0xeee6cf, crest: "ears" },
-  stone: { out: 0x1a1b19, base: 0x7d7f76, shade: 0x4f504a, belly: 0xa1a094, bone: 0xbdbaa9, eye: 0xff3328, pupil: 0x340806, tooth: 0xeeebde, crest: "none" },
-  ridge: { out: 0x130f08, base: 0x675f3d, shade: 0x413b25, belly: 0x8a7a50, bone: 0xab9e6e, eye: 0xff442c, pupil: 0x300906, tooth: 0xe6dcbd, crest: "horns" },
+  moss: { out: 0x161a0f, base: 0x77834d, shade: 0x4d5731, light: 0x99a566, muzzle: 0x8a9258, eye: 0xff3b28, pupil: 0x3a0a06, tooth: 0xeee6cf, ridge: false },
+  stone: { out: 0x191b19, base: 0x787a70, shade: 0x4c4d47, light: 0x9a9b8f, muzzle: 0x8a8b80, eye: 0xff3328, pupil: 0x340806, tooth: 0xeeebde, ridge: false },
+  ridge: { out: 0x141009, base: 0x6b6440, shade: 0x423c26, light: 0x8f8556, muzzle: 0x7e764a, eye: 0xff442c, pupil: 0x300906, tooth: 0xe6dcbd, ridge: true },
 };
 
 // ── hog skins ──────────────────────────────────────────────────────────────
@@ -121,92 +121,112 @@ const HOG_SKINS: Record<string, HogSkin> = {
 
 // ── trogg ──────────────────────────────────────────────────────────────────────
 
-/** The crown ornament that distinguishes a trogg style (mirrored with the sprite). */
-function troggCrest(p: PixelSink, c: TroggSkin, view: View, hb: number, lean: number): void {
-  if (c.crest === "none") return;
-  const horns = c.crest === "horns";
-  if (view === "side") {
-    if (horns) { disc(p, 10 + lean, 9 + hb, 1.6, 2, c.belly); dot(p, 11 + lean, 7 + hb, c.belly); }
-    else disc(p, 8 + lean, 12 + hb, 2.2, 2.8, c.base);
-    return;
-  }
-  const lx = horns ? 8 : 6;
-  const rx = horns ? 23 : 25;
-  if (horns) {
-    disc(p, lx, 10 + hb, 1.6, 2.2, c.belly); disc(p, rx, 10 + hb, 1.6, 2.2, c.belly);
-    dot(p, lx - 1, 8 + hb, c.belly); dot(p, rx + 1, 8 + hb, c.belly);
-  } else {
-    disc(p, lx, 12 + hb, 2.4, 3, c.base); disc(p, rx, 12 + hb, 2.4, 3, c.base);
-  }
+/** A broad three-toed ogre foot. */
+function troggFoot(p: PixelSink, x: number, y: number, c: TroggSkin): void {
+  shaded(p, x, y, 3.2, 2.2, c.base, c.shade);
+  dot(p, x - 1.6, y + 1.4, c.out); dot(p, x + 0.4, y + 1.4, c.out); dot(p, x + 2.2, y + 1.4, c.out);
 }
 
-/** Skull-faced front: bone mask, brow shelf, sunken red eyes, bared grimace. */
-function troggFaceFront(p: PixelSink, c: TroggSkin, hb: number): void {
-  disc(p, 15.5, 17 + hb, 8.6, 6.2, c.bone);
-  // heavy brow shelves
-  rect(p, 8, 14 + hb, 7, 2, c.out);
-  rect(p, 17, 14 + hb, 7, 2, c.out);
-  // deep-set glowing eyes
-  rect(p, 9, 16 + hb, 5, 4, c.eye);
-  rect(p, 18, 16 + hb, 5, 4, c.eye);
-  rect(p, 10, 17 + hb, 3, 2, c.pupil);
-  rect(p, 19, 17 + hb, 3, 2, c.pupil);
-  dot(p, 13, 16 + hb, 0xffd0c0); dot(p, 22, 16 + hb, 0xffd0c0);
-  // flat nose shadow
-  rect(p, 14, 21 + hb, 4, 2, c.shade);
-  // wide grimacing maw with blocky teeth
-  rect(p, 9, 25 + hb, 14, 4, c.out);
-  for (let x = 10; x <= 21; x += 2) { rect(p, x, 25 + hb, 1, 2, c.tooth); dot(p, x + 1, 28 + hb, c.tooth); }
+/** A heavy clenched fist with knuckle creases. */
+function troggFist(p: PixelSink, x: number, y: number, c: TroggSkin): void {
+  shaded(p, x, y, 2.9, 2.5, c.base, c.shade);
+  dot(p, x - 1.6, y, c.out); dot(p, x, y, c.out); dot(p, x + 1.6, y, c.out);
+}
+
+/** Mottled hide blotches so the stone-skin reads as the reference's patchy ogre. */
+function troggMottle(p: PixelSink, c: TroggSkin, b: number): void {
+  const spots: [number, number, 0 | 1][] = [
+    [9, 31, 0], [22, 33, 1], [12, 37, 1], [20, 30, 0], [7, 26, 1], [25, 27, 0], [15, 39, 1], [11, 24, 0],
+  ];
+  for (const [x, y, k] of spots) { const col = k ? c.shade : c.light; dot(p, x, y + b, col); dot(p, x + 1, y + b, col); }
+}
+
+/** Skull-faced front: heavy brow, deep-set red eyes, jutting muzzle, jagged underbite. */
+function troggFaceFront(p: PixelSink, c: TroggSkin, cy: number): void {
+  // jutting lighter muzzle behind the mouth
+  disc(p, 15.5, cy + 4, 5.6, 3, c.muzzle);
+  // brow: lit ridge above a dark shelf
+  rect(p, 9, cy - 3, 14, 1, c.light);
+  rect(p, 9, cy - 2, 14, 2, c.out);
+  if (c.ridge) { rect(p, 12, cy - 5, 8, 1, c.out); rect(p, 13, cy - 4, 6, 1, c.light); }
+  dot(p, 15.5, cy - 1, c.out);
+  // sunken eye sockets + glowing red eyes
+  rect(p, 9, cy, 6, 3, c.shade); rect(p, 17, cy, 6, 3, c.shade);
+  rect(p, 10, cy, 4, 3, c.eye); rect(p, 18, cy, 4, 3, c.eye);
+  rect(p, 11, cy + 1, 2, 1, c.pupil); rect(p, 19, cy + 1, 2, 1, c.pupil);
+  dot(p, 13, cy, 0xffd0c0); dot(p, 21, cy, 0xffd0c0);
+  // flat broad nose
+  rect(p, 14, cy + 2, 4, 2, c.shade);
+  dot(p, 14, cy + 3, c.out); dot(p, 17, cy + 3, c.out);
+  // wide grimace: dark cavity, upper teeth down + lower teeth up (underbite), corner tusks
+  rect(p, 10, cy + 5, 12, 3, c.out);
+  for (let x = 11; x <= 20; x += 2) rect(p, x, cy + 5, 1, 2, c.tooth);
+  for (let x = 12; x <= 19; x += 2) { dot(p, x, cy + 7, c.tooth); dot(p, x, cy + 8, c.tooth); }
+  rect(p, 10, cy + 6, 1, 2, c.tooth); rect(p, 21, cy + 6, 1, 2, c.tooth);
 }
 
 function troggDraw(p: PixelSink, view: View, frame: FrameName, c: TroggSkin): void {
   const b = bodyBob(frame);
   const run = isRun(frame);
-  const hb = b + (run ? 2 : 0);
+  const hb = b + (run ? 1 : 0);
   const lean = view === "side" && run ? RUN_LEAN : 0;
-  feet(p, frame, c.shade, c.out, FEET_Y, run ? 11 : 12, run ? 21 : 20);
+  const sw = stride(frame) * (run ? 3 : 2);
 
   if (view === "side") {
-    const swing = stride(frame) * (run ? 4 : 2);
-    // far arm behind, hunched body, head jutting forward
-    shaded(p, 9, 30 + b, 3, 6, c.shade, c.out);
-    shaded(p, 15 + lean * 0.3, 30 + b, 8.5, 9, c.base, c.shade);
-    disc(p, 13, 32 + b, 4, 4, c.belly);
-    shaded(p, 19 + lean, 17 + hb, 9, 7.6, c.base, c.shade);
-    disc(p, 23, 18 + hb, 4, 4.4, c.bone);
-    troggCrest(p, c, "side", hb, lean);
-    // near arm swinging
-    shaded(p, 19, 30 + b, 2.8, 5, c.base, c.shade);
-    disc(p, 23, 36 + b + swing, 2.6, 2.2, c.base);
-    // profile face
-    rect(p, 20 + lean, 15 + hb, 7, 2, c.out);
-    rect(p, 22 + lean, 17 + hb, 4, 3, c.eye); rect(p, 23 + lean, 18 + hb, 2, 1, c.pupil);
-    rect(p, 21 + lean, 23 + hb, 6, 3, c.out);
-    for (let x = 22; x <= 26; x += 2) dot(p, x + lean, 23 + hb, c.tooth);
+    // far leg + arm behind (darker)
+    shaded(p, 13, 36 + b, 2.7, 4, c.shade, c.out);
+    troggFoot(p, 13, FEET_Y + footLift(frame, false), c);
+    shaded(p, 13, 27 + b, 2.7, 6, c.shade, c.out);
+    troggFist(p, 13, 35 + b - sw, c);
+    // hunched back arcing up over a sunken belly — the back is the silhouette's peak
+    shaded(p, 14 + lean * 0.3, 27 + b, 7.6, 8.4, c.base, c.shade);
+    disc(p, 16, 31 + b, 4.4, 3.8, c.light);
+    troggMottle(p, c, b);
+    // head thrust forward (right) and lower than the back, with a jutting muzzle
+    shaded(p, 22 + lean, 25 + hb, 5.6, 5.2, c.base, c.shade);
+    disc(p, 27 + lean, 27 + hb, 2.8, 2.4, c.muzzle);
+    rect(p, 19 + lean, 22 + hb, 9, 2, c.out);
+    if (c.ridge) rect(p, 19 + lean, 20 + hb, 6, 1, c.light);
+    rect(p, 23 + lean, 24 + hb, 4, 3, c.eye); rect(p, 24 + lean, 25 + hb, 2, 1, c.pupil);
+    dot(p, 26 + lean, 24 + hb, 0xffd0c0);
+    rect(p, 22 + lean, 29 + hb, 7, 3, c.out);
+    for (let x = 23; x <= 28; x += 2) { dot(p, x + lean, 29 + hb, c.tooth); dot(p, x + lean, 31 + hb, c.tooth); }
+    // near leg + arm in front
+    shaded(p, 18, 36 + b, 2.9, 4, c.base, c.shade);
+    troggFoot(p, 18.5, FEET_Y + footLift(frame, true), c);
+    shaded(p, 19, 27 + b, 2.9, 6.5, c.base, c.shade);
+    troggFist(p, 20, 36 + b + sw, c);
     return;
   }
 
-  // camera-facing: broad hunched shoulders, thick arms, narrower waist
-  shaded(p, 5.5, 33 + b, 2.8, 5, c.base, c.shade);
-  shaded(p, 25.5, 33 + b, 2.8, 5, c.base, c.shade);
-  disc(p, 5.5, 38 + b + stride(frame) * 2, 2.6, 2.2, c.base);
-  disc(p, 25.5, 38 + b - stride(frame) * 2, 2.6, 2.2, c.base);
-  shaded(p, 15.5, 32 + b, 8.6, 8, c.base, c.shade);
-  disc(p, 15.5, 34 + b, 5, 5, c.belly);
-  // hulking shoulder yoke
-  shaded(p, 9, 28 + b, 4.2, 3.6, c.base, c.shade);
-  shaded(p, 22, 28 + b, 4.2, 3.6, c.base, c.shade);
-  // head set low between the shoulders
-  shaded(p, 15.5, 17 + hb, 9.6, 8.4, c.base, c.shade);
-  troggCrest(p, c, view, hb, 0);
+  // bent legs in a wide stance + big feet
+  shaded(p, 11.5, 36 + b, 2.9, 4, c.base, c.shade);
+  shaded(p, 19.5, 36 + b, 2.9, 4, c.base, c.shade);
+  troggFoot(p, 11, FEET_Y + footLift(frame, true), c);
+  troggFoot(p, 20.5, FEET_Y + footLift(frame, false), c);
+  // long thick arms dangling outside the torso to heavy fists
+  shaded(p, 5, 29 + b, 2.9, 6.5, c.base, c.shade);
+  shaded(p, 26, 29 + b, 2.9, 6.5, c.base, c.shade);
+  troggFist(p, 5, 36 + b + sw, c);
+  troggFist(p, 26, 36 + b - sw, c);
+  // torso — narrower than the shoulders so the arms read as separate
+  shaded(p, 15.5, 31 + b, 6.4, 6.2, c.base, c.shade);
+  disc(p, 15.5, 31 + b, 4.2, 4.2, c.light);
+  line(p, 15.5, 27 + b, 15.5, 36 + b, c.shade);
+  // hulking shoulders rising around the neck
+  shaded(p, 8.5, 25 + b, 4.6, 4, c.base, c.shade);
+  shaded(p, 22.5, 25 + b, 4.6, 4, c.base, c.shade);
+  // distinct head sitting forward on the neck
+  shaded(p, 15.5, 18 + hb, 6.8, 6.2, c.base, c.shade);
+  troggMottle(p, c, b);
 
   if (view === "up") {
-    // back of the skull: a pale cranial cap and dark nape, no face
-    disc(p, 15.5, 14 + hb, 7.5, 4.4, c.belly);
-    rect(p, 14, 22 + hb, 3, 8, c.shade);
+    // back of a hunched skull: lit crown, dark nape down the spine
+    disc(p, 15.5, 16 + hb, 4.8, 3, c.light);
+    rect(p, 14, 24 + b, 3, 10, c.shade);
     return;
   }
-  troggFaceFront(p, c, hb);
+  troggFaceFront(p, c, 18 + hb);
 }
 
 // ── hog (classic / snow / ember) ──────────────────────────────────────────────
