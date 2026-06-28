@@ -41,6 +41,15 @@ jobs:
       - name: Build client
         run: pnpm build
 
+      - name: Verify committed art matches the generators
+        run: |
+          pnpm sprite-art
+          pnpm item-art
+          if ! git diff --exit-code shared/sprite_art.ts shared/item_art.ts; then
+            echo "::error::Generated art is stale — run 'pnpm sprite-art && pnpm item-art && pnpm sprites' and commit the result."
+            exit 1
+          fi
+
       - name: Install SpacetimeDB CLI
         run: |
           curl -sSf https://install.spacetimedb.com | sh -s -- --yes
