@@ -24,7 +24,8 @@ import { deflateSync } from "node:zlib";
 import { writeFileSync } from "node:fs";
 import { AVATAR_FRAME_ART, GHOST_ART, PIXEL_KEYS, type IndexedSpriteArt } from "../shared/sprite_art.ts";
 import { ITEM_ART, ITEM_ART_W } from "../shared/item_art.ts";
-import { ANCHOR, FACINGS, FRAME_H, FRAME_W, FRAMES, type Facing, type FrameName, type Kind } from "../shared/sprites.ts";
+import { ANCHOR, composeAvatarFrame, FACINGS, FRAME_H, FRAME_W, FRAMES, type Facing, type FrameName, type Kind } from "../shared/sprites.ts";
+import { quantize } from "./pixel_paint.ts";
 import { ART, attackEase, heldTransform } from "../src/game/equipment.ts";
 
 const SCALE = 7;
@@ -33,7 +34,10 @@ const KEY_INDEX: Record<string, number> = Object.fromEntries([...PIXEL_KEYS].map
 
 function resolve(name: string): IndexedSpriteArt | undefined {
   if (name === "ghost") return GHOST_ART;
-  return AVATAR_FRAME_ART[name] ?? ITEM_ART[name];
+  const avatar = AVATAR_FRAME_ART[name];
+  // avatar frames are un-outlined fills now — compose (outline + shadow) for the contact sheet
+  if (avatar) return avatar.outline === undefined ? avatar : quantize(composeAvatarFrame(avatar, avatar.outline), FRAME_W, FRAME_H);
+  return ITEM_ART[name];
 }
 
 // ── arg parsing ───────────────────────────────────────────────────────────────────

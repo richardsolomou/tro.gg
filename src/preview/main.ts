@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { ANCHOR, blitArt, FACINGS, forward, FRAME_H, FRAME_W, hogSize, ITEM_ART, ITEM_ART_H, ITEM_ART_W, ITEMS as ITEM_DEFS, jointAt, KINDS, rgbaSink, stylesOf, type EquipSlot, type Facing, type FrameName, type JointName, type Kind } from "@trogg/shared";
+import { ANCHOR, blitArt, composeAvatarFrame, FACINGS, forward, FRAME_H, FRAME_W, hogSize, ITEM_ART, ITEM_ART_H, ITEM_ART_W, ITEMS as ITEM_DEFS, jointAt, KINDS, rgbaSink, stylesOf, type EquipSlot, type Facing, type FrameName, type JointName, type Kind } from "@trogg/shared";
 import { AVATAR_FRAME_ART, type IndexedSpriteArt } from "../../shared/sprite_art.js";
 import { ART, attackEase, FLINCH_MS, flinchPose, heldGroup, heldTransform } from "../game/equipment.js";
 import { attackFrame, avatarFrame, avatarFrameName, AVATAR_TEX, registerAvatarTextures } from "../game/avatars.js";
@@ -357,9 +357,19 @@ function itemIconCanvas(item: string): HTMLCanvasElement {
   return artCanvas(ITEM_ART_W, ITEM_ART_H, ITEM_ART[item]);
 }
 
-/** A creature's idle front frame, for the holder palette thumbnails. */
+/** A creature's idle front frame (composed: fill → outline → shadow), for the palette thumbnails. */
 function creatureIconCanvas(kind: Kind, style: string): HTMLCanvasElement {
-  return artCanvas(FRAME_W, FRAME_H, AVATAR_FRAME_ART[avatarFrameName(kind, style, "down", "idle")]);
+  const canvas = document.createElement("canvas");
+  canvas.width = FRAME_W;
+  canvas.height = FRAME_H;
+  const fill = AVATAR_FRAME_ART[avatarFrameName(kind, style, "down", "idle")];
+  if (fill) {
+    const ctx = canvas.getContext("2d")!;
+    const img = ctx.createImageData(FRAME_W, FRAME_H);
+    img.data.set(composeAvatarFrame(fill, fill.outline ?? 0));
+    ctx.putImageData(img, 0, 0);
+  }
+  return canvas;
 }
 
 function mountControls() {

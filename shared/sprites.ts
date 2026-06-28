@@ -1,4 +1,5 @@
 import { AVATAR_FRAME_ART, GHOST_ART, PIXEL_KEYS, type IndexedSpriteArt } from "./sprite_art";
+import { compositeOver, outlinePass } from "./raster";
 
 /**
  * Avatar sprite sheet metadata and renderer.
@@ -168,9 +169,53 @@ export function blitArt(sink: PixelSink, art: IndexedSpriteArt, ox = 0, oy = 0):
   }
 }
 
-/** Paint the whole avatar sheet by blitting each indexed frame into its cell. */
+/** A soft ground-contact shadow under a frame (matches the old baked shadow). */
+function shadowEllipse(buf: Uint8Array, cx: number, cy: number, rx: number, ry: number, alpha: number): void {
+  const sink = rgbaSink(buf, FRAME_W, FRAME_H);
+  for (let y = Math.ceil(cy - ry); y <= Math.floor(cy + ry); y++)
+    for (let x = Math.ceil(cx - rx); x <= Math.floor(cx + rx); x++) {
+      const nx = (x - cx) / rx;
+      const ny = (y - cy) / ry;
+      if (nx * nx + ny * ny <= 1) sink.set(x, y, 0x000000, alpha);
+    }
+}
+
+/**
+ * Compose one finished avatar frame from its un-outlined fill: run the single dilation outline
+ * over the assembled fill (the GSC silhouette), then drop it onto the soft ground shadow. This
+ * is where the unified outline happens at render time, so a stack of layers (body + armour +
+ * hair) outlines as one — see the layered-avatar plan in the GDD.
+ */
+export function composeAvatarFrame(fill: IndexedSpriteArt, outline: number): Uint8Array {
+  const layer = new Uint8Array(FRAME_W * FRAME_H * 4);
+  blitArt(rgbaSink(layer, FRAME_W, FRAME_H), fill);
+  outlinePass(layer, outline, FRAME_W, FRAME_H);
+  const data = new Uint8Array(FRAME_W * FRAME_H * 4);
+  shadowEllipse(data, 15.5, 43, 11, 3.2, 70);
+  compositeOver(data, layer);
+  return data;
+}
+
+/** Blit a raw RGBA frame buffer into a sink at (ox, oy). */
+function blitBuffer(sink: PixelSink, buf: Uint8Array, ox: number, oy: number): void {
+  for (let y = 0; y < FRAME_H; y++)
+    for (let x = 0; x < FRAME_W; x++) {
+      const i = (y * FRAME_W + x) * 4;
+      const a = buf[i + 3]!;
+      if (a === 0) continue;
+      sink.set(ox + x, oy + y, buf[i]! * 0x10000 + buf[i + 1]! * 0x100 + buf[i + 2]!, a);
+    }
+}
+
+/** Paint the whole avatar sheet: each frame is composed (fill → outline → shadow) into its
+ *  cell, so the runtime texture and the committed PNG share the same composite-then-outline
+ *  path. Frames without an `outline` (already-finished art) are blitted as-is. */
 export function paintSheet(sink: PixelSink): void {
-  for (const f of frames()) blitArt(sink, AVATAR_FRAME_ART[f.name]!, f.x, f.y);
+  for (const f of frames()) {
+    const art = AVATAR_FRAME_ART[f.name]!;
+    if (art.outline === undefined) blitArt(sink, art, f.x, f.y);
+    else blitBuffer(sink, composeAvatarFrame(art, art.outline), f.x, f.y);
+  }
 }
 
 /** Paint the standalone ghost sprite into one frame-sized surface. */

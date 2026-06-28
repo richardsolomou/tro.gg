@@ -53,20 +53,17 @@ function drawCharacter(p: PixelSink, kind: Kind, style: string, view: View, fram
   else hogDraw(p, view, f, HOG_SKINS[style] ?? HOG_SKINS.classic!);
 }
 
-function paintFrame(kind: Kind, style: string, facing: Facing, frame: FrameName): Uint8Array {
-  // character on its own layer (outlined), composited over a soft ground shadow
+/** The bare character fill for a frame — no outline, no shadow. The runtime composites the
+ *  layer stack and runs the single outline pass over the result (`composeAvatarFrame`), so a
+ *  worn layer shares one unified silhouette; the outline colour rides each frame's art. */
+function paintFill(kind: Kind, style: string, facing: Facing, frame: FrameName): Uint8Array {
   const layer = new Uint8Array(FRAME_W * FRAME_H * 4);
   const cs = rgbaSink(layer, FRAME_W, FRAME_H);
   const flip = facing === "left";
   const p: PixelSink = { set: (x, y, c) => cs.set(flip ? FRAME_W - 1 - x : x, y, c) };
   const view: View = facing === "left" || facing === "right" ? "side" : facing;
   drawCharacter(p, kind, style, view, frame);
-  outlinePass(layer, outlineColour(kind, style), FRAME_W, FRAME_H);
-
-  const data = new Uint8Array(FRAME_W * FRAME_H * 4);
-  disc(rgbaSinkAlpha(data, 70), 15.5, 43, 11, 3.2, 0x000000);
-  compositeOver(data, layer);
-  return data;
+  return layer;
 }
 
 /** A sink that paints at a fixed alpha — used only for the ground shadow. */
@@ -103,6 +100,9 @@ const header = `/**
 export interface IndexedSpriteArt {
   palette: readonly number[];
   pixels: readonly string[];
+  /** Outline colour for the dilation pass run over the composited layer stack at render time
+   *  (\`composeAvatarFrame\`). Present on avatar fills; absent on already-finished art. */
+  outline?: number;
 }
 
 export const PIXEL_KEYS = ${JSON.stringify(PIXEL_KEYS)};
@@ -110,8 +110,9 @@ export const PIXEL_KEYS = ${JSON.stringify(PIXEL_KEYS)};
 `;
 
 const entries = frames().map((f) => {
-  const art = quantize(paintFrame(f.kind, f.style, f.facing, f.frame), FRAME_W, FRAME_H);
-  return `  ${JSON.stringify(f.name)}: ${fmtArt(art, "  ")},`;
+  const fill = quantize(paintFill(f.kind, f.style, f.facing, f.frame), FRAME_W, FRAME_H);
+  const outline = "0x" + (outlineColour(f.kind, f.style) >>> 0).toString(16).padStart(6, "0");
+  return `  ${JSON.stringify(f.name)}: ${fmtArt(fill, "  ", `outline: ${outline}`)},`;
 });
 
 const ghost = fmtArt(quantize(paintGhost(), FRAME_W, FRAME_H), "");

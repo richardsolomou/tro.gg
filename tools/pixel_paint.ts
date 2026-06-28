@@ -97,9 +97,10 @@ export function quantize(data: Uint8Array, w: number, h: number): IndexedArt {
   return { palette, pixels };
 }
 
-/** Render one indexed-art literal for the generated source files. */
-export function fmtArt(art: IndexedArt, indent: string): string {
+/** Render one indexed-art literal for the generated source files. `extra` appends fields
+ *  inside the braces (e.g. `outline: 0x161a0f`). */
+export function fmtArt(art: IndexedArt, indent: string, extra = ""): string {
   const pal = art.palette.map((n) => "0x" + (n >>> 0).toString(16).padStart(8, "0")).join(", ");
   const rows = art.pixels.map((r) => `${indent}  ${JSON.stringify(r)}`).join(",\n");
-  return `{ palette: [${pal}], pixels: [\n${rows}\n${indent}] }`;
+  return `{ palette: [${pal}], pixels: [\n${rows}\n${indent}]${extra ? `, ${extra}` : ""} }`;
 }
