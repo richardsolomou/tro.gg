@@ -1,7 +1,8 @@
 import Phaser from "phaser";
-import { ANCHOR, FRAME_H, FRAME_W, HOG_MAX_HEALTH, ITEMS, PLAYER_MAX_HEALTH, hogSize, timestampMs, type Facing, type FrameName, type Kind, type ProjectedMotion, type Stamp } from "@trogg/shared";
+import { ANCHOR, FRAME_H, FRAME_W, HOG_MAX_HEALTH, ITEM_ART_W, PLAYER_MAX_HEALTH, hogSize, timestampMs, type Facing, type FrameName, type Kind, type ProjectedMotion, type Stamp } from "@trogg/shared";
 import type { Boulder, GroundItem, Hog, Player } from "../net/module_bindings/types";
 import { AVATAR_TEX, avatarFrame, avatarFrameName, facingFromDir, GHOST_FRAME, GHOST_TEX } from "./avatars.js";
+import { hasItemArt, ITEM_TEX } from "./items.js";
 import { cssColor, TEXT_RESOLUTION } from "../ui_text.js";
 import { audio } from "../audio.js";
 
@@ -236,62 +237,29 @@ export function createEntities(scene: Phaser.Scene, getTile: () => number) {
     state.frameKey = key;
   };
 
-  /** A pushable boulder: a rounded stone filling its tile, with a lit top-left face. */
+  /** A pushable boulder: the chunky pixel-art rock, scaled to fill its tile. */
   const makeBoulder = () => {
     const tile = getTile();
-    const sprite = scene.add.container(0, 0);
-    const inset = Math.max(2, Math.round(tile * 0.1));
-    const size = tile - inset * 2;
-    const radius = Math.max(3, Math.round(tile * 0.28));
-    const px = Math.max(1, Math.round(tile / ART));
-    const body = scene.add.graphics();
-    body.fillStyle(0x6b5640, 1).fillRoundedRect(inset, inset, size, size, radius);
-    body.lineStyle(px, 0x2a2118, 1).strokeRoundedRect(inset, inset, size, size, radius);
-    // A small highlight reads as a lit facet under the cave's torchlight.
-    body.fillStyle(0x8a7257, 1).fillRoundedRect(inset + px, inset + px, size * 0.4, size * 0.4, radius * 0.6);
-    sprite.add(body);
-    return sprite;
-  };
-
-  const toolColor = (item: string): number => {
-    if (item === "pickaxe") return 0xaec4c8;
-    if (item === "shovel") return 0xc79b56;
-    if (item === "sword") return 0xdce9ee;
-    return 0x9b8a6c;
-  };
-
-  /** A compact programmer-art item glyph used both on the floor and in hand. */
-  const makeItemGlyph = (item: string, scale = 1): Phaser.GameObjects.Container | undefined => {
-    if (item === "stone") {
-      const wrap = scene.add.container(0, 0);
-      const g = scene.add.graphics();
-      g.fillStyle(0x6b5640, 1).fillRoundedRect(-4, -3, 8, 6, 3);
-      g.lineStyle(1, 0x2a2118, 1).strokeRoundedRect(-4, -3, 8, 6, 3);
-      wrap.add(g);
-      wrap.setScale(scale);
-      return wrap;
-    }
-
-    const def = ITEMS[item as keyof typeof ITEMS];
-    if (!def?.sprite) return undefined;
     const wrap = scene.add.container(0, 0);
-    const g = scene.add.graphics();
-    const metal = toolColor(item);
-    const handle = 0x6b3f24;
-    if (item === "pickaxe") {
-      g.lineStyle(2, handle, 1).lineBetween(0, 5, 0, -7);
-      g.lineStyle(2, metal, 1).lineBetween(-6, -7, 6, -7);
-      g.lineStyle(1, 0xe8dcc4, 1).lineBetween(-4, -8, 4, -8);
-    } else if (item === "shovel") {
-      g.lineStyle(2, handle, 1).lineBetween(0, 5, 0, -6);
-      g.fillStyle(metal, 1).fillEllipse(0, -8, 8, 6);
-      g.lineStyle(1, 0x2a2118, 1).strokeEllipse(0, -8, 8, 6);
-    } else if (item === "sword") {
-      g.lineStyle(2, metal, 1).lineBetween(0, 6, 0, -9);
-      g.lineStyle(2, 0xf2c94c, 1).lineBetween(-4, 1, 4, 1);
-      g.lineStyle(2, handle, 1).lineBetween(0, 2, 0, 7);
-    }
-    wrap.add(g);
+    const sprite = scene.make.sprite({ x: tile / 2, y: tile / 2, key: ITEM_TEX, frame: "boulder", add: false });
+    sprite.setOrigin(0.5, 0.5);
+    sprite.setScale(tile / ITEM_ART_W);
+    wrap.add(sprite);
+    return wrap;
+  };
+
+  /**
+   * The pixel-art glyph for a prop, used both on the floor and in hand. The
+   * sprite is shrunk into `ART` local units so the existing anchor/scale maths
+   * (which works in `tile / ART` terms) keeps placing and rotating it unchanged.
+   */
+  const makeItemGlyph = (item: string, scale = 1): Phaser.GameObjects.Container | undefined => {
+    if (!hasItemArt(item)) return undefined;
+    const wrap = scene.add.container(0, 0);
+    const sprite = scene.make.sprite({ x: 0, y: 0, key: ITEM_TEX, frame: item, add: false });
+    sprite.setOrigin(0.5, 0.5);
+    sprite.setScale(ART / ITEM_ART_W);
+    wrap.add(sprite);
     wrap.setScale(scale);
     return wrap;
   };

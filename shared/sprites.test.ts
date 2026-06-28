@@ -9,12 +9,14 @@ import {
   SHEET_W,
   frameRect,
   frames,
+  blitArt,
   ghostDraw,
   paintSheet,
   styleGroups,
   type PixelSink,
 } from "./sprites";
 import { AVATAR_FRAME_ART, GHOST_ART, PIXEL_KEYS, type IndexedSpriteArt } from "./sprite_art";
+import { ITEM_ART, ITEM_ART_H, ITEM_ART_W } from "./item_art";
 
 test("the atlas covers every style group × facing × frame exactly once", () => {
   const all = frames();
@@ -60,6 +62,40 @@ test("indexed avatar art covers every generated frame", () => {
 
 test("indexed ghost art is one valid frame", () => {
   assertIndexedArt("ghost", GHOST_ART);
+});
+
+test("item art covers the tools, stone, and boulder as valid maps", () => {
+  for (const name of ["pickaxe", "shovel", "sword", "stone", "boulder"]) {
+    assert.ok(ITEM_ART[name], `missing item art for ${name}`);
+  }
+  const validKeys = new Set([".", ...PIXEL_KEYS]);
+  for (const [name, art] of Object.entries(ITEM_ART)) {
+    assert.equal(art.pixels.length, ITEM_ART_H, `${name} row count`);
+    for (const [y, row] of art.pixels.entries()) {
+      assert.equal(row.length, ITEM_ART_W, `${name} row ${y} width`);
+      for (const key of row) {
+        assert.ok(validKeys.has(key), `${name} uses unknown pixel key ${key}`);
+        if (key !== ".") assert.ok(PIXEL_KEYS.indexOf(key) < art.palette.length, `${name} key ${key} has no palette entry`);
+      }
+    }
+    for (const rgba of art.palette) {
+      assert.ok(Number.isInteger(rgba) && rgba >= 0 && rgba <= 0xffffffff, `${name} palette entry is not RGBA`);
+    }
+  }
+});
+
+test("blitArt paints an item within its own bounds", () => {
+  let painted = 0;
+  let out = 0;
+  const sink: PixelSink = {
+    set(x, y) {
+      painted++;
+      if (x < 0 || y < 0 || x >= ITEM_ART_W || y >= ITEM_ART_H) out++;
+    },
+  };
+  blitArt(sink, ITEM_ART.boulder!);
+  assert.ok(painted > 0, "boulder painted nothing");
+  assert.equal(out, 0);
 });
 
 test("painting stays within the sheet bounds", () => {

@@ -14,6 +14,7 @@
     "typecheck:module": "tsc -p spacetimedb/tsconfig.json --noEmit",
     "test": "TSX_TSCONFIG_PATH=test/tsconfig.json node --import tsx --test \"shared/*.test.ts\" \"src/*.test.ts\" \"test/*.test.ts\"",
     "sprite-art": "tsx tools/gen-sprite-art.ts",
+    "item-art": "tsx tools/gen-item-art.ts",
     "sprites": "tsx tools/gen-spritesheet.ts"
   },
   "dependencies": {

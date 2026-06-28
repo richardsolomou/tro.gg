@@ -48,8 +48,25 @@ sprite painted at runtime into its own texture, not part of this sheet.
 
 ## Scope
 
-This is the **base body only**. Held-item and armour overlays (the GDD's per-hand
-main/off layers) reuse this frame grid and anchor when they land (M2+); the rig
-reserves their order now. The client paints this art into a texture at runtime
-(`src/game/avatars.ts`) and tints troggs by the player's colour; the committed PNG
-is the reviewable export, not a runtime dependency.
+This sheet is the avatar **base body only**. Held-item and armour overlays (the
+GDD's per-hand main/off layers) reuse this frame grid and anchor when they land
+(M2+); the rig reserves their order now. The client paints this art into a
+texture at runtime (`src/game/avatars.ts`) and tints troggs by the player's
+colour; the committed PNG is the reviewable export, not a runtime dependency.
+
+## World props (tools, stone, boulder)
+
+The same pixel pipeline draws the world props — the held/ground tools (pickaxe,
+shovel, sword), the stone resource, and the pushable boulder:
+
+```sh
+pnpm item-art   # paint logic → shared/item_art.ts (indexed pixel maps)
+```
+
+[`tools/gen-item-art.ts`](../../tools/gen-item-art.ts) shares the GSC paint
+helpers in [`tools/pixel_paint.ts`](../../tools/pixel_paint.ts) (also used by the
+avatar generator) and emits [`shared/item_art.ts`](../../shared/item_art.ts) as
+indexed 24×24 maps. The client paints those into one runtime texture
+(`src/game/items.ts`, via `blitArt` in `shared/sprites.ts`) and the world renders
+them as sprites — no PNG, no asset file. There is no committed image for props;
+the indexed maps are the artifact. Edit the draw code and rerun `pnpm item-art`.

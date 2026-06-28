@@ -97,14 +97,20 @@ function drawWalls(g: Phaser.GameObjects.Graphics, zone: Zone, tile: number) {
       g.fillRect(tx * tile, ty * tile, tile, tile);
     }
   }
-  // Bevels in a second pass so highlights sit on top of neighbouring wall faces.
+  // Bevels + outline in a second pass so they sit on top of neighbouring wall
+  // faces. A dark border traces every floor-facing edge (the GSC outline the
+  // avatars share), and a lit band caps the front face where floor sits below.
   for (let ty = 0; ty < zone.height; ty++) {
     for (let tx = 0; tx < zone.width; tx++) {
       if (isWalkable(zone, tx, ty)) continue;
       const x = tx * tile;
       const y = ty * tile;
-      if (isWalkable(zone, tx, ty + 1)) g.fillStyle(WALL.top, 1).fillRect(x, y + tile - px * 2, tile, px * 2);
-      if (isWalkable(zone, tx, ty - 1)) g.fillStyle(WALL.edge, 1).fillRect(x, y, tile, px);
+      if (isWalkable(zone, tx, ty + 1)) g.fillStyle(WALL.top, 1).fillRect(x, y + tile - px * 3, tile, px);
+      g.fillStyle(WALL.edge, 1);
+      if (isWalkable(zone, tx, ty - 1)) g.fillRect(x, y, tile, px);
+      if (isWalkable(zone, tx, ty + 1)) g.fillRect(x, y + tile - px, tile, px);
+      if (isWalkable(zone, tx - 1, ty)) g.fillRect(x, y, px, tile);
+      if (isWalkable(zone, tx + 1, ty)) g.fillRect(x + tile - px, y, px, tile);
     }
   }
 }
