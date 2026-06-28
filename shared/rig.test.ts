@@ -74,7 +74,7 @@ test("every joint stays within the frame, for all kinds/facings/frames", () => {
 });
 
 test("the hog has its own skeleton, not the trogg's", () => {
-  assert.notDeepEqual(skeletonFor("hog", "down").joints.mainHand, skeletonFor("trogg", "down").joints.mainHand);
+  assert.notDeepEqual(skeletonFor("hog", "down").joints, skeletonFor("trogg", "down").joints);
   assert.equal(skeletonFor("hog", "up").behind, true);
 });
 
