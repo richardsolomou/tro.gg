@@ -144,10 +144,15 @@ export function frames(): FrameRect[] {
 
 const PIXEL_KEY_INDEX: Record<string, number> = Object.fromEntries([...PIXEL_KEYS].map((key, i) => [key, i]));
 
-function blitIndexedArt(sink: PixelSink, art: IndexedSpriteArt, ox: number, oy: number): void {
-  for (let y = 0; y < FRAME_H; y++) {
+/**
+ * Blit one indexed art map at (ox, oy). Dimensions come from the art itself, so
+ * it paints both 32×48 avatar frames and the smaller world-prop maps. Each key
+ * indexes the art's local palette; `.` is transparent.
+ */
+export function blitArt(sink: PixelSink, art: IndexedSpriteArt, ox = 0, oy = 0): void {
+  for (let y = 0; y < art.pixels.length; y++) {
     const row = art.pixels[y] ?? "";
-    for (let x = 0; x < FRAME_W; x++) {
+    for (let x = 0; x < row.length; x++) {
       const key = row[x] ?? ".";
       if (key === ".") continue;
       const paletteIndex = PIXEL_KEY_INDEX[key];
@@ -165,10 +170,10 @@ function blitIndexedArt(sink: PixelSink, art: IndexedSpriteArt, ox: number, oy: 
 
 /** Paint the whole avatar sheet by blitting each indexed frame into its cell. */
 export function paintSheet(sink: PixelSink): void {
-  for (const f of frames()) blitIndexedArt(sink, AVATAR_FRAME_ART[f.name]!, f.x, f.y);
+  for (const f of frames()) blitArt(sink, AVATAR_FRAME_ART[f.name]!, f.x, f.y);
 }
 
 /** Paint the standalone ghost sprite into one frame-sized surface. */
 export function ghostDraw(sink: PixelSink): void {
-  blitIndexedArt(sink, GHOST_ART, 0, 0);
+  blitArt(sink, GHOST_ART, 0, 0);
 }

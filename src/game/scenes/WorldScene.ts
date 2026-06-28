@@ -9,6 +9,7 @@ import { createSelfController, type SelfController } from "../../movement.js";
 import { ART, createEntities, type BoulderView, type Entities, type GroundItemView, type HogView, type Tracked } from "../entities.js";
 import { createTerrain, registerTerrainTextures, type Terrain } from "../terrain.js";
 import { facingFromDir, registerAvatarTextures } from "../avatars.js";
+import { registerItemTextures } from "../items.js";
 import { captureEvent, isFeatureEnabled, logError, logInfo } from "../../analytics.js";
 import { audio } from "../../audio.js";
 import { interact, useEquipped } from "../../net/procedures.js";
@@ -102,6 +103,7 @@ export class WorldScene extends Phaser.Scene {
   // keeps the gameplay scene's `create` to building the world, not preparing pixels.
   preload() {
     registerAvatarTextures(this);
+    registerItemTextures(this);
     registerTerrainTextures(this);
   }
 
