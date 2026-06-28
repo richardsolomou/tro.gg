@@ -38,7 +38,6 @@ import {
   restyle,
   resetBoulders,
   resetHogs,
-  respawn,
   respawnPlayers,
   spawn,
   startClaim,
@@ -474,9 +473,11 @@ test("a sword hit at zero health kills, drops inventory, and respawns after the 
   target = ctx.db.player.identity.find(other);
   assert.deepEqual({ x: target.x, y: target.y, dirX: target.dirX, dirY: target.dirY, dead: target.dead }, { x: 6, y: 8, dirX: 0, dirY: 0, dead: true });
 
-  respawn(ctx);
+  // Firing the scheduled respawn before the timer is due re-arms it and leaves the trogg dead.
+  respawnPlayers(ctx, { timer: ctx.db.playerRespawn.rows()[0] });
   target = ctx.db.player.identity.find(other);
   assert.equal(target.dead, true);
+  assert.equal(ctx.db.playerRespawn.rows().length, 1);
 
   ctx.timestamp = { microsSinceUnixEpoch: micros(1000 + PLAYER_RESPAWN_MS) };
   respawnPlayers(ctx, { timer: ctx.db.playerRespawn.rows()[0] });

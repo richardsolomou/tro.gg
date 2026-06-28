@@ -25,8 +25,6 @@ import {
   addInventory,
   hogAt,
   playerAt,
-  respawnDue,
-  respawnPlayer,
   playerDiedEvent,
   damageHog,
   damagePlayer,
@@ -236,15 +234,6 @@ function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; d
 
 export const useEquipped = spacetimedb.reducer({ dirX: t.i32(), dirY: t.i32() }, (ctx, args) => {
   runUseEquipped(ctx, args);
-});
-
-/** Manual compatibility hook: respawn only when the death timer is already due. */
-export const respawn = spacetimedb.reducer((ctx) => {
-  const p = ctx.db.player.identity.find(ctx.sender);
-  if (!p || !p.dead) return;
-  if (!respawnDue(p, ctx.timestamp)) return;
-  for (const timer of [...ctx.db.playerRespawn.playerId.filter(p.identity)]) ctx.db.playerRespawn.scheduledId.delete(timer.scheduledId);
-  respawnPlayer(ctx, p);
 });
 
 export const useEquippedAction = spacetimedb.procedure(
