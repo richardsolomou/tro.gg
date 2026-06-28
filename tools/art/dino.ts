@@ -35,27 +35,31 @@ export function dinoDraw(p: PixelSink, view: View, frame: FrameName): void {
   shaded(p, 19, 35 + b, 3.6, 4.6, c.body, c.bodyDk);
 
   if (view === "up") {
-    dinoRidge(p, 15.5, 17 + b, 8, c);
-    shaded(p, 15.5, 27 + b, 11, 9.4, c.body, c.bodyDk);
-    rect(p, 14, 19 + b, 3, 11, c.bodyDk);
-    shaded(p, 4, 32 + b, 4, 2.6, c.body, c.bodyDk);
+    // back: ridge crest high (matching the front silhouette), the hood's back, body, spine,
+    // and both arms hanging to the rig hand joints
+    dinoRidge(p, 15.5, 10 + b, 8, c);
+    shaded(p, 15.5, 16 + b, 6.6, 5, c.body, c.bodyDk);
+    shaded(p, 15.5, 28 + b, 11, 9, c.body, c.bodyDk);
+    rect(p, 14, 20 + b, 3, 12, c.bodyDk);
+    shaded(p, 7, 29 + b, 2.2, 3, c.body, c.bodyDk); shaded(p, 5, 33 + b, 2.3, 2.3, c.body, c.bodyDk);
+    shaded(p, 24, 29 + b, 2.2, 3, c.body, c.bodyDk); shaded(p, 26, 33 + b, 2.3, 2.3, c.body, c.bodyDk);
     return;
   }
 
   if (view === "side") {
-    shaded(p, 5, 31 + b, 5.4, 3, c.body, c.bodyDk);
-    dinoRidge(p, 14, 19 + b, 5, c);
-    shaded(p, 15, 27 + b, 9, 8, c.body, c.bodyDk);
+    // profile at the same height as the front: back ridge, body, the toothy hood up front with
+    // the hog face inside, near arm to the wielding hand
+    dinoRidge(p, 13, 12 + b, 5, c);
+    shaded(p, 14, 28 + b, 8, 9, c.body, c.bodyDk);
     disc(p, 16, 30 + b, 5, 4, c.belly);
-    shaded(p, 23, 21 + b, 6.4, 5.4, c.body, c.bodyDk);
-    rect(p, 18, 23 + b, 12, 1, c.out);
-    for (let x = 18; x <= 28; x += 2) { dot(p, x, 21 + b, c.tooth); dot(p, x + 1, 25 + b, c.tooth); }
-    disc(p, 23, 24 + b, 2.6, 2.2, c.face);
-    dot(p, 24, 23.5 + b, c.eye);
-    dot(p, 25.5, 16.5 + b, c.eye);
-    // near arm reaching down to the wielding hand (~hog side hand 20,32)
-    shaded(p, 18, 26 + b, 2, 3, c.body, c.bodyDk);
-    shaded(p, 20, 31 + b, 2.3, 2.3, c.body, c.bodyDk);
+    shaded(p, 22, 16 + b, 6.4, 6, c.body, c.bodyDk); // toothy hood
+    rect(p, 18, 18 + b, 12, 1, c.out); // jaw line
+    for (let x = 18; x <= 28; x += 2) { dot(p, x, 16 + b, c.tooth); dot(p, x + 1, 20 + b, c.tooth); }
+    disc(p, 23, 19 + b, 2.6, 2.2, c.face); // hog face inside
+    dot(p, 24, 18.5 + b, c.eye);
+    dot(p, 25.5, 12.5 + b, c.eye); // costume eye high on the snout
+    shaded(p, 18, 26 + b, 2, 3, c.body, c.bodyDk); // near arm
+    shaded(p, 20, 31 + b, 2.3, 2.3, c.body, c.bodyDk); // near fist (~20,32)
     return;
   }
 
