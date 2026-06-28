@@ -81,9 +81,9 @@ const TROGG_BACK: Record<JointName, Joint> = {
 /** Right profile: the near (main) arm in front, the far (off) arm behind. */
 const TROGG_SIDE: Record<JointName, Joint> = {
   mainShoulder: { x: 19, y: 24 },
-  mainHand: { x: 20, y: 36 },
+  mainHand: { x: 20, y: 34 },
   offShoulder: { x: 12, y: 24 },
-  offHand: { x: 12, y: 36 },
+  offHand: { x: 12, y: 34 },
   nearHip: { x: 18, y: 36 },
   farHip: { x: 13, y: 36 },
   nearFoot: { x: 18.5, y: 40 },
