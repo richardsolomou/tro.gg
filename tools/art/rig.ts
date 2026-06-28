@@ -49,6 +49,13 @@ export function bodyBob(frame: FrameName): number {
   return isRun(frame) ? -4 : -2;
 }
 
+/** Arm swing for a gait frame, matching the shared rig's hand offset (`stride × 3` walking,
+ *  `× 5` running). Baked-limb creatures offset their painted arms by this so the drawn hand
+ *  moves with the rig's hand joint — keeping a held item on the hand through the walk cycle. */
+export function armSwing(frame: FrameName): number {
+  return stride(frame) * (isRun(frame) ? 5 : 3);
+}
+
 /** Two feet with the walk lift applied; `y` is the planted baseline. */
 export function feet(p: PixelSink, frame: FrameName, base: number, shade: number, y: number, lx: number, rx: number): void {
   shaded(p, lx, y + footLift(frame, true), 2.6, 2.1, base, shade);

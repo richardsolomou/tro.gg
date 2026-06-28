@@ -7,7 +7,7 @@
  */
 
 import { disc, dot, rect, shaded } from "../pixel_paint.ts";
-import { bodyBob, footLift, FEET_Y, type View } from "./rig.ts";
+import { armSwing, bodyBob, footLift, FEET_Y, type View } from "./rig.ts";
 import type { FrameName, PixelSink } from "../../shared/sprites.ts";
 
 export const CHICK = {
@@ -27,6 +27,7 @@ export const CHICK = {
 export function chickenDraw(p: PixelSink, view: View, frame: FrameName): void {
   const c = CHICK;
   const b = bodyBob(frame);
+  const sw = armSwing(frame); // wings flap with the gait
   shaded(p, 13, FEET_Y + footLift(frame, true), 2, 1.8, c.beak, c.beakDk);
   shaded(p, 19, FEET_Y + footLift(frame, false), 2, 1.8, c.beak, c.beakDk);
 
@@ -42,9 +43,9 @@ export function chickenDraw(p: PixelSink, view: View, frame: FrameName): void {
   shaded(p, 5, 29 + b, 3, 3.4, c.tail, c.beakDk);
   // body
   shaded(p, 15.5, 28 + b, 10, 9, c.body, c.bodyDk);
-  // wings at the sides
-  shaded(p, 6.5, 27 + b, 2.6, 4, c.body, c.bodyDk);
-  shaded(p, 24.5, 27 + b, 2.6, 4, c.body, c.bodyDk);
+  // wings at the sides, flapping opposite each other with the gait
+  shaded(p, 6.5, 27 + b + sw, 2.6, 4, c.body, c.bodyDk);
+  shaded(p, 24.5, 27 + b - sw, 2.6, 4, c.body, c.bodyDk);
   // comb
   disc(p, 13.5, 10 + b, 1.6, 2, c.comb); disc(p, 15.5, 9 + b, 1.8, 2.4, c.comb); disc(p, 17.5, 10 + b, 1.6, 2, c.comb);
   // hog face under a beak

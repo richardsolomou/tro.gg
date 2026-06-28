@@ -78,14 +78,13 @@ test("the hog has its own skeleton, not the trogg's", () => {
   assert.equal(skeletonFor("hog", "up").behind, true);
 });
 
-test("a hog's held hand only bobs, never swings or extends (its arms are baked)", () => {
-  const idle = handJoint("hog", "down", "idle");
-  for (const frame of ["walk_a", "walk_b", "run_a", "run_b", "attack_a", "attack_b"] as const) {
-    const h = handJoint("hog", "down", frame);
-    assert.equal(h.x, idle.x, `${frame} must not swing the hand sideways`);
-  }
-  // attack frames idle the body (hogs don't attack), so the hand returns to rest
-  assert.deepEqual({ x: handJoint("hog", "down", "attack_b").x, y: handJoint("hog", "down", "attack_b").y }, { x: idle.x, y: idle.y });
+test("a hog's held hand swings with the gait and rests on idle/attack (it shares the rig)", () => {
+  const idleDown = handJoint("hog", "down", "idle");
+  // the front gait swings the hand vertically, the side gait horizontally
+  assert.notEqual(handJoint("hog", "down", "walk_a").y, idleDown.y);
+  assert.notEqual(handJoint("hog", "right", "walk_a").x, handJoint("hog", "right", "idle").x);
+  // hogs don't attack — attack frames render as idle, so the hand sits at rest
+  assert.deepEqual(handJoint("hog", "down", "attack_b"), idleDown);
 });
 
 test("unknown items get a neutral wield profile", () => {

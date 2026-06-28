@@ -7,7 +7,7 @@
  */
 
 import { disc, dot, rect, shaded } from "../pixel_paint.ts";
-import { bodyBob, feet, FEET_Y, type View } from "./rig.ts";
+import { armSwing, bodyBob, feet, FEET_Y, type View } from "./rig.ts";
 import type { FrameName, PixelSink } from "../../shared/sprites.ts";
 
 export const DINO = {
@@ -30,6 +30,7 @@ function dinoRidge(p: PixelSink, cx: number, top: number, span: number, c: typeo
 export function dinoDraw(p: PixelSink, view: View, frame: FrameName): void {
   const c = DINO;
   const b = bodyBob(frame);
+  const sw = armSwing(frame); // arms swing with the gait, matching the rig hand
   feet(p, frame, c.body, c.out, FEET_Y, 11, 20);
   shaded(p, 12, 35 + b, 3.6, 4.6, c.body, c.bodyDk);
   shaded(p, 19, 35 + b, 3.6, 4.6, c.body, c.bodyDk);
@@ -41,8 +42,8 @@ export function dinoDraw(p: PixelSink, view: View, frame: FrameName): void {
     shaded(p, 15.5, 16 + b, 6.6, 5, c.body, c.bodyDk);
     shaded(p, 15.5, 28 + b, 11, 9, c.body, c.bodyDk);
     rect(p, 14, 20 + b, 3, 12, c.bodyDk);
-    shaded(p, 7, 29 + b, 2.2, 3, c.body, c.bodyDk); shaded(p, 5, 33 + b, 2.3, 2.3, c.body, c.bodyDk);
-    shaded(p, 24, 29 + b, 2.2, 3, c.body, c.bodyDk); shaded(p, 26, 33 + b, 2.3, 2.3, c.body, c.bodyDk);
+    shaded(p, 7, 29 + b + sw * 0.5, 2.2, 3, c.body, c.bodyDk); shaded(p, 5, 33 + b + sw, 2.3, 2.3, c.body, c.bodyDk);
+    shaded(p, 24, 29 + b - sw * 0.5, 2.2, 3, c.body, c.bodyDk); shaded(p, 26, 33 + b - sw, 2.3, 2.3, c.body, c.bodyDk);
     return;
   }
 
@@ -58,8 +59,8 @@ export function dinoDraw(p: PixelSink, view: View, frame: FrameName): void {
     disc(p, 23, 19 + b, 2.6, 2.2, c.face); // hog face inside
     dot(p, 24, 18.5 + b, c.eye);
     dot(p, 25.5, 12.5 + b, c.eye); // costume eye high on the snout
-    shaded(p, 18, 26 + b, 2, 3, c.body, c.bodyDk); // near arm
-    shaded(p, 20, 31 + b, 2.3, 2.3, c.body, c.bodyDk); // near fist (~20,32)
+    shaded(p, 18 + sw * 0.5, 26 + b, 2, 3, c.body, c.bodyDk); // near arm
+    shaded(p, 20 + sw, 31 + b, 2.3, 2.3, c.body, c.bodyDk); // near fist swings forward/back
     return;
   }
 
@@ -67,9 +68,9 @@ export function dinoDraw(p: PixelSink, view: View, frame: FrameName): void {
   dinoRidge(p, 15.5, 9 + b, 8, c);
   shaded(p, 15.5, 29 + b, 11, 9, c.body, c.bodyDk);
   disc(p, 15.5, 31 + b, 6, 5.2, c.belly);
-  // arms reaching down to fists on the hog hand joints (5,33)/(26,33), so it can wield
-  shaded(p, 7, 28 + b, 2.2, 3, c.body, c.bodyDk); shaded(p, 5, 33 + b, 2.3, 2.3, c.body, c.bodyDk);
-  shaded(p, 24, 28 + b, 2.2, 3, c.body, c.bodyDk); shaded(p, 26, 33 + b, 2.3, 2.3, c.body, c.bodyDk);
+  // arms reaching down to fists on the hog hand joints (5,33)/(26,33), swinging with the gait
+  shaded(p, 7, 28 + b + sw * 0.5, 2.2, 3, c.body, c.bodyDk); shaded(p, 5, 33 + b + sw, 2.3, 2.3, c.body, c.bodyDk);
+  shaded(p, 24, 28 + b - sw * 0.5, 2.2, 3, c.body, c.bodyDk); shaded(p, 26, 33 + b - sw, 2.3, 2.3, c.body, c.bodyDk);
   // toothy hood framing the face
   shaded(p, 15.5, 16 + b, 9, 6.8, c.body, c.bodyDk);
   rect(p, 11, 12 + b, 2, 2, c.eye); rect(p, 19, 12 + b, 2, 2, c.eye);

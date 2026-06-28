@@ -8,7 +8,7 @@
  */
 
 import { disc, dot, rect, shaded } from "../pixel_paint.ts";
-import { bodyBob, eye, feet, FEET_Y, type View } from "./rig.ts";
+import { armSwing, bodyBob, eye, feet, FEET_Y, type View } from "./rig.ts";
 import type { FrameName, PixelSink } from "../../shared/sprites.ts";
 
 export interface HogSkin {
@@ -59,6 +59,7 @@ function hogFaceFront(p: PixelSink, h: HogSkin, cy: number): void {
 
 export function hogDraw(p: PixelSink, view: View, frame: FrameName, h: HogSkin): void {
   const b = bodyBob(frame);
+  const sw = armSwing(frame); // arms swing with the gait, matching the rig hand
   feet(p, frame, h.limb, h.out, FEET_Y, 12, 19);
 
   if (view === "up") {
@@ -78,7 +79,7 @@ export function hogDraw(p: PixelSink, view: View, frame: FrameName, h: HogSkin):
     disc(p, 27, 24 + b, 2.4, 2, h.faceDk);
     rect(p, 28, 23 + b, 2, 2, h.nose);
     eye(p, 22, 20 + b, h.eye, h.glint);
-    hogArm(p, 18, 29 + b, 1, h);
+    hogArm(p, 18 + sw, 29 + b, 1, h); // near arm swings forward/back
     return;
   }
 
@@ -87,7 +88,7 @@ export function hogDraw(p: PixelSink, view: View, frame: FrameName, h: HogSkin):
   shaded(p, 15.5, 22 + b, 13, 13.5, h.quill, h.quillDk);
   hogEar(p, 9, 11 + b, h); hogEar(p, 22, 11 + b, h);
   shaded(p, 15.5, 32 + b, 9.2, 7.2, h.face, h.faceDk);
-  hogArm(p, 6, 30 + b, -1, h); hogArm(p, 24, 30 + b, 1, h);
+  hogArm(p, 6, 30 + b + sw, -1, h); hogArm(p, 24, 30 + b - sw, 1, h); // arms swing opposite each other
   shaded(p, 15.5, 19 + b, 8, 6.6, h.face, h.faceDk);
   hogFaceFront(p, h, 18 + b);
 }

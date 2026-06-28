@@ -186,23 +186,17 @@ function footLift(frame: FrameName, near: boolean): number {
 const ATTACK_COCK = 4;
 const ATTACK_REACH = 9;
 
-/** The per-frame offset of one joint from its rest position, in frame pixels. */
+/** The per-frame offset of one joint from its rest position, in frame pixels. The gait swing is
+ *  shared by every kind (so hog arms swing while walking, matching their baked art); only the
+ *  trogg adds the attack reach — hogs render attack frames as idle, so they fall through to the
+ *  gait, where the stride is 0 anyway. */
 export function poseOffset(kind: Kind, facing: Facing, frame: FrameName, joint: JointName): Joint {
-  // Baked-limb creatures (hogs): the painted arms don't swing or extend — they only ride the
-  // body's bob, and the feet lift. A held item rides that same bob so it stays in the paw; no
-  // arm swing or attack reach, which would drift it off the static painted hand.
-  if (kind !== "trogg") {
-    if (joint === "nearFoot") return { x: 0, y: footLift(frame, true) };
-    if (joint === "farFoot") return { x: 0, y: footLift(frame, false) };
-    return { x: 0, y: rootBob(frame) };
-  }
-
   const b = rootBob(frame);
   const run = isRun(frame);
   const sw = stride(frame) * (run ? 5 : 3); // arm swing — bigger than the leg stride
   const side = facing === "left" || facing === "right";
 
-  if (frame === "attack_a" || frame === "attack_b") {
+  if (kind === "trogg" && (frame === "attack_a" || frame === "attack_b")) {
     // only the main arm moves; the body and other limbs hold
     if (joint === "mainHand" || joint === "mainShoulder") {
       const f = forward(facing);
