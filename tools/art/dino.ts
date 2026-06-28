@@ -47,10 +47,10 @@ export function dinoDraw(p: PixelSink, view: View, frame: FrameName): void {
   }
 
   if (view === "side") {
-    // profile at the same height as the front: back ridge, body, the toothy hood up front with
-    // the hog face inside, near arm to the wielding hand
-    dinoRidge(p, 13, 12 + b, 5, c);
+    // profile at the same height as the front: body, a ridge running down the back from behind
+    // the head, the toothy hood up front with the hog face inside, near arm to the wielding hand
     shaded(p, 14, 28 + b, 8, 9, c.body, c.bodyDk);
+    for (let i = 0; i < 4; i++) disc(p, 16 - i * 2.4, 16 + i * 2.6 + b, 1.4, 1.8, c.bodyDk); // back ridge down the spine
     disc(p, 16, 30 + b, 5, 4, c.belly);
     shaded(p, 22, 16 + b, 6.4, 6, c.body, c.bodyDk); // toothy hood
     rect(p, 18, 18 + b, 12, 1, c.out); // jaw line
