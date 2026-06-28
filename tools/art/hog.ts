@@ -67,6 +67,7 @@ export function hogDraw(p: PixelSink, view: View, frame: FrameName, h: HogSkin):
     shaded(p, 15.5, 24 + b, 13, 13.5, h.quill, h.quillDk);
     hogEar(p, 9, 13 + b, h); hogEar(p, 22, 13 + b, h);
     disc(p, 15.5, 30 + b, 7, 5, h.quillDk);
+    hogArm(p, 6, 30 + b + sw, -1, h); hogArm(p, 24, 30 + b - sw, 1, h); // arms at the sides, swinging
     return;
   }
 
