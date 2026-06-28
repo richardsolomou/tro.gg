@@ -9,14 +9,18 @@ pnpm sprite-art   # paint logic → shared/sprite_art.ts (indexed pixel maps)
 pnpm sprites      # indexed maps → troggs-and-hogs.png + .atlas.json
 ```
 
-1. [`tools/gen-sprite-art.ts`](../../tools/gen-sprite-art.ts) holds the
-   reference-inspired pixel art as readable **paint logic** (the same
-   code-authored-pixel approach as the procedural terrain in `terrain.ts`) and
+1. The reference-inspired pixel art is readable **paint logic**, one file per
+   creature in [`tools/art/`](../../tools/art/) (`trogg.ts`, `hog.ts`, `buff.ts`,
+   `dino.ts`, `chicken.ts`, `ghost.ts`) over a shared
+   [`rig.ts`](../../tools/art/rig.ts) (walk/run frame maths + shared anatomy) and
+   the GSC paint helpers in [`tools/pixel_paint.ts`](../../tools/pixel_paint.ts).
+   [`tools/gen-sprite-art.ts`](../../tools/gen-sprite-art.ts) combines them and
    emits [`shared/sprite_art.ts`](../../shared/sprite_art.ts) as indexed 32×48
-   text pixel maps. Art direction is **Pokémon Gold/Silver**: a tight flat
-   palette (a base colour, one block shadow, one light), chunky flat shapes, and
-   a single dilation pass that traces the same crisp dark outline around every
-   silhouette — pixelated, but unmistakably the creature.
+   text pixel maps. To edit one creature, open its file in `tools/art/`. Art
+   direction is **Pokémon Gold/Silver**: a tight flat palette (a base colour, one
+   block shadow, one light), chunky flat shapes, and a single dilation pass that
+   traces the same crisp dark outline around every silhouette — pixelated, but
+   unmistakably the creature.
 2. [`shared/sprites.ts`](../../shared/sprites.ts) defines the rig, frame layout,
    and renderer that blits those maps; the generator in `tools/gen-spritesheet.ts`
    writes the committed PNG/atlas from them.
