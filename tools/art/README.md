@@ -26,9 +26,10 @@ before touching any art; it keeps changes cheap and avoids editing generated fil
 | File | Role |
 | --- | --- |
 | `shared/rig.ts` | **Skeleton data** (pure geometry, bundled). Joint rest positions per kind×facing, pose offsets (gait + attack), `handJoint`/`jointAt`/`forward`, and per-item `wieldProfile`/`wieldPose`. Read by **both** the generator and the runtime. |
-| `tools/art/rig.ts` | **Paint helpers** (tooling). `drawArm` (rig-driven limb), `feet`/`eye`, and the legacy gait maths still used by the baked hog draws. Turns joints into pixels. |
-| `tools/art/trogg.ts` | Trogg body + palette; limbs drawn from `shared/rig.ts` joints for every facing/frame (incl. `attack_a`/`attack_b`). |
-| `tools/art/hog.ts`, `buff.ts`, `dino.ts`, `chicken.ts`, `ghost.ts` | Other creatures (still baked per-frame; attack frames render as idle). |
+| `tools/art/rig.ts` | **Paint helpers** (tooling). `drawArm` (rig-driven limb), `feet`/`eye`, `bodyBob` (gait body dip). Turns joints into pixels. |
+| `tools/art/trogg.ts` | Trogg body + palette; limbs drawn from `shared/rig.ts` joints for every facing/frame (incl. `attack_a`/`attack_b`). Splits `troggBody` + `troggMainArm` so the near arm lifts over a held item. |
+| `tools/art/hog.ts`, `buff.ts`, `dino.ts` | Hog bodies + palettes; arms drawn from the rig like the trogg (each splits `*Body` + `*MainArm`). The big buff/dino keep bespoke bodies, rigged limbs. |
+| `tools/art/chicken.ts`, `ghost.ts` | Baked per-frame: the chicken's wings flap by a painted offset (no rig arm, attack renders as idle); the ghost is one bespoke drawing. |
 | `tools/pixel_paint.ts` | Primitives: `dot`/`rect`/`line`/`disc`/`shaded`, plus `outlinePass`/`quantize`/`fmtArt`. |
 | `tools/gen-sprite-art.ts` | Combines creature paint code → `shared/sprite_art.ts` (`pnpm sprite-art`). |
 | `tools/gen-item-art.ts` | Item paint code → `shared/item_art.ts` (`pnpm item-art`). |
@@ -39,14 +40,18 @@ before touching any art; it keeps changes cheap and avoids editing generated fil
 
 ## The rig
 
-A creature is a **body** (drawn per creature) plus limbs. For the **trogg** the limbs are
-rig-driven: `poseOffset` makes animation *data* — `idle`/`walk_*`/`run_*` are the gait swing;
-`attack_a` cocks the main hand, `attack_b` throws it forward (the arm actually extends) — and
-the runtime reads the same `handJoint` to pin a held item, so it rides the swinging/extending
-arm. The **hog** has its own skeleton too (`HOG_SKELETON`), but its limbs are *baked* into the
-frame art, so `poseOffset` only rides the body bob for it — no swing or attack reach — keeping
-a held item on the painted paw. The big/costume hogs (buff/dino/chicken) still borrow the hog
-skeleton until they get their own.
+A creature is a **body** (drawn per creature) plus limbs. The **trogg** and the **hogs**
+(common, buff, dino) draw their limbs from the rig: `poseOffset` makes animation *data* —
+`idle`/`walk_*`/`run_*` are the gait swing; `attack_a` cocks the main hand, `attack_b` throws it
+forward (the arm actually extends, a short reach so it stays connected) — and the runtime reads
+the same `handJoint` to pin a held item, so it rides the swinging/extending arm. The common and
+big hogs share the one `HOG` skeleton; only the **chicken** stays baked (its wings flap by a
+painted offset, no rig arm, attack renders as idle).
+
+Each rigged creature's paint splits into a `*Body` and a `*MainArm` so the generator can lift the
+near (main-hand) arm out of the outlined frame and emit it as an **arm overlay** (`ARM_OVERLAY_ART`)
+the runtime draws back over a held item — the hand grips the weapon, with no outline seam and no
+per-frame re-outline. Facing up the arm sits behind the body, so there's no overlay there.
 
 Frames: `idle`, `walk_a`, `walk_b`, `run_a`, `run_b`, `attack_a`, `attack_b` (`FRAMES`).
 Facings: `down`, `up`, `left`, `right` — `left` is the right profile mirrored at render.
