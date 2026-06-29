@@ -7,8 +7,9 @@
  */
 
 import { disc, dot, rect, shaded } from "../pixel_paint.ts";
-import { armSwing, bodyBob, feet, FEET_Y, type View } from "./rig.ts";
-import type { FrameName, PixelSink } from "../../shared/sprites.ts";
+import { bodyBob, drawArm, feet, FEET_Y, type View } from "./rig.ts";
+import { jointAt, skeletonFor, type JointName } from "../../shared/rig.ts";
+import type { Facing, FrameName, PixelSink } from "../../shared/sprites.ts";
 
 export const DINO = {
   out: 0x16240e,
@@ -27,29 +28,41 @@ function dinoRidge(p: PixelSink, cx: number, top: number, span: number, c: typeo
   for (let x = cx - span; x <= cx + span; x += 3) disc(p, x, top, 1.4, 1.8, c.bodyDk);
 }
 
-export function dinoDraw(p: PixelSink, view: View, frame: FrameName): void {
+/** One costume arm from the shared rig: a green limb to the hand plus a fist, so it swings with
+ *  the gait and reaches on attack off the same hand joint a held item rides. */
+function dinoArmRig(p: PixelSink, facing: Facing, frame: FrameName, slot: "main" | "off"): void {
   const c = DINO;
+  const sh = jointAt("hog", facing, frame, slot === "main" ? "mainShoulder" : "offShoulder");
+  const hd = jointAt("hog", facing, frame, slot === "main" ? "mainHand" : "offHand");
+  drawArm(p, sh.x, sh.y, hd.x, hd.y, 2.2, c.body, c.bodyDk);
+  shaded(p, hd.x, hd.y, 2.3, 2.3, c.body, c.bodyDk); // fist
+}
+
+/** The dino hog minus its in-front main arm. `dinoDraw` adds the main arm on top; the generator
+ *  paints body and arm apart for the near-arm-over-item overlay. */
+export function dinoBody(p: PixelSink, view: View, frame: FrameName): void {
+  const c = DINO;
+  const facing: Facing = view === "side" ? "right" : view;
   const b = bodyBob(frame);
-  const sw = armSwing(frame); // arms swing with the gait, matching the rig hand
+  const behind = skeletonFor("hog", facing).behind;
   feet(p, frame, c.body, c.out, FEET_Y, 11, 20);
   shaded(p, 12, 35 + b, 3.6, 4.6, c.body, c.bodyDk);
   shaded(p, 19, 35 + b, 3.6, 4.6, c.body, c.bodyDk);
 
   if (view === "up") {
-    // back: ridge crest high (matching the front silhouette), the hood's back, body, spine,
-    // and both arms hanging to the rig hand joints
+    // back: ridge crest high (matching the front silhouette), the hood's back, body, spine, both arms
     dinoRidge(p, 15.5, 10 + b, 8, c);
     shaded(p, 15.5, 16 + b, 6.6, 5, c.body, c.bodyDk);
     shaded(p, 15.5, 28 + b, 11, 9, c.body, c.bodyDk);
     rect(p, 14, 20 + b, 3, 12, c.bodyDk);
-    shaded(p, 7, 29 + b + sw * 0.5, 2.2, 3, c.body, c.bodyDk); shaded(p, 5, 33 + b + sw, 2.3, 2.3, c.body, c.bodyDk);
-    shaded(p, 24, 29 + b - sw * 0.5, 2.2, 3, c.body, c.bodyDk); shaded(p, 26, 33 + b - sw, 2.3, 2.3, c.body, c.bodyDk);
+    dinoArmRig(p, facing, frame, "off");
+    dinoArmRig(p, facing, frame, "main"); // behind the body when facing away
     return;
   }
 
   if (view === "side") {
     // profile at the same height as the front: body, a ridge running down the back from behind
-    // the head, the toothy hood up front with the hog face inside, near arm to the wielding hand
+    // the head, the toothy hood up front with the hog face inside
     shaded(p, 14, 28 + b, 8, 9, c.body, c.bodyDk);
     for (let i = 0; i < 4; i++) disc(p, 16 - i * 2.4, 16 + i * 2.6 + b, 1.4, 1.8, c.bodyDk); // back ridge down the spine
     disc(p, 16, 30 + b, 5, 4, c.belly);
@@ -59,18 +72,15 @@ export function dinoDraw(p: PixelSink, view: View, frame: FrameName): void {
     disc(p, 23, 19 + b, 2.6, 2.2, c.face); // hog face inside
     dot(p, 24, 18.5 + b, c.eye);
     dot(p, 25.5, 12.5 + b, c.eye); // costume eye high on the snout
-    shaded(p, 18 + sw * 0.5, 26 + b, 2, 3, c.body, c.bodyDk); // near arm
-    shaded(p, 20 + sw, 31 + b, 2.3, 2.3, c.body, c.bodyDk); // near fist swings forward/back
-    return;
+    return; // the near arm is drawn on top by dinoDraw / as the overlay
   }
 
-  // front: scaly body, belly, ridge, arms to the rig hands, toothy hood, hog face
+  // front: scaly body, belly, ridge, off arm, toothy hood, hog face (main arm rides on top)
   dinoRidge(p, 15.5, 9 + b, 8, c);
   shaded(p, 15.5, 29 + b, 11, 9, c.body, c.bodyDk);
   disc(p, 15.5, 31 + b, 6, 5.2, c.belly);
-  // arms reaching down to fists on the hog hand joints (5,33)/(26,33), swinging with the gait
-  shaded(p, 7, 28 + b + sw * 0.5, 2.2, 3, c.body, c.bodyDk); shaded(p, 5, 33 + b + sw, 2.3, 2.3, c.body, c.bodyDk);
-  shaded(p, 24, 28 + b - sw * 0.5, 2.2, 3, c.body, c.bodyDk); shaded(p, 26, 33 + b - sw, 2.3, 2.3, c.body, c.bodyDk);
+  dinoArmRig(p, facing, frame, "off");
+  if (behind) dinoArmRig(p, facing, frame, "main");
   // toothy hood framing the face
   shaded(p, 15.5, 16 + b, 9, 6.8, c.body, c.bodyDk);
   rect(p, 11, 12 + b, 2, 2, c.eye); rect(p, 19, 12 + b, 2, 2, c.eye);
@@ -81,4 +91,16 @@ export function dinoDraw(p: PixelSink, view: View, frame: FrameName): void {
   rect(p, 13, 20 + b, 2, 2, c.eye); rect(p, 17, 20 + b, 2, 2, c.eye);
   dot(p, 13, 20 + b, 0xffffff); dot(p, 17, 20 + b, 0xffffff);
   dot(p, 15.5, 22 + b, c.nose);
+}
+
+/** The dino hog's in-front main arm, drawn over a held item. Empty when it tucks behind (up). */
+export function dinoMainArm(p: PixelSink, view: View, frame: FrameName): void {
+  const facing: Facing = view === "side" ? "right" : view;
+  if (skeletonFor("hog", facing).behind) return;
+  dinoArmRig(p, facing, frame, "main");
+}
+
+export function dinoDraw(p: PixelSink, view: View, frame: FrameName): void {
+  dinoBody(p, view, frame);
+  dinoMainArm(p, view, frame);
 }

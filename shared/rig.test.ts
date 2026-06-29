@@ -78,13 +78,14 @@ test("the hog has its own skeleton, not the trogg's", () => {
   assert.equal(skeletonFor("hog", "up").behind, true);
 });
 
-test("a hog's held hand swings with the gait and rests on idle/attack (it shares the rig)", () => {
+test("a hog's held hand swings with the gait and reaches on attack (it shares the rig)", () => {
   const idleDown = handJoint("hog", "down", "idle");
   // the front gait swings the hand vertically, the side gait horizontally
   assert.notEqual(handJoint("hog", "down", "walk_a").y, idleDown.y);
   assert.notEqual(handJoint("hog", "right", "walk_a").x, handJoint("hog", "right", "idle").x);
-  // hogs don't attack — attack frames render as idle, so the hand sits at rest
-  assert.deepEqual(handJoint("hog", "down", "attack_b"), idleDown);
+  // hogs share the rig's attack reach now: the main hand cocks back, then throws forward
+  assert.equal(handJoint("hog", "down", "attack_b").y > idleDown.y, true);
+  assert.equal(handJoint("hog", "down", "attack_a").y < idleDown.y, true);
 });
 
 test("unknown items get a neutral wield profile", () => {

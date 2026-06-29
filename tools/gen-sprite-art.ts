@@ -23,13 +23,13 @@
 import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { COMMON_HOG_STYLES, FRAME_H, FRAME_W, frames, rgbaSink, type Facing, type FrameName, type Kind, type PixelSink } from "../shared/sprites.ts";
+import { FRAME_H, FRAME_W, frames, rgbaSink, type Facing, type FrameName, type Kind, type PixelSink } from "../shared/sprites.ts";
 import { compositeOver, disc, fmtArt, outlinePass, PIXEL_KEYS, quantize } from "./pixel_paint.ts";
 import type { View } from "./art/rig.ts";
 import { TROGG_SKINS, troggBody, troggDraw, troggMainArm } from "./art/trogg.ts";
 import { HOG_SKINS, hogBody, hogDraw, hogMainArm } from "./art/hog.ts";
-import { BUFF, buffDraw } from "./art/buff.ts";
-import { DINO, dinoDraw } from "./art/dino.ts";
+import { BUFF, buffBody, buffDraw, buffMainArm } from "./art/buff.ts";
+import { DINO, dinoBody, dinoDraw, dinoMainArm } from "./art/dino.ts";
 import { CHICK, chickenDraw } from "./art/chicken.ts";
 import { GHOST, ghostDrawArt } from "./art/ghost.ts";
 
@@ -45,12 +45,12 @@ function outlineColour(kind: Kind, style: string): number {
 
 function drawCharacter(p: PixelSink, kind: Kind, style: string, view: View, frame: FrameName): void {
   if (kind === "trogg") return troggDraw(p, view, frame, TROGG_SKINS[style] ?? TROGG_SKINS.moss!);
-  // Only troggs wield, so non-trogg kinds have no attack pose — render those frames as idle.
+  if (style === "buff") return buffDraw(p, view, frame);
+  if (style === "dino") return dinoDraw(p, view, frame);
+  // The chicken's wings are baked, not rig-driven, so it has no attack pose — render attack as idle.
   const f: FrameName = frame === "attack_a" || frame === "attack_b" ? "idle" : frame;
-  if (style === "buff") buffDraw(p, view, f);
-  else if (style === "dino") dinoDraw(p, view, f);
-  else if (style === "chicken") chickenDraw(p, view, f);
-  else hogDraw(p, view, f, HOG_SKINS[style] ?? HOG_SKINS.classic!);
+  if (style === "chicken") return chickenDraw(p, view, f);
+  hogDraw(p, view, frame, HOG_SKINS[style] ?? HOG_SKINS.classic!);
 }
 
 /** The bare character fill for a frame — no outline, no shadow. The runtime composites the
@@ -67,29 +67,34 @@ function paintFill(kind: Kind, style: string, facing: Facing, frame: FrameName):
 }
 
 /** Which (kind, style) draw their limbs from the rig and so can have a near-arm overlay: the
- *  trogg and the common hogs. The big/costume hogs are still baked (no overlay yet). */
+ *  trogg and every hog but the chicken (whose wings are baked, not rig limbs). */
 function isRigged(kind: Kind, style: string): boolean {
-  return kind === "trogg" || (kind === "hog" && (COMMON_HOG_STYLES as readonly string[]).includes(style));
+  return kind === "trogg" || (kind === "hog" && style !== "chicken");
 }
 
 /** Paint one rigged creature's part (body or main arm) for a frame, honouring the left-mirror
- *  flip — used to derive the near-arm overlay that rides over a held item. Non-trogg kinds have
- *  no attack pose, so their attack frames paint as idle (matching `drawCharacter`). */
+ *  flip — used to derive the near-arm overlay that rides over a held item. */
 function paintPart(kind: Kind, style: string, facing: Facing, frame: FrameName, part: "body" | "arm"): Uint8Array {
   const layer = new Uint8Array(FRAME_W * FRAME_H * 4);
   const cs = rgbaSink(layer, FRAME_W, FRAME_H);
   const flip = facing === "left";
   const p: PixelSink = { set: (x, y, c, a) => cs.set(flip ? FRAME_W - 1 - x : x, y, c, a) };
   const view: View = facing === "left" || facing === "right" ? "side" : facing;
+  const body = part === "body";
   if (kind === "trogg") {
     const skin = TROGG_SKINS[style] ?? TROGG_SKINS.moss!;
-    if (part === "body") troggBody(p, view, frame, skin);
+    if (body) troggBody(p, view, frame, skin);
     else troggMainArm(p, view, frame, skin);
+  } else if (style === "buff") {
+    if (body) buffBody(p, view, frame);
+    else buffMainArm(p, view, frame);
+  } else if (style === "dino") {
+    if (body) dinoBody(p, view, frame);
+    else dinoMainArm(p, view, frame);
   } else {
     const skin = HOG_SKINS[style] ?? HOG_SKINS.classic!;
-    const f: FrameName = frame === "attack_a" || frame === "attack_b" ? "idle" : frame;
-    if (part === "body") hogBody(p, view, f, skin);
-    else hogMainArm(p, view, f, skin);
+    if (body) hogBody(p, view, frame, skin);
+    else hogMainArm(p, view, frame, skin);
   }
   return layer;
 }

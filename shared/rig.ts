@@ -182,21 +182,22 @@ function footLift(frame: FrameName, near: boolean): number {
   return 0;
 }
 
-/** Reach distances. Wind-up cocks the hand back; the strike throws it forward. */
-const ATTACK_COCK = 4;
-const ATTACK_REACH = 9;
+/** Reach distances. Wind-up cocks the hand back; the strike throws it forward. Kept short so the
+ *  drawn limb stays a connected extension of the arm rather than stretching off the body. */
+const ATTACK_COCK = 3;
+const ATTACK_REACH = 5;
 
-/** The per-frame offset of one joint from its rest position, in frame pixels. The gait swing is
- *  shared by every kind (so hog arms swing while walking, matching their baked art); only the
- *  trogg adds the attack reach — hogs render attack frames as idle, so they fall through to the
- *  gait, where the stride is 0 anyway. */
+/** The per-frame offset of one joint from its rest position, in frame pixels. Both the gait swing
+ *  and the attack reach are shared by every rig-driven kind, so hog arms swing while walking and
+ *  reach on a strike just like the trogg's (the main arm cocks back on `attack_a`, throws forward
+ *  on `attack_b`); the body and other limbs hold through the attack. */
 export function poseOffset(kind: Kind, facing: Facing, frame: FrameName, joint: JointName): Joint {
   const b = rootBob(frame);
   const run = isRun(frame);
   const sw = stride(frame) * (run ? 5 : 3); // arm swing — bigger than the leg stride
   const side = facing === "left" || facing === "right";
 
-  if (kind === "trogg" && (frame === "attack_a" || frame === "attack_b")) {
+  if (frame === "attack_a" || frame === "attack_b") {
     // only the main arm moves; the body and other limbs hold
     if (joint === "mainHand" || joint === "mainShoulder") {
       const f = forward(facing);
