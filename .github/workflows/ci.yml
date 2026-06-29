@@ -41,6 +41,12 @@ jobs:
       - name: Build client
         run: pnpm build
 
+      - name: Install Playwright browser
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Preview render harness
+        run: pnpm test:e2e
+
       - name: Verify committed art matches the generators
         run: |
           pnpm sprite-art
