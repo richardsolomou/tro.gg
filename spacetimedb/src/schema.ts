@@ -108,6 +108,10 @@ const player = table(
     health: t.i32().default(PLAYER_MAX_HEALTH),
     dead: t.bool().default(false),
     respawnAt: t.option(t.timestamp()).default(undefined),
+    // Off-hand slot (e.g. a shield), the mirror of the main-hand fields (GDD "Avatars and
+    // equipment"). Appended last so adding it is a non-breaking, auto-migratable column add.
+    equippedOffHand: t.string().default(""),
+    equippedOffHandInventoryId: t.u64().default(0n),
   },
 );
 

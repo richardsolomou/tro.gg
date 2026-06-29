@@ -341,9 +341,7 @@ export class WorldScene extends Phaser.Scene {
     entry.carried = undefined;
     entry.carriedKind = "";
     entry.carriedStyle = "";
-    entry.equipped = undefined;
-    entry.equippedKind = "";
-    entry.equippedFacing = undefined;
+    entry.equip = {};
     entry.equipmentActionBaseMs = undefined;
     const { x, y } = projectMotion(entry.player, performance.now() - entry.baseMs, this.troggBounds);
     this.entities.place(entry.marker, x, y);
@@ -390,7 +388,11 @@ export class WorldScene extends Phaser.Scene {
       if (_old.name !== p.name || _old.color !== p.color || _old.style !== p.style || _old.health !== p.health || _old.dead !== p.dead || _old.respawnAt !== p.respawnAt) this.rebuildMarker(id, entry);
       else if (_old.carrying !== p.carrying || _old.carryingStyle !== p.carryingStyle) this.entities.applyCarry(entry);
 
-      const equipmentChanged = _old.equippedMainHand !== p.equippedMainHand || _old.equippedMainHandInventoryId !== p.equippedMainHandInventoryId;
+      const equipmentChanged =
+        _old.equippedMainHand !== p.equippedMainHand ||
+        _old.equippedMainHandInventoryId !== p.equippedMainHandInventoryId ||
+        _old.equippedOffHand !== p.equippedOffHand ||
+        _old.equippedOffHandInventoryId !== p.equippedOffHandInventoryId;
       if (equipmentChanged) {
         this.entities.applyEquipment(entry);
       }
@@ -415,7 +417,7 @@ export class WorldScene extends Phaser.Scene {
     const style = troggStyleFor(p.style, id);
     const color = troggColorFor(p.color, id);
     const { marker, sprite, frameKey, respawnText } = this.entities.makeMarker(p.name, color, style, id === this.myId, facing, this.useSprites, p.health, p.dead, p.respawnAt);
-    const entry: Tracked = { marker, sprite, player: p, baseMs: timestampBaseMs(p.movedAt), facing, style, baseColor: color, frameKey, respawnText, carriedKind: "", carriedStyle: "", equippedKind: "" };
+    const entry: Tracked = { marker, sprite, player: p, baseMs: timestampBaseMs(p.movedAt), facing, style, baseColor: color, frameKey, respawnText, carriedKind: "", carriedStyle: "", equip: {} };
     const { x, y } = projectMotion(p, performance.now() - entry.baseMs, this.troggBounds);
     this.entities.place(marker, x, y);
     this.tracked.set(id, entry);

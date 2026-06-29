@@ -1,4 +1,4 @@
-import { blitArt, INVENTORY_SLOT_COUNT, ITEM_ART, ITEM_ART_H, ITEM_ART_W, ITEMS, isEquippableItem, rgbaSink } from "@trogg/shared";
+import { blitArt, equipSlotOf, INVENTORY_SLOT_COUNT, ITEM_ART, ITEM_ART_H, ITEM_ART_W, ITEMS, isEquippableItem, rgbaSink } from "@trogg/shared";
 import { logError } from "../analytics.js";
 import type { DbConnection } from "../net/module_bindings";
 import type { Inventory, Player } from "../net/module_bindings/types";
@@ -43,8 +43,13 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
   const rows = new Map<string, Inventory>();
   let mainHand = "";
   let mainHandInventoryId = 0n;
+  let offHand = "";
+  let offHandInventoryId = 0n;
   let selectedId: bigint | null = null;
   let confirmDelete = false;
+
+  /** The inventory id equipped in the slot this item belongs to (off hand for shields, else main). */
+  const equippedSlotId = (item: string): bigint => (equipSlotOf(item) === "offHand" ? offHandInventoryId : mainHandInventoryId);
 
   const setOpen = (open: boolean) => {
     const opening = open && body.hidden;
@@ -63,16 +68,22 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
     if ((event as CustomEvent<string>).detail !== "inventory") setOpen(false);
   }) as EventListener);
 
+  const equippedGroup = (label: string, item: string): HTMLDivElement => {
+    const group = document.createElement("div");
+    group.className = "inventory-equipped-group";
+    const text = document.createElement("span");
+    text.textContent = label;
+    const slot = document.createElement("span");
+    slot.className = "inventory-equipped-slot";
+    slot.title = item ? (ITEMS[item as keyof typeof ITEMS]?.name ?? item) : "Empty";
+    slot.setAttribute("aria-label", `${label}: ${slot.title}`);
+    slot.appendChild(itemIcon(item || "empty"));
+    group.append(text, slot);
+    return group;
+  };
+
   const render = () => {
-    equipped.replaceChildren();
-    const equippedLabel = document.createElement("span");
-    equippedLabel.textContent = "Main hand";
-    const equippedSlot = document.createElement("span");
-    equippedSlot.className = "inventory-equipped-slot";
-    equippedSlot.title = mainHand ? (ITEMS[mainHand as keyof typeof ITEMS]?.name ?? mainHand) : "Empty";
-    equippedSlot.setAttribute("aria-label", equippedSlot.title);
-    equippedSlot.appendChild(itemIcon(mainHand || "empty"));
-    equipped.append(equippedLabel, equippedSlot);
+    equipped.replaceChildren(equippedGroup("Main hand", mainHand), equippedGroup("Off hand", offHand));
 
     list.replaceChildren();
 
@@ -89,7 +100,7 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
       const item = document.createElement("button");
       item.type = "button";
       item.className = "inventory-item";
-      const equippedNow = row.id === mainHandInventoryId;
+      const equippedNow = row.id === equippedSlotId(row.item);
       const selectedNow = row.id === selectedId;
       item.setAttribute("aria-label", `${name}${equippedNow ? ", equipped" : ""}`);
       item.setAttribute("aria-pressed", String(equippedNow));
@@ -172,9 +183,9 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
     }
 
     if (isEquippableItem(row.item)) {
-      const equippedNow = row.id === mainHandInventoryId;
+      const equippedNow = row.id === equippedSlotId(row.item);
       buttons.appendChild(
-        action(equippedNow ? "Unequip" : "Equip", () => run("Equip item", row.item, () => equipItem(conn, equippedNow ? 0n : row.id), "equip_item")),
+        action(equippedNow ? "Unequip" : "Equip", () => run("Equip item", row.item, () => equipItem(conn, row.id), "equip_item")),
       );
     }
     buttons.appendChild(action("Drop", () => run("Drop item", row.item, () => dropItem(conn, row.id), "drop_item")));
@@ -208,6 +219,8 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
     if (p.identity.toHexString() !== playerId) return;
     mainHand = p.equippedMainHand;
     mainHandInventoryId = p.equippedMainHandInventoryId;
+    offHand = p.equippedOffHand;
+    offHandInventoryId = p.equippedOffHandInventoryId;
     render();
   };
   conn.db.player.onInsert((_ctx, p) => applyPlayer(p));

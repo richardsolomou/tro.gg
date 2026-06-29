@@ -102,9 +102,9 @@ export interface Coord {
 }
 
 /** Item ids are canonical across inventory rows, equipment slots, and UI labels. */
-export const ITEM_IDS = ["stone", "pickaxe", "shovel", "sword"] as const;
+export const ITEM_IDS = ["stone", "pickaxe", "shovel", "sword", "shield"] as const;
 export type ItemId = (typeof ITEM_IDS)[number];
-export const SPAWNABLE_ITEM_IDS = ["pickaxe", "shovel", "sword"] as const satisfies readonly ItemId[];
+export const SPAWNABLE_ITEM_IDS = ["pickaxe", "shovel", "sword", "shield"] as const satisfies readonly ItemId[];
 export type SpawnableItemId = (typeof SPAWNABLE_ITEM_IDS)[number];
 
 /** Inventory capacity (GDD "Inventory"): each row occupies one visible carry slot. (initial) */
@@ -118,7 +118,7 @@ export const THROWN_OBJECT_DAMAGE = 40;
 export const THROWN_OBJECT_RANGE = 4;
 export const PLAYER_RESPAWN_MS = 5000;
 
-export type EquipmentSlot = "mainHand";
+export type EquipmentSlot = "mainHand" | "offHand";
 
 export interface ItemDef {
   id: ItemId;
@@ -164,6 +164,13 @@ export const ITEMS: Record<ItemId, ItemDef> = {
     slot: "mainHand",
     sprite: "sword",
   },
+  shield: {
+    id: "shield",
+    name: "Shield",
+    stackable: false,
+    blurb: "Equipped in the off hand.",
+    slot: "offHand",
+  },
 };
 
 export function isItemId(item: string): item is ItemId {
@@ -175,7 +182,12 @@ export function isSpawnableItemId(item: string): item is SpawnableItemId {
 }
 
 export function isEquippableItem(item: string): item is ItemId {
-  return isItemId(item) && ITEMS[item].slot === "mainHand";
+  return isItemId(item) && ITEMS[item].slot !== undefined;
+}
+
+/** The equipment slot an item occupies, or undefined when it isn't equippable. */
+export function equipSlotOf(item: string): EquipmentSlot | undefined {
+  return isItemId(item) ? ITEMS[item].slot : undefined;
 }
 
 export function isStackableItem(item: string): item is ItemId {

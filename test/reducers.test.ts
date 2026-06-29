@@ -323,6 +323,27 @@ test("equipItem equips only a specific owned equippable row", () => {
   assert.equal(ctx.db.player.identity.find(me).equippedMainHandInventoryId, second.id);
 });
 
+test("equipItem routes a shield to the off hand and toggles it independently of the main hand", () => {
+  const { ctx, me } = withPlayer({});
+  const sword = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });
+  const shield = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "shield", qty: 1 });
+
+  equipItem(ctx, { inventoryId: sword.id });
+  equipItem(ctx, { inventoryId: shield.id });
+  let p = ctx.db.player.identity.find(me);
+  assert.equal(p.equippedMainHand, "sword");
+  assert.equal(p.equippedMainHandInventoryId, sword.id);
+  assert.equal(p.equippedOffHand, "shield");
+  assert.equal(p.equippedOffHandInventoryId, shield.id);
+
+  equipItem(ctx, { inventoryId: shield.id });
+  p = ctx.db.player.identity.find(me);
+  assert.equal(p.equippedOffHand, "");
+  assert.equal(p.equippedOffHandInventoryId, 0n);
+  assert.equal(p.equippedMainHand, "sword");
+  assert.equal(p.equippedMainHandInventoryId, sword.id);
+});
+
 test("dropItem removes a non-stackable row and lays it on the ground", () => {
   const { ctx, me } = withPlayer({ x: 5, y: 8 });
   const sword = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });

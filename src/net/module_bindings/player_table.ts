@@ -37,4 +37,6 @@ export default __t.row({
   health: __t.i32(),
   dead: __t.bool(),
   respawnAt: __t.option(__t.timestamp()).name("respawn_at"),
+  equippedOffHand: __t.string().name("equipped_off_hand"),
+  equippedOffHandInventoryId: __t.u64().name("equipped_off_hand_inventory_id"),
 });

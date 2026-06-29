@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { ANCHOR, FRAME_H, FRAME_W, forward, HOG_MAX_HEALTH, ITEM_ART_W, PLAYER_MAX_HEALTH, hogSize, timestampMs, type Facing, type FrameName, type Kind, type ProjectedMotion, type Stamp } from "@trogg/shared";
+import { ANCHOR, FRAME_H, FRAME_W, forward, HOG_MAX_HEALTH, ITEM_ART_W, PLAYER_MAX_HEALTH, hogSize, timestampMs, type EquipSlot, type Facing, type FrameName, type Kind, type ProjectedMotion, type Stamp } from "@trogg/shared";
 import type { Boulder, GroundItem, Hog, Player } from "../net/module_bindings/types";
 import { attackFrame, AVATAR_TEX, avatarFrame, avatarFrameName, facingFromDir, GHOST_FRAME, GHOST_TEX } from "./avatars.js";
 import { hasItemArt, ITEM_TEX } from "./items.js";
@@ -24,6 +24,19 @@ const GHOST_PEAK_ALPHA = 0.82;
 const GHOST_DRIFT_TILES = 0.44;
 /** Anything `place` can drop on a tile — a marker, a sprite, a stray graphic. */
 type Positionable = { setPosition(x: number, y: number): unknown };
+
+/** A live equipped-item overlay and the item/facing it currently shows, so it rebuilds only on change. */
+interface EquipOverlay {
+  glyph: Phaser.GameObjects.Container;
+  kind: string;
+  facing: Facing;
+}
+
+/** The equip slots rendered as hand overlays, paired with how to read each from a player row. */
+const EQUIP_SLOTS: { slot: EquipSlot; item: (p: Player) => string }[] = [
+  { slot: "mainHand", item: (p) => p.equippedMainHand },
+  { slot: "offHand", item: (p) => p.equippedOffHand },
+];
 
 function ghostSeed(id: bigint | undefined, x: number, y: number): number {
   const idPart = id === undefined ? 0 : Number(id % 2_147_483_647n);
@@ -57,10 +70,8 @@ export interface Tracked {
   carriedKind: string;
   /** Which style the carried overlay shows (only Hogs use it). */
   carriedStyle: string;
-  /** The equipped main-hand overlay, drawn near the hand rather than above the head. */
-  equipped?: Phaser.GameObjects.Container;
-  equippedKind: string;
-  equippedFacing?: Facing;
+  /** Equipped hand overlays keyed by slot, drawn near the hand rather than above the head. */
+  equip: Partial<Record<EquipSlot, EquipOverlay>>;
   /** Local monotonic start for the latest synced equipment-use impulse. */
   equipmentActionBaseMs?: number;
   /** Visible countdown while dead, refreshed from `respawnAt` each frame. */
@@ -231,7 +242,7 @@ export function createEntities(scene: Phaser.Scene, getTile: () => number) {
     // a solid white fill on the flash beats, the player tint (multiply) otherwise
     if (fl.flash) entry.sprite.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
     else entry.sprite.setTint(entry.baseColor).setTintMode(Phaser.TintModes.MULTIPLY);
-    if (entry.equipped) entry.equipped.setPosition(entry.equipped.x - f.x * k, entry.equipped.y - f.y * k);
+    for (const ov of Object.values(entry.equip)) if (ov) ov.glyph.setPosition(ov.glyph.x - f.x * k, ov.glyph.y - f.y * k);
   };
 
   /** The same hit-flinch for a Hog: recoil opposite its facing plus a white flash. Hogs carry no
@@ -388,24 +399,23 @@ export function createEntities(scene: Phaser.Scene, getTile: () => number) {
    *  All placement comes from the shared `heldTransform`, so the overlay rides the rig
    *  exactly the way the preview shows it. */
   const applyEquipment = (entry: Tracked): void => {
-    const item = entry.player.equippedMainHand;
-    if (item === entry.equippedKind && entry.facing === entry.equippedFacing) return;
-    entry.equipped?.destroy();
-    entry.equipped = undefined;
-    entry.equippedKind = "";
-    entry.equippedFacing = undefined;
-    if (!item) return;
-    const t = heldTransform({ kind: "trogg", item, facing: entry.facing, frameName: entry.frameName ?? "idle", tile: getTile(), attack: 0 });
-    const glyph = makeItemGlyph(t.frame, t.scale);
-    if (!glyph) return;
-    if (t.flipX) glyph.scaleX = -glyph.scaleX;
-    glyph.setPosition(t.x, t.y);
-    glyph.setRotation(t.rotation);
-    if (t.behind && entry.sprite) entry.marker.addAt(glyph, Math.max(0, entry.marker.getIndex(entry.sprite)));
-    else entry.marker.add(glyph);
-    entry.equipped = glyph;
-    entry.equippedKind = item;
-    entry.equippedFacing = entry.facing;
+    for (const { slot, item: pick } of EQUIP_SLOTS) {
+      const item = pick(entry.player);
+      const cur = entry.equip[slot];
+      if (item === (cur?.kind ?? "") && entry.facing === cur?.facing) continue;
+      cur?.glyph.destroy();
+      delete entry.equip[slot];
+      if (!item) continue;
+      const t = heldTransform({ kind: "trogg", item, facing: entry.facing, frameName: entry.frameName ?? "idle", tile: getTile(), attack: 0, slot });
+      const glyph = makeItemGlyph(t.frame, t.scale);
+      if (!glyph) continue;
+      if (t.flipX) glyph.scaleX = -glyph.scaleX;
+      glyph.setPosition(t.x, t.y);
+      glyph.setRotation(t.rotation);
+      if (t.behind && entry.sprite) entry.marker.addAt(glyph, Math.max(0, entry.marker.getIndex(entry.sprite)));
+      else entry.marker.add(glyph);
+      entry.equip[slot] = { glyph, kind: item, facing: entry.facing };
+    }
   };
 
   /** Each frame, pin the item to the hand and apply the item's wield pose — eased from
@@ -413,24 +423,28 @@ export function createEntities(scene: Phaser.Scene, getTile: () => number) {
    *  and a shovel digs downward, on top of the arm's reach. The placeholder marker (no
    *  sprite, `avatar-sprites` off) has no rig, so the item just sits mid-cell. */
   const animateEquipment = (entry: Tracked, now: number): void => {
-    if (!entry.equipped) return;
     const tile = getTile();
-    if (!entry.sprite) {
-      entry.equipped.setPosition(tile * 0.5, tile * 0.5);
-      return;
-    }
     const phase = attackPhase(entry, now);
-    const t = heldTransform({
-      kind: "trogg",
-      item: entry.player.equippedMainHand,
-      facing: entry.facing,
-      frameName: entry.frameName ?? "idle",
-      tile,
-      attack: phase === undefined ? 0 : attackEase(phase),
-    });
-    entry.equipped.setScale(t.flipX ? -t.scale : t.scale, t.scale);
-    entry.equipped.setPosition(t.x, t.y);
-    entry.equipped.setRotation(t.rotation);
+    for (const { slot, item: pick } of EQUIP_SLOTS) {
+      const ov = entry.equip[slot];
+      if (!ov) continue;
+      if (!entry.sprite) {
+        ov.glyph.setPosition(tile * 0.5, tile * 0.5);
+        continue;
+      }
+      const t = heldTransform({
+        kind: "trogg",
+        item: pick(entry.player),
+        facing: entry.facing,
+        frameName: entry.frameName ?? "idle",
+        tile,
+        attack: phase === undefined ? 0 : attackEase(phase),
+        slot,
+      });
+      ov.glyph.setScale(t.flipX ? -t.scale : t.scale, t.scale);
+      ov.glyph.setPosition(t.x, t.y);
+      ov.glyph.setRotation(t.rotation);
+    }
   };
 
   /** A roaming Hog: the shared avatar sprite in its hedgehog skin, feet centred on the

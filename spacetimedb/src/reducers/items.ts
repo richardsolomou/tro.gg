@@ -2,6 +2,7 @@ import spacetimedb, { type Ctx, type AnalyticsEvent } from "../schema";
 import { t } from "spacetimedb/server";
 import { ScheduleAt, Timestamp } from "spacetimedb";
 import {
+  equipSlotOf,
   getZone,
   isEquippableItem,
   MAX_GROUND_ITEMS_PER_ZONE,
@@ -34,33 +35,46 @@ import {
 } from "../helpers";
 
 /**
- * Equip an owned item in the main hand (GDD "Inventory"). Equipment references a
- * specific inventory row; it does not consume or move the item. `0` unequips.
- * The reducer validates ownership and slot server-side.
+ * Equip/unequip an owned item in its slot (GDD "Inventory"). Equipment references a
+ * specific inventory row; it does not consume or move the item. Equipping the row that's
+ * already in its slot toggles it off; `0` clears both hands. The reducer validates
+ * ownership and routes to the item's slot (main or off hand) server-side.
  */
 function runEquipItem(ctx: Ctx, { inventoryId, source = "" }: { inventoryId: bigint; source?: string }): AnalyticsEvent[] {
   const p = ctx.db.player.identity.find(ctx.sender);
   if (!p) return [];
+  const unequipped = (item: string): AnalyticsEvent[] => [
+    { distinctId: distinctId(ctx), event: "item_equipped", properties: { zone: p.zoneId, item, equipped: false, ...sourceProp(source) } },
+  ];
+  const equipped = (item: string): AnalyticsEvent[] => [
+    { distinctId: distinctId(ctx), event: "item_equipped", properties: { zone: p.zoneId, item, equipped: true, ...sourceProp(source) } },
+  ];
 
   if (inventoryId === 0n) {
-    if (p.equippedMainHand !== "" || p.equippedMainHandInventoryId !== 0n) {
-      ctx.db.player.identity.update({ ...p, equippedMainHand: "", equippedMainHandInventoryId: 0n });
-      return [
-        {
-          distinctId: distinctId(ctx),
-          event: "item_equipped",
-          properties: { zone: p.zoneId, item: p.equippedMainHand, equipped: false, ...sourceProp(source) },
-        },
-      ];
-    }
-    return [];
+    if (p.equippedMainHand === "" && p.equippedOffHand === "") return [];
+    const item = p.equippedMainHand || p.equippedOffHand;
+    ctx.db.player.identity.update({ ...p, equippedMainHand: "", equippedMainHandInventoryId: 0n, equippedOffHand: "", equippedOffHandInventoryId: 0n });
+    return unequipped(item);
   }
 
   const row = ownedInventoryRow(ctx, p.identity, inventoryId);
   if (!row || row.qty <= 0 || !isEquippableItem(row.item)) return [];
-  if (p.equippedMainHandInventoryId === row.id) return [];
+
+  if (equipSlotOf(row.item) === "offHand") {
+    if (p.equippedOffHandInventoryId === row.id) {
+      ctx.db.player.identity.update({ ...p, equippedOffHand: "", equippedOffHandInventoryId: 0n });
+      return unequipped(row.item);
+    }
+    ctx.db.player.identity.update({ ...p, equippedOffHand: row.item, equippedOffHandInventoryId: row.id });
+    return equipped(row.item);
+  }
+
+  if (p.equippedMainHandInventoryId === row.id) {
+    ctx.db.player.identity.update({ ...p, equippedMainHand: "", equippedMainHandInventoryId: 0n });
+    return unequipped(row.item);
+  }
   ctx.db.player.identity.update({ ...p, equippedMainHand: row.item, equippedMainHandInventoryId: row.id });
-  return [{ distinctId: distinctId(ctx), event: "item_equipped", properties: { zone: p.zoneId, item: row.item, equipped: true, ...sourceProp(source) } }];
+  return equipped(row.item);
 }
 
 export const equipItem = spacetimedb.reducer({ inventoryId: t.u64() }, (ctx, args) => {
@@ -76,6 +90,14 @@ export const equipItemAction = spacetimedb.procedure(
     return unit();
   },
 );
+
+/** Clear whichever hand was holding `inventoryId` — called when that row's last unit is removed. */
+function unequipIfHeld(ctx: Ctx, inventoryId: bigint): void {
+  const p = ctx.db.player.identity.find(ctx.sender);
+  if (!p) return;
+  if (p.equippedMainHandInventoryId === inventoryId) ctx.db.player.identity.update({ ...p, equippedMainHand: "", equippedMainHandInventoryId: 0n });
+  else if (p.equippedOffHandInventoryId === inventoryId) ctx.db.player.identity.update({ ...p, equippedOffHand: "", equippedOffHandInventoryId: 0n });
+}
 
 /**
  * Drop one unit of an owned inventory item back into the world (GDD "Inventory") as
@@ -103,9 +125,7 @@ function runDropItem(ctx: Ctx, { inventoryId, source = "" }: { inventoryId: bigi
 
   const removed = removeInventoryUnit(ctx, p.identity, inventoryId);
   if (!removed) return [];
-  if (removed.removedLastUnit && p.equippedMainHandInventoryId === inventoryId) {
-    ctx.db.player.identity.update({ ...p, equippedMainHand: "", equippedMainHandInventoryId: 0n });
-  }
+  if (removed.removedLastUnit) unequipIfHeld(ctx, inventoryId);
   ctx.db.groundItem.insert({ id: 0n, zoneId: p.zoneId, item: removed.item, x: tile.x, y: tile.y, qty: 1 });
   return [{ distinctId: distinctId(ctx), event: "inventory_item_dropped", properties: { zone: p.zoneId, item: removed.item, ...sourceProp(source) } }];
 }
@@ -133,9 +153,7 @@ function runDiscardItem(ctx: Ctx, { inventoryId, source = "" }: { inventoryId: b
   if (!p) return [];
   const removed = removeInventoryUnit(ctx, p.identity, inventoryId);
   if (!removed) return [];
-  if (removed.removedLastUnit && p.equippedMainHandInventoryId === inventoryId) {
-    ctx.db.player.identity.update({ ...p, equippedMainHand: "", equippedMainHandInventoryId: 0n });
-  }
+  if (removed.removedLastUnit) unequipIfHeld(ctx, inventoryId);
   return [{ distinctId: distinctId(ctx), event: "inventory_item_discarded", properties: { zone: p.zoneId, item: removed.item, ...sourceProp(source) } }];
 }
 

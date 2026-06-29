@@ -101,6 +101,8 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
     equipmentAction: "",
     equipmentActionAt: Timestamp.UNIX_EPOCH,
     equippedMainHandInventoryId: 0n,
+    equippedOffHand: "",
+    equippedOffHandInventoryId: 0n,
     health: PLAYER_MAX_HEALTH,
     dead: false,
     respawnAt: undefined,

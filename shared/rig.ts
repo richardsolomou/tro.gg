@@ -234,10 +234,10 @@ export function jointAt(kind: Kind, facing: Facing, frame: FrameName, joint: Joi
 }
 
 /** An equippable attachment slot — where a held item (and, later, a worn layer) pins to the
- *  body. Today only `mainHand` is wired; `offHand` (shield, second tool) is the next consumer.
- *  The armour slots (head/chest/…) are added with their first layer — see the layered-avatar
- *  design in the GDD. The slot vocabulary is the cross-species contract: every creature's rig
- *  resolves the same slots, so any slot-targeted item can attach to any creature. */
+ *  body. `mainHand` holds a tool or weapon; `offHand` holds a shield or second tool. The armour
+ *  slots (head/chest/…) are added with their first layer — see the layered-avatar design in the
+ *  GDD. The slot vocabulary is the cross-species contract: every creature's rig resolves the same
+ *  slots, so any slot-targeted item can attach to any creature. */
 export type EquipSlot = "mainHand" | "offHand";
 
 /** The anchor for an equip slot this frame: the slot's hand joint plus whether it draws behind

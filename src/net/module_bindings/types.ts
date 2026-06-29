@@ -111,6 +111,8 @@ export const Player = __t.object("Player", {
   health: __t.i32(),
   dead: __t.bool(),
   respawnAt: __t.option(__t.timestamp()),
+  equippedOffHand: __t.string(),
+  equippedOffHandInventoryId: __t.u64(),
 });
 export type Player = __Infer<typeof Player>;
 
