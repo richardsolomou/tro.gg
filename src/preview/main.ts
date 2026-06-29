@@ -81,6 +81,40 @@ const controls = {
   bones: false, // skeleton overlay — draw the rig joints/bones over the sprite
 };
 
+/** Override `controls` from the URL query, so a preview state is a shareable deep link and
+ *  the Playwright harness can address one (e.g. `/preview?creature=hog:buff&item=sword&off=shield&mode=attack&paused=1&scrub=0.35`).
+ *  Unknown or malformed values are ignored, so a bad link still boots the default preview. */
+function applyUrlControls() {
+  const q = new URLSearchParams(location.search);
+  const flag = (v: string | null) => v === "1" || v === "true";
+
+  const view = q.get("view");
+  if (view && (VIEWS as readonly string[]).includes(view)) controls.view = view as View;
+
+  const item = q.get("item");
+  if (item && (item === NONE || ALL_ITEMS.includes(item))) controls.item = item;
+
+  const off = q.get("off");
+  if (off && OFF_ITEMS.includes(off)) controls.offItem = off;
+
+  const creature = q.get("creature");
+  if (creature) {
+    const idx = /^\d+$/.test(creature)
+      ? Number(creature)
+      : CREATURES.findIndex((c) => `${c.kind}:${c.style}` === creature || `${c.style} ${c.kind}` === creature);
+    if (idx >= 0 && idx < CREATURES.length) controls.creatureIdx = idx;
+  }
+
+  const mode = q.get("mode");
+  if (mode && (MODES as readonly string[]).includes(mode)) controls.mode = mode as Mode;
+
+  if (q.has("paused")) controls.paused = flag(q.get("paused"));
+  if (q.has("bones")) controls.bones = flag(q.get("bones"));
+
+  const scrub = q.get("scrub");
+  if (scrub !== null && !Number.isNaN(Number(scrub))) controls.scrub = Math.min(1, Math.max(0, Number(scrub)));
+}
+
 /** The atlas frame to draw for a held item at this facing: the directional in-hand frame
  *  when the item has one, else its base sprite (boulder/stone have no per-facing art). */
 function heldFrame(item: string, facing: Facing): string {
@@ -138,6 +172,8 @@ class PreviewScene extends Phaser.Scene {
   private clock = 0;
   /** Signature of what's currently laid out; a change triggers a self-rebuild in `update`. */
   private builtSig = "";
+  /** Set once the first frame has been drawn, so a test can wait for a painted canvas. */
+  private rendered = false;
   /** Laid-out grid extent, for `layout` to centre/scale. */
   private gridCols = 1;
   private gridRows = 1;
@@ -284,6 +320,12 @@ class PreviewScene extends Phaser.Scene {
 
       this.drawBones(cell, frame);
       this.applyHit(cell, time);
+    }
+
+    // Signal a painted canvas exactly once, so the harness can wait on a stable first frame.
+    if (!this.rendered) {
+      this.rendered = true;
+      (window as typeof window & { __previewReady?: boolean }).__previewReady = true;
     }
   }
 
@@ -483,6 +525,7 @@ function mountControls() {
   }
 }
 
+applyUrlControls();
 mountControls();
 
 const game = new Phaser.Game({
@@ -492,5 +535,7 @@ const game = new Phaser.Game({
   pixelArt: true,
   scale: { mode: Phaser.Scale.RESIZE, width: window.innerWidth, height: window.innerHeight },
   input: { windowEvents: false },
+  // Keep the drawing buffer so a test can read the rendered pixels back off the canvas.
+  render: { preserveDrawingBuffer: true },
 });
 game.scene.add("preview", PreviewScene, true);

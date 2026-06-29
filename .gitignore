@@ -12,3 +12,9 @@ dist/
 
 # Per-server database identity, resolved on first publish.
 spacetime.local.json
+
+# Playwright e2e artifacts.
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/

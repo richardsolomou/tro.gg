@@ -13,6 +13,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "typecheck:module": "tsc -p spacetimedb/tsconfig.json --noEmit",
     "test": "TSX_TSCONFIG_PATH=test/tsconfig.json node --import tsx --test \"shared/*.test.ts\" \"src/*.test.ts\" \"test/*.test.ts\"",
+    "test:e2e": "playwright test",
     "sprite-art": "tsx tools/gen-sprite-art.ts",
     "item-art": "tsx tools/gen-item-art.ts",
     "sprites": "tsx tools/gen-spritesheet.ts",
@@ -27,6 +28,7 @@
     "spacetimedb": "2.6.*"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "tsx": "^4.19.2",
     "typescript": "^6.0.3",
     "vite": "^8.0.16"

@@ -84,6 +84,13 @@ For interactive sign-off (animation, scrubbing the attack), run `pnpm dev` and o
 Its `anim` modes include `hit` (the damage flinch), and a `bones` toggle overlays the rig
 skeleton on the sprite for checking joint placement.
 
+Every control is URL-addressable, so a preview state is a shareable deep link:
+`/preview?view=holder&creature=hog:buff&item=sword&off=shield&mode=attack&paused=1&scrub=0.35&bones=1`
+(`creature` is `<kind>:<style>` or an index; unknown values fall back to defaults). `pnpm test:e2e`
+runs the Playwright harness (`e2e/preview.spec.ts`), which boots these states headless and asserts
+the canvas still renders a creature — so an art/rig regression that blanks the preview fails CI
+instead of slipping by. It attaches each rendered frame to the report for human sign-off.
+
 ## Reference art
 
 `docs/art-refs/` holds the source references: `trogg-reference.png` (the hunched cave-ogre

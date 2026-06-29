@@ -25,8 +25,12 @@ const playRoute: Plugin = {
   name: "play-route",
   configureServer(server) {
     server.middlewares.use((req, _res, next) => {
-      if (req.url === "/play") req.url = "/play/";
-      if (req.url === "/preview") req.url = "/preview/";
+      // Split off the query so a deep link like `/preview?creature=…` still rewrites to the
+      // directory index (an exact match would miss it and fall through to the SPA landing).
+      const [path, query] = (req.url ?? "").split("?");
+      const suffix = query ? `?${query}` : "";
+      if (path === "/play") req.url = `/play/${suffix}`;
+      if (path === "/preview") req.url = `/preview/${suffix}`;
       next();
     });
   },
