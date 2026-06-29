@@ -186,11 +186,6 @@ function footLift(frame: FrameName, near: boolean): number {
  *  drawn limb stays a connected extension of the arm rather than stretching off the body. */
 const ATTACK_COCK = 3;
 const ATTACK_REACH = 5;
-/** Vertical arc for the side-facing swing (screen px): the wind-up rises overhead, then the strike
- *  drops down-forward so a pickaxe chops onto the boulder in front instead of being held up or
- *  poking past at the hip. Down/up reach along their vertical facing axis already. */
-const ATTACK_WINDUP_RISE = 9; // wind-up lifts the hand up (screen −y)
-const ATTACK_STRIKE_DROP = 3; // strike brings it below rest (screen +y), chopping down
 
 /** The per-frame offset of one joint from its rest position, in frame pixels. Both the gait swing
  *  and the attack reach are shared by every rig-driven kind, so hog arms swing while walking and
@@ -205,15 +200,15 @@ export function poseOffset(kind: Kind, facing: Facing, frame: FrameName, joint: 
   if (frame === "attack_a" || frame === "attack_b") {
     // only the main arm moves; the body and other limbs hold
     if (joint === "mainHand" || joint === "mainShoulder") {
+      // The hand reaches back on the wind-up, forward on the strike, along the facing — a neutral
+      // arm motion shared by every weapon. Each weapon's own character (the pickaxe's overhead
+      // chop, the shovel's low dig, the sword's flat thrust) comes from its tool rotation
+      // (`gripRotation`) and art, not from a per-weapon arm path. The shoulder stays planted on the
+      // torso so the arm pivots from the body rather than lifting its root off.
+      if (joint === "mainShoulder") return { x: 0, y: b };
       const f = forward(facing);
       const along = frame === "attack_b" ? ATTACK_REACH : -ATTACK_COCK;
-      // side facings arc overhead (wind-up rises and cocks back) then chop down-forward (strike
-      // drops below rest); down/up reach along their vertical facing axis already, no extra arc.
-      const vy = side ? (frame === "attack_b" ? ATTACK_STRIKE_DROP : -ATTACK_WINDUP_RISE) : 0;
-      // the shoulder stays planted on the torso so the arm pivots from the body (no detached root);
-      // only the hand swings through the arc.
-      if (joint === "mainShoulder") return { x: 0, y: b };
-      return { x: f.x * along, y: f.y * along + vy };
+      return { x: f.x * along, y: f.y * along };
     }
     return { x: 0, y: 0 };
   }
@@ -311,8 +306,11 @@ const NEUTRAL: WieldPose = { rot: 0, reach: 0, lift: 0, scale: 1 };
 const WIELD: Record<string, { hold?: Partial<WieldPose>; use?: Partial<WieldPose>; swing?: { rest: number; windup: number; strike: number } }> = {
   // sword: no swing and no hold→use offset — fixed orientation, rides the hand joint so the arm's
   // thrust carries it and the drawn arm and blade stay locked together.
+  // pickaxe: raises overhead on the wind-up, then chops down-forward.
   pickaxe: { swing: { rest: 0.3, windup: -1.7, strike: 0.9 } },
-  shovel: { swing: { rest: 0.45, windup: -1.4, strike: 0.8 } },
+  // shovel: stays low to the ground — blade angled down throughout, digging down-forward on the
+  // strike rather than swinging overhead.
+  shovel: { swing: { rest: 1.0, windup: 0.7, strike: 1.55 } },
 };
 
 /** The full hold/use profile for an item id, defaults filled in. */
