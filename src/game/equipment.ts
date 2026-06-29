@@ -93,11 +93,15 @@ export function heldTransform(p: HeldParams): HeldTransform {
   const f = forward(p.facing); // screen direction of the facing (down = +y) — for reach/lift
   const side = left || p.facing === "right";
   // rotation only applies to side facings; down/up rely on the directional art. A tool with a
-  // grip rigidly follows the forearm (swings with the arm); otherwise a fixed orientation.
+  // grip presents at that base orientation and follows the arm's *swing* — the change in forearm
+  // angle from rest — so a near-vertical arm (the trogg's) and a diagonal one (the hog's) both
+  // lead with the point and swing alike, instead of inheriting each creature's idle arm hang.
+  // Without a grip the item keeps a fixed orientation (the sword).
   const grip = armGrip(p.item);
+  const swing = armAngle(p.kind, poseFacing, p.frameName) - armAngle(p.kind, poseFacing, "idle");
   const rot = !side
     ? 0
-    : (left ? -1 : 1) * (grip !== undefined ? armAngle(p.kind, poseFacing, p.frameName) + grip : pose.rot);
+    : (left ? -1 : 1) * (grip !== undefined ? swing + grip : pose.rot);
 
   return {
     frame: `${p.item}${group}`,

@@ -210,8 +210,10 @@ export function poseOffset(kind: Kind, facing: Facing, frame: FrameName, joint: 
       // side facings arc overhead→down so the swing chops the tile in front; down/up reach along
       // their vertical facing axis already, so they take no extra lift.
       const lift = side ? (frame === "attack_b" ? ATTACK_STRIKE_LIFT : ATTACK_WINDUP_LIFT) : 0;
-      const handPart = joint === "mainHand" ? 1 : 0.35; // shoulder follows a little
-      return { x: f.x * along * handPart, y: (f.y * along - lift) * handPart };
+      // the shoulder stays planted on the torso so the arm pivots from the body (no detached root);
+      // only the hand swings through the arc.
+      if (joint === "mainShoulder") return { x: 0, y: b };
+      return { x: f.x * along, y: f.y * along - lift };
     }
     return { x: 0, y: 0 };
   }
@@ -299,16 +301,17 @@ export interface WieldProfile {
 const NEUTRAL: WieldPose = { rot: 0, reach: 0, lift: 0, scale: 1 };
 
 /** Per-item tuning. Two ways an item is oriented on the side facings:
- *   - `grip` set → the item rigidly **follows the forearm** (`armAngle` + `grip`), so it swings
- *     with the arm as one piece — the wind-up and chop come from the arm pose itself, in sync.
+ *   - `grip` set (radians) → its **base in-hand tilt**; the item then follows the arm's *swing*
+ *     (the change in forearm angle from rest), so it chops with the arm but presents the same way
+ *     on every creature regardless of how that creature's arm hangs at rest.
  *   - no `grip` → a fixed orientation from the `hold`/`use` `rot` (e.g. the sword points along
  *     the facing and the arm thrust carries it).
  *  `hold`/`use` `lift`/`reach`/`scale` (partials over `NEUTRAL`) still ease across the attack. */
 const WIELD: Record<string, { hold?: Partial<WieldPose>; use?: Partial<WieldPose>; grip?: number }> = {
   // sword: no grip and no hold→use offset — it keeps a fixed orientation and rides the hand joint
   // exactly, so the arm's thrust carries it and the drawn arm and blade stay locked together.
-  pickaxe: { grip: -0.35 }, // rides slightly above the forearm line; swings with the arm into the chop
-  shovel: { grip: -0.2 },
+  pickaxe: { grip: 0.24 }, // point leading, slightly forward-down; swings up with the arm into the chop
+  shovel: { grip: 0.39 },
 };
 
 /** The full hold/use profile for an item id, defaults filled in. */
