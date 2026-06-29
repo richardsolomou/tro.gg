@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { FRAME_H, FRAME_W, frameName, frames, ghostDraw, paintArmSheet, paintSheet, rgbaSink, SHEET_H, SHEET_W, type Facing, type FrameName, type Kind, type PixelSink } from "@trogg/shared";
+import { FRAME_H, FRAME_W, frameName, frames, ghostDraw, paintArmSheet, paintChopArmSheet, paintSheet, rgbaSink, SHEET_H, SHEET_W, type Facing, type FrameName, type Kind, type PixelSink } from "@trogg/shared";
 import { STRIKE_PEAK } from "./equipment.js";
 
 /**
@@ -12,9 +12,11 @@ import { STRIKE_PEAK } from "./equipment.js";
  * not a runtime dependency).
  */
 
-/** Texture keys: the multi-style base sheet, the near-arm overlay sheet, and the ghost sprite. */
+/** Texture keys: the base sheet, the near-arm overlay sheet, the overhead chop-arm overlay sheet
+ *  (pickaxe attack), and the ghost sprite. */
 export const AVATAR_TEX = "avatars";
 export const AVATAR_ARM_TEX = "avatars-arm";
+export const AVATAR_CHOP_ARM_TEX = "avatars-chop-arm";
 export const GHOST_TEX = "avatars-ghost";
 /** The single frame carved from `GHOST_TEX` (the ghost is one drawing, not a sheet). */
 export const GHOST_FRAME = "ghost";
@@ -48,6 +50,14 @@ function registerArmSheet(scene: Phaser.Scene): void {
   for (const f of frames()) tex.add(f.name, 0, f.x, f.y, f.w, f.h);
 }
 
+/** Register the overhead chop-arm overlay sheet (pickaxe attack), carved by the same frame names. */
+function registerChopArmSheet(scene: Phaser.Scene): void {
+  if (scene.textures.exists(AVATAR_CHOP_ARM_TEX)) return;
+  const tex = scene.textures.addCanvas(AVATAR_CHOP_ARM_TEX, paintCanvas(SHEET_W, SHEET_H, paintChopArmSheet));
+  if (!tex) return;
+  for (const f of frames()) tex.add(f.name, 0, f.x, f.y, f.w, f.h);
+}
+
 /** Register the ghost as its own one-frame texture (its bespoke off-white art, GDD "Avatars and equipment"). */
 function registerGhost(scene: Phaser.Scene): void {
   if (scene.textures.exists(GHOST_TEX)) return;
@@ -63,6 +73,7 @@ function registerGhost(scene: Phaser.Scene): void {
 export function registerAvatarTextures(scene: Phaser.Scene): void {
   registerSheet(scene);
   registerArmSheet(scene);
+  registerChopArmSheet(scene);
   registerGhost(scene);
 }
 

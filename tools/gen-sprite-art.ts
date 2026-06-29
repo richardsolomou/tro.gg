@@ -24,6 +24,7 @@ import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { FRAME_H, FRAME_W, frames, rgbaSink, type Facing, type FrameName, type Kind, type PixelSink } from "../shared/sprites.ts";
+import { chopHandOffset } from "../shared/rig.ts";
 import { compositeOver, disc, fmtArt, outlinePass, PIXEL_KEYS, quantize } from "./pixel_paint.ts";
 import type { View } from "./art/rig.ts";
 import { TROGG_SKINS, troggBody, troggDraw, troggMainArm } from "./art/trogg.ts";
@@ -74,7 +75,7 @@ function isRigged(kind: Kind, style: string): boolean {
 
 /** Paint one rigged creature's part (body or main arm) for a frame, honouring the left-mirror
  *  flip — used to derive the near-arm overlay that rides over a held item. */
-function paintPart(kind: Kind, style: string, facing: Facing, frame: FrameName, part: "body" | "arm"): Uint8Array {
+function paintPart(kind: Kind, style: string, facing: Facing, frame: FrameName, part: "body" | "arm", handDy = 0): Uint8Array {
   const layer = new Uint8Array(FRAME_W * FRAME_H * 4);
   const cs = rgbaSink(layer, FRAME_W, FRAME_H);
   const flip = facing === "left";
@@ -84,20 +85,31 @@ function paintPart(kind: Kind, style: string, facing: Facing, frame: FrameName, 
   if (kind === "trogg") {
     const skin = TROGG_SKINS[style] ?? TROGG_SKINS.moss!;
     if (body) troggBody(p, view, frame, skin);
-    else troggMainArm(p, view, frame, skin);
+    else troggMainArm(p, view, frame, skin, handDy);
   } else if (style === "buff") {
     if (body) buffBody(p, view, frame);
-    else buffMainArm(p, view, frame);
+    else buffMainArm(p, view, frame, handDy);
   } else if (style === "dino") {
     if (body) dinoBody(p, view, frame);
-    else dinoMainArm(p, view, frame);
+    else dinoMainArm(p, view, frame, handDy);
   } else {
     const skin = HOG_SKINS[style] ?? HOG_SKINS.classic!;
     if (body) hogBody(p, view, frame, skin);
-    else hogMainArm(p, view, frame, skin);
+    else hogMainArm(p, view, frame, skin, handDy);
   }
   return layer;
 }
+
+/** A full rigged-creature fill with the in-front main arm raised by `handDy` (the overhead "chop"
+ *  arm): body composited under the offset arm, for lifting the chop overlay. */
+function paintChopFull(kind: Kind, style: string, facing: Facing, frame: FrameName): Uint8Array {
+  const dy = chopHandOffset(facing, frame).y;
+  const full = paintPart(kind, style, facing, frame, "body");
+  compositeOver(full, paintPart(kind, style, facing, frame, "arm", dy));
+  return full;
+}
+
+const isAttackFrame = (frame: FrameName): boolean => frame === "attack_a" || frame === "attack_b";
 
 const opaqueAt = (buf: Uint8Array, x: number, y: number): boolean =>
   x >= 0 && y >= 0 && x < FRAME_W && y < FRAME_H && buf[(y * FRAME_W + x) * 4 + 3]! > 0;
@@ -170,18 +182,26 @@ export const PIXEL_KEYS = ${JSON.stringify(PIXEL_KEYS)};
 `;
 
 const armEntries: string[] = [];
+const chopEntries: string[] = [];
 const entries = frames().map((f) => {
-  const fill = quantize(paintFill(f.kind, f.style, f.facing, f.frame), FRAME_W, FRAME_H);
+  const rigged = isRigged(f.kind, f.style);
+  const attack = isAttackFrame(f.frame);
   const outlineNum = outlineColour(f.kind, f.style);
   const outline = "0x" + (outlineNum >>> 0).toString(16).padStart(6, "0");
-  if (isRigged(f.kind, f.style)) {
-    const overlay = armOverlay(
-      paintFill(f.kind, f.style, f.facing, f.frame),
-      paintPart(f.kind, f.style, f.facing, f.frame, "body"),
-      paintPart(f.kind, f.style, f.facing, f.frame, "arm"),
-      outlineNum,
-    );
-    if (overlay) armEntries.push(`  ${JSON.stringify(f.name)}: ${fmtArt(quantize(overlay, FRAME_W, FRAME_H), "  ")},`);
+  // On a rigged creature's attack frames the base omits the in-front main arm — the arm comes from
+  // a per-weapon overlay (neutral or chop) so each weapon swings its own way. Other frames bake the
+  // arm into the body as before.
+  const baseBuf = rigged && attack ? paintPart(f.kind, f.style, f.facing, f.frame, "body") : paintFill(f.kind, f.style, f.facing, f.frame);
+  const fill = quantize(baseBuf, FRAME_W, FRAME_H);
+  if (rigged) {
+    const body = paintPart(f.kind, f.style, f.facing, f.frame, "body");
+    const neutral = armOverlay(paintFill(f.kind, f.style, f.facing, f.frame), body, paintPart(f.kind, f.style, f.facing, f.frame, "arm"), outlineNum);
+    if (neutral) armEntries.push(`  ${JSON.stringify(f.name)}: ${fmtArt(quantize(neutral, FRAME_W, FRAME_H), "  ")},`);
+    if (attack) {
+      const chopArm = paintPart(f.kind, f.style, f.facing, f.frame, "arm", chopHandOffset(f.facing, f.frame).y);
+      const chop = armOverlay(paintChopFull(f.kind, f.style, f.facing, f.frame), body, chopArm, outlineNum);
+      if (chop) chopEntries.push(`  ${JSON.stringify(f.name)}: ${fmtArt(quantize(chop, FRAME_W, FRAME_H), "  ")},`);
+    }
   }
   return `  ${JSON.stringify(f.name)}: ${fmtArt(fill, "  ", `outline: ${outline}`)},`;
 });
@@ -193,10 +213,14 @@ const out =
   `export const AVATAR_FRAME_ART: Record<string, IndexedSpriteArt> = {\n${entries.join("\n")}\n};\n\n` +
   `/** The near (main-hand) arm lifted out of each front-facing frame's outlined silhouette, keyed\n` +
   ` *  by the same \`frameName\`. The runtime draws it over a held item so the hand grips the weapon\n` +
-  ` *  instead of the weapon covering the arm. No \`outline\` field: already finished, blitted as-is. */\n` +
+  ` *  instead of the weapon covering the arm. On attack frames the base omits this arm, so the\n` +
+  ` *  overlay is what supplies it. No \`outline\` field: already finished, blitted as-is. */\n` +
   `export const ARM_OVERLAY_ART: Record<string, IndexedSpriteArt> = {\n${armEntries.join("\n")}\n};\n\n` +
+  `/** The overhead "chop" arm overlay for attack frames (the pickaxe): the same arm raised on the\n` +
+  ` *  wind-up and driven down on the strike. The runtime swaps this in for a chop-style weapon. */\n` +
+  `export const CHOP_ARM_OVERLAY_ART: Record<string, IndexedSpriteArt> = {\n${chopEntries.join("\n")}\n};\n\n` +
   `export const GHOST_ART: IndexedSpriteArt = ${ghost};\n`;
 
 const OUT_PATH = join(dirname(fileURLToPath(import.meta.url)), "..", "shared", "sprite_art.ts");
 writeFileSync(OUT_PATH, out);
-console.log(`Wrote ${entries.length} frames + ${armEntries.length} arm overlays + ghost → ${OUT_PATH}`);
+console.log(`Wrote ${entries.length} frames + ${armEntries.length} arm overlays + ${chopEntries.length} chop overlays + ghost → ${OUT_PATH}`);

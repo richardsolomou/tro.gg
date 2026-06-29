@@ -1,4 +1,4 @@
-import { ANCHOR, FRAME_W, forward, gripRotation, slotAnchor, wieldPose, type EquipSlot, type Facing, type FrameName, type Kind } from "@trogg/shared";
+import { ANCHOR, attackArmStyle, chopHandOffset, FRAME_W, forward, gripRotation, slotAnchor, wieldPose, type EquipSlot, type Facing, type FrameName, type Kind } from "@trogg/shared";
 
 /**
  * The single placement path for a main-hand item, shared by the live game
@@ -85,9 +85,12 @@ export function heldTransform(p: HeldParams): HeldTransform {
   const poseFacing: Facing = left ? "right" : p.facing;
 
   const hand = slotAnchor(p.kind, p.slot ?? "mainHand", poseFacing, p.frameName);
+  // A chop weapon (pickaxe) rides the overhead arm, which raises the hand on the wind-up and drops
+  // it on the strike — match the baked chop-arm overlay so the item stays in the fist.
+  const chopY = (p.slot ?? "mainHand") === "mainHand" && attackArmStyle(p.item) === "chop" ? chopHandOffset(poseFacing, p.frameName).y : 0;
   const fx = left ? FRAME_W - 1 - hand.x : hand.x;
   const ax = p.tile / 2 + (fx - ANCHOR.x) * sf;
-  const ay = feetY + (hand.y - ANCHOR.y) * sf;
+  const ay = feetY + (hand.y + chopY - ANCHOR.y) * sf;
 
   const pose = wieldPose(p.item, p.attack);
   const f = forward(p.facing); // screen direction of the facing (down = +y) — for reach/lift

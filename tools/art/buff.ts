@@ -26,13 +26,14 @@ export const BUFF = {
 
 /** One swole arm from the shared rig: a deltoid cap at the shoulder, a muscular limb to the
  *  hand, and a fist — so it swings with the gait and a held item rides the fist. */
-function buffArmRig(p: PixelSink, facing: Facing, frame: FrameName, slot: "main" | "off"): void {
+function buffArmRig(p: PixelSink, facing: Facing, frame: FrameName, slot: "main" | "off", handDy = 0): void {
   const c = BUFF;
   const sh = jointAt("hog", facing, frame, slot === "main" ? "mainShoulder" : "offShoulder");
   const hd = jointAt("hog", facing, frame, slot === "main" ? "mainHand" : "offHand");
+  const hy = hd.y + handDy;
   shaded(p, sh.x, sh.y - 1, 3, 3.4, c.skin, c.skinDk); // deltoid (shoulder cap)
-  drawArm(p, sh.x, sh.y, hd.x, hd.y, 2.8, c.skin, c.skinDk);
-  shaded(p, hd.x, hd.y, 2.6, 2.6, c.skin, c.skinDk); // fist
+  drawArm(p, sh.x, sh.y, hd.x, hy, 2.8, c.skin, c.skinDk);
+  shaded(p, hd.x, hy, 2.6, 2.6, c.skin, c.skinDk); // fist
 }
 
 /** The buff hog minus its in-front main arm. The wrapper `buffDraw` adds the main arm on top;
@@ -90,10 +91,10 @@ export function buffBody(p: PixelSink, view: View, frame: FrameName): void {
 }
 
 /** The buff hog's in-front main arm, drawn over a held item. Empty when it tucks behind (up). */
-export function buffMainArm(p: PixelSink, view: View, frame: FrameName): void {
+export function buffMainArm(p: PixelSink, view: View, frame: FrameName, handDy = 0): void {
   const facing: Facing = view === "side" ? "right" : view;
   if (skeletonFor("hog", facing).behind) return;
-  buffArmRig(p, facing, frame, "main");
+  buffArmRig(p, facing, frame, "main", handDy);
 }
 
 export function buffDraw(p: PixelSink, view: View, frame: FrameName): void {

@@ -187,6 +187,18 @@ function footLift(frame: FrameName, near: boolean): number {
 const ATTACK_COCK = 3;
 const ATTACK_REACH = 5;
 
+/** Extra hand arc for the overhead "chop" swing (the pickaxe), on side facings only: the wind-up
+ *  lifts the hand overhead, the strike drives it down, layered on top of the neutral attack reach.
+ *  Only the chop weapon's arm and item take this; the neutral arm (sword, shovel) stays flat. */
+const CHOP_WINDUP_RISE = 10;
+const CHOP_STRIKE_DROP = 2;
+export function chopHandOffset(facing: Facing, frame: FrameName): Joint {
+  if (facing !== "left" && facing !== "right") return { x: 0, y: 0 };
+  if (frame === "attack_a") return { x: 0, y: -CHOP_WINDUP_RISE };
+  if (frame === "attack_b") return { x: 0, y: CHOP_STRIKE_DROP };
+  return { x: 0, y: 0 };
+}
+
 /** The per-frame offset of one joint from its rest position, in frame pixels. Both the gait swing
  *  and the attack reach are shared by every rig-driven kind, so hog arms swing while walking and
  *  reach on a strike just like the trogg's (the main arm cocks back on `attack_a`, throws forward
@@ -303,13 +315,14 @@ const NEUTRAL: WieldPose = { rot: 0, reach: 0, lift: 0, scale: 1 };
  *   - no `swing` → a fixed orientation from the `hold`/`use` `rot` (e.g. the sword points along
  *     the facing and the arm thrust carries it).
  *  `hold`/`use` `lift`/`reach`/`scale` (partials over `NEUTRAL`) still ease across the attack. */
-const WIELD: Record<string, { hold?: Partial<WieldPose>; use?: Partial<WieldPose>; swing?: { rest: number; windup: number; strike: number } }> = {
+const WIELD: Record<string, { hold?: Partial<WieldPose>; use?: Partial<WieldPose>; swing?: { rest: number; windup: number; strike: number }; arm?: "chop" }> = {
   // sword: no swing and no hold→use offset — fixed orientation, rides the hand joint so the arm's
   // thrust carries it and the drawn arm and blade stay locked together.
-  // pickaxe: cocks back on the wind-up, then chops down-forward.
-  pickaxe: { swing: { rest: 0.3, windup: -0.7, strike: 1.1 } },
+  // pickaxe: `arm: "chop"` raises the whole arm overhead on the wind-up (`chopHandOffset`); the
+  // rotation raises the head with it, then chops down-forward.
+  pickaxe: { swing: { rest: 0.3, windup: -1.2, strike: 0.9 }, arm: "chop" },
   // shovel: stays low to the ground — blade angled down throughout, digging down-forward on the
-  // strike rather than swinging overhead.
+  // strike rather than swinging overhead. Keeps the neutral (flat) arm.
   shovel: { swing: { rest: 1.0, windup: 0.7, strike: 1.55 } },
 };
 
@@ -329,6 +342,12 @@ export function gripRotation(item: string, frame: FrameName): number | undefined
   if (frame === "attack_a") return s.windup;
   if (frame === "attack_b") return s.strike;
   return s.rest;
+}
+
+/** A held item's attack arm style: "chop" raises the whole arm overhead (a separate baked arm
+ *  overlay and a matching item hand offset, `chopHandOffset`); "" uses the neutral flat arm. */
+export function attackArmStyle(item: string): "chop" | "" {
+  return WIELD[item]?.arm === "chop" ? "chop" : "";
 }
 
 /** The item's pose at attack ease `k` (0 = held/idle, 1 = full strike), lerped hold→use.

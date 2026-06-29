@@ -1,8 +1,8 @@
 import Phaser from "phaser";
-import { ANCHOR, blitArt, composeAvatarFrame, FACINGS, forward, FRAME_H, FRAME_W, hasArmOverlay, hogSize, ITEM_ART, ITEM_ART_H, ITEM_ART_W, ITEMS as ITEM_DEFS, jointAt, KINDS, rgbaSink, stylesOf, type EquipSlot, type Facing, type FrameName, type JointName, type Kind } from "@trogg/shared";
+import { ANCHOR, attackArmStyle, blitArt, composeAvatarFrame, FACINGS, forward, FRAME_H, FRAME_W, hasArmOverlay, hasChopOverlay, hogSize, ITEM_ART, ITEM_ART_H, ITEM_ART_W, ITEMS as ITEM_DEFS, jointAt, KINDS, rgbaSink, stylesOf, type EquipSlot, type Facing, type FrameName, type JointName, type Kind } from "@trogg/shared";
 import { AVATAR_FRAME_ART, type IndexedSpriteArt } from "../../shared/sprite_art.js";
 import { ART, attackEase, FLINCH_MS, flinchPose, heldGroup, heldTransform } from "../game/equipment.js";
-import { attackFrame, AVATAR_ARM_TEX, avatarFrame, avatarFrameName, AVATAR_TEX, registerAvatarTextures } from "../game/avatars.js";
+import { attackFrame, AVATAR_ARM_TEX, AVATAR_CHOP_ARM_TEX, avatarFrame, avatarFrameName, AVATAR_TEX, registerAvatarTextures } from "../game/avatars.js";
 import { ITEM_TEX, registerItemTextures } from "../game/items.js";
 
 /**
@@ -316,11 +316,15 @@ class PreviewScene extends Phaser.Scene {
       const mainBehind = place(cell.item, controls.item, "mainHand");
       const offBehind = place(cell.offItem, controls.offItem, "offHand");
 
-      // the near (main) arm redrawn over the main-hand item, so the hand grips the weapon
+      // the near (main) arm redrawn over the main-hand item, so the hand grips the weapon. A chop
+      // weapon (pickaxe) on an attack frame uses the overhead chop arm; the attack base omits the
+      // in-front arm, so the overlay supplies it even when empty-handed.
       const armName = avatarFrameName(cell.kind, cell.style, cell.facing, frame);
-      const showArm = !!cell.item && hasArmOverlay(armName);
+      const isAttack = frame === "attack_a" || frame === "attack_b";
+      const chop = !!cell.item && isAttack && attackArmStyle(controls.item) === "chop" && hasChopOverlay(armName);
+      const showArm = (!!cell.item || isAttack) && (chop ? hasChopOverlay(armName) : hasArmOverlay(armName));
       cell.arm.setVisible(showArm);
-      if (showArm) cell.arm.setFrame(armName);
+      if (showArm) cell.arm.setTexture(chop ? AVATAR_CHOP_ARM_TEX : AVATAR_ARM_TEX, armName);
 
       // layer back→front: behind-hand items, body, front-hand items, then the near arm over its item
       const order: Phaser.GameObjects.GameObject[] = [];

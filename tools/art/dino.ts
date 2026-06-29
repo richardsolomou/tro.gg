@@ -30,12 +30,13 @@ function dinoRidge(p: PixelSink, cx: number, top: number, span: number, c: typeo
 
 /** One costume arm from the shared rig: a green limb to the hand plus a fist, so it swings with
  *  the gait and reaches on attack off the same hand joint a held item rides. */
-function dinoArmRig(p: PixelSink, facing: Facing, frame: FrameName, slot: "main" | "off"): void {
+function dinoArmRig(p: PixelSink, facing: Facing, frame: FrameName, slot: "main" | "off", handDy = 0): void {
   const c = DINO;
   const sh = jointAt("hog", facing, frame, slot === "main" ? "mainShoulder" : "offShoulder");
   const hd = jointAt("hog", facing, frame, slot === "main" ? "mainHand" : "offHand");
-  drawArm(p, sh.x, sh.y, hd.x, hd.y, 2.2, c.body, c.bodyDk);
-  shaded(p, hd.x, hd.y, 2.3, 2.3, c.body, c.bodyDk); // fist
+  const hy = hd.y + handDy;
+  drawArm(p, sh.x, sh.y, hd.x, hy, 2.2, c.body, c.bodyDk);
+  shaded(p, hd.x, hy, 2.3, 2.3, c.body, c.bodyDk); // fist
 }
 
 /** The dino hog minus its in-front main arm. `dinoDraw` adds the main arm on top; the generator
@@ -94,10 +95,10 @@ export function dinoBody(p: PixelSink, view: View, frame: FrameName): void {
 }
 
 /** The dino hog's in-front main arm, drawn over a held item. Empty when it tucks behind (up). */
-export function dinoMainArm(p: PixelSink, view: View, frame: FrameName): void {
+export function dinoMainArm(p: PixelSink, view: View, frame: FrameName, handDy = 0): void {
   const facing: Facing = view === "side" ? "right" : view;
   if (skeletonFor("hog", facing).behind) return;
-  dinoArmRig(p, facing, frame, "main");
+  dinoArmRig(p, facing, frame, "main", handDy);
 }
 
 export function dinoDraw(p: PixelSink, view: View, frame: FrameName): void {

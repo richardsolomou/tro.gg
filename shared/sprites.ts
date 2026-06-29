@@ -1,4 +1,4 @@
-import { ARM_OVERLAY_ART, AVATAR_FRAME_ART, GHOST_ART, PIXEL_KEYS, type IndexedSpriteArt } from "./sprite_art";
+import { ARM_OVERLAY_ART, AVATAR_FRAME_ART, CHOP_ARM_OVERLAY_ART, GHOST_ART, PIXEL_KEYS, type IndexedSpriteArt } from "./sprite_art";
 import { compositeOver, outlinePass } from "./raster";
 
 /**
@@ -237,4 +237,18 @@ export function paintArmSheet(sink: PixelSink): void {
 /** Whether a frame has a near-arm overlay (front facings of rig-driven creatures). */
 export function hasArmOverlay(name: string): boolean {
   return ARM_OVERLAY_ART[name] !== undefined;
+}
+
+/** Paint the overhead "chop" arm overlays (pickaxe attack frames) into a sheet matching the base
+ *  layout, so the runtime can carve them by frame name and swap them in for a chop-style weapon. */
+export function paintChopArmSheet(sink: PixelSink): void {
+  for (const f of frames()) {
+    const art = CHOP_ARM_OVERLAY_ART[f.name];
+    if (art) blitArt(sink, art, f.x, f.y);
+  }
+}
+
+/** Whether a frame has a chop (overhead) arm overlay (attack frames of rig-driven creatures). */
+export function hasChopOverlay(name: string): boolean {
+  return CHOP_ARM_OVERLAY_ART[name] !== undefined;
 }

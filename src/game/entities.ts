@@ -1,7 +1,7 @@
 import Phaser from "phaser";
-import { ANCHOR, FRAME_H, FRAME_W, forward, hasArmOverlay, HOG_MAX_HEALTH, ITEM_ART_W, PLAYER_MAX_HEALTH, hogSize, timestampMs, type EquipSlot, type Facing, type FrameName, type Kind, type ProjectedMotion, type Stamp } from "@trogg/shared";
+import { ANCHOR, attackArmStyle, FRAME_H, FRAME_W, forward, hasArmOverlay, hasChopOverlay, HOG_MAX_HEALTH, ITEM_ART_W, PLAYER_MAX_HEALTH, hogSize, timestampMs, type EquipSlot, type Facing, type FrameName, type Kind, type ProjectedMotion, type Stamp } from "@trogg/shared";
 import type { Boulder, GroundItem, Hog, Player } from "../net/module_bindings/types";
-import { attackFrame, AVATAR_ARM_TEX, AVATAR_TEX, avatarFrame, avatarFrameName, facingFromDir, GHOST_FRAME, GHOST_TEX } from "./avatars.js";
+import { attackFrame, AVATAR_ARM_TEX, AVATAR_CHOP_ARM_TEX, AVATAR_TEX, avatarFrame, avatarFrameName, facingFromDir, GHOST_FRAME, GHOST_TEX } from "./avatars.js";
 import { hasItemArt, ITEM_TEX } from "./items.js";
 import { ART, attackEase, flinchPose, heldTransform } from "./equipment.js";
 import { cssColor, TEXT_RESOLUTION } from "../ui_text.js";
@@ -236,21 +236,27 @@ export function createEntities(scene: Phaser.Scene, getTile: () => number) {
     const sprite = entry.sprite;
     const frame = entry.frameName ?? "idle";
     const name = avatarFrameName("trogg", entry.style, entry.facing, frame);
-    const want = sprite !== undefined && entry.player.equippedMainHand !== "" && hasArmOverlay(name);
+    const main = entry.player.equippedMainHand;
+    const isAttack = frame === "attack_a" || frame === "attack_b";
+    // a chop weapon (pickaxe) on an attack frame uses the overhead chop arm; everything else the
+    // neutral arm. The attack base omits the in-front arm, so the overlay supplies it even unarmed.
+    const chop = main !== "" && isAttack && attackArmStyle(main) === "chop" && hasChopOverlay(name);
+    const tex = chop ? AVATAR_CHOP_ARM_TEX : AVATAR_ARM_TEX;
+    const want = sprite !== undefined && (main !== "" || isAttack) && (chop ? hasChopOverlay(name) : hasArmOverlay(name));
     if (!want) {
       entry.armOverlay?.setVisible(false);
       return;
     }
     let ov = entry.armOverlay;
     if (!ov) {
-      ov = scene.add.sprite(0, 0, AVATAR_ARM_TEX, name);
+      ov = scene.add.sprite(0, 0, tex, name);
       ov.setOrigin(ANCHOR.x / FRAME_W, ANCHOR.y / FRAME_H);
       ov.setScale(avatarScale());
       entry.marker.add(ov);
       entry.armOverlay = ov;
     }
     ov.setVisible(true);
-    ov.setFrame(name);
+    ov.setTexture(tex, name);
     ov.setPosition(sprite!.x, sprite!.y); // after applyFlinch, so the arm rides the recoil too
     const fl = entry.flinchBaseMs === undefined ? null : flinchPose(now - entry.flinchBaseMs);
     if (fl?.flash) ov.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);

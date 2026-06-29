@@ -165,15 +165,17 @@ export function troggBody(p: PixelSink, view: View, frame: FrameName, c: TroggSk
 /** The in-front main (near) arm + fist, for the facings where it sits ahead of the body
  *  (down/left/right). Empty when the arm is behind (facing up). Drawn last by `troggDraw`,
  *  and emitted as the over-item overlay by the generator. */
-export function troggMainArm(p: PixelSink, view: View, frame: FrameName, c: TroggSkin): void {
+export function troggMainArm(p: PixelSink, view: View, frame: FrameName, c: TroggSkin, handDy = 0): void {
   const facing: Facing = view === "side" ? "right" : view;
   if (skeletonFor("trogg", facing).behind) return;
   const run = isRun(frame);
   const lean = view === "side" && run ? RUN_LEAN : 0;
   const J = (j: JointName) => jointAt("trogg", facing, frame, j);
   const thick = view === "side" ? 2.9 : 3;
-  drawArm(p, J("mainShoulder").x + lean, J("mainShoulder").y, J("mainHand").x + lean, J("mainHand").y, thick, c.base, c.shade);
-  troggFist(p, J("mainHand").x + lean, J("mainHand").y, c);
+  const hx = J("mainHand").x + lean;
+  const hy = J("mainHand").y + handDy;
+  drawArm(p, J("mainShoulder").x + lean, J("mainShoulder").y, hx, hy, thick, c.base, c.shade);
+  troggFist(p, hx, hy, c);
 }
 
 export function troggDraw(p: PixelSink, view: View, frame: FrameName, c: TroggSkin): void {

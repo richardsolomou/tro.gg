@@ -51,11 +51,12 @@ function hogPaw(p: PixelSink, x: number, y: number, h: HogSkin): void {
 
 /** One hog arm drawn from the shared rig: a short cream capsule shoulder→hand plus a paw, so it
  *  swings with the gait off the same hand joint a held item rides (no baked `armSwing` offset). */
-function hogArmRig(p: PixelSink, facing: Facing, frame: FrameName, slot: "main" | "off", h: HogSkin): void {
+function hogArmRig(p: PixelSink, facing: Facing, frame: FrameName, slot: "main" | "off", h: HogSkin, handDy = 0): void {
   const sh = jointAt("hog", facing, frame, slot === "main" ? "mainShoulder" : "offShoulder");
   const hd = jointAt("hog", facing, frame, slot === "main" ? "mainHand" : "offHand");
-  drawArm(p, sh.x, sh.y, hd.x, hd.y, 2.4, h.face, h.faceDk);
-  hogPaw(p, hd.x, hd.y, h);
+  const hy = hd.y + handDy;
+  drawArm(p, sh.x, sh.y, hd.x, hy, 2.4, h.face, h.faceDk);
+  hogPaw(p, hd.x, hy, h);
 }
 
 /** A cute front face: shiny eyes, a soft muzzle, a small nose. */
@@ -112,10 +113,10 @@ export function hogBody(p: PixelSink, view: View, frame: FrameName, h: HogSkin):
 
 /** The in-front main (near) hog arm, for the facings where it sits ahead of the body. Empty when
  *  it tucks behind (facing up). Drawn last by `hogDraw`, emitted as the over-item overlay. */
-export function hogMainArm(p: PixelSink, view: View, frame: FrameName, h: HogSkin): void {
+export function hogMainArm(p: PixelSink, view: View, frame: FrameName, h: HogSkin, handDy = 0): void {
   const facing: Facing = view === "side" ? "right" : view;
   if (skeletonFor("hog", facing).behind) return;
-  hogArmRig(p, facing, frame, "main", h);
+  hogArmRig(p, facing, frame, "main", h, handDy);
 }
 
 export function hogDraw(p: PixelSink, view: View, frame: FrameName, h: HogSkin): void {
