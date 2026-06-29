@@ -297,7 +297,8 @@ const NEUTRAL: WieldPose = { rot: 0, reach: 0, lift: 0, scale: 1 };
  *     the facing and the arm thrust carries it).
  *  `hold`/`use` `lift`/`reach`/`scale` (partials over `NEUTRAL`) still ease across the attack. */
 const WIELD: Record<string, { hold?: Partial<WieldPose>; use?: Partial<WieldPose>; grip?: number }> = {
-  sword: { use: { reach: 0.06 } },
+  // sword: no grip and no hold→use offset — it keeps a fixed orientation and rides the hand joint
+  // exactly, so the arm's thrust carries it and the drawn arm and blade stay locked together.
   pickaxe: { grip: -0.35 }, // rides slightly above the forearm line; swings with the arm into the chop
   shovel: { grip: -0.2 },
 };

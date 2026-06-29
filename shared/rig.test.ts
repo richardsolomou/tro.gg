@@ -106,10 +106,15 @@ test("the main arm swings forward from wind-up to strike, so a tool swings with 
   assert.ok(strike < windup, "the strike forearm is rotated forward of the wind-up");
 });
 
-test("wieldPose eases hold→use", () => {
-  assert.deepEqual(wieldPose("sword", 0), wieldProfile("sword").hold);
-  assert.deepEqual(wieldPose("sword", 1), wieldProfile("sword").use);
-  // midway sits between the two on the eased axis (reach)
-  const mid = wieldPose("sword", 0.5).reach;
-  assert.ok(mid > wieldProfile("sword").hold.reach && mid < wieldProfile("sword").use.reach);
+test("wieldPose returns the exact endpoint poses and lerps between", () => {
+  // exact endpoints (no float drift) at the bounds, for any item
+  assert.deepEqual(wieldPose("pickaxe", 0), wieldProfile("pickaxe").hold);
+  assert.deepEqual(wieldPose("pickaxe", 1), wieldProfile("pickaxe").use);
+  // a synthetic differing hold→use lerps each axis halfway at k=0.5
+  assert.deepEqual(wieldPose("nonesuch", 0.5), { rot: 0, reach: 0, lift: 0, scale: 1 });
+});
+
+test("the sword has no hold→use offset, so it rides the hand joint without drifting off the arm", () => {
+  const s = wieldProfile("sword");
+  assert.deepEqual(s.hold, s.use);
 });
