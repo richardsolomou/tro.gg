@@ -80,15 +80,16 @@ function drawSwordSide(p: PixelSink): void {
 }
 
 /** Sword, top-down: blade foreshortened toward the camera, broad crossguard seen from
- *  above, pommel nearest the hand. */
+ *  above, pommel nearest the hand. The grip sits on the canvas centre (≈12,12) where the
+ *  fist pins, so the hand holds the handle — pommel just above it, blade leading down. */
 function drawSwordTop(p: PixelSink): void {
-  disc(p, 11.5, 6.5, 1.6, 1.6, GOLD); // pommel near the hand
-  rect(p, 11, 8, 2, 3, WOOD); dot(p, 12, 9, WOOD_DK); dot(p, 12, 10, WOOD_DK); // grip
-  rect(p, 7, 11, 10, 2, GOLD); rect(p, 7, 12, 10, 1, GOLD_DK); // broad crossguard
-  rect(p, 10, 13, 4, 2, STEEL); // blade shoulders
-  rect(p, 11, 15, 2, 3, STEEL); // blade foreshortened toward camera
-  for (let y = 13; y <= 17; y++) dot(p, 12, y, STEEL_DK); // fuller
-  dot(p, 11, 18, STEEL); dot(p, 12, 18, STEEL); dot(p, 11.5, 19, STEEL); // point
+  disc(p, 11.5, 9.5, 1.6, 1.6, GOLD); // pommel just above the hand
+  rect(p, 11, 11, 2, 3, WOOD); dot(p, 12, 12, WOOD_DK); dot(p, 12, 13, WOOD_DK); // grip (the fist sits here)
+  rect(p, 7, 14, 10, 2, GOLD); rect(p, 7, 15, 10, 1, GOLD_DK); // broad crossguard
+  rect(p, 10, 16, 4, 2, STEEL); // blade shoulders
+  rect(p, 11, 18, 2, 3, STEEL); // blade foreshortened toward camera
+  for (let y = 16; y <= 20; y++) dot(p, 12, y, STEEL_DK); // fuller
+  dot(p, 11, 21, STEEL); dot(p, 12, 21, STEEL); dot(p, 11.5, 22, STEEL); // point
 }
 
 /** Pickaxe, side: handle into the hand at centre; the head crosses the handle at the

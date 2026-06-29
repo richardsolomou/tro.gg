@@ -1,7 +1,7 @@
 import Phaser from "phaser";
-import { ANCHOR, FRAME_H, FRAME_W, forward, HOG_MAX_HEALTH, ITEM_ART_W, PLAYER_MAX_HEALTH, hogSize, timestampMs, type EquipSlot, type Facing, type FrameName, type Kind, type ProjectedMotion, type Stamp } from "@trogg/shared";
+import { ANCHOR, FRAME_H, FRAME_W, forward, hasArmOverlay, HOG_MAX_HEALTH, ITEM_ART_W, PLAYER_MAX_HEALTH, hogSize, timestampMs, type EquipSlot, type Facing, type FrameName, type Kind, type ProjectedMotion, type Stamp } from "@trogg/shared";
 import type { Boulder, GroundItem, Hog, Player } from "../net/module_bindings/types";
-import { attackFrame, AVATAR_TEX, avatarFrame, avatarFrameName, facingFromDir, GHOST_FRAME, GHOST_TEX } from "./avatars.js";
+import { attackFrame, AVATAR_ARM_TEX, AVATAR_TEX, avatarFrame, avatarFrameName, facingFromDir, GHOST_FRAME, GHOST_TEX } from "./avatars.js";
 import { hasItemArt, ITEM_TEX } from "./items.js";
 import { ART, attackEase, flinchPose, heldTransform } from "./equipment.js";
 import { cssColor, TEXT_RESOLUTION } from "../ui_text.js";
@@ -58,6 +58,8 @@ export interface Tracked {
   baseColor: number;
   /** Local monotonic start of the current hit-flinch (recoil + flash), or undefined when none. */
   flinchBaseMs?: number;
+  /** The near-arm overlay redrawn over a held main-hand item so the hand grips the weapon. */
+  armOverlay?: Phaser.GameObjects.Sprite;
   /** The frame key currently on the sprite, so the ticker only swaps on change. */
   frameKey: string;
   /** Current avatar animation frame, used to keep equipment anchored to the hand. */
@@ -222,6 +224,38 @@ export function createEntities(scene: Phaser.Scene, getTile: () => number) {
     applyEquipment(entry);
     animateEquipment(entry, now);
     applyFlinch(entry, now);
+    syncArmOverlay(entry, now);
+  };
+
+  /** Redraw the near (main-hand) arm over the held item so the hand grips the weapon instead of
+   *  the weapon covering the arm. The overlay is a full-frame sprite that mirrors the body — same
+   *  frame, transform, and tint (so it rides the walk cycle and the hit-flinch) — drawn on top of
+   *  the item. It exists only for the front facings that have an overlay frame and while the main
+   *  hand holds something; facing up needs none (the arm and item are both behind the body). */
+  const syncArmOverlay = (entry: Tracked, now: number): void => {
+    const sprite = entry.sprite;
+    const frame = entry.frameName ?? "idle";
+    const name = avatarFrameName("trogg", entry.style, entry.facing, frame);
+    const want = sprite !== undefined && entry.player.equippedMainHand !== "" && hasArmOverlay(name);
+    if (!want) {
+      entry.armOverlay?.setVisible(false);
+      return;
+    }
+    let ov = entry.armOverlay;
+    if (!ov) {
+      ov = scene.add.sprite(0, 0, AVATAR_ARM_TEX, name);
+      ov.setOrigin(ANCHOR.x / FRAME_W, ANCHOR.y / FRAME_H);
+      ov.setScale(avatarScale());
+      entry.marker.add(ov);
+      entry.armOverlay = ov;
+    }
+    ov.setVisible(true);
+    ov.setFrame(name);
+    ov.setPosition(sprite!.x, sprite!.y); // after applyFlinch, so the arm rides the recoil too
+    const fl = entry.flinchBaseMs === undefined ? null : flinchPose(now - entry.flinchBaseMs);
+    if (fl?.flash) ov.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
+    else ov.setTint(entry.baseColor).setTintMode(Phaser.TintModes.MULTIPLY);
+    entry.marker.bringToTop(ov);
   };
 
   /** Play the hit-flinch on a damaged trogg: a brief recoil away from its facing plus a white

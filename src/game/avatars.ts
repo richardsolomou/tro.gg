@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { FRAME_H, FRAME_W, frameName, frames, ghostDraw, paintSheet, rgbaSink, SHEET_H, SHEET_W, type Facing, type FrameName, type Kind, type PixelSink } from "@trogg/shared";
+import { FRAME_H, FRAME_W, frameName, frames, ghostDraw, paintArmSheet, paintSheet, rgbaSink, SHEET_H, SHEET_W, type Facing, type FrameName, type Kind, type PixelSink } from "@trogg/shared";
 import { STRIKE_PEAK } from "./equipment.js";
 
 /**
@@ -12,8 +12,9 @@ import { STRIKE_PEAK } from "./equipment.js";
  * not a runtime dependency).
  */
 
-/** Texture keys: the multi-style base sheet and the standalone ghost sprite. */
+/** Texture keys: the multi-style base sheet, the near-arm overlay sheet, and the ghost sprite. */
 export const AVATAR_TEX = "avatars";
+export const AVATAR_ARM_TEX = "avatars-arm";
 export const GHOST_TEX = "avatars-ghost";
 /** The single frame carved from `GHOST_TEX` (the ghost is one drawing, not a sheet). */
 export const GHOST_FRAME = "ghost";
@@ -38,6 +39,15 @@ function registerSheet(scene: Phaser.Scene): void {
   for (const f of frames()) tex.add(f.name, 0, f.x, f.y, f.w, f.h);
 }
 
+/** Register the near-arm overlay sheet, carved by the same frame names as the base sheet. A
+ *  frame with no overlay (facing up, non-trogg) is a transparent cell, simply never drawn. */
+function registerArmSheet(scene: Phaser.Scene): void {
+  if (scene.textures.exists(AVATAR_ARM_TEX)) return;
+  const tex = scene.textures.addCanvas(AVATAR_ARM_TEX, paintCanvas(SHEET_W, SHEET_H, paintArmSheet));
+  if (!tex) return;
+  for (const f of frames()) tex.add(f.name, 0, f.x, f.y, f.w, f.h);
+}
+
 /** Register the ghost as its own one-frame texture (its bespoke off-white art, GDD "Avatars and equipment"). */
 function registerGhost(scene: Phaser.Scene): void {
   if (scene.textures.exists(GHOST_TEX)) return;
@@ -52,6 +62,7 @@ function registerGhost(scene: Phaser.Scene): void {
  */
 export function registerAvatarTextures(scene: Phaser.Scene): void {
   registerSheet(scene);
+  registerArmSheet(scene);
   registerGhost(scene);
 }
 

@@ -95,7 +95,11 @@ function troggLeg(p: PixelSink, hip: { x: number; y: number }, foot: { x: number
   troggFoot(p, foot.x, foot.y, c);
 }
 
-export function troggDraw(p: PixelSink, view: View, frame: FrameName, c: TroggSkin): void {
+/** The trogg minus its in-front main (near) arm: legs, off arm, torso, head, and — when the
+ *  main arm tucks behind the body (facing up) — the main arm too. The wrapper `troggDraw` adds
+ *  the in-front main arm on top; the generator paints body and arm separately so the near arm
+ *  can ride over a held item (`troggMainArm`) while the silhouette keeps one unified outline. */
+export function troggBody(p: PixelSink, view: View, frame: FrameName, c: TroggSkin): void {
   const facing: Facing = view === "side" ? "right" : view;
   const b = rootBob(frame);
   const run = isRun(frame);
@@ -123,17 +127,15 @@ export function troggDraw(p: PixelSink, view: View, frame: FrameName, c: TroggSk
     troggEye(p, 20 + lean, 15 + hb, c);
     rect(p, 20 + lean, 20 + hb, 6, 2, c.out); // underbite mouth
     rect(p, 20 + lean, 19 + hb, 1, 2, c.tooth); rect(p, 24 + lean, 19 + hb, 1, 2, c.tooth);
-    // near leg + near (main) arm in front; `lean` carries the run hunch onto the arm
+    // near leg (the near arm rides on top in troggDraw / as the overlay)
     troggLeg(p, J("nearHip"), J("nearFoot"), c, false);
-    drawArm(p, J("mainShoulder").x + lean, J("mainShoulder").y, J("mainHand").x + lean, J("mainHand").y, 2.9, c.base, c.shade);
-    troggFist(p, J("mainHand").x + lean, J("mainHand").y, c);
     return;
   }
 
   // short bent legs in a wide stance + big feet
   troggLeg(p, J("nearHip"), J("nearFoot"), c, false);
   troggLeg(p, J("farHip"), J("farFoot"), c, false);
-  // off arm hangs free outside the torso; the main arm too unless it sits behind
+  // off arm hangs free outside the torso; the main arm too when it sits behind (facing up)
   drawArm(p, J("offShoulder").x, J("offShoulder").y, J("offHand").x, J("offHand").y, 3, c.base, c.shade);
   troggFist(p, J("offHand").x, J("offHand").y, c);
   if (behind) {
@@ -158,10 +160,23 @@ export function troggDraw(p: PixelSink, view: View, frame: FrameName, c: TroggSk
   } else {
     troggFaceFront(p, c, 16 + hb);
   }
+}
 
-  // main arm in front (drawn last) when it isn't tucked behind the body
-  if (!behind) {
-    drawArm(p, J("mainShoulder").x, J("mainShoulder").y, J("mainHand").x, J("mainHand").y, 3, c.base, c.shade);
-    troggFist(p, J("mainHand").x, J("mainHand").y, c);
-  }
+/** The in-front main (near) arm + fist, for the facings where it sits ahead of the body
+ *  (down/left/right). Empty when the arm is behind (facing up). Drawn last by `troggDraw`,
+ *  and emitted as the over-item overlay by the generator. */
+export function troggMainArm(p: PixelSink, view: View, frame: FrameName, c: TroggSkin): void {
+  const facing: Facing = view === "side" ? "right" : view;
+  if (skeletonFor("trogg", facing).behind) return;
+  const run = isRun(frame);
+  const lean = view === "side" && run ? RUN_LEAN : 0;
+  const J = (j: JointName) => jointAt("trogg", facing, frame, j);
+  const thick = view === "side" ? 2.9 : 3;
+  drawArm(p, J("mainShoulder").x + lean, J("mainShoulder").y, J("mainHand").x + lean, J("mainHand").y, thick, c.base, c.shade);
+  troggFist(p, J("mainHand").x + lean, J("mainHand").y, c);
+}
+
+export function troggDraw(p: PixelSink, view: View, frame: FrameName, c: TroggSkin): void {
+  troggBody(p, view, frame, c);
+  troggMainArm(p, view, frame, c);
 }

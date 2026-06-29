@@ -26,7 +26,7 @@ import { dirname, join } from "node:path";
 import { FRAME_H, FRAME_W, frames, rgbaSink, type Facing, type FrameName, type Kind, type PixelSink } from "../shared/sprites.ts";
 import { compositeOver, disc, fmtArt, outlinePass, PIXEL_KEYS, quantize } from "./pixel_paint.ts";
 import type { View } from "./art/rig.ts";
-import { TROGG_SKINS, troggDraw } from "./art/trogg.ts";
+import { TROGG_SKINS, troggBody, troggDraw, troggMainArm } from "./art/trogg.ts";
 import { HOG_SKINS, hogDraw } from "./art/hog.ts";
 import { BUFF, buffDraw } from "./art/buff.ts";
 import { DINO, dinoDraw } from "./art/dino.ts";
@@ -64,6 +64,47 @@ function paintFill(kind: Kind, style: string, facing: Facing, frame: FrameName):
   const view: View = facing === "left" || facing === "right" ? "side" : facing;
   drawCharacter(p, kind, style, view, frame);
   return layer;
+}
+
+/** Paint one trogg part (body or main arm) for a frame, honouring the left-mirror flip — used
+ *  to derive the near-arm overlay that rides over a held item. */
+function paintTroggPart(style: string, facing: Facing, frame: FrameName, part: "body" | "arm"): Uint8Array {
+  const layer = new Uint8Array(FRAME_W * FRAME_H * 4);
+  const cs = rgbaSink(layer, FRAME_W, FRAME_H);
+  const flip = facing === "left";
+  const p: PixelSink = { set: (x, y, c, a) => cs.set(flip ? FRAME_W - 1 - x : x, y, c, a) };
+  const view: View = facing === "left" || facing === "right" ? "side" : facing;
+  const skin = TROGG_SKINS[style] ?? TROGG_SKINS.moss!;
+  if (part === "body") troggBody(p, view, frame, skin);
+  else troggMainArm(p, view, frame, skin);
+  return layer;
+}
+
+const opaqueAt = (buf: Uint8Array, x: number, y: number): boolean =>
+  x >= 0 && y >= 0 && x < FRAME_W && y < FRAME_H && buf[(y * FRAME_W + x) * 4 + 3]! > 0;
+
+/** The near-arm overlay drawn over a held item: the arm's own pixels plus the outer outline that
+ *  belongs to it, lifted out of the already-outlined full silhouette so it carries no interior
+ *  seam against the body and needs no second outline pass at render time. Null when the arm is
+ *  empty for this frame (facing up, where the arm sits behind the body and the item does too). */
+function armOverlay(full: Uint8Array, body: Uint8Array, arm: Uint8Array, outline: number): Uint8Array | null {
+  if (!full.some((_, i) => i % 4 === 3 && arm[i]! > 0)) return null;
+  const outlined = full.slice();
+  outlinePass(outlined, outline, FRAME_W, FRAME_H);
+  const or = (outline >> 16) & 0xff, og = (outline >> 8) & 0xff, ob = outline & 0xff;
+  const isOutline = (i: number) => outlined[i + 3] === 255 && outlined[i] === or && outlined[i + 1] === og && outlined[i + 2] === ob;
+  const armNeighbour = (x: number, y: number) => {
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if ((dx || dy) && opaqueAt(arm, x + dx, y + dy)) return true;
+    return false;
+  };
+  const out = new Uint8Array(FRAME_W * FRAME_H * 4);
+  for (let y = 0; y < FRAME_H; y++)
+    for (let x = 0; x < FRAME_W; x++) {
+      const i = (y * FRAME_W + x) * 4;
+      const keep = opaqueAt(arm, x, y) || (!opaqueAt(body, x, y) && isOutline(i) && armNeighbour(x, y));
+      if (keep) out.set(outlined.subarray(i, i + 4), i);
+    }
+  return out;
 }
 
 /** A sink that paints at a fixed alpha — used only for the ground shadow. */
@@ -109,9 +150,20 @@ export const PIXEL_KEYS = ${JSON.stringify(PIXEL_KEYS)};
 
 `;
 
+const armEntries: string[] = [];
 const entries = frames().map((f) => {
   const fill = quantize(paintFill(f.kind, f.style, f.facing, f.frame), FRAME_W, FRAME_H);
-  const outline = "0x" + (outlineColour(f.kind, f.style) >>> 0).toString(16).padStart(6, "0");
+  const outlineNum = outlineColour(f.kind, f.style);
+  const outline = "0x" + (outlineNum >>> 0).toString(16).padStart(6, "0");
+  if (f.kind === "trogg") {
+    const overlay = armOverlay(
+      paintFill(f.kind, f.style, f.facing, f.frame),
+      paintTroggPart(f.style, f.facing, f.frame, "body"),
+      paintTroggPart(f.style, f.facing, f.frame, "arm"),
+      outlineNum,
+    );
+    if (overlay) armEntries.push(`  ${JSON.stringify(f.name)}: ${fmtArt(quantize(overlay, FRAME_W, FRAME_H), "  ")},`);
+  }
   return `  ${JSON.stringify(f.name)}: ${fmtArt(fill, "  ", `outline: ${outline}`)},`;
 });
 
@@ -120,8 +172,12 @@ const ghost = fmtArt(quantize(paintGhost(), FRAME_W, FRAME_H), "");
 const out =
   header +
   `export const AVATAR_FRAME_ART: Record<string, IndexedSpriteArt> = {\n${entries.join("\n")}\n};\n\n` +
+  `/** The near (main-hand) arm lifted out of each front-facing frame's outlined silhouette, keyed\n` +
+  ` *  by the same \`frameName\`. The runtime draws it over a held item so the hand grips the weapon\n` +
+  ` *  instead of the weapon covering the arm. No \`outline\` field: already finished, blitted as-is. */\n` +
+  `export const ARM_OVERLAY_ART: Record<string, IndexedSpriteArt> = {\n${armEntries.join("\n")}\n};\n\n` +
   `export const GHOST_ART: IndexedSpriteArt = ${ghost};\n`;
 
 const OUT_PATH = join(dirname(fileURLToPath(import.meta.url)), "..", "shared", "sprite_art.ts");
 writeFileSync(OUT_PATH, out);
-console.log(`Wrote ${entries.length} frames + ghost → ${OUT_PATH}`);
+console.log(`Wrote ${entries.length} frames + ${armEntries.length} arm overlays + ghost → ${OUT_PATH}`);

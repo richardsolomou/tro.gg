@@ -1,8 +1,8 @@
 import Phaser from "phaser";
-import { ANCHOR, blitArt, composeAvatarFrame, FACINGS, forward, FRAME_H, FRAME_W, hogSize, ITEM_ART, ITEM_ART_H, ITEM_ART_W, ITEMS as ITEM_DEFS, jointAt, KINDS, rgbaSink, stylesOf, type EquipSlot, type Facing, type FrameName, type JointName, type Kind } from "@trogg/shared";
+import { ANCHOR, blitArt, composeAvatarFrame, FACINGS, forward, FRAME_H, FRAME_W, hasArmOverlay, hogSize, ITEM_ART, ITEM_ART_H, ITEM_ART_W, ITEMS as ITEM_DEFS, jointAt, KINDS, rgbaSink, stylesOf, type EquipSlot, type Facing, type FrameName, type JointName, type Kind } from "@trogg/shared";
 import { AVATAR_FRAME_ART, type IndexedSpriteArt } from "../../shared/sprite_art.js";
 import { ART, attackEase, FLINCH_MS, flinchPose, heldGroup, heldTransform } from "../game/equipment.js";
-import { attackFrame, avatarFrame, avatarFrameName, AVATAR_TEX, registerAvatarTextures } from "../game/avatars.js";
+import { attackFrame, AVATAR_ARM_TEX, avatarFrame, avatarFrameName, AVATAR_TEX, registerAvatarTextures } from "../game/avatars.js";
 import { ITEM_TEX, registerItemTextures } from "../game/items.js";
 
 /**
@@ -150,6 +150,8 @@ interface HeldCell {
   body: Phaser.GameObjects.Sprite;
   item?: Phaser.GameObjects.Sprite;
   offItem?: Phaser.GameObjects.Sprite;
+  /** The near-arm overlay redrawn over the main-hand item (front facings only). */
+  arm: Phaser.GameObjects.Sprite;
   bones: Phaser.GameObjects.Graphics;
   /** The rig container's resting position, so the hit-flinch can recoil it and return. */
   bx: number;
@@ -234,10 +236,15 @@ class PreviewScene extends Phaser.Scene {
       };
       const item = makeHeld(controls.item);
       const offItem = makeHeld(controls.offItem);
+      const arm = this.add.sprite(this.tile / 2, this.tile / 2, AVATAR_ARM_TEX, avatarFrameName(kind, style, facing, "idle"));
+      arm.setOrigin(ANCHOR.x / FRAME_W, ANCHOR.y / FRAME_H);
+      arm.setScale(this.tile / FRAME_W);
+      arm.setVisible(false);
+      rig.add(arm);
       const bones = this.add.graphics();
       rig.add(bones);
       this.root.add(rig);
-      this.heldCells.push({ kind, style, facing, rig, body, item, offItem, bones, bx: this.colX(c), by: y });
+      this.heldCells.push({ kind, style, facing, rig, body, item, offItem, arm, bones, bx: this.colX(c), by: y });
     });
     this.gridCols = FACINGS.length;
     this.gridRows = 1;
@@ -309,13 +316,20 @@ class PreviewScene extends Phaser.Scene {
       const mainBehind = place(cell.item, controls.item, "mainHand");
       const offBehind = place(cell.offItem, controls.offItem, "offHand");
 
-      // layer back→front: behind-hand items, body, front-hand items (the layer-order table in miniature)
+      // the near (main) arm redrawn over the main-hand item, so the hand grips the weapon
+      const armName = avatarFrameName(cell.kind, cell.style, cell.facing, frame);
+      const showArm = !!cell.item && hasArmOverlay(armName);
+      cell.arm.setVisible(showArm);
+      if (showArm) cell.arm.setFrame(armName);
+
+      // layer back→front: behind-hand items, body, front-hand items, then the near arm over its item
       const order: Phaser.GameObjects.GameObject[] = [];
       if (cell.offItem && offBehind) order.push(cell.offItem);
       if (cell.item && mainBehind) order.push(cell.item);
       order.push(cell.body);
       if (cell.offItem && !offBehind) order.push(cell.offItem);
       if (cell.item && !mainBehind) order.push(cell.item);
+      if (showArm) order.push(cell.arm);
       for (const o of order) cell.rig.bringToTop(o);
 
       this.drawBones(cell, frame);
@@ -333,16 +347,16 @@ class PreviewScene extends Phaser.Scene {
    *  loop — the same `flinchPose` the game plays on damage. Resets the rig when not in `hit`. */
   private applyHit(cell: HeldCell, time: number) {
     const fl = controls.mode === "hit" ? flinchPose(time % HIT_CYCLE_MS) : null;
+    const mode = fl?.flash ? Phaser.TintModes.FILL : Phaser.TintModes.MULTIPLY;
+    cell.body.setTint(0xffffff).setTintMode(mode);
+    cell.arm.setTint(0xffffff).setTintMode(mode); // the near arm flashes with the body
     if (!fl) {
       cell.rig.setPosition(cell.bx, cell.by);
-      cell.body.setTint(0xffffff).setTintMode(Phaser.TintModes.MULTIPLY);
       return;
     }
     const f = forward(cell.facing);
     const k = this.tile * 0.1 * fl.shove;
     cell.rig.setPosition(cell.bx - f.x * k, cell.by - f.y * k);
-    if (fl.flash) cell.body.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
-    else cell.body.setTint(0xffffff).setTintMode(Phaser.TintModes.MULTIPLY);
   }
 
   /** Skeleton overlay: the rig's bones (shoulder→hand, hip→foot) and joints drawn over the body

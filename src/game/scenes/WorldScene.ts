@@ -342,6 +342,7 @@ export class WorldScene extends Phaser.Scene {
     entry.carriedKind = "";
     entry.carriedStyle = "";
     entry.equip = {};
+    entry.armOverlay = undefined;
     entry.equipmentActionBaseMs = undefined;
     const { x, y } = projectMotion(entry.player, performance.now() - entry.baseMs, this.troggBounds);
     this.entities.place(entry.marker, x, y);

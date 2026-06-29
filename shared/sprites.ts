@@ -1,4 +1,4 @@
-import { AVATAR_FRAME_ART, GHOST_ART, PIXEL_KEYS, type IndexedSpriteArt } from "./sprite_art";
+import { ARM_OVERLAY_ART, AVATAR_FRAME_ART, GHOST_ART, PIXEL_KEYS, type IndexedSpriteArt } from "./sprite_art";
 import { compositeOver, outlinePass } from "./raster";
 
 /**
@@ -221,4 +221,20 @@ export function paintSheet(sink: PixelSink): void {
 /** Paint the standalone ghost sprite into one frame-sized surface. */
 export function ghostDraw(sink: PixelSink): void {
   blitArt(sink, GHOST_ART, 0, 0);
+}
+
+/** Paint the near-arm overlays into a sheet matching the base layout (same `frameRect` cells),
+ *  so the runtime can carve them by the same frame name and draw one over a held item. Frames
+ *  with no overlay (facing up, non-trogg) leave their cell transparent. Already finished art —
+ *  blitted, not composed. */
+export function paintArmSheet(sink: PixelSink): void {
+  for (const f of frames()) {
+    const art = ARM_OVERLAY_ART[f.name];
+    if (art) blitArt(sink, art, f.x, f.y);
+  }
+}
+
+/** Whether a frame has a near-arm overlay (front facings of rig-driven creatures). */
+export function hasArmOverlay(name: string): boolean {
+  return ARM_OVERLAY_ART[name] !== undefined;
 }
