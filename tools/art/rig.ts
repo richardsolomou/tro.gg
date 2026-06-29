@@ -68,15 +68,27 @@ export function eye(p: PixelSink, x: number, y: number, dark: number, glint: num
   dot(p, x, y, glint);
 }
 
-/** A limb as a tapered capsule of shaded discs from a joint to its end (shoulder→hand,
- *  hip→foot). Driven by the shared skeleton/pose (`shared/rig.ts`), so moving the end
- *  joint — a gait swing or an attack reach — bends/extends the drawn limb. */
-export function drawArm(p: PixelSink, x0: number, y0: number, x1: number, y1: number, thickness: number, base: number, shade: number): void {
-  const dx = x1 - x0;
-  const dy = y1 - y0;
-  const steps = Math.max(2, Math.ceil(Math.hypot(dx, dy) / 1.2));
+/** A run of shaded discs between two points. */
+function limbRun(p: PixelSink, x0: number, y0: number, x1: number, y1: number, thickness: number, base: number, shade: number): void {
+  const steps = Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0) / 1.2));
   for (let i = 0; i <= steps; i++) {
     const u = i / steps;
-    shaded(p, x0 + dx * u, y0 + dy * u, thickness, thickness, base, shade);
+    shaded(p, x0 + (x1 - x0) * u, y0 + (y1 - y0) * u, thickness, thickness, base, shade);
   }
+}
+
+/** A limb drawn as two tapered runs through an elbow (shoulder→elbow→hand), so it reads as a
+ *  bent arm rather than a straight capsule. The elbow sits at the midpoint, pushed perpendicular
+ *  to the shoulder→hand line by `bend`; the default scales with length, so a long trogg arm
+ *  hinges visibly while a stubby hog arm barely does. Driven by the shared skeleton/pose
+ *  (`shared/rig.ts`), so moving the hand — a gait swing or an attack — flexes the whole arm. */
+export function drawArm(p: PixelSink, x0: number, y0: number, x1: number, y1: number, thickness: number, base: number, shade: number, bend?: number): void {
+  const dx = x1 - x0;
+  const dy = y1 - y0;
+  const len = Math.hypot(dx, dy) || 1;
+  const b = bend ?? len * 0.22; // elbow kick, perpendicular to the limb; backward/down by default
+  const ex = (x0 + x1) / 2 + (-dy / len) * b;
+  const ey = (y0 + y1) / 2 + (dx / len) * b;
+  limbRun(p, x0, y0, ex, ey, thickness, base, shade); // upper arm
+  limbRun(p, ex, ey, x1, y1, thickness, base, shade); // forearm
 }
