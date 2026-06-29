@@ -1,4 +1,4 @@
-import { ANCHOR, FRAME_W, armAngle, armGrip, forward, slotAnchor, wieldPose, type EquipSlot, type Facing, type FrameName, type Kind } from "@trogg/shared";
+import { ANCHOR, FRAME_W, forward, gripRotation, slotAnchor, wieldPose, type EquipSlot, type Facing, type FrameName, type Kind } from "@trogg/shared";
 
 /**
  * The single placement path for a main-hand item, shared by the live game
@@ -92,16 +92,14 @@ export function heldTransform(p: HeldParams): HeldTransform {
   const pose = wieldPose(p.item, p.attack);
   const f = forward(p.facing); // screen direction of the facing (down = +y) — for reach/lift
   const side = left || p.facing === "right";
-  // rotation only applies to side facings; down/up rely on the directional art. A tool with a
-  // grip presents at that base orientation and follows the arm's *swing* — the change in forearm
-  // angle from rest — so a near-vertical arm (the trogg's) and a diagonal one (the hog's) both
-  // lead with the point and swing alike, instead of inheriting each creature's idle arm hang.
-  // Without a grip the item keeps a fixed orientation (the sword).
-  const grip = armGrip(p.item);
-  const swing = armAngle(p.kind, poseFacing, p.frameName) - armAngle(p.kind, poseFacing, "idle");
+  // rotation only applies to side facings; down/up rely on the directional art. A grip tool uses
+  // an explicit rotation per attack phase (raised wind-up, down-forward chop), authored so every
+  // creature swings it the same way regardless of how its arm hangs. Without one the item keeps a
+  // fixed orientation from its wield pose (the sword), carried by the arm's thrust.
+  const gripRot = gripRotation(p.item, p.frameName);
   const rot = !side
     ? 0
-    : (left ? -1 : 1) * (grip !== undefined ? swing + grip : pose.rot);
+    : (left ? -1 : 1) * (gripRot !== undefined ? gripRot : pose.rot);
 
   return {
     frame: `${p.item}${group}`,

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { armAngle, armGrip, forward, handJoint, jointAt, JOINT_NAMES, skeletonFor, slotAnchor, wieldPose, wieldProfile } from "./rig";
+import { armAngle, forward, gripRotation, handJoint, jointAt, JOINT_NAMES, skeletonFor, slotAnchor, wieldPose, wieldProfile } from "./rig";
 import { FACINGS, FRAME_H, FRAME_W, FRAMES, KINDS } from "./sprites";
 
 test("handJoint is deterministic", () => {
@@ -94,10 +94,12 @@ test("unknown items get a neutral wield profile", () => {
   assert.deepEqual(p.use, { rot: 0, reach: 0, lift: 0, scale: 1 });
 });
 
-test("tools rigidly follow the forearm; the sword keeps a fixed grip", () => {
-  assert.notEqual(armGrip("pickaxe"), undefined);
-  assert.notEqual(armGrip("shovel"), undefined);
-  assert.equal(armGrip("sword"), undefined);
+test("grip tools have an explicit per-phase swing rotation; the sword does not", () => {
+  assert.notEqual(gripRotation("pickaxe", "attack_b"), undefined);
+  assert.notEqual(gripRotation("shovel", "attack_b"), undefined);
+  // the wind-up and strike rotate the tool differently (raised then chopped)
+  assert.notEqual(gripRotation("pickaxe", "attack_a"), gripRotation("pickaxe", "attack_b"));
+  assert.equal(gripRotation("sword", "attack_b"), undefined);
 });
 
 test("the main arm swings forward from wind-up to strike, so a tool swings with it", () => {
