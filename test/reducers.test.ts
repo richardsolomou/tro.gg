@@ -523,6 +523,19 @@ test("useEquipped damages a faced adjacent Hog with a sword", () => {
   assert.equal(ctx.db.hog.id.find(h.id).health, HOG_MAX_HEALTH - SWORD_DAMAGE);
 });
 
+test("useEquipped damages a big 2×2 Hog on any of its footprint tiles, not just its anchor", () => {
+  // Giant anchored at (6,8) covers (6,8),(7,8),(6,9),(7,9). The trogg stands at (5,9) and
+  // faces the giant's lower-left body tile (6,9) — a footprint tile that is not the anchor.
+  const { ctx, me } = withPlayer({ x: 5, y: 9, equippedMainHand: "sword" });
+  const sword = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });
+  ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedMainHandInventoryId: sword.id });
+  const giant = hogAt_(ctx, 6, 8, { style: "buff" });
+
+  useEquipped(ctx, { dirX: 1, dirY: 0 });
+
+  assert.equal(ctx.db.hog.id.find(giant.id).health, HOG_MAX_HEALTH - SWORD_DAMAGE);
+});
+
 test("sword damage removes a Hog at zero health", () => {
   const { ctx, me } = withPlayer({ x: 5, y: 8, equippedMainHand: "sword" });
   const sword = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });

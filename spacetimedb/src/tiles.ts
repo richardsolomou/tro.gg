@@ -130,10 +130,13 @@ export function groundItemAt(ctx: Ctx, zoneId: string, x: number, y: number) {
 }
 
 /**
- * The Hog currently on a tile in a zone, or undefined. Unlike a boulder a Hog is
- * in motion, so re-derive each Hog's position at `now` (against walls and boulders,
- * like `wanderHogs`) and round to its tile before comparing — the same projection
- * the client renders, so a faced Hog matches what the player sees (invariant 3).
+ * The Hog whose footprint covers a tile in a zone, or undefined. Unlike a boulder a Hog
+ * is in motion, so re-derive each Hog's position at `now` (against walls and boulders,
+ * like `wanderHogs`) and round to its tile before comparing — the same projection the
+ * client renders, so a faced Hog matches what the player sees (invariant 3). A big 2×2 Hog
+ * answers for any of its four footprint tiles, so a sword or thrown object lands on the
+ * giant's body, not only its anchor tile. (Pickup excludes giants separately — see
+ * `pickupTarget` — since a giant can't be carried.)
  */
 export function hogAt(ctx: Ctx, zoneId: string, x: number, y: number, now: Stamp) {
   const zone = getZone(zoneId);
@@ -141,11 +144,11 @@ export function hogAt(ctx: Ctx, zoneId: string, x: number, y: number, now: Stamp
   const occupied = boulderTiles(ctx, zoneId);
   const bounds = zoneBounds(zone, (tx, ty) => occupied.has(tileKey(tx, ty)));
   for (const h of ctx.db.hog.zoneId.filter(zoneId)) {
-    // A big 2×2 Hog is a fixture, not liftable — the carry overlay is one tile, and
-    // a giant on your head makes no sense — so only common Hogs answer here.
-    if (hogSize(h.style) > 1) continue;
-    const pos = projectMotion(h, elapsedMs(h.movedAt, now), bounds);
-    if (Math.round(pos.x) === x && Math.round(pos.y) === y) return h;
+    const size = hogSize(h.style);
+    const pos = projectMotion({ ...h, size }, elapsedMs(h.movedAt, now), bounds);
+    const ax = Math.round(pos.x);
+    const ay = Math.round(pos.y);
+    if (footprintTiles(ax, ay, size).some((t) => t.x === x && t.y === y)) return h;
   }
   return undefined;
 }
@@ -196,7 +199,9 @@ export function pickupTarget(ctx: Ctx, zoneId: string, x: number, y: number, dir
     const b = boulderAt(ctx, zoneId, tx, ty);
     if (b) return { kind: "boulder" as const, row: b };
     const h = hogAt(ctx, zoneId, tx, ty, now);
-    if (h) return { kind: "hog" as const, row: h };
+    // A big 2×2 Hog is a fixture, not liftable — the carry overlay is one tile, and a
+    // giant on your head makes no sense — so only common Hogs are pickup targets.
+    if (h && hogSize(h.style) <= 1) return { kind: "hog" as const, row: h };
   }
   return undefined;
 }
