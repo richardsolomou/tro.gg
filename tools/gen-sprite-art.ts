@@ -23,11 +23,11 @@
 import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { FRAME_H, FRAME_W, frames, rgbaSink, type Facing, type FrameName, type Kind, type PixelSink } from "../shared/sprites.ts";
+import { COMMON_HOG_STYLES, FRAME_H, FRAME_W, frames, rgbaSink, type Facing, type FrameName, type Kind, type PixelSink } from "../shared/sprites.ts";
 import { compositeOver, disc, fmtArt, outlinePass, PIXEL_KEYS, quantize } from "./pixel_paint.ts";
 import type { View } from "./art/rig.ts";
 import { TROGG_SKINS, troggBody, troggDraw, troggMainArm } from "./art/trogg.ts";
-import { HOG_SKINS, hogDraw } from "./art/hog.ts";
+import { HOG_SKINS, hogBody, hogDraw, hogMainArm } from "./art/hog.ts";
 import { BUFF, buffDraw } from "./art/buff.ts";
 import { DINO, dinoDraw } from "./art/dino.ts";
 import { CHICK, chickenDraw } from "./art/chicken.ts";
@@ -66,17 +66,31 @@ function paintFill(kind: Kind, style: string, facing: Facing, frame: FrameName):
   return layer;
 }
 
-/** Paint one trogg part (body or main arm) for a frame, honouring the left-mirror flip — used
- *  to derive the near-arm overlay that rides over a held item. */
-function paintTroggPart(style: string, facing: Facing, frame: FrameName, part: "body" | "arm"): Uint8Array {
+/** Which (kind, style) draw their limbs from the rig and so can have a near-arm overlay: the
+ *  trogg and the common hogs. The big/costume hogs are still baked (no overlay yet). */
+function isRigged(kind: Kind, style: string): boolean {
+  return kind === "trogg" || (kind === "hog" && (COMMON_HOG_STYLES as readonly string[]).includes(style));
+}
+
+/** Paint one rigged creature's part (body or main arm) for a frame, honouring the left-mirror
+ *  flip — used to derive the near-arm overlay that rides over a held item. Non-trogg kinds have
+ *  no attack pose, so their attack frames paint as idle (matching `drawCharacter`). */
+function paintPart(kind: Kind, style: string, facing: Facing, frame: FrameName, part: "body" | "arm"): Uint8Array {
   const layer = new Uint8Array(FRAME_W * FRAME_H * 4);
   const cs = rgbaSink(layer, FRAME_W, FRAME_H);
   const flip = facing === "left";
   const p: PixelSink = { set: (x, y, c, a) => cs.set(flip ? FRAME_W - 1 - x : x, y, c, a) };
   const view: View = facing === "left" || facing === "right" ? "side" : facing;
-  const skin = TROGG_SKINS[style] ?? TROGG_SKINS.moss!;
-  if (part === "body") troggBody(p, view, frame, skin);
-  else troggMainArm(p, view, frame, skin);
+  if (kind === "trogg") {
+    const skin = TROGG_SKINS[style] ?? TROGG_SKINS.moss!;
+    if (part === "body") troggBody(p, view, frame, skin);
+    else troggMainArm(p, view, frame, skin);
+  } else {
+    const skin = HOG_SKINS[style] ?? HOG_SKINS.classic!;
+    const f: FrameName = frame === "attack_a" || frame === "attack_b" ? "idle" : frame;
+    if (part === "body") hogBody(p, view, f, skin);
+    else hogMainArm(p, view, f, skin);
+  }
   return layer;
 }
 
@@ -155,11 +169,11 @@ const entries = frames().map((f) => {
   const fill = quantize(paintFill(f.kind, f.style, f.facing, f.frame), FRAME_W, FRAME_H);
   const outlineNum = outlineColour(f.kind, f.style);
   const outline = "0x" + (outlineNum >>> 0).toString(16).padStart(6, "0");
-  if (f.kind === "trogg") {
+  if (isRigged(f.kind, f.style)) {
     const overlay = armOverlay(
       paintFill(f.kind, f.style, f.facing, f.frame),
-      paintTroggPart(f.style, f.facing, f.frame, "body"),
-      paintTroggPart(f.style, f.facing, f.frame, "arm"),
+      paintPart(f.kind, f.style, f.facing, f.frame, "body"),
+      paintPart(f.kind, f.style, f.facing, f.frame, "arm"),
       outlineNum,
     );
     if (overlay) armEntries.push(`  ${JSON.stringify(f.name)}: ${fmtArt(quantize(overlay, FRAME_W, FRAME_H), "  ")},`);
