@@ -306,8 +306,8 @@ const NEUTRAL: WieldPose = { rot: 0, reach: 0, lift: 0, scale: 1 };
 const WIELD: Record<string, { hold?: Partial<WieldPose>; use?: Partial<WieldPose>; swing?: { rest: number; windup: number; strike: number } }> = {
   // sword: no swing and no hold→use offset — fixed orientation, rides the hand joint so the arm's
   // thrust carries it and the drawn arm and blade stay locked together.
-  // pickaxe: raises overhead on the wind-up, then chops down-forward.
-  pickaxe: { swing: { rest: 0.3, windup: -1.7, strike: 0.9 } },
+  // pickaxe: cocks back on the wind-up, then chops down-forward.
+  pickaxe: { swing: { rest: 0.3, windup: -0.7, strike: 1.1 } },
   // shovel: stays low to the ground — blade angled down throughout, digging down-forward on the
   // strike rather than swinging overhead.
   shovel: { swing: { rest: 1.0, windup: 0.7, strike: 1.55 } },
