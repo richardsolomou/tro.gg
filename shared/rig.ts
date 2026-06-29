@@ -186,6 +186,11 @@ function footLift(frame: FrameName, near: boolean): number {
  *  drawn limb stays a connected extension of the arm rather than stretching off the body. */
 const ATTACK_COCK = 3;
 const ATTACK_REACH = 5;
+/** Vertical arc for the side-facing swing (screen px up): the wind-up raises the hand overhead,
+ *  the strike brings it down to the front tile's height — so a pickaxe chops onto a boulder in
+ *  front instead of poking past it at the hip. Down/up reach along their vertical axis already. */
+const ATTACK_WINDUP_LIFT = 9;
+const ATTACK_STRIKE_LIFT = 4;
 
 /** The per-frame offset of one joint from its rest position, in frame pixels. Both the gait swing
  *  and the attack reach are shared by every rig-driven kind, so hog arms swing while walking and
@@ -201,9 +206,12 @@ export function poseOffset(kind: Kind, facing: Facing, frame: FrameName, joint: 
     // only the main arm moves; the body and other limbs hold
     if (joint === "mainHand" || joint === "mainShoulder") {
       const f = forward(facing);
-      const reach = frame === "attack_b" ? ATTACK_REACH : -ATTACK_COCK;
+      const along = frame === "attack_b" ? ATTACK_REACH : -ATTACK_COCK;
+      // side facings arc overhead→down so the swing chops the tile in front; down/up reach along
+      // their vertical facing axis already, so they take no extra lift.
+      const lift = side ? (frame === "attack_b" ? ATTACK_STRIKE_LIFT : ATTACK_WINDUP_LIFT) : 0;
       const handPart = joint === "mainHand" ? 1 : 0.35; // shoulder follows a little
-      return { x: f.x * reach * handPart, y: f.y * reach * handPart };
+      return { x: f.x * along * handPart, y: (f.y * along - lift) * handPart };
     }
     return { x: 0, y: 0 };
   }
