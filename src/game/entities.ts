@@ -1,7 +1,7 @@
 import Phaser from "phaser";
-import { ANCHOR, attackArmStyle, FRAME_H, FRAME_W, forward, hasArmOverlay, hasChopOverlay, HOG_MAX_HEALTH, ITEM_ART_W, PLAYER_MAX_HEALTH, hogSize, timestampMs, type EquipSlot, type Facing, type FrameName, type Kind, type ProjectedMotion, type Stamp } from "@trogg/shared";
+import { ANCHOR, attackArmStyle, FRAME_H, FRAME_W, forward, hasArmOverlay, hasChopOverlay, hasHogBall, HOG_MAX_HEALTH, hogBallFrameName, ITEM_ART_W, PLAYER_MAX_HEALTH, hogSize, timestampMs, type EquipSlot, type Facing, type FrameName, type Kind, type ProjectedMotion, type Stamp } from "@trogg/shared";
 import type { Boulder, GroundItem, Hog, Player } from "../net/module_bindings/types";
-import { attackFrame, AVATAR_ARM_TEX, AVATAR_CHOP_ARM_TEX, AVATAR_TEX, avatarFrame, avatarFrameName, facingFromDir, GHOST_FRAME, GHOST_TEX } from "./avatars.js";
+import { attackFrame, AVATAR_ARM_TEX, AVATAR_BALL_TEX, AVATAR_CHOP_ARM_TEX, AVATAR_TEX, avatarFrame, avatarFrameName, facingFromDir, GHOST_FRAME, GHOST_TEX } from "./avatars.js";
 import { hasItemArt, ITEM_TEX } from "./items.js";
 import { ART, attackEase, flinchPose, heldTransform } from "./equipment.js";
 import { cssColor, TEXT_RESOLUTION } from "../ui_text.js";
@@ -404,7 +404,16 @@ export function createEntities(scene: Phaser.Scene, getTile: () => number) {
       b.setPosition((-tile * CARRY_SCALE) / 2, (-tile * CARRY_SCALE) / 2);
       wrap.add(b);
     } else if (kind === "hog") {
-      const sprite = scene.make.sprite({ x: 0, y: 0, key: AVATAR_TEX, frame: avatarFrameName("hog", style, "down", "idle"), add: false });
+      // a picked-up hog curls into its defensive ball (GDD "Hog ball form"); styles without a ball
+      // (the chicken easter egg) fall back to the upright idle frame
+      const ball = hasHogBall(style);
+      const sprite = scene.make.sprite({
+        x: 0,
+        y: 0,
+        key: ball ? AVATAR_BALL_TEX : AVATAR_TEX,
+        frame: ball ? hogBallFrameName(style) : avatarFrameName("hog", style, "down", "idle"),
+        add: false,
+      });
       sprite.setOrigin(ANCHOR.x / FRAME_W, ANCHOR.y / FRAME_H);
       sprite.setScale(avatarScale() * CARRY_SCALE);
       wrap.add(sprite);
