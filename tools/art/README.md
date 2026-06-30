@@ -28,7 +28,7 @@ before touching any art; it keeps changes cheap and avoids editing generated fil
 | `shared/rig.ts` | **Skeleton data** (pure geometry, bundled). Joint rest positions per kind×facing, pose offsets (gait + attack), `handJoint`/`jointAt`/`forward`, and per-item `wieldProfile`/`wieldPose`. Read by **both** the generator and the runtime. |
 | `tools/art/rig.ts` | **Paint helpers** (tooling). `drawArm` (rig-driven limb), `feet`/`eye`, `bodyBob` (gait body dip). Turns joints into pixels. |
 | `tools/art/trogg.ts` | Trogg body + palette; limbs drawn from `shared/rig.ts` joints for every facing/frame (incl. `attack_a`/`attack_b`). Splits `troggBody` + `troggMainArm` so the near arm lifts over a held item. |
-| `tools/art/hog.ts`, `buff.ts`, `dino.ts` | Hog bodies + palettes; arms drawn from the rig like the trogg (each splits `*Body` + `*MainArm`). The big buff/dino keep bespoke bodies, rigged limbs. |
+| `tools/art/hog.ts`, `buff.ts`, `dino.ts` | Hog bodies + palettes; arms drawn from the rig like the trogg (each splits `*Body` + `*MainArm`). The big buff/dino keep bespoke bodies, rigged limbs. `hog.ts` also paints the common hog's defensive **ball form** (`hogBall` → `HOG_BALL_ART`): a facing-independent curl, so it lives outside the per-facing frame grid. |
 | `tools/art/chicken.ts`, `ghost.ts` | Baked per-frame: the chicken's wings flap by a painted offset (no rig arm, attack renders as idle); the ghost is one bespoke drawing. |
 | `tools/pixel_paint.ts` | Primitives: `dot`/`rect`/`line`/`disc`/`shaded`, plus `outlinePass`/`quantize`/`fmtArt`. |
 | `tools/gen-sprite-art.ts` | Combines creature paint code → `shared/sprite_art.ts` (`pnpm sprite-art`). |
@@ -71,6 +71,7 @@ attack (e.g. pickaxe rests low then strikes; shovel digs down; sword neutral).
 pnpm art:preview --ascii <name> [name...]   # text grid + colour legend — the cheap loop
 pnpm art:preview --sheet=trogg_moss         # contact sheet: rows=facings, cols=frames
 pnpm art:preview --sheet=item:pickaxe       # one item's views (<id>/_down/_up/_side)
+pnpm art:preview --sheet=balls              # the common hogs' defensive ball form (ball_<style>)
 pnpm art:preview --sheet=items              # every ITEM_ART entry
 pnpm art:preview --sheet=held:pickaxe       # item *wielded*: rows=facings, cols=frames,
                                             # placed by the game's `heldTransform`

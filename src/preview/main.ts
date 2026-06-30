@@ -1,8 +1,8 @@
 import Phaser from "phaser";
-import { ANCHOR, attackArmStyle, blitArt, composeAvatarFrame, FACINGS, forward, FRAME_H, FRAME_W, hasArmOverlay, hasChopOverlay, hogSize, ITEM_ART, ITEM_ART_H, ITEM_ART_W, ITEMS as ITEM_DEFS, jointAt, KINDS, rgbaSink, stylesOf, type EquipSlot, type Facing, type FrameName, type JointName, type Kind } from "@trogg/shared";
+import { ANCHOR, attackArmStyle, blitArt, composeAvatarFrame, FACINGS, forward, FRAME_H, FRAME_W, hasArmOverlay, hasChopOverlay, hasHogBall, hogBallFrameName, hogSize, ITEM_ART, ITEM_ART_H, ITEM_ART_W, ITEMS as ITEM_DEFS, jointAt, KINDS, rgbaSink, stylesOf, type EquipSlot, type Facing, type FrameName, type JointName, type Kind } from "@trogg/shared";
 import { AVATAR_FRAME_ART, type IndexedSpriteArt } from "../../shared/sprite_art.js";
 import { ART, attackEase, FLINCH_MS, flinchPose, heldGroup, heldTransform } from "../game/equipment.js";
-import { attackFrame, AVATAR_ARM_TEX, AVATAR_CHOP_ARM_TEX, avatarFrame, avatarFrameName, AVATAR_TEX, registerAvatarTextures } from "../game/avatars.js";
+import { attackFrame, AVATAR_ARM_TEX, AVATAR_BALL_TEX, AVATAR_CHOP_ARM_TEX, avatarFrame, avatarFrameName, AVATAR_TEX, registerAvatarTextures } from "../game/avatars.js";
 import { ITEM_TEX, registerItemTextures } from "../game/items.js";
 
 /**
@@ -39,7 +39,7 @@ const itemName = (id: string) => ITEM_DEFS[id as keyof typeof ITEM_DEFS]?.name ?
 const CREATURES: { kind: Kind; style: string }[] = KINDS.flatMap((kind) => stylesOf(kind).map((style) => ({ kind, style })));
 const VIEWS = ["holder", "item"] as const;
 type View = (typeof VIEWS)[number];
-const MODES = ["idle", "walk", "run", "attack", "hit", "auto"] as const;
+const MODES = ["idle", "walk", "run", "attack", "hit", "ball", "auto"] as const;
 type Mode = (typeof MODES)[number];
 /** One hit-flinch play-through plus a pause, so the `hit` mode loops it visibly. */
 const HIT_CYCLE_MS = FLINCH_MS + 500;
@@ -299,9 +299,24 @@ class PreviewScene extends Phaser.Scene {
 
     for (const cell of this.heldCells) {
       const { frame, attack } = poseAt(controls.mode, time);
+
+      // ball mode: a common hog curls into its facing-independent defensive ball; no item or arm.
+      const ballMode = controls.mode === "ball" && cell.kind === "hog" && hasHogBall(cell.style);
+      if (ballMode) {
+        cell.body.setTexture(AVATAR_BALL_TEX, hogBallFrameName(cell.style));
+        cell.item?.setVisible(false);
+        cell.offItem?.setVisible(false);
+        cell.arm.setVisible(false);
+        cell.bones.clear();
+        this.applyHit(cell, time);
+        continue;
+      }
+      cell.item?.setVisible(true);
+      cell.offItem?.setVisible(true);
+
       // hog has no wielding rig of its own yet; it shares the trogg skeleton (rig.ts),
       // so it still demonstrates the shared placement.
-      cell.body.setFrame(avatarFrameName(cell.kind, cell.style, cell.facing, frame));
+      cell.body.setTexture(AVATAR_TEX, avatarFrameName(cell.kind, cell.style, cell.facing, frame));
 
       // place each held hand, returning its z-order (behind the body or in front)
       const place = (sprite: Phaser.GameObjects.Sprite | undefined, id: string, slot: EquipSlot) => {
