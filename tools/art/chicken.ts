@@ -11,17 +11,19 @@ import { armSwing, bodyBob, footLift, FEET_Y, type View } from "./rig.ts";
 import type { FrameName, PixelSink } from "../../shared/sprites.ts";
 
 export const CHICK = {
-  out: 0x2a2018,
-  body: 0xf2ecdd,
-  bodyDk: 0xd2c8b4,
-  comb: 0xd0442a,
-  beak: 0xe6a62d,
-  beakDk: 0xc6861a,
-  tail: 0xb4541f,
-  face: 0xf0dcab,
-  faceDk: 0xcdac72,
-  nose: 0x3a2415,
-  eye: 0x1c140c,
+  out: 0x20140c,
+  body: 0xf8ecd0,
+  bodyHi: 0xffffff,
+  bodyDk: 0xc8b890,
+  comb: 0xe04028,
+  combHi: 0xff8060,
+  beak: 0xf0a820,
+  beakDk: 0xb87010,
+  tail: 0xc05018,
+  face: 0xf8d88a,
+  faceDk: 0xc6904a,
+  nose: 0x2c1808,
+  eye: 0x100804,
 } as const;
 
 export function chickenDraw(p: PixelSink, view: View, frame: FrameName): void {
@@ -33,9 +35,11 @@ export function chickenDraw(p: PixelSink, view: View, frame: FrameName): void {
 
   if (view === "up") {
     shaded(p, 15.5, 27 + b, 10, 9, c.body, c.bodyDk); // body
+    rect(p, 11, 22 + b, 6, 1, c.bodyHi);
     shaded(p, 6.5, 27 + b + sw, 2.6, 4, c.body, c.bodyDk); shaded(p, 24.5, 27 + b - sw, 2.6, 4, c.body, c.bodyDk); // wings, flapping
     shaded(p, 15.5, 16 + b, 5, 5, c.body, c.bodyDk); // back of the head
     disc(p, 13.5, 10 + b, 1.6, 2, c.comb); disc(p, 15.5, 9 + b, 1.8, 2.4, c.comb); disc(p, 17.5, 10 + b, 1.6, 2, c.comb); // comb crown
+    dot(p, 15.5, 8 + b, c.combHi);
     disc(p, 6, 33 + b, 2.6, 2.2, c.tail); disc(p, 4.6, 31 + b, 2, 1.8, c.tail); // tail
     return;
   }
@@ -44,13 +48,16 @@ export function chickenDraw(p: PixelSink, view: View, frame: FrameName): void {
   shaded(p, 5, 29 + b, 3, 3.4, c.tail, c.beakDk);
   // body
   shaded(p, 15.5, 28 + b, 10, 9, c.body, c.bodyDk);
+  rect(p, 11, 23 + b, 6, 1, c.bodyHi);
   // wings at the sides, flapping opposite each other with the gait
   shaded(p, 6.5, 27 + b + sw, 2.6, 4, c.body, c.bodyDk);
   shaded(p, 24.5, 27 + b - sw, 2.6, 4, c.body, c.bodyDk);
   // comb
   disc(p, 13.5, 10 + b, 1.6, 2, c.comb); disc(p, 15.5, 9 + b, 1.8, 2.4, c.comb); disc(p, 17.5, 10 + b, 1.6, 2, c.comb);
+  dot(p, 15.5, 8 + b, c.combHi);
   // hog face under a beak
   shaded(p, 15.5, 17 + b, 5, 4.2, c.face, c.faceDk);
+  rect(p, 13, 15 + b, 5, 1, c.bodyHi);
   rect(p, 12.5, 16 + b, 2, 2, c.eye); rect(p, 17.5, 16 + b, 2, 2, c.eye);
   dot(p, 12.5, 16 + b, 0xffffff); dot(p, 17.5, 16 + b, 0xffffff);
   // beak

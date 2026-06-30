@@ -19,9 +19,11 @@ procedural art pipeline.
 
 - The shared rig is the strongest part of the current sprites. It already gives troggs
   and Hogs stable named joints, per-frame pose clips, hand anchors, and item layering.
-- The trogg silhouette reads well in idle and side motion, but front/back run frames can
-  look too buoyant if the torso bob is too large. Run bob should stay grounded against
-  the planted foot baseline.
+- The stricter Gold/Silver/Crystal pass should prefer a few big readable highlight
+  tiles over noisy texture. The reference works because its outline, white highlights,
+  and shadow blocks are simple enough to read at overworld scale.
+- The trogg silhouette reads well in idle and side motion. Run bob should stay
+  grounded against the planted foot baseline.
 - Down-facing bare attack frames look smaller because the near arm is removed from the
   body frame and supplied by the held-item arm overlay. That is correct for equipped use,
   but naked attack previews will understate the pose.
@@ -47,3 +49,11 @@ procedural art pipeline.
 5. **Reference study pass:** if generated references are useful, create separate
    sprite-forge outputs using `docs/art-refs/trogg-reference.png` and the current contact
    sheets as visual references, then translate accepted ideas back into `tools/art/*`.
+
+## Applied GSC Pass
+
+- Repainted troggs with higher contrast olive/stone ramps, larger brow and belly
+  highlights, and fewer mottled speckles.
+- Repainted common Hogs and costume Hogs with brighter two-tone fills, sparse white
+  highlights, and chunkier interior shadow lines.
+- Kept the existing rig, frame layout, arm overlays, and held-item placement contract.
