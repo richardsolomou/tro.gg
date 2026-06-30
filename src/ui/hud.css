@@ -565,7 +565,6 @@
 #hud .command-button:active {
   box-shadow: var(--hud-tile-pressed);
 }
-#hud .command-svg-icon,
 #hud .command-spawn-button .item-icon {
   width: 32px;
   height: 32px;

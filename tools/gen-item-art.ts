@@ -23,40 +23,58 @@ import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { rgbaSink, type PixelSink } from "../shared/sprites.ts";
-import { disc, dot, fmtArt, line, outlinePass, quantize, rect, shaded } from "./pixel_paint.ts";
+import { dot, fmtArt, line, outlinePass, quantize, rect } from "./pixel_paint.ts";
 
 /** Every prop is painted on this square so they share one atlas cell size. */
 const W = 24;
 const H = 24;
 
-const WOOD = 0x6b3f24;
-const WOOD_DK = 0x46280f;
-const STEEL = 0xccd6dc;
-const STEEL_DK = 0x8b969c;
-const GOLD = 0xe6b53f;
-const GOLD_DK = 0xb6862a;
-const BRASS = 0xc6a05a;
-const BRASS_DK = 0x8f6f38;
-const ROCK = 0x8a7257;
-const ROCK_LT = 0xa88c6c;
-const ROCK_DK = 0x5b4733;
-const OUT_TOOL = 0x1a1714;
-const OUT_ROCK = 0x241c12;
+const WOOD_LT = 0x9a6330;
+const WOOD = 0x6b3a1d;
+const WOOD_DK = 0x3f230e;
+const STEEL_LT = 0xe6edf0;
+const STEEL = 0xaeb9bc;
+const STEEL_DK = 0x647176;
+const GOLD = 0xf2c94c;
+const GOLD_DK = 0xa87522;
+const BRASS = 0xc49a45;
+const BRASS_DK = 0x7a5522;
+const ROCK = 0x74705c;
+const ROCK_LT = 0xb4ac78;
+const ROCK_DK = 0x45402d;
+const ROCK_DEEP = 0x2b2419;
+const OUT_TOOL = 0x15120f;
+const OUT_ROCK = 0x18150f;
 
 function drawStone(p: PixelSink): void {
-  // a small chunky chip of cave rock
-  shaded(p, 11.5, 15, 5, 3.6, ROCK, ROCK_DK);
-  disc(p, 10, 13.5, 2.2, 1.5, ROCK_LT);
-  line(p, 13, 13, 14, 16, ROCK_DK);
+  // A small mined chip: angular rows, one high-value facet, and a dark floor edge.
+  rect(p, 9, 12, 7, 1, ROCK_DK);
+  rect(p, 7, 13, 11, 2, ROCK);
+  rect(p, 8, 15, 10, 2, ROCK);
+  rect(p, 10, 17, 7, 1, ROCK_DK);
+  rect(p, 9, 13, 4, 2, ROCK_LT);
+  rect(p, 13, 14, 3, 1, ROCK_DK);
+  rect(p, 14, 15, 3, 2, ROCK_DEEP);
+  dot(p, 8, 15, ROCK_LT);
+  dot(p, 11, 16, ROCK_DK);
 }
 
 function drawBoulder(p: PixelSink): void {
-  // a big rounded rock nearly filling the cell, lit from the top-left
-  shaded(p, 12, 13, 9.6, 9, ROCK, ROCK_DK);
-  disc(p, 8, 9, 3.6, 2.8, ROCK_LT);
-  line(p, 14, 7, 16, 17, ROCK_DK);
-  line(p, 15, 12, 19, 14, ROCK_DK);
-  dot(p, 7, 17, ROCK_LT); dot(p, 17, 19, ROCK_LT);
+  // GSC boulder: a squat blocky silhouette with chunky facets, not a smooth blob.
+  rect(p, 9, 4, 7, 1, ROCK_DK);
+  rect(p, 7, 5, 11, 2, ROCK);
+  rect(p, 5, 7, 15, 3, ROCK);
+  rect(p, 4, 10, 17, 5, ROCK);
+  rect(p, 5, 15, 15, 3, ROCK_DK);
+  rect(p, 7, 18, 10, 2, ROCK_DEEP);
+  rect(p, 8, 6, 6, 3, ROCK_LT);
+  rect(p, 6, 9, 5, 2, ROCK_LT);
+  rect(p, 12, 8, 4, 2, ROCK_DK);
+  rect(p, 15, 10, 4, 3, ROCK_DK);
+  rect(p, 16, 14, 3, 3, ROCK_DEEP);
+  rect(p, 9, 13, 5, 1, ROCK_DK);
+  dot(p, 6, 15, ROCK_LT);
+  dot(p, 13, 18, ROCK);
 }
 
 // ── holdable poses ───────────────────────────────────────────────────────────────
@@ -69,104 +87,115 @@ function drawBoulder(p: PixelSink): void {
 
 /** Sword, side: pommel/grip at centre, blade leading right. */
 function drawSwordSide(p: PixelSink): void {
-  disc(p, 7.5, 11.5, 1.6, 1.6, GOLD); // pommel
-  rect(p, 9, 11, 4, 2, WOOD); // grip (the fist sits here)
-  dot(p, 10, 12, WOOD_DK); dot(p, 12, 12, WOOD_DK);
-  rect(p, 13, 9, 2, 6, GOLD); // crossguard (across the blade)
-  rect(p, 13, 14, 2, 1, GOLD_DK);
-  rect(p, 15, 10, 7, 3, STEEL); // blade
-  for (let x = 15; x <= 20; x++) dot(p, x, 11, STEEL_DK); // fuller
-  dot(p, 22, 11, STEEL); // tip
+  rect(p, 5, 10, 3, 4, GOLD); // pommel
+  rect(p, 6, 13, 2, 1, GOLD_DK);
+  rect(p, 8, 11, 5, 2, WOOD); // grip (the fist sits here)
+  rect(p, 8, 12, 5, 1, WOOD_DK);
+  rect(p, 13, 8, 2, 8, GOLD); // heavy crossguard
+  rect(p, 13, 14, 2, 2, GOLD_DK);
+  rect(p, 15, 9, 6, 5, STEEL); // broad blade
+  rect(p, 15, 9, 6, 1, STEEL_LT);
+  rect(p, 16, 12, 5, 2, STEEL_DK);
+  rect(p, 21, 10, 1, 3, STEEL);
+  dot(p, 22, 11, STEEL_LT);
 }
 
 /** Sword, top-down: blade foreshortened toward the camera, broad crossguard seen from
  *  above, pommel nearest the hand. The grip sits on the canvas centre (≈12,12) where the
  *  fist pins, so the hand holds the handle — pommel just above it, blade leading down. */
 function drawSwordTop(p: PixelSink): void {
-  disc(p, 11.5, 9.5, 1.6, 1.6, GOLD); // pommel just above the hand
-  rect(p, 11, 11, 2, 3, WOOD); dot(p, 12, 12, WOOD_DK); dot(p, 12, 13, WOOD_DK); // grip (the fist sits here)
-  rect(p, 7, 14, 10, 2, GOLD); rect(p, 7, 15, 10, 1, GOLD_DK); // broad crossguard
-  rect(p, 10, 16, 4, 2, STEEL); // blade shoulders
-  rect(p, 11, 18, 2, 3, STEEL); // blade foreshortened toward camera
-  for (let y = 16; y <= 20; y++) dot(p, 12, y, STEEL_DK); // fuller
-  dot(p, 11, 21, STEEL); dot(p, 12, 21, STEEL); dot(p, 11.5, 22, STEEL); // point
+  rect(p, 10, 7, 4, 3, GOLD); // pommel just above the hand
+  rect(p, 11, 10, 2, 4, WOOD);
+  rect(p, 12, 11, 1, 3, WOOD_DK);
+  rect(p, 6, 14, 12, 2, GOLD); // broad crossguard
+  rect(p, 7, 15, 10, 1, GOLD_DK);
+  rect(p, 10, 16, 4, 4, STEEL);
+  rect(p, 10, 16, 2, 4, STEEL_LT);
+  rect(p, 12, 17, 2, 4, STEEL_DK);
+  rect(p, 11, 20, 2, 2, STEEL);
+  dot(p, 11, 22, STEEL_LT);
+  dot(p, 12, 22, STEEL);
 }
 
 /** Pickaxe, side: handle into the hand at centre; the head crosses the handle at the
  *  leading (right) end as a curved double pick whose points sweep back toward the
  *  handle (so the tips read vertical). */
 function drawPickaxeSide(p: PixelSink): void {
-  rect(p, 5, 11, 9, 2, WOOD); // handle into the hand
-  for (let x = 5; x <= 13; x++) dot(p, x, 12, WOOD_DK);
-  rect(p, 13, 10, 3, 4, STEEL_DK); // eye/socket where the handle meets the head
-  rect(p, 13, 10, 3, 1, STEEL);
-  // upper pick: bulges forward off the socket, then curves up and back to a point
-  line(p, 16, 10, 18, 8, STEEL); line(p, 16, 11, 18, 9, STEEL_DK);
-  line(p, 18, 8, 15, 4, STEEL); dot(p, 14, 3, STEEL);
-  // lower pick: bulges forward, then curves down and back to a point
-  line(p, 16, 13, 18, 15, STEEL); line(p, 16, 12, 18, 14, STEEL_DK);
-  line(p, 18, 15, 15, 19, STEEL); dot(p, 14, 20, STEEL);
+  rect(p, 5, 11, 9, 3, WOOD); // handle into the hand
+  rect(p, 5, 13, 9, 1, WOOD_DK);
+  rect(p, 13, 9, 4, 6, STEEL_DK); // eye/socket
+  rect(p, 13, 9, 4, 2, STEEL);
+  rect(p, 16, 7, 4, 3, STEEL); // upper blade shoulder
+  rect(p, 18, 6, 2, 1, STEEL_LT);
+  rect(p, 17, 14, 4, 3, STEEL_DK); // lower blade shoulder
+  rect(p, 18, 17, 2, 1, STEEL);
 }
 
 /** Pickaxe, top-down: only a short handle stub at the grip — held facing the camera it tucks
  *  under the arm, barely seen — with the head right at the hand and the striking pick driving a
  *  bold point toward the camera (the boulder the trogg faces), a stubby poll on the back. */
 function drawPickaxeTop(p: PixelSink): void {
-  rect(p, 11, 10, 2, 3, WOOD); // short handle stub at the grip, mostly hidden under the arm
-  dot(p, 12, 10, WOOD_DK); dot(p, 12, 11, WOOD_DK); dot(p, 12, 12, WOOD_DK);
-  rect(p, 9, 13, 6, 2, STEEL_DK); // head boss at the hand
-  rect(p, 9, 13, 6, 1, STEEL);
-  rect(p, 8, 13, 1, 2, STEEL); dot(p, 7, 13, STEEL_DK); // stubby poll on the back
-  // striking pick: a bold tapering point down toward the camera/boulder
-  rect(p, 11, 15, 2, 3, STEEL);
-  dot(p, 12, 15, STEEL_DK);
-  dot(p, 11, 18, STEEL); dot(p, 12, 18, STEEL);
-  dot(p, 11.5, 19, STEEL); dot(p, 11.5, 20, STEEL); // sharp tip
+  rect(p, 11, 9, 3, 4, WOOD); // short handle stub at the grip
+  rect(p, 12, 9, 2, 4, WOOD_DK);
+  rect(p, 8, 13, 8, 3, STEEL_DK); // head boss at the hand
+  rect(p, 8, 13, 8, 1, STEEL_LT);
+  rect(p, 6, 13, 2, 2, STEEL);
+  rect(p, 11, 16, 3, 3, STEEL);
+  rect(p, 12, 17, 2, 4, STEEL_DK);
+  dot(p, 12, 21, STEEL);
 }
 
 /** Pickaxe, top-down for the *up* facing: the trogg's back is to us (bottom of the frame), so
  *  the wooden shaft trails *down* toward the camera, behind the body, where it stays visible;
  *  the head and pick are higher, pointing the way the trogg faces (up/away). */
 function drawPickaxeTopUp(p: PixelSink): void {
-  rect(p, 11, 11, 2, 11, WOOD); // full shaft trailing back toward the camera, visible behind the trogg
-  for (let y = 11; y <= 21; y++) dot(p, 12, y, WOOD_DK);
-  rect(p, 9, 9, 6, 2, STEEL_DK); // head boss at the hand
-  rect(p, 9, 10, 6, 1, STEEL);
-  rect(p, 8, 9, 1, 2, STEEL); dot(p, 7, 10, STEEL_DK); // stubby poll on the back
-  // short pick beyond the head, pointing the way the trogg faces (up/away)
-  rect(p, 11, 7, 2, 2, STEEL);
-  dot(p, 12, 8, STEEL_DK); dot(p, 11.5, 6, STEEL);
+  rect(p, 11, 11, 3, 11, WOOD); // full shaft trailing back toward the camera
+  rect(p, 12, 11, 2, 11, WOOD_DK);
+  rect(p, 8, 8, 8, 3, STEEL_DK); // head boss at the hand
+  rect(p, 8, 8, 8, 1, STEEL_LT);
+  rect(p, 6, 9, 2, 2, STEEL);
+  rect(p, 11, 6, 3, 2, STEEL);
+  dot(p, 12, 5, STEEL_LT);
 }
 
 /** Shovel, side: handle into the hand at centre, spade blade leading right. */
 function drawShovelSide(p: PixelSink): void {
-  rect(p, 5, 11, 10, 2, WOOD); // handle
-  for (let x = 5; x <= 14; x++) dot(p, x, 12, WOOD_DK);
-  rect(p, 15, 9, 3, 6, BRASS); // socket
-  disc(p, 19, 11.5, 3.4, 3.4, BRASS); // spade
-  for (let y = 9; y <= 14; y++) dot(p, 17, y, BRASS_DK);
-  dot(p, 21.5, 11.5, BRASS_DK);
+  rect(p, 4, 11, 11, 3, WOOD); // handle
+  rect(p, 4, 13, 11, 1, WOOD_DK);
+  rect(p, 14, 9, 3, 6, BRASS_DK); // socket
+  rect(p, 15, 10, 5, 5, BRASS); // square-shouldered spade
+  rect(p, 18, 11, 3, 3, BRASS);
+  rect(p, 16, 10, 2, 2, GOLD);
+  dot(p, 21, 12, BRASS_DK);
 }
 
 /** Shovel, top-down: the spade seen flat, broad toward the camera, handle into the hand. */
 function drawShovelTop(p: PixelSink): void {
-  rect(p, 11, 5, 2, 7, WOOD); // handle from the hand
-  for (let y = 5; y <= 11; y++) dot(p, 12, y, WOOD_DK);
-  rect(p, 10, 12, 4, 1, WOOD_DK); // socket
-  rect(p, 8, 13, 8, 3, BRASS); // broad spade shoulders
-  disc(p, 12, 16, 4, 3, BRASS); // spade
-  for (let x = 8; x <= 15; x++) dot(p, x, 13, BRASS_DK);
-  dot(p, 12, 19, BRASS_DK); // tip
+  rect(p, 11, 5, 3, 8, WOOD); // handle from the hand
+  rect(p, 12, 5, 2, 8, WOOD_DK);
+  rect(p, 9, 12, 7, 2, BRASS_DK); // socket
+  rect(p, 7, 14, 11, 3, BRASS);
+  rect(p, 8, 17, 9, 2, BRASS);
+  rect(p, 10, 14, 4, 2, GOLD);
+  dot(p, 12, 20, BRASS_DK);
 }
 
 /** Round wooden shield: a steel rim, a planked face lit from the top-left, a central boss.
  *  Round reads the same from any facing, so the one drawing serves the side and top views;
  *  it's an off-hand item, so the renderer pins it to the off hand. */
 function drawShield(p: PixelSink): void {
-  disc(p, 12, 12, 8, 8.6, STEEL_DK); // steel rim (outer disc)
-  shaded(p, 12, 12, 6.8, 7.4, WOOD, WOOD_DK); // planked face
-  line(p, 12, 5, 12, 19, WOOD_DK); // central plank seam
-  disc(p, 12, 12, 2.4, 2.4, STEEL); // metal boss
+  rect(p, 9, 4, 6, 1, STEEL_DK);
+  rect(p, 6, 5, 12, 2, STEEL_DK);
+  rect(p, 4, 7, 16, 4, STEEL_DK);
+  rect(p, 4, 11, 16, 5, STEEL_DK);
+  rect(p, 6, 16, 12, 3, STEEL_DK);
+  rect(p, 9, 19, 6, 1, STEEL_DK);
+  rect(p, 7, 7, 10, 9, WOOD);
+  rect(p, 8, 6, 7, 3, WOOD_LT);
+  rect(p, 8, 16, 8, 2, WOOD_DK);
+  line(p, 12, 6, 12, 18, WOOD_DK);
+  rect(p, 10, 10, 5, 5, STEEL);
+  rect(p, 11, 10, 3, 2, STEEL_LT);
   dot(p, 12, 12, STEEL_DK);
 }
 
