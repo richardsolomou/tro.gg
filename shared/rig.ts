@@ -169,7 +169,7 @@ function stride(frame: FrameName): number {
 /** Body bob: the whole creature dips as it strides (the off-foot stays planted). */
 export function rootBob(frame: FrameName): number {
   if (frame === "idle" || frame === "attack_a" || frame === "attack_b") return 0;
-  return isRun(frame) ? -4 : -2;
+  return isRun(frame) ? -3 : -2;
 }
 
 /** Vertical foot lift for a stride frame; near/far alternate, higher on a run. */
