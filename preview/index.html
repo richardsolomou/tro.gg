@@ -5,31 +5,42 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>tro.gg — art preview</title>
     <style>
-      html, body { margin: 0; height: 100%; background: #0a0806; color: #e8dcc4; font-family: monospace; overflow: hidden; }
+      html, body { margin: 0; height: 100%; background: #0a0806; color: #f0e4c7; font-family: monospace; overflow: hidden; }
       #preview { position: absolute; inset: 0; }
       canvas { display: block; image-rendering: pixelated; }
       #controls {
         position: absolute; top: 0; left: 0; right: 0; z-index: 10;
-        display: flex; flex-wrap: wrap; gap: 14px; align-items: center;
-        padding: 8px 12px; background: rgba(10, 8, 6, 0.82); border-bottom: 1px solid #2a2218;
+        display: flex; flex-wrap: wrap; gap: 12px; align-items: center;
+        padding: 8px 12px; background: #15100b; border-bottom: 2px solid #3b2d1e;
+        box-shadow: 0 0 0 1px #0a0806, 0 -2px 0 0 #070504 inset, 0 4px 0 rgba(0, 0, 0, 0.45);
         font-size: 13px;
       }
       #controls .group { display: flex; gap: 4px; align-items: center; }
-      #controls .group > .lbl { color: #9b8a6c; margin-right: 4px; }
+      #controls .group > .lbl { color: #b8a98a; margin-right: 4px; text-transform: uppercase; }
       #controls button {
         font-family: monospace; font-size: 13px; cursor: pointer;
-        background: #1c1710; color: #e8dcc4; border: 1px solid #3a2f20; border-radius: 4px; padding: 3px 9px;
+        background: #15100b; color: #f0e4c7; border: 2px solid #3b2d1e; border-radius: 2px; padding: 3px 9px;
+        box-shadow: 1px 1px 0 0 rgba(240, 228, 199, 0.22) inset, -2px -2px 0 0 rgba(0, 0, 0, 0.55) inset;
       }
-      #controls button.on { background: #6a5a36; color: #fff; border-color: #8a7544; }
+      #controls button:hover { border-color: #f2c94c; background: #241a11; }
+      #controls button.on {
+        background: #f2c94c; color: #0a0806; border-color: #0a0806;
+        box-shadow: 1px 1px 0 0 #fff0a8 inset, -2px -2px 0 0 #9b6d20 inset, 0 0 0 1px #3b2d1e;
+      }
       #controls input[type="range"] { width: 160px; }
       /* item palette — styled like the in-game inventory slots */
       #controls .palette { display: flex; gap: 6px; }
       #controls .slot {
         width: 40px; height: 40px; padding: 3px; display: grid; place-items: center;
-        background: rgba(232, 220, 196, 0.08); border: 1px solid #2a2118; border-radius: 4px;
-        cursor: pointer; color: #9b8a6c;
+        background: #15100b; border: 2px solid #3b2d1e; border-radius: 2px;
+        box-shadow: 1px 1px 0 0 rgba(240, 228, 199, 0.22) inset, -2px -2px 0 0 rgba(0, 0, 0, 0.55) inset;
+        cursor: pointer; color: #b8a98a;
       }
-      #controls .slot.selected { border-color: #f2c94c; background: rgba(242, 201, 76, 0.18); }
+      #controls .slot:hover { border-color: #f2c94c; background: #241a11; }
+      #controls .slot.selected {
+        border-color: #f0e4c7; background: #2a2112;
+        box-shadow: 0 0 0 2px #f2c94c, 2px 2px 0 0 rgba(0, 0, 0, 0.58) inset, -1px -1px 0 0 rgba(240, 228, 199, 0.18) inset;
+      }
       #controls .slot canvas { width: 32px; height: 32px; image-rendering: pixelated; }
       #controls .slot-none { font-size: 18px; }
       /* creature slots are taller — avatar frames are 32×48 */

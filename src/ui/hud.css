@@ -1,18 +1,40 @@
 /*
  * HUD chrome — HTML/CSS overlays above the Phaser canvas (chat, account, help,
  * appearance, inventory, commands).
- * Cave palette, shared with the landing page and the in-world art: ink #e8dcc4 on
- * #0a0806 stone, amber #f2c94c accents. The world (troggs, bubbles, terrain) is
- * drawn by Phaser; everything here is DOM, so the browser owns layout, text input,
- * focus, and resize.
+ * GSC-inspired pixel HUD: solid ink panels, high-contrast cream text, amber
+ * active states, and bevels built from crisp 1px/2px shadows rather than soft UI
+ * chrome. The world (troggs, bubbles, terrain) is drawn by Phaser; everything
+ * here is DOM, so the browser owns layout, text input, focus, and resize.
  */
 
 #hud {
+  --hud-ink: #0a0806;
+  --hud-ink-2: #15100b;
+  --hud-ink-3: #241a11;
+  --hud-stone-light: #6f6047;
+  --hud-cream: #f0e4c7;
+  --hud-cream-dim: #b8a98a;
+  --hud-amber: #f2c94c;
+  --hud-amber-dark: #9b6d20;
+  --hud-danger-dark: #5b211b;
+  --hud-panel-bg: #15100b;
+  --hud-panel-border: #3b2d1e;
+  --hud-panel-shadow:
+    0 0 0 1px var(--hud-ink),
+    1px 1px 0 1px var(--hud-stone-light) inset,
+    -2px -2px 0 0 #070504 inset,
+    0 4px 0 rgba(0, 0, 0, 0.45);
+  --hud-tile-shadow:
+    1px 1px 0 0 rgba(240, 228, 199, 0.22) inset,
+    -2px -2px 0 0 rgba(0, 0, 0, 0.55) inset;
+  --hud-tile-pressed:
+    2px 2px 0 0 rgba(0, 0, 0, 0.58) inset,
+    -1px -1px 0 0 rgba(240, 228, 199, 0.18) inset;
   position: fixed;
   inset: 0;
   pointer-events: none; /* clicks fall through to the canvas… */
   font-family: monospace;
-  color: #e8dcc4;
+  color: var(--hud-cream);
   z-index: 100;
 }
 
@@ -26,7 +48,7 @@
 #hud input,
 #hud button {
   font-family: monospace;
-  color: #e8dcc4;
+  color: var(--hud-cream);
   box-sizing: border-box;
 }
 
@@ -36,9 +58,11 @@
 }
 
 #hud button:focus-visible {
-  outline: 2px solid #e8dcc4;
+  outline: 2px solid var(--hud-cream);
   outline-offset: 2px;
-  box-shadow: 0 0 0 4px rgba(10, 8, 6, 0.75);
+  box-shadow:
+    0 0 0 4px var(--hud-ink),
+    var(--hud-tile-shadow);
 }
 
 #hud .field {
@@ -46,28 +70,43 @@
   height: 30px;
   padding: 0 8px;
   font-size: 13px;
-  background: rgba(10, 8, 6, 0.82);
-  border: 1px solid #2a2118;
-  border-radius: 4px;
+  background: var(--hud-ink);
+  border: 2px solid var(--hud-panel-border);
+  border-radius: 2px;
+  box-shadow:
+    2px 2px 0 0 rgba(0, 0, 0, 0.7) inset,
+    -1px -1px 0 0 rgba(240, 228, 199, 0.16) inset;
   outline: none;
 }
 #hud .field::placeholder {
-  color: #9b8a6c;
+  color: var(--hud-cream-dim);
 }
 #hud .field:focus {
-  background: rgba(10, 8, 6, 0.92);
-  border-color: #e8dcc4;
+  background: #0d0a07;
+  border-color: var(--hud-cream);
 }
 
 #hud .btn {
   width: 100%;
   height: 30px;
   font-size: 13px;
-  color: #0a0806;
-  background: #e8dcc4;
-  border: none;
-  border-radius: 4px;
+  color: var(--hud-ink);
+  background: var(--hud-cream);
+  border: 2px solid var(--hud-ink);
+  border-radius: 2px;
+  box-shadow:
+    1px 1px 0 0 #fff6d8 inset,
+    -2px -2px 0 0 #8f805f inset,
+    0 0 0 1px var(--hud-panel-border);
   cursor: pointer;
+}
+#hud .btn:hover:not(:disabled) {
+  background: var(--hud-amber);
+}
+#hud .btn:active:not(:disabled) {
+  box-shadow:
+    2px 2px 0 0 rgba(0, 0, 0, 0.38) inset,
+    0 0 0 1px var(--hud-panel-border);
 }
 #hud .btn:disabled {
   opacity: 0.45;
@@ -87,8 +126,10 @@
   height: min(30vh, 220px);
   padding: 6px 8px;
   overflow-y: auto;
-  background: rgba(10, 8, 6, 0.55);
-  border-radius: 4px;
+  background: var(--hud-panel-bg);
+  border: 2px solid var(--hud-panel-border);
+  border-radius: 2px;
+  box-shadow: var(--hud-panel-shadow);
   font-size: 13px;
   line-height: 19px;
   word-break: break-word;
@@ -112,12 +153,14 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  background: rgba(10, 8, 6, 0.55);
-  border-radius: 4px;
+  background: var(--hud-panel-bg);
+  border: 2px solid var(--hud-panel-border);
+  border-radius: 2px;
+  box-shadow: var(--hud-panel-shadow);
 }
 #hud .account-status {
   font-size: 12px;
-  color: #9b8a6c;
+  color: var(--hud-cream-dim);
   min-height: 14px;
 }
 #hud .swatches {
@@ -129,12 +172,25 @@
   width: 22px;
   height: 22px;
   padding: 0;
-  border: 2px solid rgba(10, 8, 6, 0.35);
-  border-radius: 4px;
+  border: 2px solid var(--hud-ink);
+  border-radius: 2px;
+  box-shadow:
+    1px 1px 0 0 rgba(255, 255, 255, 0.22) inset,
+    -2px -2px 0 0 rgba(0, 0, 0, 0.48) inset,
+    0 0 0 1px var(--hud-panel-border);
   cursor: pointer;
 }
+#hud .swatch:hover {
+  box-shadow:
+    1px 1px 0 0 rgba(255, 255, 255, 0.26) inset,
+    -2px -2px 0 0 rgba(0, 0, 0, 0.55) inset,
+    0 0 0 2px var(--hud-amber);
+}
 #hud .swatch[aria-pressed="true"] {
-  border-color: #e8dcc4;
+  border-color: var(--hud-cream);
+  box-shadow:
+    0 0 0 2px var(--hud-amber),
+    2px 2px 0 0 rgba(0, 0, 0, 0.34) inset;
 }
 
 /* ── Top-left toggle bar (Help, Appearance, Inventory, Commands) ──────────── */
@@ -170,11 +226,25 @@
   padding: 2px 5px;
   display: grid;
   place-items: center;
-  color: #0a0806;
-  background: #f2c94c;
-  border: none;
-  border-radius: 4px;
+  color: var(--hud-ink);
+  background: var(--hud-amber);
+  border: 2px solid var(--hud-ink);
+  border-radius: 2px;
+  box-shadow:
+    1px 1px 0 0 #fff0a8 inset,
+    -2px -2px 0 0 var(--hud-amber-dark) inset,
+    0 0 0 1px var(--hud-panel-border);
   cursor: pointer;
+}
+#hud .hud-icon-button:hover {
+  filter: brightness(1.08);
+}
+#hud .hud-icon-button:active,
+#hud .hud-icon-button[aria-expanded="true"] {
+  box-shadow:
+    2px 2px 0 0 rgba(0, 0, 0, 0.42) inset,
+    -1px -1px 0 0 rgba(255, 255, 255, 0.28) inset,
+    0 0 0 1px var(--hud-panel-border);
 }
 #hud .hud-icon-button svg {
   width: 20px;
@@ -190,18 +260,20 @@
   width: max-content;
   max-width: calc(100vw - 24px);
   padding: 12px;
-  background: rgba(10, 8, 6, 0.82);
-  border: 1px solid #2a2118;
-  border-radius: 4px;
+  background: var(--hud-panel-bg);
+  border: 2px solid var(--hud-panel-border);
+  border-radius: 2px;
+  box-shadow: var(--hud-panel-shadow);
   font-size: 13px;
 }
 #hud .help-body[hidden] {
   display: none;
 }
 #hud .help-section-title {
-  color: #9b8a6c;
+  color: var(--hud-cream-dim);
   font-size: 12px;
   margin: 0 0 4px;
+  text-transform: uppercase;
 }
 #hud .help-section + .help-section {
   margin-top: 10px;
@@ -212,13 +284,13 @@
   gap: 2px 14px;
 }
 #hud .help-key {
-  color: #f2c94c;
+  color: var(--hud-amber);
   white-space: nowrap;
 }
 
 /* ── Appearance ──────────────────────────────────────────────────────────── */
 #hud .appearance-toggle {
-  background: #e8dcc4; /* set apart from Help's amber toggle */
+  background: var(--hud-cream); /* set apart from Help's amber toggle */
 }
 #hud .appearance-body {
   width: min(248px, calc(100vw - 24px));
@@ -240,25 +312,35 @@
   padding: 4px 10px;
   height: 26px;
   font-size: 12px;
-  color: #e8dcc4;
-  background: rgba(10, 8, 6, 0.82);
-  border: 1px solid #2a2118;
-  border-radius: 4px;
+  color: var(--hud-cream);
+  background: var(--hud-ink-2);
+  border: 2px solid var(--hud-panel-border);
+  border-radius: 2px;
+  box-shadow: var(--hud-tile-shadow);
   cursor: pointer;
 }
+#hud .style-option:hover {
+  border-color: var(--hud-amber);
+  background: var(--hud-ink-3);
+}
 #hud .style-option[aria-pressed="true"] {
-  color: #0a0806;
-  background: #e8dcc4;
-  border-color: #e8dcc4;
+  color: var(--hud-ink);
+  background: var(--hud-cream);
+  border-color: var(--hud-ink);
+  box-shadow:
+    1px 1px 0 0 #fff6d8 inset,
+    -2px -2px 0 0 #8f805f inset,
+    0 0 0 1px var(--hud-amber);
 }
 
 /* ── Inventory ───────────────────────────────────────────────────────────── */
 #hud .inventory-body {
   width: 244px;
   padding: 10px;
-  background: rgba(10, 8, 6, 0.82);
-  border: 1px solid #2a2118;
-  border-radius: 4px;
+  background: var(--hud-panel-bg);
+  border: 2px solid var(--hud-panel-border);
+  border-radius: 2px;
+  box-shadow: var(--hud-panel-shadow);
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -272,7 +354,7 @@
   align-items: center;
   gap: 8px;
   font-size: 12px;
-  color: #9b8a6c;
+  color: var(--hud-cream-dim);
 }
 #hud .inventory-equipped-group {
   display: flex;
@@ -284,9 +366,10 @@
   height: 34px;
   display: grid;
   place-items: center;
-  background: rgba(232, 220, 196, 0.08);
-  border: 1px solid #2a2118;
-  border-radius: 4px;
+  background: var(--hud-ink);
+  border: 2px solid var(--hud-panel-border);
+  border-radius: 2px;
+  box-shadow: var(--hud-tile-pressed);
 }
 /* Item icons are the world pixel art on a small canvas — keep the pixels crisp. */
 #hud canvas.item-icon {
@@ -309,19 +392,26 @@
   padding: 3px;
   display: grid;
   place-items: center;
-  color: #e8dcc4;
-  background: rgba(232, 220, 196, 0.08);
-  border: 1px solid #2a2118;
-  border-radius: 4px;
+  color: var(--hud-cream);
+  background: var(--hud-ink-2);
+  border: 2px solid var(--hud-panel-border);
+  border-radius: 2px;
+  box-shadow: var(--hud-tile-shadow);
   cursor: pointer;
 }
+#hud .inventory-item:hover:not(:disabled) {
+  border-color: var(--hud-amber);
+  background: var(--hud-ink-3);
+}
 #hud .inventory-item[aria-pressed="true"] {
-  border-color: #f2c94c;
-  background: rgba(242, 201, 76, 0.18);
+  border-color: var(--hud-amber);
+  background: #2a2112;
 }
 #hud .inventory-item.is-selected {
-  border-color: #e8dcc4;
-  box-shadow: 0 0 0 1px #e8dcc4 inset;
+  border-color: var(--hud-cream);
+  box-shadow:
+    0 0 0 2px var(--hud-amber),
+    var(--hud-tile-pressed);
 }
 #hud .inventory-item:disabled {
   opacity: 0.9;
@@ -334,6 +424,7 @@
   place-self: center;
   cursor: default;
   opacity: 0.65;
+  background: #100c08;
 }
 #hud .inventory-item .item-icon {
   width: 32px;
@@ -351,23 +442,25 @@
   justify-content: center;
   font-size: 9px;
   line-height: 12px;
-  color: #0a0806;
-  background: #e8dcc4;
-  border-radius: 2px;
+  color: var(--hud-ink);
+  background: var(--hud-amber);
+  border: 1px solid var(--hud-ink);
+  border-radius: 1px;
+  box-shadow: -1px -1px 0 0 var(--hud-amber-dark) inset;
 }
 #hud .inventory-actions {
   display: flex;
   flex-direction: column;
   gap: 6px;
   padding-top: 8px;
-  border-top: 1px solid #2a2118;
+  border-top: 2px solid var(--hud-panel-border);
 }
 #hud .inventory-actions[hidden] {
   display: none;
 }
 #hud .inventory-action-name {
   font-size: 12px;
-  color: #e8dcc4;
+  color: var(--hud-cream);
 }
 #hud .inventory-action-buttons {
   display: flex;
@@ -377,28 +470,34 @@
 #hud .inventory-action {
   padding: 4px 10px;
   font-size: 12px;
-  color: #e8dcc4;
-  background: rgba(232, 220, 196, 0.08);
-  border: 1px solid #2a2118;
-  border-radius: 4px;
+  color: var(--hud-cream);
+  background: var(--hud-ink-2);
+  border: 2px solid var(--hud-panel-border);
+  border-radius: 2px;
+  box-shadow: var(--hud-tile-shadow);
   cursor: pointer;
 }
 #hud .inventory-action:hover {
-  background: rgba(232, 220, 196, 0.16);
+  background: var(--hud-ink-3);
+  border-color: var(--hud-amber);
+}
+#hud .inventory-action:active {
+  box-shadow: var(--hud-tile-pressed);
 }
 #hud .inventory-action.is-danger {
-  color: #f2b8b8;
-  border-color: #6b2a2a;
-  background: rgba(107, 42, 42, 0.25);
+  color: #f3c3b4;
+  border-color: var(--hud-danger-dark);
+  background: #2c100c;
 }
 
 /* ── Commands ────────────────────────────────────────────────────────────── */
 #hud .command-body {
   width: min(330px, calc(100vw - 24px));
   padding: 12px;
-  background: rgba(10, 8, 6, 0.86);
-  border: 1px solid #2a2118;
-  border-radius: 4px;
+  background: var(--hud-panel-bg);
+  border: 2px solid var(--hud-panel-border);
+  border-radius: 2px;
+  box-shadow: var(--hud-panel-shadow);
   font-size: 13px;
 }
 #hud .command-body[hidden] {
@@ -426,18 +525,23 @@
   height: 30px;
   padding: 0 8px;
   overflow: hidden;
-  color: #e8dcc4;
+  color: var(--hud-cream);
   text-overflow: ellipsis;
   white-space: nowrap;
-  background: rgba(232, 220, 196, 0.14);
-  border: 1px solid #4a3a27;
-  border-radius: 4px;
+  background: var(--hud-ink-2);
+  border: 2px solid var(--hud-panel-border);
+  border-radius: 2px;
+  box-shadow: var(--hud-tile-shadow);
   cursor: pointer;
 }
 #hud .command-button[aria-pressed="true"] {
-  color: #0a0806;
-  background: #f2c94c;
-  border-color: #f2c94c;
+  color: var(--hud-ink);
+  background: var(--hud-amber);
+  border-color: var(--hud-ink);
+  box-shadow:
+    1px 1px 0 0 #fff0a8 inset,
+    -2px -2px 0 0 var(--hud-amber-dark) inset,
+    0 0 0 1px var(--hud-panel-border);
 }
 #hud .command-spawn-button {
   display: grid;
@@ -446,17 +550,21 @@
   height: 48px;
   padding: 0;
   overflow: hidden;
-  background: rgba(232, 220, 196, 0.14);
-  border: 1px solid #4a3a27;
-  border-radius: 4px;
+  background: var(--hud-ink-2);
+  border: 2px solid var(--hud-panel-border);
+  border-radius: 2px;
+  box-shadow: var(--hud-tile-shadow);
   cursor: pointer;
 }
 #hud .command-spawn-button:hover,
 #hud .command-button:hover {
-  background: rgba(242, 201, 76, 0.24);
-  border-color: #f2c94c;
+  background: var(--hud-ink-3);
+  border-color: var(--hud-amber);
 }
-#hud .command-svg-icon,
+#hud .command-spawn-button:active,
+#hud .command-button:active {
+  box-shadow: var(--hud-tile-pressed);
+}
 #hud .command-spawn-button .item-icon {
   width: 32px;
   height: 32px;
@@ -466,6 +574,6 @@
   image-rendering: pixelated;
 }
 #hud .command-status {
-  color: #9b8a6c;
+  color: var(--hud-cream-dim);
   font-size: 12px;
 }

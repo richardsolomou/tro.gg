@@ -65,12 +65,12 @@ function showUpdateBanner(): void {
     alignItems: "center",
     gap: "14px",
     padding: "10px 14px",
-    background: "rgba(10, 8, 6, 0.92)",
-    color: "#e8dcc4",
+    background: "#15100b",
+    color: "#f0e4c7",
     font: "16px monospace",
-    border: "1px solid #4a3826",
-    borderRadius: "6px",
-    boxShadow: "0 4px 16px rgba(0, 0, 0, 0.5)",
+    border: "2px solid #3b2d1e",
+    borderRadius: "2px",
+    boxShadow: "0 0 0 1px #0a0806, 1px 1px 0 1px #6f6047 inset, -2px -2px 0 0 #070504 inset, 0 4px 0 rgba(0, 0, 0, 0.45)",
     zIndex: "9999",
   });
 
@@ -82,9 +82,10 @@ function showUpdateBanner(): void {
   Object.assign(refresh.style, {
     font: "16px monospace",
     color: "#0a0806",
-    background: "#ff8c2e",
-    border: "none",
-    borderRadius: "4px",
+    background: "#f2c94c",
+    border: "2px solid #0a0806",
+    borderRadius: "2px",
+    boxShadow: "1px 1px 0 0 #fff0a8 inset, -2px -2px 0 0 #9b6d20 inset, 0 0 0 1px #3b2d1e",
     padding: "5px 12px",
     cursor: "pointer",
   });
@@ -95,9 +96,11 @@ function showUpdateBanner(): void {
   dismiss.setAttribute("aria-label", "Dismiss");
   Object.assign(dismiss.style, {
     font: "16px monospace",
-    color: "#9b8a6c",
-    background: "transparent",
-    border: "none",
+    color: "#b8a98a",
+    background: "#0a0806",
+    border: "2px solid #3b2d1e",
+    borderRadius: "2px",
+    boxShadow: "1px 1px 0 0 rgba(240, 228, 199, 0.22) inset, -2px -2px 0 0 rgba(0, 0, 0, 0.55) inset",
     cursor: "pointer",
   });
   dismiss.addEventListener("click", () => bar.remove());

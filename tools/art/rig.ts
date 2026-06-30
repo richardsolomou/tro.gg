@@ -43,10 +43,10 @@ export function footLift(frame: FrameName, left: boolean): number {
   return 0;
 }
 
-/** Body bob as the avatar strides — 2px on a walk, 4px on a run's push-off. */
+/** Body bob as the avatar strides — 2px on a walk, 3px on a run's push-off. */
 export function bodyBob(frame: FrameName): number {
   if (frame === "idle") return 0;
-  return isRun(frame) ? -4 : -2;
+  return isRun(frame) ? -3 : -2;
 }
 
 /** Arm swing for a gait frame, matching the shared rig's hand offset (`stride × 3` walking,

@@ -14,14 +14,16 @@ import { jointAt, skeletonFor, type JointName } from "../../shared/rig.ts";
 import type { Facing, FrameName, PixelSink } from "../../shared/sprites.ts";
 
 export const BUFF = {
-  out: 0x241a0e,
-  skin: 0xd2a96f,
-  skinDk: 0x9c7438,
-  face: 0xf0dcab,
-  quill: 0x7c5c37,
-  quillDk: 0x503b22,
-  nose: 0x3a2415,
-  eye: 0x1c140c,
+  out: 0x1c1208,
+  skin: 0xd89850,
+  skinHi: 0xffd890,
+  skinDk: 0x8c541c,
+  face: 0xf8d88a,
+  quill: 0x8a5a2e,
+  quillHi: 0xb8783c,
+  quillDk: 0x4a2d14,
+  nose: 0x2c1808,
+  eye: 0x100804,
 } as const;
 
 /** One swole arm from the shared rig: a deltoid cap at the shoulder, a muscular limb to the
@@ -32,8 +34,10 @@ function buffArmRig(p: PixelSink, facing: Facing, frame: FrameName, slot: "main"
   const hd = jointAt("hog", facing, frame, slot === "main" ? "mainHand" : "offHand");
   const hy = hd.y + handDy;
   shaded(p, sh.x, sh.y - 1, 3, 3.4, c.skin, c.skinDk); // deltoid (shoulder cap)
+  dot(p, sh.x - 1, sh.y - 3, c.skinHi);
   drawArm(p, sh.x, sh.y, hd.x, hy, 2.8, c.skin, c.skinDk);
   shaded(p, hd.x, hy, 2.6, 2.6, c.skin, c.skinDk); // fist
+  dot(p, hd.x - 1, hy - 1, c.skinHi);
 }
 
 /** The buff hog minus its in-front main arm. The wrapper `buffDraw` adds the main arm on top;
@@ -51,7 +55,9 @@ export function buffBody(p: PixelSink, view: View, frame: FrameName): void {
     // back: mane crown, broad muscular back with a spine groove, arms hanging at the sides
     disc(p, 15.5, 13 + b, 5.6, 4.2, c.quill);
     quillSpikes(p, 15.5, 13.5 + b, 5.6, 3.4, c.quill);
+    rect(p, 12, 11 + b, 5, 1, c.quillHi);
     shaded(p, 15.5, 27 + b, 11, 9, c.skin, c.skinDk);
+    rect(p, 10, 22 + b, 5, 1, c.skinHi);
     rect(p, 14, 18 + b, 3, 13, c.skinDk);
     buffArmRig(p, facing, frame, "off");
     buffArmRig(p, facing, frame, "main"); // behind the body when facing away
@@ -61,10 +67,11 @@ export function buffBody(p: PixelSink, view: View, frame: FrameName): void {
   if (view === "side") {
     // right profile: muscular torso side-on, head leaning forward under the mane
     shaded(p, 14, 28 + b, 7.2, 8, c.skin, c.skinDk); // torso
-    disc(p, 16, 27 + b, 3, 2.8, c.skin); // near pec
+    disc(p, 16, 27 + b, 3, 2.8, c.skinHi); // near pec
     line(p, 12, 31 + b, 18, 31 + b, c.skinDk); // ab hint
     disc(p, 16, 14 + b, 4.6, 3.6, c.quill);
     quillSpikes(p, 15, 14 + b, 4.8, 3.2, c.quill);
+    rect(p, 13, 12 + b, 5, 1, c.quillHi);
     shaded(p, 20, 18 + b, 3.6, 3.4, c.face, c.skinDk); // jutting muzzle
     rect(p, 21, 17 + b, 2, 2, c.eye); dot(p, 21, 17 + b, 0xffffff);
     dot(p, 23, 19 + b, c.nose);
@@ -73,7 +80,7 @@ export function buffBody(p: PixelSink, view: View, frame: FrameName): void {
 
   // front: muscular chest + abs, off arm, mane, smug face (main arm rides on top)
   shaded(p, 15.5, 27 + b, 11.2, 8.4, c.skin, c.skinDk); // chest/torso
-  disc(p, 11, 25 + b, 3.2, 2.6, c.skin); disc(p, 20, 25 + b, 3.2, 2.6, c.skin); // pecs
+  disc(p, 11, 25 + b, 3.2, 2.6, c.skinHi); disc(p, 20, 25 + b, 3.2, 2.6, c.skinHi); // pecs
   line(p, 15.5, 25 + b, 15.5, 34 + b, c.skinDk);
   line(p, 11, 29 + b, 20, 29 + b, c.skinDk);
   line(p, 11, 32 + b, 20, 32 + b, c.skinDk);
@@ -82,6 +89,7 @@ export function buffBody(p: PixelSink, view: View, frame: FrameName): void {
   // quill mane on the crown
   disc(p, 15.5, 13 + b, 5, 3.6, c.quill);
   quillSpikes(p, 15.5, 13.5 + b, 5, 3.4, c.quill);
+  rect(p, 13, 11 + b, 5, 1, c.quillHi);
   // smug face below the mane
   shaded(p, 15.5, 18 + b, 4.8, 4, c.face, c.skinDk);
   rect(p, 13, 17 + b, 2, 2, c.eye); rect(p, 17, 17 + b, 2, 2, c.eye);

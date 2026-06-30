@@ -17,6 +17,7 @@ export interface HogSkin {
   quill: number;
   quillDk: number;
   face: number;
+  faceHi: number;
   faceDk: number;
   nose: number;
   eye: number;
@@ -25,9 +26,9 @@ export interface HogSkin {
 }
 
 export const HOG_SKINS: Record<string, HogSkin> = {
-  classic: { out: 0x241a0e, quill: 0x7c5c37, quillDk: 0x503b22, face: 0xf0dcab, faceDk: 0xcdac72, nose: 0x3a2415, eye: 0x140d07, glint: 0xffffff, limb: 0x9c6f3f },
-  snow: { out: 0x2b2a2e, quill: 0xb9bac1, quillDk: 0x83848d, face: 0xf3eee4, faceDk: 0xcfc4b2, nose: 0x564749, eye: 0x201a1a, glint: 0xffffff, limb: 0xada99f },
-  ember: { out: 0x2a1810, quill: 0xb35a2c, quillDk: 0x7a3a18, face: 0xf0d6a4, faceDk: 0xcea06a, nose: 0x3a1c0e, eye: 0x1c100a, glint: 0xffffff, limb: 0xa9663a },
+  classic: { out: 0x1c1208, quill: 0x8a5a2e, quillDk: 0x4a2d14, face: 0xf8d88a, faceHi: 0xfff0bc, faceDk: 0xc6904a, nose: 0x2c1808, eye: 0x100804, glint: 0xffffff, limb: 0xa86a30 },
+  snow: { out: 0x202024, quill: 0xc8cad0, quillDk: 0x777b88, face: 0xfff0d8, faceHi: 0xffffff, faceDk: 0xc8b898, nose: 0x504048, eye: 0x181014, glint: 0xffffff, limb: 0xb8b0a0 },
+  ember: { out: 0x241008, quill: 0xc85828, quillDk: 0x743014, face: 0xf8d080, faceHi: 0xffecb0, faceDk: 0xc88842, nose: 0x301408, eye: 0x180804, glint: 0xffffff, limb: 0xb0602c },
 };
 
 /** Spiky bumps around a dome's upper rim — outlined later, they read as quills. */
@@ -58,12 +59,14 @@ function closedEye(p: PixelSink, x: number, y: number, colour: number): void {
 
 function hogEar(p: PixelSink, x: number, y: number, h: HogSkin): void {
   disc(p, x, y, 2.4, 2.4, h.face);
+  dot(p, x - 1, y - 1, h.faceHi);
   disc(p, x, y + 0.4, 1.2, 1.2, h.faceDk);
 }
 
 /** A rounded paw at the hand joint — the cute cap on the end of a little hog arm. */
 function hogPaw(p: PixelSink, x: number, y: number, h: HogSkin): void {
   shaded(p, x, y, 1.8, 1.9, h.face, h.faceDk);
+  dot(p, x - 1, y - 1, h.faceHi);
 }
 
 /** One hog arm drawn from the shared rig: a short cream capsule shoulder→hand plus a paw, so it
@@ -80,10 +83,30 @@ function hogArmRig(p: PixelSink, facing: Facing, frame: FrameName, slot: "main" 
 function hogFaceFront(p: PixelSink, h: HogSkin, cy: number): void {
   eye(p, 10, cy - 1, h.eye, h.glint);
   eye(p, 20, cy - 1, h.eye, h.glint);
+  rect(p, 12, cy - 4, 7, 1, h.faceHi);
   // muzzle + nose
   disc(p, 15.5, cy + 3, 2.6, 2, h.faceDk);
+  rect(p, 13, cy + 2, 2, 1, h.faceHi);
   rect(p, 14, cy + 2, 3, 2, h.nose);
   dot(p, 15.5, cy + 4, h.out);
+}
+
+/** A few large highlight tiles, matching GSC's sparse interior detail. */
+function hogGscHighlights(p: PixelSink, view: View, b: number, h: HogSkin): void {
+  if (view === "side") {
+    rect(p, 12, 18 + b, 4, 1, h.quillDk);
+    rect(p, 18, 28 + b, 4, 1, h.faceHi);
+    rect(p, 14, 33 + b, 3, 1, h.faceDk);
+    return;
+  }
+  if (view === "up") {
+    rect(p, 10, 20 + b, 5, 1, h.quill);
+    rect(p, 17, 29 + b, 5, 1, h.quillDk);
+    return;
+  }
+  rect(p, 10, 16 + b, 4, 1, h.faceHi);
+  rect(p, 18, 24 + b, 5, 1, h.quillDk);
+  rect(p, 12, 31 + b, 5, 1, h.faceHi);
 }
 
 /** The hog minus its in-front main (near) arm — the body, head, off arm, and (facing up, where
@@ -98,6 +121,7 @@ export function hogBody(p: PixelSink, view: View, frame: FrameName, h: HogSkin):
   if (view === "up") {
     quillSpikes(p, 15.5, 24 + b, 13, 13.5, h.quill);
     shaded(p, 15.5, 24 + b, 13, 13.5, h.quill, h.quillDk);
+    hogGscHighlights(p, view, b, h);
     hogEar(p, 9, 13 + b, h); hogEar(p, 22, 13 + b, h);
     disc(p, 15.5, 30 + b, 7, 5, h.quillDk);
     hogArmRig(p, facing, frame, "off", h);
@@ -109,6 +133,7 @@ export function hogBody(p: PixelSink, view: View, frame: FrameName, h: HogSkin):
     quillSpikes(p, 11, 24 + b, 9.5, 12, h.quill);
     shaded(p, 11, 24 + b, 9.5, 12, h.quill, h.quillDk);
     shaded(p, 18, 31 + b, 8, 6.6, h.face, h.faceDk);
+    hogGscHighlights(p, view, b, h);
     hogEar(p, 20, 16 + b, h);
     shaded(p, 22, 22 + b, 6, 5.4, h.face, h.faceDk);
     disc(p, 27, 24 + b, 2.4, 2, h.faceDk);
@@ -120,6 +145,7 @@ export function hogBody(p: PixelSink, view: View, frame: FrameName, h: HogSkin):
   // front: quill mantle, cream body and head, ears, face, the off arm (main rides on top)
   quillSpikes(p, 15.5, 22 + b, 13, 13.5, h.quill);
   shaded(p, 15.5, 22 + b, 13, 13.5, h.quill, h.quillDk);
+  hogGscHighlights(p, view, b, h);
   hogEar(p, 9, 11 + b, h); hogEar(p, 22, 11 + b, h);
   shaded(p, 15.5, 32 + b, 9.2, 7.2, h.face, h.faceDk);
   hogArmRig(p, facing, frame, "off", h);
@@ -152,8 +178,11 @@ export function hogBall(p: PixelSink, h: HogSkin): void {
   const ry = 11.5;
   ballSpikes(p, cx, cy, rx + 1, ry + 1, h.quill);
   shaded(p, cx, cy, rx, ry, h.quill, h.quillDk);
+  rect(p, cx - 6, cy - 7, 6, 1, h.quill);
+  rect(p, cx + 2, cy + 1, 5, 1, h.quillDk);
   // cream face/belly tucked at the front-bottom, with the face buried in the curl
   shaded(p, cx, cy + 4, 8, 6, h.face, h.faceDk);
+  rect(p, cx - 4, cy + 1, 5, 1, h.faceHi);
   closedEye(p, 12, cy + 2, h.out);
   closedEye(p, 19, cy + 2, h.out);
   disc(p, cx, cy + 6, 2.4, 1.8, h.faceDk);

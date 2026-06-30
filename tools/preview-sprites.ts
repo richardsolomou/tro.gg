@@ -8,6 +8,7 @@
  *
  * `<set>` for --sheet:
  *   trogg_moss        a creature group: rows = facings, cols = frames (idle/walk/run/attack)
+ *   hog_classic       a common Hog creature group (same row/column layout)
  *   items             every entry in ITEM_ART, wrapped into a grid
  *   item:pickaxe      one item's views (<id> / _down / _up / _side)
  *   held:pickaxe      the item *wielded* — rows = facings, cols = frames, placed by the

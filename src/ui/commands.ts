@@ -91,7 +91,7 @@ function spawnSection(conn: DbConnection, zone: string, status: HTMLElement): HT
   const grid = document.createElement("div");
   grid.className = "command-spawn-grid";
 
-  grid.appendChild(spawnButton("Boulder", boulderIcon(), () => requestSpawn(conn, zone, status, { kind: "boulder" })));
+  grid.appendChild(spawnButton("Boulder", itemIcon("boulder"), () => requestSpawn(conn, zone, status, { kind: "boulder" })));
   for (const style of HOG_STYLES) {
     const label = `${titleCaseWords(style)} Hog`;
     grid.appendChild(spawnButton(label, hogIcon(style), () => requestSpawn(conn, zone, status, { kind: "hog", style })));
@@ -233,16 +233,6 @@ function spawnButton(label: string, icon: HTMLElement | SVGSVGElement, onClick: 
   button.appendChild(icon);
   button.addEventListener("click", onClick);
   return button;
-}
-
-function boulderIcon(): SVGSVGElement {
-  const icon = svg(32, 32);
-  icon.classList.add("command-svg-icon");
-  icon.append(
-    el("path", { d: "M6 19c0-7 5-12 12-12 5 0 9 4 9 10 0 7-5 11-12 11-6 0-9-4-9-9Z", fill: "#6b5640", stroke: "#2a2118", "stroke-width": 2, "stroke-linejoin": "round" }),
-    el("path", { d: "M10 15c3-4 8-5 13-3", fill: "none", stroke: "#8a7257", "stroke-width": 2, "stroke-linecap": "round" }),
-  );
-  return icon;
 }
 
 function hogIcon(style: HogStyle): HTMLSpanElement {

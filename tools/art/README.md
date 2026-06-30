@@ -70,6 +70,7 @@ attack (e.g. pickaxe rests low then strikes; shovel digs down; sword neutral).
 ```sh
 pnpm art:preview --ascii <name> [name...]   # text grid + colour legend — the cheap loop
 pnpm art:preview --sheet=trogg_moss         # contact sheet: rows=facings, cols=frames
+pnpm art:preview --sheet=hog_classic        # common Hog contact sheet
 pnpm art:preview --sheet=item:pickaxe       # one item's views (<id>/_down/_up/_side)
 pnpm art:preview --sheet=balls              # the common hogs' defensive ball form (ball_<style>)
 pnpm art:preview --sheet=items              # every ITEM_ART entry
