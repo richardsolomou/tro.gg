@@ -39,6 +39,23 @@ export function quillSpikes(p: PixelSink, cx: number, cy: number, rx: number, ry
   for (const [nx, ny] of dirs) disc(p, cx + nx * rx, cy + ny * ry, 2.1, 2.1, colour);
 }
 
+/** A full ring of quills around a curled body — the ball form bristles in every direction, not
+ *  just the upper-rim mantle of the standing hog. */
+function ballSpikes(p: PixelSink, cx: number, cy: number, rx: number, ry: number, colour: number): void {
+  const n = 16;
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    disc(p, cx + Math.cos(a) * rx, cy + Math.sin(a) * ry, 2.1, 2.1, colour);
+  }
+}
+
+/** A content closed eye: a small downward "‿" tuck, for the curled hog with its face buried. */
+function closedEye(p: PixelSink, x: number, y: number, colour: number): void {
+  dot(p, x - 1, y, colour);
+  dot(p, x, y + 1, colour);
+  dot(p, x + 1, y, colour);
+}
+
 function hogEar(p: PixelSink, x: number, y: number, h: HogSkin): void {
   disc(p, x, y, 2.4, 2.4, h.face);
   disc(p, x, y + 0.4, 1.2, 1.2, h.faceDk);
@@ -122,4 +139,27 @@ export function hogMainArm(p: PixelSink, view: View, frame: FrameName, h: HogSki
 export function hogDraw(p: PixelSink, view: View, frame: FrameName, h: HogSkin): void {
   hogBody(p, view, frame, h);
   hogMainArm(p, view, frame, h);
+}
+
+/** The defensive curl: the hog tucked into a spiky ball — quills bristling all the way round a
+ *  round body, with a cream underbelly and a buried, content face (closed eyes, little nose) and
+ *  tiny paws poking out at the front. One pose, facing-independent (a ball reads the same from
+ *  any side), so it lives outside the per-facing frame grid (`HOG_BALL_ART`). */
+export function hogBall(p: PixelSink, h: HogSkin): void {
+  const cx = 15.5;
+  const cy = 30;
+  const rx = 12;
+  const ry = 11.5;
+  ballSpikes(p, cx, cy, rx + 1, ry + 1, h.quill);
+  shaded(p, cx, cy, rx, ry, h.quill, h.quillDk);
+  // cream face/belly tucked at the front-bottom, with the face buried in the curl
+  shaded(p, cx, cy + 4, 8, 6, h.face, h.faceDk);
+  closedEye(p, 12, cy + 2, h.out);
+  closedEye(p, 19, cy + 2, h.out);
+  disc(p, cx, cy + 6, 2.4, 1.8, h.faceDk);
+  rect(p, 14, cy + 5, 3, 2, h.nose);
+  dot(p, cx, cy + 7, h.out);
+  // little paws poking out below the curl
+  shaded(p, 10, cy + 9, 1.9, 1.7, h.face, h.faceDk);
+  shaded(p, 21, cy + 9, 1.9, 1.7, h.face, h.faceDk);
 }

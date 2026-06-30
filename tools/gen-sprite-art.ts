@@ -23,12 +23,12 @@
 import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { FRAME_H, FRAME_W, frames, rgbaSink, type Facing, type FrameName, type Kind, type PixelSink } from "../shared/sprites.ts";
+import { COMMON_HOG_STYLES, FRAME_H, FRAME_W, frames, rgbaSink, type Facing, type FrameName, type Kind, type PixelSink } from "../shared/sprites.ts";
 import { chopHandOffset } from "../shared/rig.ts";
 import { compositeOver, disc, fmtArt, outlinePass, PIXEL_KEYS, quantize } from "./pixel_paint.ts";
 import type { View } from "./art/rig.ts";
 import { TROGG_SKINS, troggBody, troggDraw, troggMainArm } from "./art/trogg.ts";
-import { HOG_SKINS, hogBody, hogDraw, hogMainArm } from "./art/hog.ts";
+import { HOG_SKINS, hogBall, hogBody, hogDraw, hogMainArm } from "./art/hog.ts";
 import { BUFF, buffBody, buffDraw, buffMainArm } from "./art/buff.ts";
 import { DINO, dinoBody, dinoDraw, dinoMainArm } from "./art/dino.ts";
 import { CHICK, chickenDraw } from "./art/chicken.ts";
@@ -144,6 +144,14 @@ function rgbaSinkAlpha(data: Uint8Array, alpha: number): PixelSink {
   return { set: (x, y, c) => base.set(x, y, c, alpha) };
 }
 
+/** The defensive ball-form fill for a common hog style — an un-outlined fill the runtime composes
+ *  (outline + shadow) like an avatar frame, so it carries the same unified silhouette. */
+function paintBall(style: string): Uint8Array {
+  const layer = new Uint8Array(FRAME_W * FRAME_H * 4);
+  hogBall(rgbaSink(layer, FRAME_W, FRAME_H), HOG_SKINS[style] ?? HOG_SKINS.classic!);
+  return layer;
+}
+
 function paintGhost(): Uint8Array {
   const layer = new Uint8Array(FRAME_W * FRAME_H * 4);
   ghostDrawArt(rgbaSink(layer, FRAME_W, FRAME_H));
@@ -206,6 +214,13 @@ const entries = frames().map((f) => {
   return `  ${JSON.stringify(f.name)}: ${fmtArt(fill, "  ", `outline: ${outline}`)},`;
 });
 
+const ballEntries = COMMON_HOG_STYLES.map((style) => {
+  const outlineNum = (HOG_SKINS[style] ?? HOG_SKINS.classic!).out;
+  const outline = "0x" + (outlineNum >>> 0).toString(16).padStart(6, "0");
+  const fill = quantize(paintBall(style), FRAME_W, FRAME_H);
+  return `  ${JSON.stringify(style)}: ${fmtArt(fill, "  ", `outline: ${outline}`)},`;
+});
+
 const ghost = fmtArt(quantize(paintGhost(), FRAME_W, FRAME_H), "");
 
 const out =
@@ -219,8 +234,13 @@ const out =
   `/** The overhead "chop" arm overlay for attack frames (the pickaxe): the same arm raised on the\n` +
   ` *  wind-up and driven down on the strike. The runtime swaps this in for a chop-style weapon. */\n` +
   `export const CHOP_ARM_OVERLAY_ART: Record<string, IndexedSpriteArt> = {\n${chopEntries.join("\n")}\n};\n\n` +
+  `/** The defensive ball form for each common hog style (\`COMMON_HOG_STYLES\`): the hog curled\n` +
+  ` *  spiky-side-out. Keyed by style, outside the per-facing frame grid because a ball reads the\n` +
+  ` *  same from any direction. An un-outlined fill with an \`outline\`, composed at render like an\n` +
+  ` *  avatar frame. */\n` +
+  `export const HOG_BALL_ART: Record<string, IndexedSpriteArt> = {\n${ballEntries.join("\n")}\n};\n\n` +
   `export const GHOST_ART: IndexedSpriteArt = ${ghost};\n`;
 
 const OUT_PATH = join(dirname(fileURLToPath(import.meta.url)), "..", "shared", "sprite_art.ts");
 writeFileSync(OUT_PATH, out);
-console.log(`Wrote ${entries.length} frames + ${armEntries.length} arm overlays + ${chopEntries.length} chop overlays + ghost → ${OUT_PATH}`);
+console.log(`Wrote ${entries.length} frames + ${armEntries.length} arm overlays + ${chopEntries.length} chop overlays + ${ballEntries.length} hog balls + ghost → ${OUT_PATH}`);

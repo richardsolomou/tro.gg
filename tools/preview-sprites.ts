@@ -22,9 +22,9 @@
 
 import { deflateSync } from "node:zlib";
 import { writeFileSync } from "node:fs";
-import { AVATAR_FRAME_ART, GHOST_ART, PIXEL_KEYS, type IndexedSpriteArt } from "../shared/sprite_art.ts";
+import { AVATAR_FRAME_ART, GHOST_ART, HOG_BALL_ART, PIXEL_KEYS, type IndexedSpriteArt } from "../shared/sprite_art.ts";
 import { ITEM_ART, ITEM_ART_W } from "../shared/item_art.ts";
-import { ANCHOR, composeAvatarFrame, FACINGS, FRAME_H, FRAME_W, FRAMES, type Facing, type FrameName, type Kind } from "../shared/sprites.ts";
+import { ANCHOR, COMMON_HOG_STYLES, composeAvatarFrame, FACINGS, FRAME_H, FRAME_W, FRAMES, type Facing, type FrameName, type Kind } from "../shared/sprites.ts";
 import { quantize } from "./pixel_paint.ts";
 import { ART, attackEase, heldTransform } from "../src/game/equipment.ts";
 
@@ -34,6 +34,11 @@ const KEY_INDEX: Record<string, number> = Object.fromEntries([...PIXEL_KEYS].map
 
 function resolve(name: string): IndexedSpriteArt | undefined {
   if (name === "ghost") return GHOST_ART;
+  if (name.startsWith("ball_")) {
+    const ball = HOG_BALL_ART[name.slice("ball_".length)];
+    // ball forms are un-outlined fills like avatar frames — compose (outline + shadow) to preview
+    return ball && ball.outline !== undefined ? quantize(composeAvatarFrame(ball, ball.outline), FRAME_W, FRAME_H) : ball;
+  }
   const avatar = AVATAR_FRAME_ART[name];
   // avatar frames are un-outlined fills now — compose (outline + shadow) for the contact sheet
   if (avatar) return avatar.outline === undefined ? avatar : quantize(composeAvatarFrame(avatar, avatar.outline), FRAME_W, FRAME_H);
@@ -199,6 +204,10 @@ function buildGrid(): Grid {
     const id = sheetArg.slice("item:".length);
     const views = [id, `${id}_down`, `${id}_up`, `${id}_side`].filter((n) => resolve(n));
     return { rows: [views], colLabels: views };
+  }
+  if (sheetArg === "balls") {
+    const row = COMMON_HOG_STYLES.map((s) => `ball_${s}`);
+    return { rows: [row], colLabels: row };
   }
   if (sheetArg === "items") {
     const all = Object.keys(ITEM_ART);
