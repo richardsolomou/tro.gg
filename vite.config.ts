@@ -20,11 +20,17 @@ const versionFile: Plugin = {
 // In dev, Vite has no directory-index resolution, so `/play` would fall through
 // to the SPA fallback and serve the landing. Rewrite it to `/play/` so the dev
 // server serves the game page — matching how Cloudflare serves `/play` in prod.
+// `/preview` is the dev-only art preview page (`preview/index.html`); same rewrite.
 const playRoute: Plugin = {
   name: "play-route",
   configureServer(server) {
     server.middlewares.use((req, _res, next) => {
-      if (req.url === "/play") req.url = "/play/";
+      // Split off the query so a deep link like `/preview?creature=…` still rewrites to the
+      // directory index (an exact match would miss it and fall through to the SPA landing).
+      const [path, query] = (req.url ?? "").split("?");
+      const suffix = query ? `?${query}` : "";
+      if (path === "/play") req.url = `/play/${suffix}`;
+      if (path === "/preview") req.url = `/preview/${suffix}`;
       next();
     });
   },
@@ -46,9 +52,10 @@ export default defineConfig({
     sourcemap: true,
     rollupOptions: {
       input: {
-        // Two pages: the landing at `/`, the game at `/play`.
+        // Pages: the landing at `/`, the game at `/play`, the dev art preview at `/preview`.
         main: fileURLToPath(new URL("./index.html", import.meta.url)),
         play: fileURLToPath(new URL("./play/index.html", import.meta.url)),
+        preview: fileURLToPath(new URL("./preview/index.html", import.meta.url)),
       },
     },
   },

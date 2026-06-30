@@ -1,0 +1,8 @@
+# Generated pixel-art maps + sheet. Source of truth is the paint logic in
+# tools/art/ and tools/gen-item-art.ts; these are committed so build/test work
+# without a codegen step (CI re-checks they're up to date). Marked generated so
+# they collapse in reviews and don't skew language stats.
+shared/sprite_art.ts linguist-generated=true
+shared/item_art.ts linguist-generated=true
+assets/sprites/troggs-and-hogs.atlas.json linguist-generated=true
+assets/sprites/troggs-and-hogs.png binary

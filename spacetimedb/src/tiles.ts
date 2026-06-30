@@ -1,0 +1,276 @@
+import {
+  CARDINALS,
+  elapsedMs,
+  footprintTiles,
+  getZone,
+  hogStyleFor,
+  hogSize,
+  HOG_MAX_HEALTH,
+  MAX_BOULDERS_PER_ZONE,
+  MAX_HOGS_PER_ZONE,
+  projectMotion,
+  snapToTile,
+  spawnTile,
+  type Stamp,
+  tileKey,
+  type Zone,
+  zoneBounds,
+} from "../../shared/index";
+import type { Ctx } from "./schema";
+
+/** A fresh trogg's spawn tile: the zone centre (a walkable interior tile). */
+export function spawnAt(zone: Zone): { x: number; y: number } {
+  return { x: Math.floor(zone.width / 2), y: Math.floor(zone.height / 2) };
+}
+
+/** The motion-bearing slice of a player row that `settle` derives position from. */
+type Settleable = { x: number; y: number; dirX: number; dirY: number; running: boolean; path?: string; zoneId: string; movedAt: Stamp };
+
+/**
+ * Derive the trogg's position at `now` from its stored motion intent, colliding
+ * against everything solid to a trogg — walls, boulders, and Hogs — so it settles
+ * flush against an obstacle, never inside one, then snap it to a whole tile:
+ * movement is grid-locked (GDD "Movement"), so a stored origin is always a tile
+ * centre. Troggs do *not* collide with each other (GDD "Hogs"), so other players
+ * are absent here. The client only sends `move` when the trogg is tile-aligned, so
+ * the snap is a no-op in the normal case and a guard against a misbehaving client
+ * in the rest (invariant 3).
+ */
+export function settle(ctx: Ctx, p: Settleable, now: Stamp): { x: number; y: number } {
+  const zone = getZone(p.zoneId);
+  if (!zone) return { x: p.x, y: p.y };
+  const blockers = troggBlockers(ctx, p.zoneId, now);
+  const bounds = zoneBounds(zone, (x, y) => blockers.has(tileKey(x, y)));
+  return snapToTile(projectMotion(p, elapsedMs(p.movedAt, now), bounds));
+}
+
+/** Count rows in a table iterable without materializing an array. */
+export function countRows(rows: Iterable<unknown>): number {
+  let n = 0;
+  for (const _ of rows) n++;
+  return n;
+}
+
+/** The set of tiles occupied by boulders in a zone, keyed by `tileKey`. */
+export function boulderTiles(ctx: Ctx, zoneId: string): Set<string> {
+  const tiles = new Set<string>();
+  for (const b of ctx.db.boulder.zoneId.filter(zoneId)) tiles.add(tileKey(b.x, b.y));
+  return tiles;
+}
+
+/** The tiles solid to a trogg in a zone: boulders + Hogs (GDD "Hogs"). Not other
+ *  troggs — trogg↔trogg has no collision. Hogs re-base every tile, so their stored
+ *  intent is at most one tile old; projecting against walls + boulders puts each Hog
+ *  within a tile of its real spot, enough to block a trogg flush. */
+export function troggBlockers(ctx: Ctx, zoneId: string, now: Stamp): Set<string> {
+  const tiles = boulderTiles(ctx, zoneId);
+  addHogTiles(ctx, zoneId, now, tiles);
+  return tiles;
+}
+
+/** Add each Hog's current footprint (projected to `now`, against walls + boulders) to
+ *  `set` — one tile for a common Hog, the whole 2×2 for a big one (GDD "Hogs"). */
+export function addHogTiles(ctx: Ctx, zoneId: string, now: Stamp, set: Set<string>): void {
+  const zone = getZone(zoneId);
+  if (!zone) return;
+  const boulders = boulderTiles(ctx, zoneId);
+  const bounds = zoneBounds(zone, (x, y) => boulders.has(tileKey(x, y)));
+  for (const h of ctx.db.hog.zoneId.filter(zoneId)) {
+    const size = hogSize(h.style);
+    const pos = projectMotion({ ...h, size }, elapsedMs(h.movedAt, now), bounds);
+    for (const tile of footprintTiles(Math.round(pos.x), Math.round(pos.y), size)) set.add(tileKey(tile.x, tile.y));
+  }
+}
+
+/** Add each online trogg's current tile (projected to `now`, against walls + boulders
+ *  + Hogs) to `set`, skipping `exclude` (a trogg never blocks itself). Lets Hogs and
+ *  dropped objects avoid the tiles troggs stand on. */
+export function addPlayerTiles(ctx: Ctx, zoneId: string, now: Stamp, set: Set<string>, exclude?: Ctx["sender"]): void {
+  const zone = getZone(zoneId);
+  if (!zone) return;
+  const blockers = troggBlockers(ctx, zoneId, now);
+  const bounds = zoneBounds(zone, (x, y) => blockers.has(tileKey(x, y)));
+  for (const p of ctx.db.player.zoneId.filter(zoneId)) {
+    if (!p.online) continue;
+    if (exclude && p.identity.isEqual(exclude)) continue;
+    const pos = projectMotion(p, elapsedMs(p.movedAt, now), bounds);
+    set.add(tileKey(Math.round(pos.x), Math.round(pos.y)));
+  }
+}
+
+/** Every solid tile a freshly placed entity must avoid — boulders, Hogs, and other
+ *  troggs — so a spawn or drop never lands on top of something. `exclude` skips the
+ *  acting trogg's own tile, leaving it as a last-resort fallback when boxed in. */
+export function solidTiles(ctx: Ctx, zoneId: string, now: Stamp, exclude?: Ctx["sender"]): Set<string> {
+  const tiles = boulderTiles(ctx, zoneId);
+  addHogTiles(ctx, zoneId, now, tiles);
+  addPlayerTiles(ctx, zoneId, now, tiles, exclude);
+  return tiles;
+}
+
+/** Mark existing pickup items as visually occupied for new debug spawns. */
+export function addGroundItemTiles(ctx: Ctx, zoneId: string, set: Set<string>): void {
+  for (const item of ctx.db.groundItem.zoneId.filter(zoneId)) set.add(tileKey(item.x, item.y));
+}
+
+/** The boulder at a tile in a zone, or undefined. */
+export function boulderAt(ctx: Ctx, zoneId: string, x: number, y: number) {
+  for (const b of ctx.db.boulder.zoneId.filter(zoneId)) {
+    if (b.x === x && b.y === y) return b;
+  }
+  return undefined;
+}
+
+/** The pickup item at a tile in a zone, or undefined. */
+export function groundItemAt(ctx: Ctx, zoneId: string, x: number, y: number) {
+  for (const item of ctx.db.groundItem.zoneId.filter(zoneId)) {
+    if (item.x === x && item.y === y) return item;
+  }
+  return undefined;
+}
+
+/**
+ * The Hog whose footprint covers a tile in a zone, or undefined. Unlike a boulder a Hog
+ * is in motion, so re-derive each Hog's position at `now` (against walls and boulders,
+ * like `wanderHogs`) and round to its tile before comparing — the same projection the
+ * client renders, so a faced Hog matches what the player sees (invariant 3). A big 2×2 Hog
+ * answers for any of its four footprint tiles, so a sword or thrown object lands on the
+ * giant's body, not only its anchor tile. (Pickup excludes giants separately — see
+ * `pickupTarget` — since a giant can't be carried.)
+ */
+export function hogAt(ctx: Ctx, zoneId: string, x: number, y: number, now: Stamp) {
+  const zone = getZone(zoneId);
+  if (!zone) return undefined;
+  const occupied = boulderTiles(ctx, zoneId);
+  const bounds = zoneBounds(zone, (tx, ty) => occupied.has(tileKey(tx, ty)));
+  for (const h of ctx.db.hog.zoneId.filter(zoneId)) {
+    const size = hogSize(h.style);
+    const pos = projectMotion({ ...h, size }, elapsedMs(h.movedAt, now), bounds);
+    const ax = Math.round(pos.x);
+    const ay = Math.round(pos.y);
+    if (footprintTiles(ax, ay, size).some((t) => t.x === x && t.y === y)) return h;
+  }
+  return undefined;
+}
+
+export function hogTile(ctx: Ctx, h: NonNullable<ReturnType<typeof hogAt>>, now: Stamp): { x: number; y: number } {
+  const zone = getZone(h.zoneId);
+  if (!zone) return { x: h.x, y: h.y };
+  const occupied = boulderTiles(ctx, h.zoneId);
+  const bounds = zoneBounds(zone, (tx, ty) => occupied.has(tileKey(tx, ty)));
+  const pos = projectMotion(h, elapsedMs(h.movedAt, now), bounds);
+  return { x: Math.round(pos.x), y: Math.round(pos.y) };
+}
+
+/**
+ * The online, living trogg currently on a tile in a zone, or undefined. Troggs do
+ * not collide with each other, but sword attacks need a server-authoritative target
+ * under the faced adjacent tile. Project each candidate at `now` with the same
+ * bounds a trogg uses for movement, then round to its rendered tile.
+ */
+export function playerAt(ctx: Ctx, zoneId: string, x: number, y: number, now: Stamp, exclude?: Ctx["sender"]) {
+  const zone = getZone(zoneId);
+  if (!zone) return undefined;
+  const blockers = troggBlockers(ctx, zoneId, now);
+  const bounds = zoneBounds(zone, (tx, ty) => blockers.has(tileKey(tx, ty)));
+  for (const p of ctx.db.player.zoneId.filter(zoneId)) {
+    if (!p.online || p.dead) continue;
+    if (exclude && p.identity.isEqual(exclude)) continue;
+    const pos = projectMotion(p, elapsedMs(p.movedAt, now), bounds);
+    if (Math.round(pos.x) === x && Math.round(pos.y) === y) return p;
+  }
+  return undefined;
+}
+
+/** Adjacent pickup candidates, with the faced tile first when the client has a heading. */
+export function pickupDirs(dir: { dirX: number; dirY: number } | null): { dirX: number; dirY: number }[] {
+  if (!dir) return [];
+  if (dir.dirX === 0 && dir.dirY === 0) return [...CARDINALS];
+  return [dir, ...CARDINALS.filter((d) => d.dirX !== dir.dirX || d.dirY !== dir.dirY)];
+}
+
+/** The adjacent target `interact` should pick up, preferring the faced direction. */
+export function pickupTarget(ctx: Ctx, zoneId: string, x: number, y: number, dir: { dirX: number; dirY: number } | null, now: Stamp) {
+  for (const d of pickupDirs(dir)) {
+    const tx = x + d.dirX;
+    const ty = y + d.dirY;
+    const item = groundItemAt(ctx, zoneId, tx, ty);
+    if (item) return { kind: "item" as const, row: item };
+    const b = boulderAt(ctx, zoneId, tx, ty);
+    if (b) return { kind: "boulder" as const, row: b };
+    const h = hogAt(ctx, zoneId, tx, ty, now);
+    // A big 2×2 Hog is a fixture, not liftable — the carry overlay is one tile, and a
+    // giant on your head makes no sense — so only common Hogs are pickup targets.
+    if (h && hogSize(h.style) <= 1) return { kind: "hog" as const, row: h };
+  }
+  return undefined;
+}
+
+/** A Hog row's display style. Empty preserves existing id-derived rows; non-empty
+ *  is used for Hogs that were carried and put down again. */
+export function effectiveHogStyle(h: { id: bigint; style?: string }): string {
+  return hogStyleFor(h.id.toString(), h.style);
+}
+
+/**
+ * Drop a carried entity (GDD "Interacting") onto the faced tile, or the nearest
+ * free neighbour, then the trogg's own tile (`spawnTile`) — so a boulder never
+ * lands in a wall or on another boulder. Returns false if every candidate is
+ * blocked, leaving the trogg still carrying it. `x`/`y` are the trogg's settled
+ * tile; `dirX`/`dirY` its facing (0,0 = no faced tile, take a neighbour).
+ */
+export function placeCarried(
+  ctx: Ctx,
+  zone: Zone,
+  kind: string,
+  style: string,
+  occupied: Set<string>,
+  x: number,
+  y: number,
+  dirX: number,
+  dirY: number,
+): boolean {
+  const tile = spawnTile(zone, (tx, ty) => occupied.has(tileKey(tx, ty)), x, y, dirX, dirY);
+  if (!tile) return false;
+  return placeCarriedAt(ctx, zone, kind, style, tile);
+}
+
+/** Materialise a carried entity on an exact tile, enforcing the same caps as put-down. */
+export function placeCarriedAt(ctx: Ctx, zone: Zone, kind: string, style: string, tile: { x: number; y: number }): boolean {
+  // Honour the per-zone cap on the put-down too, so picking up, spawning to the cap, then
+  // dropping can't push a zone past its ceiling. Refusing keeps the trogg carrying — the
+  // same outcome as a boxed-in drop — so nothing is lost.
+  if (kind === "boulder") {
+    if (countRows(ctx.db.boulder.zoneId.filter(zone.slug)) >= MAX_BOULDERS_PER_ZONE) return false;
+    ctx.db.boulder.insert({ id: 0n, zoneId: zone.slug, x: tile.x, y: tile.y });
+  } else if (kind === "hog") {
+    if (countRows(ctx.db.hog.zoneId.filter(zone.slug)) >= MAX_HOGS_PER_ZONE) return false;
+    ctx.db.hog.insert({ id: 0n, zoneId: zone.slug, x: tile.x, y: tile.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, path: "", homeX: tile.x, homeY: tile.y, style, health: HOG_MAX_HEALTH });
+  } else {
+    return false;
+  }
+  return true;
+}
+
+/** The direction a trogg visually faces: current motion while moving, standing facing otherwise. */
+export function facingDir(p: { dirX: number; dirY: number; faceX: number; faceY: number }): { dirX: number; dirY: number } {
+  if (p.dirX !== 0 || p.dirY !== 0) return { dirX: p.dirX, dirY: p.dirY };
+  return { dirX: p.faceX, dirY: p.faceY };
+}
+
+/** Coerce an untrusted axis input to -1, 0, or 1. */
+export function unitStep(value: number): number {
+  return value === -1 || value === 1 ? value : 0;
+}
+
+/**
+ * Resolve an untrusted (dirX, dirY) to a cardinal intent: idle, or one axis of
+ * unit length. A diagonal (both axes set) is invalid — movement is 4-directional
+ * — and returns null so the caller can reject it.
+ */
+export function cardinal(dirX: number, dirY: number): { dirX: number; dirY: number } | null {
+  const x = unitStep(dirX);
+  const y = unitStep(dirY);
+  if (x !== 0 && y !== 0) return null;
+  return { dirX: x, dirY: y };
+}

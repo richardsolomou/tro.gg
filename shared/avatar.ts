@@ -11,10 +11,20 @@
 
 import { COMMON_HOG_STYLES, HOG_STYLES, TROGG_STYLES, type HogStyle, type TroggStyle } from "./sprites";
 
-/** Distinct, readable tints against the world's dark ground — the recolour palette. */
+/** The recolour palette: earthy hide tints applied as a multiply over the sprite's
+ *  olive base, so a trogg always reads as a believable stone-and-moss creature —
+ *  natural greens, greys, tans and clays, never neon. */
 export const TROGG_COLORS = [
-  0xff8c2e, 0x6fdc9c, 0x4ea3ff, 0xffd34e, 0xff6b6b, 0xb388ff,
-  0xff8cc6, 0x5ad1c8, 0xc0e85a, 0xe89c5a, 0x9ad0ff, 0xf45ad1,
+  0xe9e2c6, // bone / natural olive
+  0xbad880, // moss green
+  0x8fbf5e, // deep forest green
+  0xc9cf86, // olive khaki
+  0xc7c6bb, // stone grey
+  0xa6b3ab, // slate
+  0xddc28d, // sand tan
+  0xc89a5c, // ochre
+  0xc4845e, // clay red-brown
+  0xa89a6a, // mud olive
 ] as const;
 
 /** The stored value of a trogg that hasn't chosen a colour / style: fall back to the id-derived default. */

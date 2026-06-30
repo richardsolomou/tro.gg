@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>tro.gg — art preview</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #0a0806; color: #e8dcc4; font-family: monospace; overflow: hidden; }
+      #preview { position: absolute; inset: 0; }
+      canvas { display: block; image-rendering: pixelated; }
+      #controls {
+        position: absolute; top: 0; left: 0; right: 0; z-index: 10;
+        display: flex; flex-wrap: wrap; gap: 14px; align-items: center;
+        padding: 8px 12px; background: rgba(10, 8, 6, 0.82); border-bottom: 1px solid #2a2218;
+        font-size: 13px;
+      }
+      #controls .group { display: flex; gap: 4px; align-items: center; }
+      #controls .group > .lbl { color: #9b8a6c; margin-right: 4px; }
+      #controls button {
+        font-family: monospace; font-size: 13px; cursor: pointer;
+        background: #1c1710; color: #e8dcc4; border: 1px solid #3a2f20; border-radius: 4px; padding: 3px 9px;
+      }
+      #controls button.on { background: #6a5a36; color: #fff; border-color: #8a7544; }
+      #controls input[type="range"] { width: 160px; }
+      /* item palette — styled like the in-game inventory slots */
+      #controls .palette { display: flex; gap: 6px; }
+      #controls .slot {
+        width: 40px; height: 40px; padding: 3px; display: grid; place-items: center;
+        background: rgba(232, 220, 196, 0.08); border: 1px solid #2a2118; border-radius: 4px;
+        cursor: pointer; color: #9b8a6c;
+      }
+      #controls .slot.selected { border-color: #f2c94c; background: rgba(242, 201, 76, 0.18); }
+      #controls .slot canvas { width: 32px; height: 32px; image-rendering: pixelated; }
+      #controls .slot-none { font-size: 18px; }
+      /* creature slots are taller — avatar frames are 32×48 */
+      #controls .slot.cslot { height: 54px; }
+      #controls .slot.cslot canvas { width: auto; height: 48px; }
+    </style>
+  </head>
+  <body>
+    <div id="controls"></div>
+    <div id="preview"></div>
+    <script type="module" src="/src/preview/main.ts"></script>
+  </body>
+</html>

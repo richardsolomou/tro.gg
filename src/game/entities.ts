@@ -1,17 +1,17 @@
 import Phaser from "phaser";
-import { ANCHOR, FRAME_H, FRAME_W, HOG_MAX_HEALTH, ITEM_ART_W, PLAYER_MAX_HEALTH, hogSize, timestampMs, type Facing, type FrameName, type Kind, type ProjectedMotion, type Stamp } from "@trogg/shared";
+import { ANCHOR, attackArmStyle, FRAME_H, FRAME_W, forward, hasArmOverlay, hasChopOverlay, HOG_MAX_HEALTH, ITEM_ART_W, PLAYER_MAX_HEALTH, hogSize, timestampMs, type EquipSlot, type Facing, type FrameName, type Kind, type ProjectedMotion, type Stamp } from "@trogg/shared";
 import type { Boulder, GroundItem, Hog, Player } from "../net/module_bindings/types";
-import { AVATAR_TEX, avatarFrame, avatarFrameName, facingFromDir, GHOST_FRAME, GHOST_TEX } from "./avatars.js";
+import { attackFrame, AVATAR_ARM_TEX, AVATAR_CHOP_ARM_TEX, AVATAR_TEX, avatarFrame, avatarFrameName, facingFromDir, GHOST_FRAME, GHOST_TEX } from "./avatars.js";
 import { hasItemArt, ITEM_TEX } from "./items.js";
+import { ART, attackEase, flinchPose, heldTransform } from "./equipment.js";
 import { cssColor, TEXT_RESOLUTION } from "../ui_text.js";
 import { audio } from "../audio.js";
 
-/** Art pixels per tile — terrain tiles are drawn at this and scaled up crisply. */
-export const ART = 16;
+export { ART };
 /** Carried tile-sized objects stay full tile size; pickup changes position, not scale. */
 const CARRY_SCALE = 1;
-/** How long a visible equipment use impulse lasts. */
-const EQUIPMENT_ACTION_MS = 240;
+/** How long a visible equipment use impulse lasts — a quick strike plus a recovery tail. */
+const EQUIPMENT_ACTION_MS = 300;
 /** How long the apparition spends materialising. */
 const GHOST_FADE_IN_MS = 900;
 /** How long the apparition lingers at full presence. */
@@ -24,6 +24,19 @@ const GHOST_PEAK_ALPHA = 0.82;
 const GHOST_DRIFT_TILES = 0.44;
 /** Anything `place` can drop on a tile — a marker, a sprite, a stray graphic. */
 type Positionable = { setPosition(x: number, y: number): unknown };
+
+/** A live equipped-item overlay and the item/facing it currently shows, so it rebuilds only on change. */
+interface EquipOverlay {
+  glyph: Phaser.GameObjects.Container;
+  kind: string;
+  facing: Facing;
+}
+
+/** The equip slots rendered as hand overlays, paired with how to read each from a player row. */
+const EQUIP_SLOTS: { slot: EquipSlot; item: (p: Player) => string }[] = [
+  { slot: "mainHand", item: (p) => p.equippedMainHand },
+  { slot: "offHand", item: (p) => p.equippedOffHand },
+];
 
 function ghostSeed(id: bigint | undefined, x: number, y: number): number {
   const idPart = id === undefined ? 0 : Number(id % 2_147_483_647n);
@@ -41,6 +54,12 @@ export interface Tracked {
   facing: Facing;
   /** The chosen/derived body style, baked into the marker; rebuilt when it changes. */
   style: string;
+  /** The player's stable tint colour, kept so a hit flash can restore it after flashing. */
+  baseColor: number;
+  /** Local monotonic start of the current hit-flinch (recoil + flash), or undefined when none. */
+  flinchBaseMs?: number;
+  /** The near-arm overlay redrawn over a held main-hand item so the hand grips the weapon. */
+  armOverlay?: Phaser.GameObjects.Sprite;
   /** The frame key currently on the sprite, so the ticker only swaps on change. */
   frameKey: string;
   /** Current avatar animation frame, used to keep equipment anchored to the hand. */
@@ -53,10 +72,8 @@ export interface Tracked {
   carriedKind: string;
   /** Which style the carried overlay shows (only Hogs use it). */
   carriedStyle: string;
-  /** The equipped main-hand overlay, drawn near the hand rather than above the head. */
-  equipped?: Phaser.GameObjects.Container;
-  equippedKind: string;
-  equippedFacing?: Facing;
+  /** Equipped hand overlays keyed by slot, drawn near the hand rather than above the head. */
+  equip: Partial<Record<EquipSlot, EquipOverlay>>;
   /** Local monotonic start for the latest synced equipment-use impulse. */
   equipmentActionBaseMs?: number;
   /** Visible countdown while dead, refreshed from `respawnAt` each frame. */
@@ -85,6 +102,8 @@ export interface HogView {
   /** The hedgehog skin, derived from the Hog's id so a zone reads as a varied crowd. */
   style: string;
   frameKey: string;
+  /** Local monotonic start of the current hit-flinch (recoil + flash), or undefined when none. */
+  flinchBaseMs?: number;
 }
 
 /**
@@ -200,10 +219,97 @@ export function createEntities(scene: Phaser.Scene, getTile: () => number) {
     const moving = motion.dirX !== 0 || motion.dirY !== 0;
     const faceX = moving ? motion.dirX : entry.player.faceX;
     const faceY = moving ? motion.dirY : entry.player.faceY;
-    if (entry.sprite) driveSprite(entry.sprite, "trogg", entry.style, faceX, faceY, entry.player.running, entry, now, moving);
+    if (entry.sprite) driveSprite(entry.sprite, "trogg", entry.style, faceX, faceY, entry.player.running, entry, now, moving, attackPhase(entry, now));
     if (entry.respawnText && entry.player.respawnAt) entry.respawnText.setText(respawnCountdown(entry.player.respawnAt));
     applyEquipment(entry);
     animateEquipment(entry, now);
+    applyFlinch(entry, now);
+    syncArmOverlay(entry, now);
+  };
+
+  /** Redraw the near (main-hand) arm over the held item so the hand grips the weapon instead of
+   *  the weapon covering the arm. The overlay is a full-frame sprite that mirrors the body — same
+   *  frame, transform, and tint (so it rides the walk cycle and the hit-flinch) — drawn on top of
+   *  the item. It exists only for the front facings that have an overlay frame and while the main
+   *  hand holds something; facing up needs none (the arm and item are both behind the body). */
+  const syncArmOverlay = (entry: Tracked, now: number): void => {
+    const sprite = entry.sprite;
+    const frame = entry.frameName ?? "idle";
+    const name = avatarFrameName("trogg", entry.style, entry.facing, frame);
+    const main = entry.player.equippedMainHand;
+    const isAttack = frame === "attack_a" || frame === "attack_b";
+    // a chop weapon (pickaxe) on an attack frame uses the overhead chop arm; everything else the
+    // neutral arm. The attack base omits the in-front arm, so the overlay supplies it even unarmed.
+    const chop = main !== "" && isAttack && attackArmStyle(main) === "chop" && hasChopOverlay(name);
+    const tex = chop ? AVATAR_CHOP_ARM_TEX : AVATAR_ARM_TEX;
+    const want = sprite !== undefined && (main !== "" || isAttack) && (chop ? hasChopOverlay(name) : hasArmOverlay(name));
+    if (!want) {
+      entry.armOverlay?.setVisible(false);
+      return;
+    }
+    let ov = entry.armOverlay;
+    if (!ov) {
+      ov = scene.add.sprite(0, 0, tex, name);
+      ov.setOrigin(ANCHOR.x / FRAME_W, ANCHOR.y / FRAME_H);
+      ov.setScale(avatarScale());
+      entry.marker.add(ov);
+      entry.armOverlay = ov;
+    }
+    ov.setVisible(true);
+    ov.setTexture(tex, name);
+    ov.setPosition(sprite!.x, sprite!.y); // after applyFlinch, so the arm rides the recoil too
+    const fl = entry.flinchBaseMs === undefined ? null : flinchPose(now - entry.flinchBaseMs);
+    if (fl?.flash) ov.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
+    else ov.setTint(entry.baseColor).setTintMode(Phaser.TintModes.MULTIPLY);
+    entry.marker.bringToTop(ov);
+  };
+
+  /** Play the hit-flinch on a damaged trogg: a brief recoil away from its facing plus a white
+   *  flash, the held item recoiling with it, restored to rest when the flinch ends. */
+  const applyFlinch = (entry: Tracked, now: number): void => {
+    if (!entry.sprite || entry.flinchBaseMs === undefined) return;
+    const tile = getTile();
+    const fl = flinchPose(now - entry.flinchBaseMs);
+    if (!fl) {
+      entry.flinchBaseMs = undefined;
+      entry.sprite.setPosition(tile / 2, feetY());
+      entry.sprite.setTint(entry.baseColor).setTintMode(Phaser.TintModes.MULTIPLY);
+      return;
+    }
+    const f = forward(entry.facing); // recoil opposite the facing
+    const k = tile * 0.1 * fl.shove;
+    entry.sprite.setPosition(tile / 2 - f.x * k, feetY() - f.y * k);
+    // a solid white fill on the flash beats, the player tint (multiply) otherwise
+    if (fl.flash) entry.sprite.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
+    else entry.sprite.setTint(entry.baseColor).setTintMode(Phaser.TintModes.MULTIPLY);
+    for (const ov of Object.values(entry.equip)) if (ov) ov.glyph.setPosition(ov.glyph.x - f.x * k, ov.glyph.y - f.y * k);
+  };
+
+  /** The same hit-flinch for a Hog: recoil opposite its facing plus a white flash. Hogs carry no
+   *  tint, so the flash clears back to none. The sprite rests at the centre of its footprint. */
+  const applyHogFlinch = (view: HogView, now: number): void => {
+    if (view.flinchBaseMs === undefined) return;
+    const c = (getTile() * hogSize(view.style)) / 2;
+    const fl = flinchPose(now - view.flinchBaseMs);
+    if (!fl) {
+      view.flinchBaseMs = undefined;
+      view.sprite.setPosition(c, c);
+      view.sprite.setTint(0xffffff).setTintMode(Phaser.TintModes.MULTIPLY);
+      return;
+    }
+    const f = forward(view.facing);
+    const k = getTile() * 0.1 * fl.shove;
+    view.sprite.setPosition(c - f.x * k, c - f.y * k);
+    if (fl.flash) view.sprite.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
+    else view.sprite.setTint(0xffffff).setTintMode(Phaser.TintModes.MULTIPLY);
+  };
+
+  /** Progress [0,1) through the current equipment-use action, or undefined when none is
+   *  live — drives the wind-up/strike body pose so the trogg's arm actually extends. */
+  const attackPhase = (entry: Tracked, now: number): number | undefined => {
+    if (entry.equipmentActionBaseMs === undefined || !entry.player.equipmentAction) return undefined;
+    const age = now - entry.equipmentActionBaseMs;
+    return age >= 0 && age < EQUIPMENT_ACTION_MS ? age / EQUIPMENT_ACTION_MS : undefined;
   };
 
   const respawnCountdown = (respawnAt: Stamp): string => {
@@ -227,9 +333,10 @@ export function createEntities(scene: Phaser.Scene, getTile: () => number) {
     state: { facing: Facing; frameKey: string; frameName?: FrameName },
     now: number,
     moving = dirX !== 0 || dirY !== 0,
+    attack?: number,
   ) => {
     state.facing = facingFromDir(dirX, dirY, state.facing);
-    const frame = avatarFrame(moving, running, now);
+    const frame = attack !== undefined ? attackFrame(attack) : avatarFrame(moving, running, now);
     state.frameName = frame;
     const key = `${state.facing}_${frame}`;
     if (key === state.frameKey) return;
@@ -327,54 +434,57 @@ export function createEntities(scene: Phaser.Scene, getTile: () => number) {
     }
   };
 
-  const equipmentFrameOffset = (frame: FrameName | undefined, running: boolean): { bob: number; sideSwing: number; lean: number } => {
-    if (!frame || frame === "idle") return { bob: 0, sideSwing: 0, lean: 0 };
-    const run = running || frame === "run_a" || frame === "run_b";
-    const stride = frame === "walk_a" || frame === "run_a" ? 1 : frame === "walk_b" || frame === "run_b" ? -1 : 0;
-    return { bob: run ? -2 : -1, sideSwing: stride * (run ? 2 : 1), lean: run ? 2 : 0 };
-  };
-
-  const equipmentAnchor = (entry: Tracked): { x: number; y: number; rotation: number; scale: number } => {
-    const tile = getTile();
-    const scale = tile / ART;
-    const frame = equipmentFrameOffset(entry.frameName, entry.player.running);
-    const baseY = (entry.sprite ? feetY() - tile * 0.42 : tile * 0.5) + frame.bob * scale;
-    if (entry.facing === "left") return { x: tile * 0.28 - frame.lean * scale, y: baseY + frame.sideSwing * scale, rotation: -0.8, scale };
-    if (entry.facing === "right") return { x: tile * 0.72 + frame.lean * scale, y: baseY + frame.sideSwing * scale, rotation: 0.8, scale };
-    if (entry.facing === "up") return { x: tile * 0.36, y: baseY - tile * 0.08, rotation: -0.35, scale };
-    return { x: tile * 0.66, y: baseY, rotation: 0.35, scale };
-  };
-
-  /** Sync the main-hand equipment overlay to `player.equippedMainHand`. */
+  /** Sync the main-hand equipment overlay to `player.equippedMainHand`, rebuilding only
+   *  on item or facing change (the directional frame and z-order both depend on facing).
+   *  All placement comes from the shared `heldTransform`, so the overlay rides the rig
+   *  exactly the way the preview shows it. */
   const applyEquipment = (entry: Tracked): void => {
-    const item = entry.player.equippedMainHand;
-    if (item === entry.equippedKind && entry.facing === entry.equippedFacing) return;
-    entry.equipped?.destroy();
-    entry.equipped = undefined;
-    entry.equippedKind = "";
-    entry.equippedFacing = undefined;
-    const anchor = equipmentAnchor(entry);
-    const glyph = makeItemGlyph(item, anchor.scale);
-    if (!glyph) return;
-    glyph.setPosition(anchor.x, anchor.y);
-    glyph.setRotation(anchor.rotation);
-    entry.marker.add(glyph);
-    entry.equipped = glyph;
-    entry.equippedKind = item;
-    entry.equippedFacing = entry.facing;
+    for (const { slot, item: pick } of EQUIP_SLOTS) {
+      const item = pick(entry.player);
+      const cur = entry.equip[slot];
+      if (item === (cur?.kind ?? "") && entry.facing === cur?.facing) continue;
+      cur?.glyph.destroy();
+      delete entry.equip[slot];
+      if (!item) continue;
+      const t = heldTransform({ kind: "trogg", item, facing: entry.facing, frameName: entry.frameName ?? "idle", tile: getTile(), attack: 0, slot });
+      const glyph = makeItemGlyph(t.frame, t.scale);
+      if (!glyph) continue;
+      if (t.flipX) glyph.scaleX = -glyph.scaleX;
+      glyph.setPosition(t.x, t.y);
+      glyph.setRotation(t.rotation);
+      if (t.behind && entry.sprite) entry.marker.addAt(glyph, Math.max(0, entry.marker.getIndex(entry.sprite)));
+      else entry.marker.add(glyph);
+      entry.equip[slot] = { glyph, kind: item, facing: entry.facing };
+    }
   };
 
-  /** Briefly exaggerate the equipped item when the server syncs an equipment use. */
+  /** Each frame, pin the item to the hand and apply the item's wield pose — eased from
+   *  its held pose into its use pose across the attack — so a pickaxe rests low and chops,
+   *  and a shovel digs downward, on top of the arm's reach. The placeholder marker (no
+   *  sprite, `avatar-sprites` off) has no rig, so the item just sits mid-cell. */
   const animateEquipment = (entry: Tracked, now: number): void => {
-    if (!entry.equipped) return;
-    const active = entry.player.equipmentAction === entry.equippedKind && entry.equipmentActionBaseMs !== undefined;
-    const age = active ? now - entry.equipmentActionBaseMs! : EQUIPMENT_ACTION_MS;
-    const t = Math.max(0, Math.min(1, age / EQUIPMENT_ACTION_MS));
-    const anchor = equipmentAnchor(entry);
-    const swing = active && age >= 0 && age < EQUIPMENT_ACTION_MS ? Math.sin(t * Math.PI) : 0;
-    const side = entry.facing === "left" || entry.facing === "up" ? -1 : 1;
-    entry.equipped.setRotation(anchor.rotation + swing * 0.85 * side);
-    entry.equipped.setPosition(anchor.x + swing * side * getTile() * 0.08, anchor.y - swing * getTile() * 0.08);
+    const tile = getTile();
+    const phase = attackPhase(entry, now);
+    for (const { slot, item: pick } of EQUIP_SLOTS) {
+      const ov = entry.equip[slot];
+      if (!ov) continue;
+      if (!entry.sprite) {
+        ov.glyph.setPosition(tile * 0.5, tile * 0.5);
+        continue;
+      }
+      const t = heldTransform({
+        kind: "trogg",
+        item: pick(entry.player),
+        facing: entry.facing,
+        frameName: entry.frameName ?? "idle",
+        tile,
+        attack: phase === undefined ? 0 : attackEase(phase),
+        slot,
+      });
+      ov.glyph.setScale(t.flipX ? -t.scale : t.scale, t.scale);
+      ov.glyph.setPosition(t.x, t.y);
+      ov.glyph.setRotation(t.rotation);
+    }
   };
 
   /** A roaming Hog: the shared avatar sprite in its hedgehog skin, feet centred on the
@@ -466,7 +576,7 @@ export function createEntities(scene: Phaser.Scene, getTile: () => number) {
     return bubble;
   };
 
-  return { headTopY, place, centre, makeMarker, animate, driveSprite, makeBoulder, makeGroundItem, applyCarry, applyEquipment, makeHog, hauntGhost, makeBubble };
+  return { headTopY, place, centre, makeMarker, animate, driveSprite, makeBoulder, makeGroundItem, applyCarry, applyEquipment, makeHog, applyHogFlinch, hauntGhost, makeBubble };
 }
 
 export type Entities = ReturnType<typeof createEntities>;

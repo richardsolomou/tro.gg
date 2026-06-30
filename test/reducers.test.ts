@@ -38,7 +38,6 @@ import {
   restyle,
   resetBoulders,
   resetHogs,
-  respawn,
   respawnPlayers,
   spawn,
   startClaim,
@@ -324,6 +323,27 @@ test("equipItem equips only a specific owned equippable row", () => {
   assert.equal(ctx.db.player.identity.find(me).equippedMainHandInventoryId, second.id);
 });
 
+test("equipItem routes a shield to the off hand and toggles it independently of the main hand", () => {
+  const { ctx, me } = withPlayer({});
+  const sword = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });
+  const shield = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "shield", qty: 1 });
+
+  equipItem(ctx, { inventoryId: sword.id });
+  equipItem(ctx, { inventoryId: shield.id });
+  let p = ctx.db.player.identity.find(me);
+  assert.equal(p.equippedMainHand, "sword");
+  assert.equal(p.equippedMainHandInventoryId, sword.id);
+  assert.equal(p.equippedOffHand, "shield");
+  assert.equal(p.equippedOffHandInventoryId, shield.id);
+
+  equipItem(ctx, { inventoryId: shield.id });
+  p = ctx.db.player.identity.find(me);
+  assert.equal(p.equippedOffHand, "");
+  assert.equal(p.equippedOffHandInventoryId, 0n);
+  assert.equal(p.equippedMainHand, "sword");
+  assert.equal(p.equippedMainHandInventoryId, sword.id);
+});
+
 test("dropItem removes a non-stackable row and lays it on the ground", () => {
   const { ctx, me } = withPlayer({ x: 5, y: 8 });
   const sword = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });
@@ -474,9 +494,11 @@ test("a sword hit at zero health kills, drops inventory, and respawns after the 
   target = ctx.db.player.identity.find(other);
   assert.deepEqual({ x: target.x, y: target.y, dirX: target.dirX, dirY: target.dirY, dead: target.dead }, { x: 6, y: 8, dirX: 0, dirY: 0, dead: true });
 
-  respawn(ctx);
+  // Firing the scheduled respawn before the timer is due re-arms it and leaves the trogg dead.
+  respawnPlayers(ctx, { timer: ctx.db.playerRespawn.rows()[0] });
   target = ctx.db.player.identity.find(other);
   assert.equal(target.dead, true);
+  assert.equal(ctx.db.playerRespawn.rows().length, 1);
 
   ctx.timestamp = { microsSinceUnixEpoch: micros(1000 + PLAYER_RESPAWN_MS) };
   respawnPlayers(ctx, { timer: ctx.db.playerRespawn.rows()[0] });
@@ -499,6 +521,19 @@ test("useEquipped damages a faced adjacent Hog with a sword", () => {
   useEquipped(ctx, { dirX: 1, dirY: 0 });
 
   assert.equal(ctx.db.hog.id.find(h.id).health, HOG_MAX_HEALTH - SWORD_DAMAGE);
+});
+
+test("useEquipped damages a big 2×2 Hog on any of its footprint tiles, not just its anchor", () => {
+  // Giant anchored at (6,8) covers (6,8),(7,8),(6,9),(7,9). The trogg stands at (5,9) and
+  // faces the giant's lower-left body tile (6,9) — a footprint tile that is not the anchor.
+  const { ctx, me } = withPlayer({ x: 5, y: 9, equippedMainHand: "sword" });
+  const sword = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });
+  ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedMainHandInventoryId: sword.id });
+  const giant = hogAt_(ctx, 6, 8, { style: "buff" });
+
+  useEquipped(ctx, { dirX: 1, dirY: 0 });
+
+  assert.equal(ctx.db.hog.id.find(giant.id).health, HOG_MAX_HEALTH - SWORD_DAMAGE);
 });
 
 test("sword damage removes a Hog at zero health", () => {

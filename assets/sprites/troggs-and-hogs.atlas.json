@@ -38,6 +38,18 @@
       "w": 32,
       "h": 48
     },
+    "trogg_moss_down_attack_a": {
+      "x": 160,
+      "y": 0,
+      "w": 32,
+      "h": 48
+    },
+    "trogg_moss_down_attack_b": {
+      "x": 192,
+      "y": 0,
+      "w": 32,
+      "h": 48
+    },
     "trogg_moss_up_idle": {
       "x": 0,
       "y": 48,
@@ -64,6 +76,18 @@
     },
     "trogg_moss_up_run_b": {
       "x": 128,
+      "y": 48,
+      "w": 32,
+      "h": 48
+    },
+    "trogg_moss_up_attack_a": {
+      "x": 160,
+      "y": 48,
+      "w": 32,
+      "h": 48
+    },
+    "trogg_moss_up_attack_b": {
+      "x": 192,
       "y": 48,
       "w": 32,
       "h": 48
@@ -98,6 +122,18 @@
       "w": 32,
       "h": 48
     },
+    "trogg_moss_left_attack_a": {
+      "x": 160,
+      "y": 96,
+      "w": 32,
+      "h": 48
+    },
+    "trogg_moss_left_attack_b": {
+      "x": 192,
+      "y": 96,
+      "w": 32,
+      "h": 48
+    },
     "trogg_moss_right_idle": {
       "x": 0,
       "y": 144,
@@ -124,6 +160,18 @@
     },
     "trogg_moss_right_run_b": {
       "x": 128,
+      "y": 144,
+      "w": 32,
+      "h": 48
+    },
+    "trogg_moss_right_attack_a": {
+      "x": 160,
+      "y": 144,
+      "w": 32,
+      "h": 48
+    },
+    "trogg_moss_right_attack_b": {
+      "x": 192,
       "y": 144,
       "w": 32,
       "h": 48
@@ -158,6 +206,18 @@
       "w": 32,
       "h": 48
     },
+    "trogg_stone_down_attack_a": {
+      "x": 160,
+      "y": 192,
+      "w": 32,
+      "h": 48
+    },
+    "trogg_stone_down_attack_b": {
+      "x": 192,
+      "y": 192,
+      "w": 32,
+      "h": 48
+    },
     "trogg_stone_up_idle": {
       "x": 0,
       "y": 240,
@@ -184,6 +244,18 @@
     },
     "trogg_stone_up_run_b": {
       "x": 128,
+      "y": 240,
+      "w": 32,
+      "h": 48
+    },
+    "trogg_stone_up_attack_a": {
+      "x": 160,
+      "y": 240,
+      "w": 32,
+      "h": 48
+    },
+    "trogg_stone_up_attack_b": {
+      "x": 192,
       "y": 240,
       "w": 32,
       "h": 48
@@ -218,6 +290,18 @@
       "w": 32,
       "h": 48
     },
+    "trogg_stone_left_attack_a": {
+      "x": 160,
+      "y": 288,
+      "w": 32,
+      "h": 48
+    },
+    "trogg_stone_left_attack_b": {
+      "x": 192,
+      "y": 288,
+      "w": 32,
+      "h": 48
+    },
     "trogg_stone_right_idle": {
       "x": 0,
       "y": 336,
@@ -244,6 +328,18 @@
     },
     "trogg_stone_right_run_b": {
       "x": 128,
+      "y": 336,
+      "w": 32,
+      "h": 48
+    },
+    "trogg_stone_right_attack_a": {
+      "x": 160,
+      "y": 336,
+      "w": 32,
+      "h": 48
+    },
+    "trogg_stone_right_attack_b": {
+      "x": 192,
       "y": 336,
       "w": 32,
       "h": 48
@@ -278,6 +374,18 @@
       "w": 32,
       "h": 48
     },
+    "trogg_ridge_down_attack_a": {
+      "x": 160,
+      "y": 384,
+      "w": 32,
+      "h": 48
+    },
+    "trogg_ridge_down_attack_b": {
+      "x": 192,
+      "y": 384,
+      "w": 32,
+      "h": 48
+    },
     "trogg_ridge_up_idle": {
       "x": 0,
       "y": 432,
@@ -304,6 +412,18 @@
     },
     "trogg_ridge_up_run_b": {
       "x": 128,
+      "y": 432,
+      "w": 32,
+      "h": 48
+    },
+    "trogg_ridge_up_attack_a": {
+      "x": 160,
+      "y": 432,
+      "w": 32,
+      "h": 48
+    },
+    "trogg_ridge_up_attack_b": {
+      "x": 192,
       "y": 432,
       "w": 32,
       "h": 48
@@ -338,6 +458,18 @@
       "w": 32,
       "h": 48
     },
+    "trogg_ridge_left_attack_a": {
+      "x": 160,
+      "y": 480,
+      "w": 32,
+      "h": 48
+    },
+    "trogg_ridge_left_attack_b": {
+      "x": 192,
+      "y": 480,
+      "w": 32,
+      "h": 48
+    },
     "trogg_ridge_right_idle": {
       "x": 0,
       "y": 528,
@@ -364,6 +496,18 @@
     },
     "trogg_ridge_right_run_b": {
       "x": 128,
+      "y": 528,
+      "w": 32,
+      "h": 48
+    },
+    "trogg_ridge_right_attack_a": {
+      "x": 160,
+      "y": 528,
+      "w": 32,
+      "h": 48
+    },
+    "trogg_ridge_right_attack_b": {
+      "x": 192,
       "y": 528,
       "w": 32,
       "h": 48
@@ -398,6 +542,18 @@
       "w": 32,
       "h": 48
     },
+    "hog_classic_down_attack_a": {
+      "x": 160,
+      "y": 576,
+      "w": 32,
+      "h": 48
+    },
+    "hog_classic_down_attack_b": {
+      "x": 192,
+      "y": 576,
+      "w": 32,
+      "h": 48
+    },
     "hog_classic_up_idle": {
       "x": 0,
       "y": 624,
@@ -424,6 +580,18 @@
     },
     "hog_classic_up_run_b": {
       "x": 128,
+      "y": 624,
+      "w": 32,
+      "h": 48
+    },
+    "hog_classic_up_attack_a": {
+      "x": 160,
+      "y": 624,
+      "w": 32,
+      "h": 48
+    },
+    "hog_classic_up_attack_b": {
+      "x": 192,
       "y": 624,
       "w": 32,
       "h": 48
@@ -458,6 +626,18 @@
       "w": 32,
       "h": 48
     },
+    "hog_classic_left_attack_a": {
+      "x": 160,
+      "y": 672,
+      "w": 32,
+      "h": 48
+    },
+    "hog_classic_left_attack_b": {
+      "x": 192,
+      "y": 672,
+      "w": 32,
+      "h": 48
+    },
     "hog_classic_right_idle": {
       "x": 0,
       "y": 720,
@@ -484,6 +664,18 @@
     },
     "hog_classic_right_run_b": {
       "x": 128,
+      "y": 720,
+      "w": 32,
+      "h": 48
+    },
+    "hog_classic_right_attack_a": {
+      "x": 160,
+      "y": 720,
+      "w": 32,
+      "h": 48
+    },
+    "hog_classic_right_attack_b": {
+      "x": 192,
       "y": 720,
       "w": 32,
       "h": 48
@@ -518,6 +710,18 @@
       "w": 32,
       "h": 48
     },
+    "hog_snow_down_attack_a": {
+      "x": 160,
+      "y": 768,
+      "w": 32,
+      "h": 48
+    },
+    "hog_snow_down_attack_b": {
+      "x": 192,
+      "y": 768,
+      "w": 32,
+      "h": 48
+    },
     "hog_snow_up_idle": {
       "x": 0,
       "y": 816,
@@ -544,6 +748,18 @@
     },
     "hog_snow_up_run_b": {
       "x": 128,
+      "y": 816,
+      "w": 32,
+      "h": 48
+    },
+    "hog_snow_up_attack_a": {
+      "x": 160,
+      "y": 816,
+      "w": 32,
+      "h": 48
+    },
+    "hog_snow_up_attack_b": {
+      "x": 192,
       "y": 816,
       "w": 32,
       "h": 48
@@ -578,6 +794,18 @@
       "w": 32,
       "h": 48
     },
+    "hog_snow_left_attack_a": {
+      "x": 160,
+      "y": 864,
+      "w": 32,
+      "h": 48
+    },
+    "hog_snow_left_attack_b": {
+      "x": 192,
+      "y": 864,
+      "w": 32,
+      "h": 48
+    },
     "hog_snow_right_idle": {
       "x": 0,
       "y": 912,
@@ -604,6 +832,18 @@
     },
     "hog_snow_right_run_b": {
       "x": 128,
+      "y": 912,
+      "w": 32,
+      "h": 48
+    },
+    "hog_snow_right_attack_a": {
+      "x": 160,
+      "y": 912,
+      "w": 32,
+      "h": 48
+    },
+    "hog_snow_right_attack_b": {
+      "x": 192,
       "y": 912,
       "w": 32,
       "h": 48
@@ -638,6 +878,18 @@
       "w": 32,
       "h": 48
     },
+    "hog_ember_down_attack_a": {
+      "x": 160,
+      "y": 960,
+      "w": 32,
+      "h": 48
+    },
+    "hog_ember_down_attack_b": {
+      "x": 192,
+      "y": 960,
+      "w": 32,
+      "h": 48
+    },
     "hog_ember_up_idle": {
       "x": 0,
       "y": 1008,
@@ -664,6 +916,18 @@
     },
     "hog_ember_up_run_b": {
       "x": 128,
+      "y": 1008,
+      "w": 32,
+      "h": 48
+    },
+    "hog_ember_up_attack_a": {
+      "x": 160,
+      "y": 1008,
+      "w": 32,
+      "h": 48
+    },
+    "hog_ember_up_attack_b": {
+      "x": 192,
       "y": 1008,
       "w": 32,
       "h": 48
@@ -698,6 +962,18 @@
       "w": 32,
       "h": 48
     },
+    "hog_ember_left_attack_a": {
+      "x": 160,
+      "y": 1056,
+      "w": 32,
+      "h": 48
+    },
+    "hog_ember_left_attack_b": {
+      "x": 192,
+      "y": 1056,
+      "w": 32,
+      "h": 48
+    },
     "hog_ember_right_idle": {
       "x": 0,
       "y": 1104,
@@ -724,6 +1000,18 @@
     },
     "hog_ember_right_run_b": {
       "x": 128,
+      "y": 1104,
+      "w": 32,
+      "h": 48
+    },
+    "hog_ember_right_attack_a": {
+      "x": 160,
+      "y": 1104,
+      "w": 32,
+      "h": 48
+    },
+    "hog_ember_right_attack_b": {
+      "x": 192,
       "y": 1104,
       "w": 32,
       "h": 48
@@ -758,6 +1046,18 @@
       "w": 32,
       "h": 48
     },
+    "hog_buff_down_attack_a": {
+      "x": 160,
+      "y": 1152,
+      "w": 32,
+      "h": 48
+    },
+    "hog_buff_down_attack_b": {
+      "x": 192,
+      "y": 1152,
+      "w": 32,
+      "h": 48
+    },
     "hog_buff_up_idle": {
       "x": 0,
       "y": 1200,
@@ -784,6 +1084,18 @@
     },
     "hog_buff_up_run_b": {
       "x": 128,
+      "y": 1200,
+      "w": 32,
+      "h": 48
+    },
+    "hog_buff_up_attack_a": {
+      "x": 160,
+      "y": 1200,
+      "w": 32,
+      "h": 48
+    },
+    "hog_buff_up_attack_b": {
+      "x": 192,
       "y": 1200,
       "w": 32,
       "h": 48
@@ -818,6 +1130,18 @@
       "w": 32,
       "h": 48
     },
+    "hog_buff_left_attack_a": {
+      "x": 160,
+      "y": 1248,
+      "w": 32,
+      "h": 48
+    },
+    "hog_buff_left_attack_b": {
+      "x": 192,
+      "y": 1248,
+      "w": 32,
+      "h": 48
+    },
     "hog_buff_right_idle": {
       "x": 0,
       "y": 1296,
@@ -844,6 +1168,18 @@
     },
     "hog_buff_right_run_b": {
       "x": 128,
+      "y": 1296,
+      "w": 32,
+      "h": 48
+    },
+    "hog_buff_right_attack_a": {
+      "x": 160,
+      "y": 1296,
+      "w": 32,
+      "h": 48
+    },
+    "hog_buff_right_attack_b": {
+      "x": 192,
       "y": 1296,
       "w": 32,
       "h": 48
@@ -878,6 +1214,18 @@
       "w": 32,
       "h": 48
     },
+    "hog_dino_down_attack_a": {
+      "x": 160,
+      "y": 1344,
+      "w": 32,
+      "h": 48
+    },
+    "hog_dino_down_attack_b": {
+      "x": 192,
+      "y": 1344,
+      "w": 32,
+      "h": 48
+    },
     "hog_dino_up_idle": {
       "x": 0,
       "y": 1392,
@@ -904,6 +1252,18 @@
     },
     "hog_dino_up_run_b": {
       "x": 128,
+      "y": 1392,
+      "w": 32,
+      "h": 48
+    },
+    "hog_dino_up_attack_a": {
+      "x": 160,
+      "y": 1392,
+      "w": 32,
+      "h": 48
+    },
+    "hog_dino_up_attack_b": {
+      "x": 192,
       "y": 1392,
       "w": 32,
       "h": 48
@@ -938,6 +1298,18 @@
       "w": 32,
       "h": 48
     },
+    "hog_dino_left_attack_a": {
+      "x": 160,
+      "y": 1440,
+      "w": 32,
+      "h": 48
+    },
+    "hog_dino_left_attack_b": {
+      "x": 192,
+      "y": 1440,
+      "w": 32,
+      "h": 48
+    },
     "hog_dino_right_idle": {
       "x": 0,
       "y": 1488,
@@ -964,6 +1336,18 @@
     },
     "hog_dino_right_run_b": {
       "x": 128,
+      "y": 1488,
+      "w": 32,
+      "h": 48
+    },
+    "hog_dino_right_attack_a": {
+      "x": 160,
+      "y": 1488,
+      "w": 32,
+      "h": 48
+    },
+    "hog_dino_right_attack_b": {
+      "x": 192,
       "y": 1488,
       "w": 32,
       "h": 48
@@ -998,6 +1382,18 @@
       "w": 32,
       "h": 48
     },
+    "hog_chicken_down_attack_a": {
+      "x": 160,
+      "y": 1536,
+      "w": 32,
+      "h": 48
+    },
+    "hog_chicken_down_attack_b": {
+      "x": 192,
+      "y": 1536,
+      "w": 32,
+      "h": 48
+    },
     "hog_chicken_up_idle": {
       "x": 0,
       "y": 1584,
@@ -1024,6 +1420,18 @@
     },
     "hog_chicken_up_run_b": {
       "x": 128,
+      "y": 1584,
+      "w": 32,
+      "h": 48
+    },
+    "hog_chicken_up_attack_a": {
+      "x": 160,
+      "y": 1584,
+      "w": 32,
+      "h": 48
+    },
+    "hog_chicken_up_attack_b": {
+      "x": 192,
       "y": 1584,
       "w": 32,
       "h": 48
@@ -1058,6 +1466,18 @@
       "w": 32,
       "h": 48
     },
+    "hog_chicken_left_attack_a": {
+      "x": 160,
+      "y": 1632,
+      "w": 32,
+      "h": 48
+    },
+    "hog_chicken_left_attack_b": {
+      "x": 192,
+      "y": 1632,
+      "w": 32,
+      "h": 48
+    },
     "hog_chicken_right_idle": {
       "x": 0,
       "y": 1680,
@@ -1084,6 +1504,18 @@
     },
     "hog_chicken_right_run_b": {
       "x": 128,
+      "y": 1680,
+      "w": 32,
+      "h": 48
+    },
+    "hog_chicken_right_attack_a": {
+      "x": 160,
+      "y": 1680,
+      "w": 32,
+      "h": 48
+    },
+    "hog_chicken_right_attack_b": {
+      "x": 192,
       "y": 1680,
       "w": 32,
       "h": 48

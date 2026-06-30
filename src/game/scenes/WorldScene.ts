@@ -247,6 +247,7 @@ export class WorldScene extends Phaser.Scene {
       const motion = projectMotionState({ ...view.row, size }, now - view.baseMs, this.hogBounds);
       this.entities.place(view.marker, motion.x, motion.y);
       this.entities.driveSprite(view.sprite, "hog", view.style, motion.dirX, motion.dirY, false, view, now);
+      this.entities.applyHogFlinch(view, now);
       const tile = snapToTile({ x: motion.x, y: motion.y });
       // A big hog blocks its whole footprint, so troggs (and our own prediction)
       // collide with the giant's body, not just its anchor tile.
@@ -331,6 +332,7 @@ export class WorldScene extends Phaser.Scene {
     );
     entry.marker = built.marker;
     entry.sprite = built.sprite;
+    entry.baseColor = troggColorFor(entry.player.color, id);
     entry.frameKey = built.frameKey;
     entry.respawnText = built.respawnText;
     entry.bubble = undefined;
@@ -339,9 +341,8 @@ export class WorldScene extends Phaser.Scene {
     entry.carried = undefined;
     entry.carriedKind = "";
     entry.carriedStyle = "";
-    entry.equipped = undefined;
-    entry.equippedKind = "";
-    entry.equippedFacing = undefined;
+    entry.equip = {};
+    entry.armOverlay = undefined;
     entry.equipmentActionBaseMs = undefined;
     const { x, y } = projectMotion(entry.player, performance.now() - entry.baseMs, this.troggBounds);
     this.entities.place(entry.marker, x, y);
@@ -378,13 +379,21 @@ export class WorldScene extends Phaser.Scene {
         entry.equipmentActionBaseMs = performance.now();
       }
 
+      // A drop in health is a hit — play the recoil/flash flinch (survives the marker rebuild
+      // the health change triggers, since it rides the persistent entry).
+      if (!p.dead && p.health < _old.health) entry.flinchBaseMs = performance.now();
+
       // The nameplate, tint, body style, and health bar are baked into the marker at
       // build time, so those changes rebuild it (which re-applies overlays). Bare
       // carrying/equipment changes just retarget overlays.
       if (_old.name !== p.name || _old.color !== p.color || _old.style !== p.style || _old.health !== p.health || _old.dead !== p.dead || _old.respawnAt !== p.respawnAt) this.rebuildMarker(id, entry);
       else if (_old.carrying !== p.carrying || _old.carryingStyle !== p.carryingStyle) this.entities.applyCarry(entry);
 
-      const equipmentChanged = _old.equippedMainHand !== p.equippedMainHand || _old.equippedMainHandInventoryId !== p.equippedMainHandInventoryId;
+      const equipmentChanged =
+        _old.equippedMainHand !== p.equippedMainHand ||
+        _old.equippedMainHandInventoryId !== p.equippedMainHandInventoryId ||
+        _old.equippedOffHand !== p.equippedOffHand ||
+        _old.equippedOffHandInventoryId !== p.equippedOffHandInventoryId;
       if (equipmentChanged) {
         this.entities.applyEquipment(entry);
       }
@@ -407,8 +416,9 @@ export class WorldScene extends Phaser.Scene {
     const face = playerFacing(p);
     const facing = facingFromDir(face.dirX, face.dirY, "down");
     const style = troggStyleFor(p.style, id);
-    const { marker, sprite, frameKey, respawnText } = this.entities.makeMarker(p.name, troggColorFor(p.color, id), style, id === this.myId, facing, this.useSprites, p.health, p.dead, p.respawnAt);
-    const entry: Tracked = { marker, sprite, player: p, baseMs: timestampBaseMs(p.movedAt), facing, style, frameKey, respawnText, carriedKind: "", carriedStyle: "", equippedKind: "" };
+    const color = troggColorFor(p.color, id);
+    const { marker, sprite, frameKey, respawnText } = this.entities.makeMarker(p.name, color, style, id === this.myId, facing, this.useSprites, p.health, p.dead, p.respawnAt);
+    const entry: Tracked = { marker, sprite, player: p, baseMs: timestampBaseMs(p.movedAt), facing, style, baseColor: color, frameKey, respawnText, carriedKind: "", carriedStyle: "", equip: {} };
     const { x, y } = projectMotion(p, performance.now() - entry.baseMs, this.troggBounds);
     this.entities.place(marker, x, y);
     this.tracked.set(id, entry);
@@ -535,7 +545,12 @@ export class WorldScene extends Phaser.Scene {
     const conn = this.conn;
     conn.db.hog.onInsert((_ctx, h) => this.addHog(h));
     conn.db.hog.onUpdate((_ctx, _old, h) => {
+      const damaged = h.health < _old.health;
       this.updateHog(h);
+      if (damaged) {
+        const view = this.hogs.get(h.id.toString());
+        if (view) view.flinchBaseMs = performance.now();
+      }
       if (!this.sub.live) return;
       const changedHeading = _old.dirX !== h.dirX || _old.dirY !== h.dirY;
       if (changedHeading && Math.random() < 0.35) audio.playHog();

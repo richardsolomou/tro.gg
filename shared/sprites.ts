@@ -1,4 +1,5 @@
-import { AVATAR_FRAME_ART, GHOST_ART, PIXEL_KEYS, type IndexedSpriteArt } from "./sprite_art";
+import { ARM_OVERLAY_ART, AVATAR_FRAME_ART, CHOP_ARM_OVERLAY_ART, GHOST_ART, PIXEL_KEYS, type IndexedSpriteArt } from "./sprite_art";
+import { compositeOver, outlinePass } from "./raster";
 
 /**
  * Avatar sprite sheet metadata and renderer.
@@ -11,7 +12,7 @@ import { AVATAR_FRAME_ART, GHOST_ART, PIXEL_KEYS, type IndexedSpriteArt } from "
 
 export type Kind = "trogg" | "hog";
 export type Facing = "down" | "up" | "left" | "right";
-export type FrameName = "idle" | "walk_a" | "walk_b" | "run_a" | "run_b";
+export type FrameName = "idle" | "walk_a" | "walk_b" | "run_a" | "run_b" | "attack_a" | "attack_b";
 
 /**
  * Cosmetic body variants within a kind (GDD "Avatars and equipment"). A style
@@ -51,7 +52,7 @@ export const ANCHOR = { x: 16, y: 44 } as const;
 
 export const KINDS: readonly Kind[] = ["trogg", "hog"] as const;
 export const FACINGS: readonly Facing[] = ["down", "up", "left", "right"] as const;
-export const FRAMES: readonly FrameName[] = ["idle", "walk_a", "walk_b", "run_a", "run_b"] as const;
+export const FRAMES: readonly FrameName[] = ["idle", "walk_a", "walk_b", "run_a", "run_b", "attack_a", "attack_b"] as const;
 
 /** Every (kind, style) row group in sheet order: a kind's styles, then the next
  *  kind's. Each group owns `FACINGS.length` rows. */
@@ -168,12 +169,86 @@ export function blitArt(sink: PixelSink, art: IndexedSpriteArt, ox = 0, oy = 0):
   }
 }
 
-/** Paint the whole avatar sheet by blitting each indexed frame into its cell. */
+/** A soft ground-contact shadow under a frame (matches the old baked shadow). */
+function shadowEllipse(buf: Uint8Array, cx: number, cy: number, rx: number, ry: number, alpha: number): void {
+  const sink = rgbaSink(buf, FRAME_W, FRAME_H);
+  for (let y = Math.ceil(cy - ry); y <= Math.floor(cy + ry); y++)
+    for (let x = Math.ceil(cx - rx); x <= Math.floor(cx + rx); x++) {
+      const nx = (x - cx) / rx;
+      const ny = (y - cy) / ry;
+      if (nx * nx + ny * ny <= 1) sink.set(x, y, 0x000000, alpha);
+    }
+}
+
+/**
+ * Compose one finished avatar frame from its un-outlined fill: run the single dilation outline
+ * over the assembled fill (the GSC silhouette), then drop it onto the soft ground shadow. This
+ * is where the unified outline happens at render time, so a stack of layers (body + armour +
+ * hair) outlines as one — see the layered-avatar plan in the GDD.
+ */
+export function composeAvatarFrame(fill: IndexedSpriteArt, outline: number): Uint8Array {
+  const layer = new Uint8Array(FRAME_W * FRAME_H * 4);
+  blitArt(rgbaSink(layer, FRAME_W, FRAME_H), fill);
+  outlinePass(layer, outline, FRAME_W, FRAME_H);
+  const data = new Uint8Array(FRAME_W * FRAME_H * 4);
+  shadowEllipse(data, 15.5, 43, 11, 3.2, 70);
+  compositeOver(data, layer);
+  return data;
+}
+
+/** Blit a raw RGBA frame buffer into a sink at (ox, oy). */
+function blitBuffer(sink: PixelSink, buf: Uint8Array, ox: number, oy: number): void {
+  for (let y = 0; y < FRAME_H; y++)
+    for (let x = 0; x < FRAME_W; x++) {
+      const i = (y * FRAME_W + x) * 4;
+      const a = buf[i + 3]!;
+      if (a === 0) continue;
+      sink.set(ox + x, oy + y, buf[i]! * 0x10000 + buf[i + 1]! * 0x100 + buf[i + 2]!, a);
+    }
+}
+
+/** Paint the whole avatar sheet: each frame is composed (fill → outline → shadow) into its
+ *  cell, so the runtime texture and the committed PNG share the same composite-then-outline
+ *  path. Frames without an `outline` (already-finished art) are blitted as-is. */
 export function paintSheet(sink: PixelSink): void {
-  for (const f of frames()) blitArt(sink, AVATAR_FRAME_ART[f.name]!, f.x, f.y);
+  for (const f of frames()) {
+    const art = AVATAR_FRAME_ART[f.name]!;
+    if (art.outline === undefined) blitArt(sink, art, f.x, f.y);
+    else blitBuffer(sink, composeAvatarFrame(art, art.outline), f.x, f.y);
+  }
 }
 
 /** Paint the standalone ghost sprite into one frame-sized surface. */
 export function ghostDraw(sink: PixelSink): void {
   blitArt(sink, GHOST_ART, 0, 0);
+}
+
+/** Paint the near-arm overlays into a sheet matching the base layout (same `frameRect` cells),
+ *  so the runtime can carve them by the same frame name and draw one over a held item. Frames
+ *  with no overlay (facing up, non-trogg) leave their cell transparent. Already finished art —
+ *  blitted, not composed. */
+export function paintArmSheet(sink: PixelSink): void {
+  for (const f of frames()) {
+    const art = ARM_OVERLAY_ART[f.name];
+    if (art) blitArt(sink, art, f.x, f.y);
+  }
+}
+
+/** Whether a frame has a near-arm overlay (front facings of rig-driven creatures). */
+export function hasArmOverlay(name: string): boolean {
+  return ARM_OVERLAY_ART[name] !== undefined;
+}
+
+/** Paint the overhead "chop" arm overlays (pickaxe attack frames) into a sheet matching the base
+ *  layout, so the runtime can carve them by frame name and swap them in for a chop-style weapon. */
+export function paintChopArmSheet(sink: PixelSink): void {
+  for (const f of frames()) {
+    const art = CHOP_ARM_OVERLAY_ART[f.name];
+    if (art) blitArt(sink, art, f.x, f.y);
+  }
+}
+
+/** Whether a frame has a chop (overhead) arm overlay (attack frames of rig-driven creatures). */
+export function hasChopOverlay(name: string): boolean {
+  return CHOP_ARM_OVERLAY_ART[name] !== undefined;
 }

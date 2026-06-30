@@ -1,4 +1,4 @@
-import { INVENTORY_SLOT_COUNT, ITEMS, isEquippableItem } from "@trogg/shared";
+import { blitArt, equipSlotOf, INVENTORY_SLOT_COUNT, ITEM_ART, ITEM_ART_H, ITEM_ART_W, ITEMS, isEquippableItem, rgbaSink } from "@trogg/shared";
 import { logError } from "../analytics.js";
 import type { DbConnection } from "../net/module_bindings";
 import type { Inventory, Player } from "../net/module_bindings/types";
@@ -43,8 +43,13 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
   const rows = new Map<string, Inventory>();
   let mainHand = "";
   let mainHandInventoryId = 0n;
+  let offHand = "";
+  let offHandInventoryId = 0n;
   let selectedId: bigint | null = null;
   let confirmDelete = false;
+
+  /** The inventory id equipped in the slot this item belongs to (off hand for shields, else main). */
+  const equippedSlotId = (item: string): bigint => (equipSlotOf(item) === "offHand" ? offHandInventoryId : mainHandInventoryId);
 
   const setOpen = (open: boolean) => {
     const opening = open && body.hidden;
@@ -63,16 +68,22 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
     if ((event as CustomEvent<string>).detail !== "inventory") setOpen(false);
   }) as EventListener);
 
+  const equippedGroup = (label: string, item: string): HTMLDivElement => {
+    const group = document.createElement("div");
+    group.className = "inventory-equipped-group";
+    const text = document.createElement("span");
+    text.textContent = label;
+    const slot = document.createElement("span");
+    slot.className = "inventory-equipped-slot";
+    slot.title = item ? (ITEMS[item as keyof typeof ITEMS]?.name ?? item) : "Empty";
+    slot.setAttribute("aria-label", `${label}: ${slot.title}`);
+    slot.appendChild(itemIcon(item || "empty"));
+    group.append(text, slot);
+    return group;
+  };
+
   const render = () => {
-    equipped.replaceChildren();
-    const equippedLabel = document.createElement("span");
-    equippedLabel.textContent = "Main hand";
-    const equippedSlot = document.createElement("span");
-    equippedSlot.className = "inventory-equipped-slot";
-    equippedSlot.title = mainHand ? (ITEMS[mainHand as keyof typeof ITEMS]?.name ?? mainHand) : "Empty";
-    equippedSlot.setAttribute("aria-label", equippedSlot.title);
-    equippedSlot.appendChild(itemIcon(mainHand || "empty"));
-    equipped.append(equippedLabel, equippedSlot);
+    equipped.replaceChildren(equippedGroup("Main hand", mainHand), equippedGroup("Off hand", offHand));
 
     list.replaceChildren();
 
@@ -89,7 +100,7 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
       const item = document.createElement("button");
       item.type = "button";
       item.className = "inventory-item";
-      const equippedNow = row.id === mainHandInventoryId;
+      const equippedNow = row.id === equippedSlotId(row.item);
       const selectedNow = row.id === selectedId;
       item.setAttribute("aria-label", `${name}${equippedNow ? ", equipped" : ""}`);
       item.setAttribute("aria-pressed", String(equippedNow));
@@ -172,9 +183,9 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
     }
 
     if (isEquippableItem(row.item)) {
-      const equippedNow = row.id === mainHandInventoryId;
+      const equippedNow = row.id === equippedSlotId(row.item);
       buttons.appendChild(
-        action(equippedNow ? "Unequip" : "Equip", () => run("Equip item", row.item, () => equipItem(conn, equippedNow ? 0n : row.id), "equip_item")),
+        action(equippedNow ? "Unequip" : "Equip", () => run("Equip item", row.item, () => equipItem(conn, row.id), "equip_item")),
       );
     }
     buttons.appendChild(action("Drop", () => run("Drop item", row.item, () => dropItem(conn, row.id), "drop_item")));
@@ -208,6 +219,8 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
     if (p.identity.toHexString() !== playerId) return;
     mainHand = p.equippedMainHand;
     mainHandInventoryId = p.equippedMainHandInventoryId;
+    offHand = p.equippedOffHand;
+    offHandInventoryId = p.equippedOffHandInventoryId;
     render();
   };
   conn.db.player.onInsert((_ctx, p) => applyPlayer(p));
@@ -240,34 +253,20 @@ function inventoryIcon(): SVGSVGElement {
   return icon;
 }
 
-export function itemIcon(item: string): SVGSVGElement {
-  const icon = svg(32, 32);
-  icon.classList.add("item-icon");
-
-  if (item === "pickaxe") {
-    icon.append(
-      el("line", { x1: 16, y1: 25, x2: 16, y2: 10, stroke: "#6b3f24", "stroke-width": 4, "stroke-linecap": "round" }),
-      el("line", { x1: 7, y1: 9, x2: 25, y2: 9, stroke: "#aec4c8", "stroke-width": 4, "stroke-linecap": "round" }),
-      el("line", { x1: 10, y1: 7, x2: 22, y2: 7, stroke: "#e8dcc4", "stroke-width": 2, "stroke-linecap": "round" }),
-    );
-  } else if (item === "shovel") {
-    icon.append(
-      el("line", { x1: 16, y1: 25, x2: 16, y2: 10, stroke: "#6b3f24", "stroke-width": 4, "stroke-linecap": "round" }),
-      el("ellipse", { cx: 16, cy: 8, rx: 7, ry: 5, fill: "#c79b56", stroke: "#2a2118", "stroke-width": 2 }),
-    );
-  } else if (item === "sword") {
-    icon.append(
-      el("line", { x1: 16, y1: 24, x2: 16, y2: 7, stroke: "#dce9ee", "stroke-width": 4, "stroke-linecap": "round" }),
-      el("line", { x1: 9, y1: 19, x2: 23, y2: 19, stroke: "#f2c94c", "stroke-width": 4, "stroke-linecap": "round" }),
-      el("line", { x1: 16, y1: 20, x2: 16, y2: 27, stroke: "#6b3f24", "stroke-width": 4, "stroke-linecap": "round" }),
-    );
-  } else if (item === "stone") {
-    icon.append(
-      el("path", { d: "M7 17c0-5 4-9 10-9 5 0 8 3 8 8 0 6-4 9-10 9-5 0-8-3-8-8Z", fill: "#6b5640", stroke: "#2a2118", "stroke-width": 2, "stroke-linejoin": "round" }),
-      el("path", { d: "M11 14c2-2 5-3 9-2", fill: "none", stroke: "#8a7257", "stroke-width": 2, "stroke-linecap": "round" }),
-    );
-  } else {
-    icon.append(el("rect", { x: 10, y: 10, width: 12, height: 12, rx: 2, fill: "#2a2118", stroke: "#9b8a6c", "stroke-width": 2 }));
+/** The item's pixel art (the same `ITEM_ART` drawn in the world) rendered into a small
+ *  canvas, so the inventory, equipped slot, and spawn buttons show the exact world
+ *  sprite — one drawing per item, not a separate icon. Unknown ids render blank. */
+export function itemIcon(item: string): HTMLCanvasElement {
+  const canvas = document.createElement("canvas");
+  canvas.width = ITEM_ART_W;
+  canvas.height = ITEM_ART_H;
+  canvas.className = "item-icon";
+  const art = ITEM_ART[item];
+  if (art) {
+    const ctx = canvas.getContext("2d")!;
+    const img = ctx.createImageData(ITEM_ART_W, ITEM_ART_H);
+    blitArt(rgbaSink(img.data, ITEM_ART_W, ITEM_ART_H), art, 0, 0);
+    ctx.putImageData(img, 0, 0);
   }
-  return icon;
+  return canvas;
 }
