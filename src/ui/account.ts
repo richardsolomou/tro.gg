@@ -11,7 +11,10 @@ import { hudRoot } from "./hud.js";
  * without SpacetimeAuth configured (the only action is claiming an account), so it
  * renders only when auth is available.
  */
-export function mountAccount(conn: DbConnection, opts: { signedIn: boolean; authAvailable: boolean }): void {
+export function mountAccount(
+  conn: DbConnection,
+  opts: { signedIn: boolean; authAvailable: boolean; claimFailed?: boolean },
+): void {
   if (!opts.authAvailable) return;
 
   const root = document.createElement("div");
@@ -19,6 +22,11 @@ export function mountAccount(conn: DbConnection, opts: { signedIn: boolean; auth
 
   const status = document.createElement("div");
   status.className = "account-status";
+
+  // We just came back from SpacetimeAuth without a usable token (the OIDC return
+  // errored or the token exchange failed). Tell the player rather than silently
+  // dropping them back on the claim button as if nothing happened.
+  if (opts.claimFailed && !opts.signedIn) status.textContent = "Sign-in didn't complete. Try again.";
 
   const action = document.createElement("button");
   action.type = "button";

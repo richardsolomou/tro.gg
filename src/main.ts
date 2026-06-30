@@ -17,8 +17,19 @@ async function main() {
   try {
     // If this load is the redirect back from SpacetimeAuth, finish the exchange
     // before connecting so we can present the account's ID token (GDD "Identity").
-    await completeSignIn();
+    const signInReturn = await completeSignIn();
     const idToken = await currentIdToken();
+
+    // A failed OIDC return (provider error or token exchange failure) must not strand
+    // the claim silently: drop the pending nonce so it can't retry-loop on every load,
+    // and emit a visible failure event so a broken claim flow shows up as more than
+    // just zero `player_named` events (docs/analytics.md). The game still boots below
+    // as a guest — a failed claim degrades to the guest loop, it doesn't break the page.
+    if (signInReturn === "error") {
+      const hadPendingClaim = getPendingClaim() !== null;
+      clearPendingClaim();
+      captureEvent("account_claim_failed", { had_pending_claim: hadPendingClaim });
+    }
 
     // A redeploy closes every live socket at once; recover automatically instead
     // of leaving players frozen on stale state until they refresh (reconnect.ts).
@@ -61,7 +72,8 @@ async function main() {
     if (conn.identity) mountInventory(conn, conn.identity.toHexString());
     // The account panel is only the claim/sign-out control, so it's mounted only when
     // SpacetimeAuth is configured for this build.
-    if (isFeatureEnabled("auth-enabled")) mountAccount(conn, { signedIn, authAvailable: authConfigured() });
+    if (isFeatureEnabled("auth-enabled"))
+      mountAccount(conn, { signedIn, authAvailable: authConfigured(), claimFailed: signInReturn === "error" });
 
     // The frontend deploys separately from the backend (Cloudflare vs the VPS), so
     // a client-only deploy fires no socket disconnect — poll for it instead and
