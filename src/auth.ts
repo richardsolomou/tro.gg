@@ -48,18 +48,57 @@ export async function signIn(): Promise<void> {
 }
 
 /**
- * If this load is the redirect back from SpacetimeAuth (`?code=&state=` present),
- * complete the token exchange and strip the params so a refresh can't replay the
- * spent code. Returns whether a sign-in just completed. Safe to call every load.
+ * The outcome of handling a load that may be the redirect back from SpacetimeAuth:
+ * `none` (not a return), `success` (a sign-in just completed), or `error` (the
+ * provider returned an error, or the token exchange failed). The error case must be
+ * a distinct, observable outcome — not a silent `none` — or a misconfigured redirect
+ * URI / client makes the whole claim flow fail invisibly (the 2026-06 regression).
  */
-export async function completeSignIn(): Promise<boolean> {
+export type SignInReturn = "none" | "success" | "error";
+
+/**
+ * If this load is the redirect back from SpacetimeAuth, complete the token exchange
+ * and strip the OIDC params so a refresh can't replay the spent code (or re-trigger
+ * the error). Returns `success`/`error`/`none`; never throws. Safe to call every load.
+ *
+ * A failed return is reported, not swallowed: SpacetimeAuth can come back with
+ * `?error=…` (e.g. `redirect_uri` mismatch, bad client, denied consent) instead of
+ * `?code=&state=`, and `signinRedirectCallback` itself can reject when the token
+ * exchange fails — both used to look identical to "nobody signed in", so a broken
+ * claim flow showed up only as zero `player_named` events with no error trail.
+ */
+export async function completeSignIn(): Promise<SignInReturn> {
   const m = userManager();
-  if (!m) return false;
+  if (!m) return "none";
   const params = new URLSearchParams(window.location.search);
-  if (!params.has("code") || !params.has("state")) return false;
-  await m.signinRedirectCallback();
-  window.history.replaceState({}, "", window.location.pathname);
-  return true;
+  const isCallback = params.has("code") && params.has("state");
+  const isError = params.has("error");
+  if (!isCallback && !isError) return "none";
+
+  // Strip the OIDC params whatever the outcome, so a refresh can't replay a spent
+  // code or re-surface a stale error in the URL.
+  const stripParams = () => window.history.replaceState({}, "", window.location.pathname);
+
+  if (isError) {
+    logError("SpacetimeAuth sign-in returned an error", {
+      surface: "auth",
+      action: "complete_sign_in",
+      error: params.get("error"),
+      error_description: params.get("error_description"),
+    });
+    stripParams();
+    return "error";
+  }
+
+  try {
+    await m.signinRedirectCallback();
+    stripParams();
+    return "success";
+  } catch (err) {
+    logError("SpacetimeAuth token exchange failed", { surface: "auth", action: "complete_sign_in", error: err });
+    stripParams();
+    return "error";
+  }
 }
 
 /**

@@ -27,6 +27,7 @@ snake_case. Low-volume by design — anything that could fire more than ~once/se
 | `connection_lost` | — | Live SpacetimeDB socket dropped after being connected (usually a backend redeploy); the client begins auto-reconnecting. Best-effort — fired just before the recovery reload, so it measures deploy disruption |
 | `client_update_available` | — | Polling spotted a newer deployed frontend than the running build (a Cloudflare-only deploy); the refresh prompt is shown. Measures how many players are on a stale client after a frontend deploy |
 | `account_claim_started` | — | Player starts the guest → account claim flow and is about to leave for SpacetimeAuth |
+| `account_claim_failed` | `had_pending_claim` | The return from SpacetimeAuth failed — the provider came back with `?error=…` or the token exchange threw, so no account token was obtained. `had_pending_claim` is `true` when a guest was mid-claim (vs a fresh-device sign-in). Makes a broken claim/identify flow visible instead of looking like nobody tried |
 | `account_signed_out` | — | Signed-in player explicitly signs out from the account panel |
 | `player_named` | — | Guest upgrades to an account — fires when a claim is redeemed, alongside `identify()` (the OIDC subject), merging the guest's history |
 | `trogg_renamed` | `zone, source?` | Player's own name changes after the authoritative player row updates |
