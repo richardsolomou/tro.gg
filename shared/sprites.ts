@@ -1,4 +1,4 @@
-import { ARM_OVERLAY_ART, AVATAR_FRAME_ART, CHOP_ARM_OVERLAY_ART, GHOST_ART, PIXEL_KEYS, type IndexedSpriteArt } from "./sprite_art";
+import { ARM_OVERLAY_ART, AVATAR_FRAME_ART, CHOP_ARM_OVERLAY_ART, GHOST_ART, HOG_BALL_ART, PIXEL_KEYS, type IndexedSpriteArt } from "./sprite_art";
 import { compositeOver, outlinePass } from "./raster";
 
 /**
@@ -221,6 +221,40 @@ export function paintSheet(sink: PixelSink): void {
 /** Paint the standalone ghost sprite into one frame-sized surface. */
 export function ghostDraw(sink: PixelSink): void {
   blitArt(sink, GHOST_ART, 0, 0);
+}
+
+/** The common hog styles with a defensive ball-form sprite (`HOG_BALL_ART`). One pose per style,
+ *  facing-independent, so the ball is a tiny one-row sheet (a cell per style) rather than part of
+ *  the facing×frame grid. */
+export const HOG_BALL_STYLES: readonly string[] = COMMON_HOG_STYLES;
+export const HOG_BALL_SHEET_W = HOG_BALL_STYLES.length * FRAME_W;
+export const HOG_BALL_SHEET_H = FRAME_H;
+
+/** The ball-form frame key for a hog style within the ball sheet. */
+export function hogBallFrameName(style: string): string {
+  return `hog_ball_${style}`;
+}
+
+/** Where a style's ball sits in the ball sheet (one cell per common style). */
+export function hogBallRect(style: string): { name: string; x: number; y: number; w: number; h: number } {
+  const col = Math.max(0, HOG_BALL_STYLES.indexOf(style));
+  return { name: hogBallFrameName(style), x: col * FRAME_W, y: 0, w: FRAME_W, h: FRAME_H };
+}
+
+/** Whether a hog style has a ball form (the common styles do; big/easter-egg styles don't). */
+export function hasHogBall(style: string): boolean {
+  return HOG_BALL_ART[style] !== undefined;
+}
+
+/** Paint the ball-form sheet: each common style's ball composed (fill → outline → shadow) into its
+ *  cell, the same composite-then-outline path as the avatar frames. */
+export function paintHogBallSheet(sink: PixelSink): void {
+  HOG_BALL_STYLES.forEach((style, col) => {
+    const art = HOG_BALL_ART[style];
+    if (!art) return;
+    if (art.outline === undefined) blitArt(sink, art, col * FRAME_W, 0);
+    else blitBuffer(sink, composeAvatarFrame(art, art.outline), col * FRAME_W, 0);
+  });
 }
 
 /** Paint the near-arm overlays into a sheet matching the base layout (same `frameRect` cells),

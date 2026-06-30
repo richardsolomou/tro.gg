@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { FRAME_H, FRAME_W, frameName, frames, ghostDraw, paintArmSheet, paintChopArmSheet, paintSheet, rgbaSink, SHEET_H, SHEET_W, type Facing, type FrameName, type Kind, type PixelSink } from "@trogg/shared";
+import { FRAME_H, FRAME_W, frameName, frames, ghostDraw, HOG_BALL_SHEET_H, HOG_BALL_SHEET_W, HOG_BALL_STYLES, hogBallRect, paintArmSheet, paintChopArmSheet, paintHogBallSheet, paintSheet, rgbaSink, SHEET_H, SHEET_W, type Facing, type FrameName, type Kind, type PixelSink } from "@trogg/shared";
 import { STRIKE_PEAK } from "./equipment.js";
 
 /**
@@ -17,6 +17,7 @@ import { STRIKE_PEAK } from "./equipment.js";
 export const AVATAR_TEX = "avatars";
 export const AVATAR_ARM_TEX = "avatars-arm";
 export const AVATAR_CHOP_ARM_TEX = "avatars-chop-arm";
+export const AVATAR_BALL_TEX = "avatars-ball";
 export const GHOST_TEX = "avatars-ghost";
 /** The single frame carved from `GHOST_TEX` (the ghost is one drawing, not a sheet). */
 export const GHOST_FRAME = "ghost";
@@ -58,6 +59,17 @@ function registerChopArmSheet(scene: Phaser.Scene): void {
   for (const f of frames()) tex.add(f.name, 0, f.x, f.y, f.w, f.h);
 }
 
+/** Register the hog ball-form sheet (a cell per common style), carved by `hogBallRect`. */
+function registerBallSheet(scene: Phaser.Scene): void {
+  if (scene.textures.exists(AVATAR_BALL_TEX)) return;
+  const tex = scene.textures.addCanvas(AVATAR_BALL_TEX, paintCanvas(HOG_BALL_SHEET_W, HOG_BALL_SHEET_H, paintHogBallSheet));
+  if (!tex) return;
+  for (const style of HOG_BALL_STYLES) {
+    const r = hogBallRect(style);
+    tex.add(r.name, 0, r.x, r.y, r.w, r.h);
+  }
+}
+
 /** Register the ghost as its own one-frame texture (its bespoke off-white art, GDD "Avatars and equipment"). */
 function registerGhost(scene: Phaser.Scene): void {
   if (scene.textures.exists(GHOST_TEX)) return;
@@ -74,6 +86,7 @@ export function registerAvatarTextures(scene: Phaser.Scene): void {
   registerSheet(scene);
   registerArmSheet(scene);
   registerChopArmSheet(scene);
+  registerBallSheet(scene);
   registerGhost(scene);
 }
 
