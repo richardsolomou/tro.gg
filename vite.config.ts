@@ -31,6 +31,7 @@ const playRoute: Plugin = {
       const suffix = query ? `?${query}` : "";
       if (path === "/play") req.url = `/play/${suffix}`;
       if (path === "/preview") req.url = `/preview/${suffix}`;
+      if (path === "/spike3d") req.url = `/spike3d/${suffix}`;
       next();
     });
   },
@@ -52,10 +53,12 @@ export default defineConfig({
     sourcemap: true,
     rollupOptions: {
       input: {
-        // Pages: the landing at `/`, the game at `/play`, the dev art preview at `/preview`.
+        // Pages: the landing at `/`, the game at `/play`, the dev art preview at `/preview`,
+        // and the full-3D exploration at `/spike3d`.
         main: fileURLToPath(new URL("./index.html", import.meta.url)),
         play: fileURLToPath(new URL("./play/index.html", import.meta.url)),
         preview: fileURLToPath(new URL("./preview/index.html", import.meta.url)),
+        spike3d: fileURLToPath(new URL("./spike3d/index.html", import.meta.url)),
       },
     },
   },

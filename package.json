@@ -25,10 +25,12 @@
     "oidc-client-ts": "^3.5.0",
     "phaser": "^4.2.0",
     "posthog-js": "^1.391.2",
-    "spacetimedb": "2.6.*"
+    "spacetimedb": "2.6.*",
+    "three": "^0.185.1"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
+    "@types/three": "^0.185.0",
     "tsx": "^4.19.2",
     "typescript": "^6.0.3",
     "vite": "^8.0.16"

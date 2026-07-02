@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>tro.gg — 3D spike</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #0a0806; color: #f0e4c7; font-family: monospace; overflow: hidden; }
+      canvas { display: block; }
+      #hint {
+        position: absolute; left: 12px; bottom: 12px; z-index: 10;
+        padding: 6px 10px; background: rgba(21, 16, 11, 0.85); border: 2px solid #3b2d1e;
+        font-size: 12px; letter-spacing: 0.4px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="hint">WASD move · shift run · F attack</div>
+    <script type="module" src="/src/spike3d/main.ts"></script>
+  </body>
+</html>
