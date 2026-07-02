@@ -1,0 +1,20 @@
+; tro.gg full-3D spike, Godot variant. Everything is built procedurally by
+; res://main.gd — no editor-authored scenes or assets beyond the one-node
+; main.tscn shell this file boots.
+
+config_version=5
+
+[application]
+
+config/name="tro.gg 3D spike (Godot)"
+run/main_scene="res://main.tscn"
+config/features=PackedStringArray("4.7")
+
+[display]
+
+window/size/viewport_width=1100
+window/size/viewport_height=700
+
+[rendering]
+
+anti_aliasing/quality/msaa_3d=2
