@@ -1,5 +1,6 @@
 import Phaser from "phaser";
 import { FRAME_H, FRAME_W, frameName, frames, ghostDraw, HOG_BALL_SHEET_H, HOG_BALL_SHEET_W, HOG_BALL_STYLES, hogBallRect, paintArmSheet, paintChopArmSheet, paintHogBallSheet, paintSheet, rgbaSink, SHEET_H, SHEET_W, type Facing, type FrameName, type Kind, type PixelSink } from "@trogg/shared";
+export { avatarFrame } from "@trogg/shared";
 import { STRIKE_PEAK } from "./equipment.js";
 
 /**
@@ -104,19 +105,6 @@ export function facingFromDir(dirX: number, dirY: number, last: Facing): Facing 
   if (dirX === 0 && dirY === 0) return last;
   if (Math.abs(dirX) >= Math.abs(dirY)) return dirX < 0 ? "left" : "right";
   return dirY < 0 ? "up" : "down";
-}
-
-/** Milliseconds per step of the two-frame stride cycle — quicker when running. */
-const WALK_STEP_MS = 160;
-const RUN_STEP_MS = 100;
-
-/** The frame to show: idle when stopped, else an alternating two-step stride —
- *  the walk cycle, or the faster hunched run cycle when `running` (GDD "Movement"). */
-export function avatarFrame(moving: boolean, running: boolean, nowMs: number): FrameName {
-  if (!moving) return "idle";
-  const even = Math.floor(nowMs / (running ? RUN_STEP_MS : WALK_STEP_MS)) % 2 === 0;
-  if (running) return even ? "run_a" : "run_b";
-  return even ? "walk_a" : "walk_b";
 }
 
 /** The body pose for an equipment use, by progress through the action: a brief wind-up, then

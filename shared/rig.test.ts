@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { armAngle, forward, gripRotation, handJoint, jointAt, JOINT_NAMES, skeletonFor, slotAnchor, wieldPose, wieldProfile } from "./rig";
+import { armAngle, bodyLean, forward, gripRotation, handJoint, jointAt, JOINT_NAMES, skeletonFor, slotAnchor, wieldPose, wieldProfile } from "./rig";
 import { FACINGS, FRAME_H, FRAME_W, FRAMES, KINDS } from "./sprites";
 
 test("handJoint is deterministic", () => {
@@ -86,6 +86,39 @@ test("a hog's held hand swings with the gait and reaches on attack (it shares th
   // hogs share the rig's attack reach now: the main hand cocks back, then throws forward
   assert.equal(handJoint("hog", "down", "attack_b").y > idleDown.y, true);
   assert.equal(handJoint("hog", "down", "attack_a").y < idleDown.y, true);
+});
+
+test("a side stride scissors the feet: the lifted foot swings ahead, the planted trails back", () => {
+  for (const kind of KINDS) {
+    const rest = skeletonFor(kind, "right").joints;
+    const near = jointAt(kind, "right", "walk_a", "nearFoot");
+    const far = jointAt(kind, "right", "walk_a", "farFoot");
+    assert.ok(near.x > rest.nearFoot.x, `${kind}: lifted near foot should swing ahead`);
+    assert.ok(near.y < rest.nearFoot.y, `${kind}: lifted near foot should lift`);
+    assert.ok(far.x < rest.farFoot.x, `${kind}: planted far foot should trail back`);
+    assert.equal(far.y, rest.farFoot.y, `${kind}: planted far foot stays on the ground`);
+  }
+});
+
+test("down/up strides keep the plain alternating lift — no scissor across the camera axis", () => {
+  for (const facing of ["down", "up"] as const) {
+    const rest = skeletonFor("trogg", facing).joints.nearFoot;
+    const near = jointAt("trogg", facing, "walk_a", "nearFoot");
+    assert.equal(near.x, rest.x, `${facing}: feet should not shift sideways`);
+    assert.ok(near.y < rest.y, `${facing}: the striding foot still lifts`);
+  }
+});
+
+test("the upper body leans on side facings: the run hunch and the attack weight shift", () => {
+  // running leans forward; the wind-up pulls back; the strike throws forward
+  assert.ok(bodyLean("trogg", "right", "run_a") > 0);
+  assert.ok(bodyLean("trogg", "right", "attack_a") < 0);
+  assert.ok(bodyLean("trogg", "right", "attack_b") > 0);
+  // down/up look along the lean, so nothing shifts
+  assert.equal(bodyLean("trogg", "down", "run_a"), 0);
+  // the shoulders carry the lean, so the drawn arms stay rooted to the leaning torso
+  const rest = skeletonFor("trogg", "right").joints.mainShoulder;
+  assert.ok(jointAt("trogg", "right", "run_a", "mainShoulder").x > rest.x);
 });
 
 test("unknown items get a neutral wield profile", () => {

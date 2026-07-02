@@ -5,8 +5,11 @@ import {
   FRAMES,
   FRAME_H,
   FRAME_W,
+  RUN_PHASE_MS,
   SHEET_H,
   SHEET_W,
+  WALK_PHASE_MS,
+  avatarFrame,
   frameRect,
   frames,
   blitArt,
@@ -32,6 +35,24 @@ test("frames tile the sheet without overlap or gaps", () => {
   }
   // distinct cells, each one frame, filling the COLS×ROWS grid
   assert.equal(seen.size, frames().length);
+});
+
+test("standing still is the idle frame", () => {
+  assert.equal(avatarFrame(false, false, 0), "idle");
+  assert.equal(avatarFrame(false, true, 12_345), "idle");
+});
+
+test("the walk is a four-phase stride: step, passing pose, other step, passing pose", () => {
+  const at = (phase: number) => avatarFrame(true, false, phase * WALK_PHASE_MS);
+  assert.deepEqual([at(0), at(1), at(2), at(3)], ["walk_a", "idle", "walk_b", "idle"]);
+  // and it cycles
+  assert.equal(at(4), "walk_a");
+});
+
+test("the run shares the cycle on its own faster steps", () => {
+  const at = (phase: number) => avatarFrame(true, true, phase * RUN_PHASE_MS);
+  assert.deepEqual([at(0), at(1), at(2), at(3)], ["run_a", "idle", "run_b", "idle"]);
+  assert.ok(RUN_PHASE_MS < WALK_PHASE_MS, "running strides quicker than walking");
 });
 
 test("frameRect names follow kind_style_facing_frame", () => {

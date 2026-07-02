@@ -1,27 +1,24 @@
 /**
  * Avatar paint helpers shared by the creature art modules in this folder: the bits
  * every creature reuses (feet, eyes), the legacy walk/run frame maths still used by
- * the baked hog rig (stride, foot lift, body bob, run lean), and `drawArm` for
- * rig-driven limbs.
+ * the baked chicken (stride, foot lift, wing swing), and `drawArm` for rig-driven limbs.
  *
  * The skeleton/pose *data* (joint rest positions and the per-frame offsets that drive
- * gait and attack) lives in `shared/rig.ts` so the runtime can read the same joints;
- * this file only turns joints into pixels.
+ * gait, lean, and attack) lives in `shared/rig.ts` so the runtime can read the same
+ * joints; this file only turns joints into pixels.
  *
  * Standalone Node (tsx) — not part of the client or the module bundle.
  */
 
 import { dot, rect, shaded } from "../pixel_paint.ts";
-import type { FrameName, PixelSink } from "../../shared/sprites.ts";
+import { poseOffset } from "../../shared/rig.ts";
+import type { Facing, FrameName, Kind, PixelSink } from "../../shared/sprites.ts";
 
 /** Which cardinal a frame is drawn for; `left` is the right profile, mirrored. */
 export type View = "down" | "up" | "side";
 
 /** Feet baseline (planted). */
 export const FEET_Y = 40;
-
-/** Forward hunch when running on the side profile (right-facing, pre-mirror). */
-export const RUN_LEAN = 4;
 
 export function isRun(frame: FrameName): boolean {
   return frame === "run_a" || frame === "run_b";
@@ -43,23 +40,22 @@ export function footLift(frame: FrameName, left: boolean): number {
   return 0;
 }
 
-/** Body bob as the avatar strides — 2px on a walk, 3px on a run's push-off. */
-export function bodyBob(frame: FrameName): number {
-  if (frame === "idle") return 0;
-  return isRun(frame) ? -3 : -2;
-}
-
 /** Arm swing for a gait frame, matching the shared rig's hand offset (`stride × 3` walking,
- *  `× 5` running). Baked-limb creatures offset their painted arms by this so the drawn hand
- *  moves with the rig's hand joint — keeping a held item on the hand through the walk cycle. */
+ *  `× 5` running). The baked chicken offsets its painted wings by this so they flap with the
+ *  gait even without rig arms. */
 export function armSwing(frame: FrameName): number {
   return stride(frame) * (isRun(frame) ? 5 : 3);
 }
 
-/** Two feet with the walk lift applied; `y` is the planted baseline. */
-export function feet(p: PixelSink, frame: FrameName, base: number, shade: number, y: number, lx: number, rx: number): void {
-  shaded(p, lx, y + footLift(frame, true), 2.6, 2.1, base, shade);
-  shaded(p, rx, y + footLift(frame, false), 2.6, 2.1, base, shade);
+/** Two feet in a creature's painted stance (`nearX`/`farX`, the near foot first), posed by the
+ *  shared rig: the alternating lift plus — on the side facings — the forward/back scissor. The
+ *  stance stays the creature's own; only the per-frame pose comes from `poseOffset`, so every
+ *  rigged creature's feet step the same way a held item swings: off the one skeleton. */
+export function feet(p: PixelSink, kind: Kind, facing: Facing, frame: FrameName, base: number, shade: number, y: number, nearX: number, farX: number): void {
+  const near = poseOffset(kind, facing, frame, "nearFoot");
+  const far = poseOffset(kind, facing, frame, "farFoot");
+  shaded(p, nearX + near.x, y + near.y, 2.6, 2.1, base, shade);
+  shaded(p, farX + far.x, y + far.y, 2.6, 2.1, base, shade);
 }
 
 /** A round GSC eye: a tall dark oval with a single light highlight pixel. */

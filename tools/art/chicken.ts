@@ -7,7 +7,8 @@
  */
 
 import { disc, dot, rect, shaded } from "../pixel_paint.ts";
-import { armSwing, bodyBob, footLift, FEET_Y, type View } from "./rig.ts";
+import { armSwing, footLift, FEET_Y, type View } from "./rig.ts";
+import { rootBob } from "../../shared/rig.ts";
 import type { FrameName, PixelSink } from "../../shared/sprites.ts";
 
 export const CHICK = {
@@ -28,7 +29,7 @@ export const CHICK = {
 
 export function chickenDraw(p: PixelSink, view: View, frame: FrameName): void {
   const c = CHICK;
-  const b = bodyBob(frame);
+  const b = rootBob(frame);
   const sw = armSwing(frame); // wings flap with the gait
   shaded(p, 13, FEET_Y + footLift(frame, true), 2, 1.8, c.beak, c.beakDk);
   shaded(p, 19, FEET_Y + footLift(frame, false), 2, 1.8, c.beak, c.beakDk);

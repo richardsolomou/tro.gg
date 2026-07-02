@@ -6,9 +6,9 @@
  * Standalone Node (tsx) — not part of the client or the module bundle.
  */
 
-import { disc, dot, rect, shaded } from "../pixel_paint.ts";
-import { bodyBob, drawArm, feet, FEET_Y, type View } from "./rig.ts";
-import { jointAt, skeletonFor, type JointName } from "../../shared/rig.ts";
+import { disc, dot, rect, shaded, translated } from "../pixel_paint.ts";
+import { drawArm, feet, FEET_Y, type View } from "./rig.ts";
+import { bodyLean, jointAt, rootBob, skeletonFor, type JointName } from "../../shared/rig.ts";
 import type { Facing, FrameName, PixelSink } from "../../shared/sprites.ts";
 
 export const DINO = {
@@ -47,9 +47,9 @@ function dinoArmRig(p: PixelSink, facing: Facing, frame: FrameName, slot: "main"
 export function dinoBody(p: PixelSink, view: View, frame: FrameName): void {
   const c = DINO;
   const facing: Facing = view === "side" ? "right" : view;
-  const b = bodyBob(frame);
+  const b = rootBob(frame); // the rig's bob, so the body dips exactly with the rig-driven arms
   const behind = skeletonFor("hog", facing).behind;
-  feet(p, frame, c.body, c.out, FEET_Y, 11, 20);
+  feet(p, "hog", facing, frame, c.body, c.out, FEET_Y, view === "side" ? 20 : 11, view === "side" ? 11 : 20);
   shaded(p, 12, 35 + b, 3.6, 4.6, c.body, c.bodyDk);
   shaded(p, 19, 35 + b, 3.6, 4.6, c.body, c.bodyDk);
 
@@ -68,19 +68,21 @@ export function dinoBody(p: PixelSink, view: View, frame: FrameName): void {
 
   if (view === "side") {
     // profile at the same height as the front: body, a ridge running down the back from behind
-    // the head, the toothy hood up front with the hog face inside
-    shaded(p, 14, 28 + b, 8, 9, c.body, c.bodyDk);
-    for (let i = 0; i < 4; i++) disc(p, 16 - i * 2.4, 16 + i * 2.6 + b, 1.4, 1.8, c.bodyDk); // back ridge down the spine
-    disc(p, 16, 30 + b, 5, 4, c.belly);
-    rect(p, 12, 25 + b, 5, 1, c.bodyHi);
-    shaded(p, 22, 16 + b, 6.4, 6, c.body, c.bodyDk); // toothy hood
-    rect(p, 20, 12 + b, 5, 1, c.bodyHi);
-    rect(p, 18, 18 + b, 12, 1, c.out); // jaw line
-    for (let x = 18; x <= 28; x += 2) { dot(p, x, 16 + b, c.tooth); dot(p, x + 1, 20 + b, c.tooth); }
-    disc(p, 23, 19 + b, 2.6, 2.2, c.face); // hog face inside
-    dot(p, 22, 18 + b, c.faceHi);
-    dot(p, 24, 18.5 + b, c.eye);
-    dot(p, 25.5, 12.5 + b, c.eye); // costume eye high on the snout
+    // the head, the toothy hood up front with the hog face inside.
+    // The body group leans through a shifted sink, matching the rig's arm lean.
+    const q = translated(p, bodyLean("hog", facing, frame), 0);
+    shaded(q, 14, 28 + b, 8, 9, c.body, c.bodyDk);
+    for (let i = 0; i < 4; i++) disc(q, 16 - i * 2.4, 16 + i * 2.6 + b, 1.4, 1.8, c.bodyDk); // back ridge down the spine
+    disc(q, 16, 30 + b, 5, 4, c.belly);
+    rect(q, 12, 25 + b, 5, 1, c.bodyHi);
+    shaded(q, 22, 16 + b, 6.4, 6, c.body, c.bodyDk); // toothy hood
+    rect(q, 20, 12 + b, 5, 1, c.bodyHi);
+    rect(q, 18, 18 + b, 12, 1, c.out); // jaw line
+    for (let x = 18; x <= 28; x += 2) { dot(q, x, 16 + b, c.tooth); dot(q, x + 1, 20 + b, c.tooth); }
+    disc(q, 23, 19 + b, 2.6, 2.2, c.face); // hog face inside
+    dot(q, 22, 18 + b, c.faceHi);
+    dot(q, 24, 18.5 + b, c.eye);
+    dot(q, 25.5, 12.5 + b, c.eye); // costume eye high on the snout
     return; // the near arm is drawn on top by dinoDraw / as the overlay
   }
 
