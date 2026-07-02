@@ -54,6 +54,23 @@ export const KINDS: readonly Kind[] = ["trogg", "hog"] as const;
 export const FACINGS: readonly Facing[] = ["down", "up", "left", "right"] as const;
 export const FRAMES: readonly FrameName[] = ["idle", "walk_a", "walk_b", "run_a", "run_b", "attack_a", "attack_b"] as const;
 
+/** Milliseconds per gait phase. A stride is four phases (step, pass, other step, pass),
+ *  so at 4 tiles/s walking (250 ms/tile) a footfall lands about every half tile. */
+export const WALK_PHASE_MS = 125;
+export const RUN_PHASE_MS = 80;
+
+/** The frame to show: idle when stopped, else the GSC four-phase stride — a step, the
+ *  neutral passing pose, the other step, the passing pose again — so each footfall
+ *  plants and returns rather than snapping between extremes (GDD "Movement"). Running
+ *  uses the faster hunched run steps on the same cycle. */
+export function avatarFrame(moving: boolean, running: boolean, nowMs: number): FrameName {
+  if (!moving) return "idle";
+  const phase = Math.floor(nowMs / (running ? RUN_PHASE_MS : WALK_PHASE_MS)) % 4;
+  if (phase === 1 || phase === 3) return "idle";
+  if (running) return phase === 0 ? "run_a" : "run_b";
+  return phase === 0 ? "walk_a" : "walk_b";
+}
+
 /** Every (kind, style) row group in sheet order: a kind's styles, then the next
  *  kind's. Each group owns `FACINGS.length` rows. */
 export function styleGroups(): { kind: Kind; style: string }[] {

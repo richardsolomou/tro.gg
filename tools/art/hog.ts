@@ -7,9 +7,9 @@
  * Standalone Node (tsx) — not part of the client or the module bundle.
  */
 
-import { disc, dot, rect, shaded } from "../pixel_paint.ts";
-import { bodyBob, drawArm, eye, feet, FEET_Y, type View } from "./rig.ts";
-import { jointAt, skeletonFor, type JointName } from "../../shared/rig.ts";
+import { disc, dot, rect, shaded, translated } from "../pixel_paint.ts";
+import { drawArm, eye, feet, FEET_Y, type View } from "./rig.ts";
+import { bodyLean, jointAt, rootBob, skeletonFor, type JointName } from "../../shared/rig.ts";
 import type { Facing, FrameName, PixelSink } from "../../shared/sprites.ts";
 
 export interface HogSkin {
@@ -114,9 +114,9 @@ function hogGscHighlights(p: PixelSink, view: View, b: number, h: HogSkin): void
  *  generator paints body and arm apart so the near arm can ride over a held item with one outline. */
 export function hogBody(p: PixelSink, view: View, frame: FrameName, h: HogSkin): void {
   const facing: Facing = view === "side" ? "right" : view;
-  const b = bodyBob(frame);
+  const b = rootBob(frame); // the rig's bob, so the body dips exactly with the rig-driven arms
   const behind = skeletonFor("hog", facing).behind;
-  feet(p, frame, h.limb, h.out, FEET_Y, 12, 19);
+  feet(p, "hog", facing, frame, h.limb, h.out, FEET_Y, view === "side" ? 19 : 12, view === "side" ? 12 : 19);
 
   if (view === "up") {
     quillSpikes(p, 15.5, 24 + b, 13, 13.5, h.quill);
@@ -130,15 +130,17 @@ export function hogBody(p: PixelSink, view: View, frame: FrameName, h: HogSkin):
   }
 
   if (view === "side") {
-    quillSpikes(p, 11, 24 + b, 9.5, 12, h.quill);
-    shaded(p, 11, 24 + b, 9.5, 12, h.quill, h.quillDk);
-    shaded(p, 18, 31 + b, 8, 6.6, h.face, h.faceDk);
-    hogGscHighlights(p, view, b, h);
-    hogEar(p, 20, 16 + b, h);
-    shaded(p, 22, 22 + b, 6, 5.4, h.face, h.faceDk);
-    disc(p, 27, 24 + b, 2.4, 2, h.faceDk);
-    rect(p, 28, 23 + b, 2, 2, h.nose);
-    eye(p, 22, 20 + b, h.eye, h.glint);
+    // the body group leans through a shifted sink, matching the rig's arm lean
+    const q = translated(p, bodyLean("hog", facing, frame), 0);
+    quillSpikes(q, 11, 24 + b, 9.5, 12, h.quill);
+    shaded(q, 11, 24 + b, 9.5, 12, h.quill, h.quillDk);
+    shaded(q, 18, 31 + b, 8, 6.6, h.face, h.faceDk);
+    hogGscHighlights(q, view, b, h);
+    hogEar(q, 20, 16 + b, h);
+    shaded(q, 22, 22 + b, 6, 5.4, h.face, h.faceDk);
+    disc(q, 27, 24 + b, 2.4, 2, h.faceDk);
+    rect(q, 28, 23 + b, 2, 2, h.nose);
+    eye(q, 22, 20 + b, h.eye, h.glint);
     return; // the near (main) arm is drawn on top by hogDraw / as the overlay
   }
 

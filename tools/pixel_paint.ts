@@ -33,6 +33,12 @@ export function dot(p: PixelSink, x: number, y: number, colour: number): void {
   p.set(Math.round(x), Math.round(y), colour);
 }
 
+/** A sink shifted by a whole-pixel offset — paint a body part group through it to move the
+ *  group as one (e.g. a torso leaning into a run) without touching each coordinate. */
+export function translated(p: PixelSink, dx: number, dy: number): PixelSink {
+  return { set: (x, y, colour, alpha) => p.set(x + dx, y + dy, colour, alpha) };
+}
+
 export function rect(p: PixelSink, x: number, y: number, w: number, h: number, colour: number): void {
   for (let yy = 0; yy < h; yy++) for (let xx = 0; xx < w; xx++) p.set(Math.round(x) + xx, Math.round(y) + yy, colour);
 }

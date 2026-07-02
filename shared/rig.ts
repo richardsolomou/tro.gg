@@ -166,10 +166,25 @@ function stride(frame: FrameName): number {
   return 0;
 }
 
-/** Body bob: the whole creature dips as it strides (the off-foot stays planted). */
+/** Body bob: the whole creature dips as it strides (the off-foot stays planted), and
+ *  sinks a pixel into the strike so the blow carries weight. */
 export function rootBob(frame: FrameName): number {
-  if (frame === "idle" || frame === "attack_a" || frame === "attack_b") return 0;
+  if (frame === "idle" || frame === "attack_a") return 0;
+  if (frame === "attack_b") return -1;
   return isRun(frame) ? -3 : -2;
+}
+
+/** The upper body's lean this frame, in frame px along the facing (side facings only —
+ *  on down/up the camera looks along the lean, so nothing shifts): the run hunch, plus
+ *  the attack's weight shift — pulled back a touch on the wind-up, thrown forward into
+ *  the strike. Shared by the rig (shoulders/hands) and the paint code (torso/head) so
+ *  the whole upper body leans as one piece and a held item rides the leaning arm. The
+ *  long trogg hunches harder than the round hogs, whose face already fills the frame edge. */
+export function bodyLean(kind: Kind, facing: Facing, frame: FrameName): number {
+  if (facing !== "left" && facing !== "right") return 0;
+  if (frame === "attack_a") return -1;
+  if (frame === "attack_b") return 2;
+  return isRun(frame) ? (kind === "trogg" ? 4 : 2) : 0;
 }
 
 /** Vertical foot lift for a stride frame; near/far alternate, higher on a run. */
@@ -180,6 +195,21 @@ function footLift(frame: FrameName, near: boolean): number {
   if (s > 0) return near ? lift : 0;
   if (s < 0) return near ? 0 : lift;
   return 0;
+}
+
+/** Forward/back scissor of a foot along the facing (side facings only): the lifted foot
+ *  swings ahead while the planted foot trails behind, so a side-on stride reads as steps
+ *  rather than pistons. Down/up keep the plain alternating lift — the scissor happens
+ *  along the camera axis there and would only smear the silhouette. The trogg's long legs
+ *  stretch further on a run; a hog's feet are bare nubs under a round body, so they keep
+ *  the walk's short scissor or they'd detach from the silhouette. */
+function footSwing(kind: Kind, frame: FrameName, near: boolean): number {
+  if (frame === "attack_a" || frame === "attack_b") return 0;
+  const s = stride(frame);
+  if (s === 0) return 0;
+  const long = kind === "trogg" && isRun(frame);
+  const lifted = s > 0 ? near : !near;
+  return lifted ? (long ? 4 : 2) : long ? -2 : -1;
 }
 
 /** Reach distances. Wind-up cocks the hand back; the strike throws it forward. Kept short so the
@@ -202,45 +232,51 @@ export function chopHandOffset(facing: Facing, frame: FrameName): Joint {
 /** The per-frame offset of one joint from its rest position, in frame pixels. Both the gait swing
  *  and the attack reach are shared by every rig-driven kind, so hog arms swing while walking and
  *  reach on a strike just like the trogg's (the main arm cocks back on `attack_a`, throws forward
- *  on `attack_b`); the body and other limbs hold through the attack. */
+ *  on `attack_b`). The upper body (shoulders and hands) also carries `bodyLean` — the run hunch
+ *  and the attack's weight shift — so the arms stay rooted to the leaning torso the paint code
+ *  draws, while hips and feet hold the ground. */
 export function poseOffset(kind: Kind, facing: Facing, frame: FrameName, joint: JointName): Joint {
   const b = rootBob(frame);
   const run = isRun(frame);
   const sw = stride(frame) * (run ? 5 : 3); // arm swing — bigger than the leg stride
   const side = facing === "left" || facing === "right";
+  const fx = forward(facing).x;
+  const lean = bodyLean(kind, facing, frame) * fx; // screen-x shift of the upper body (side only)
 
   if (frame === "attack_a" || frame === "attack_b") {
-    // only the main arm moves; the body and other limbs hold
+    // the main arm strikes and the upper body leans with it; the legs hold the ground
     if (joint === "mainHand" || joint === "mainShoulder") {
       // The hand reaches back on the wind-up, forward on the strike, along the facing — a neutral
       // arm motion shared by every weapon. Each weapon's own character (the pickaxe's overhead
       // chop, the shovel's low dig, the sword's flat thrust) comes from its tool rotation
-      // (`gripRotation`) and art, not from a per-weapon arm path. The shoulder stays planted on the
-      // torso so the arm pivots from the body rather than lifting its root off.
-      if (joint === "mainShoulder") return { x: 0, y: b };
+      // (`gripRotation`) and art, not from a per-weapon arm path. The shoulder stays on the
+      // (leaning) torso so the arm pivots from the body rather than lifting its root off.
+      if (joint === "mainShoulder") return { x: lean, y: b };
       const f = forward(facing);
       const along = frame === "attack_b" ? ATTACK_REACH : -ATTACK_COCK;
-      return { x: f.x * along, y: f.y * along };
+      return { x: f.x * along + lean, y: f.y * along + b };
     }
+    if (joint === "offShoulder") return { x: lean, y: b };
+    if (joint === "offHand") return { x: lean, y: b };
     return { x: 0, y: 0 };
   }
 
   switch (joint) {
-    // Shoulders are the arm's pivot — they stay on the (bobbing) torso while the hands swing.
+    // Shoulders are the arm's pivot — they stay on the (bobbing, leaning) torso while the hands swing.
     case "mainShoulder":
     case "offShoulder":
-      return { x: 0, y: b };
+      return { x: lean, y: b };
     case "mainHand":
-      return side ? { x: sw, y: b } : { x: 0, y: b + sw };
+      return side ? { x: sw + lean, y: b } : { x: 0, y: b + sw };
     case "offHand":
-      return side ? { x: -sw, y: b } : { x: 0, y: b - sw };
+      return side ? { x: -sw + lean, y: b } : { x: 0, y: b - sw };
     case "nearHip":
     case "farHip":
       return { x: 0, y: b };
     case "nearFoot":
-      return { x: 0, y: footLift(frame, true) };
+      return { x: side ? footSwing(kind, frame, true) * fx : 0, y: footLift(frame, true) };
     case "farFoot":
-      return { x: 0, y: footLift(frame, false) };
+      return { x: side ? footSwing(kind, frame, false) * fx : 0, y: footLift(frame, false) };
   }
 }
 

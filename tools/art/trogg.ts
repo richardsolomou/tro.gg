@@ -15,9 +15,9 @@
  * Standalone Node (tsx) — not part of the client or the module bundle.
  */
 
-import { disc, dot, line, rect, shaded } from "../pixel_paint.ts";
-import { drawArm, isRun, RUN_LEAN, type View } from "./rig.ts";
-import { jointAt, rootBob, skeletonFor, type JointName } from "../../shared/rig.ts";
+import { disc, dot, rect, shaded } from "../pixel_paint.ts";
+import { drawArm, isRun, type View } from "./rig.ts";
+import { bodyLean, jointAt, rootBob, skeletonFor, type JointName } from "../../shared/rig.ts";
 import type { Facing, FrameName, PixelSink } from "../../shared/sprites.ts";
 
 interface TroggSkin {
@@ -84,6 +84,8 @@ function troggEye(p: PixelSink, x: number, y: number, c: TroggSkin): void {
 function troggFaceFront(p: PixelSink, c: TroggSkin, cy: number): void {
   // bony brow bumps over each eye (only on `ridge`)
   if (c.ridge) { dot(p, 11, cy - 3, c.light); dot(p, 20, cy - 3, c.light); }
+  // lit crown: a bold two-row highlight across the top of the skull dome
+  rect(p, 13, cy - 6, 5, 1, c.light);
   rect(p, 12, cy - 5, 8, 1, c.light);
   // deep-set glowing eyes tucked into shadowed sockets
   troggEye(p, 11, cy, c);
@@ -103,9 +105,14 @@ function troggFaceFront(p: PixelSink, c: TroggSkin, cy: number): void {
   dot(p, 14, cy + 5, c.tooth); dot(p, 17, cy + 5, c.tooth); // upper teeth biting down
 }
 
-/** A bent leg: a thick thigh at the hip and a big foot at its planted/lifted end. */
-function troggLeg(p: PixelSink, hip: { x: number; y: number }, foot: { x: number; y: number }, c: TroggSkin, dark: boolean): void {
-  shaded(p, hip.x, hip.y, 3.2, 4, dark ? c.shade : c.base, dark ? c.out : c.shade);
+/** A bent leg: a thick thigh at the hip, a shin run down to the foot (so a swinging foot
+ *  stays attached through the stride's scissor), and a big foot at its planted/lifted end.
+ *  `knee` kicks the shin's midpoint sideways — forward on the side profile. */
+function troggLeg(p: PixelSink, hip: { x: number; y: number }, foot: { x: number; y: number }, c: TroggSkin, dark: boolean, knee = 0): void {
+  const base = dark ? c.shade : c.base;
+  const shade = dark ? c.out : c.shade;
+  shaded(p, hip.x, hip.y, 3.2, 4, base, shade);
+  drawArm(p, hip.x, hip.y + 2, foot.x, foot.y - 1, 2.4, base, shade, knee);
   if (!dark) dot(p, hip.x - 1, hip.y - 2, c.light);
   troggFoot(p, foot.x, foot.y, c);
 }
@@ -119,15 +126,15 @@ export function troggBody(p: PixelSink, view: View, frame: FrameName, c: TroggSk
   const b = rootBob(frame);
   const run = isRun(frame);
   const hb = b + (run ? 1 : 0);
-  const lean = view === "side" && run ? RUN_LEAN : 0;
+  const lean = bodyLean("trogg", facing, frame); // run hunch + attack weight shift, shared with the rig's arms
   const behind = skeletonFor("trogg", facing).behind;
   const J = (j: JointName) => jointAt("trogg", facing, frame, j);
 
   if (view === "side") {
-    // far (off) arm + far leg, set back and darker
+    // far (off) arm + far leg, set back and darker (the arm's joints already carry the lean)
     drawArm(p, J("offShoulder").x, J("offShoulder").y, J("offHand").x, J("offHand").y, 2.7, c.shade, c.out);
     troggFist(p, J("offHand").x, J("offHand").y, c);
-    troggLeg(p, J("farHip"), J("farFoot"), c, true);
+    troggLeg(p, J("farHip"), J("farFoot"), c, true, -1.2);
     // upright trunk with a forward belly
     shaded(p, 16 + lean, 30 + b, 6, 7, c.base, c.shade);
     disc(p, 18 + lean, 31 + b, 3.1, 3.5, c.light);
@@ -145,7 +152,7 @@ export function troggBody(p: PixelSink, view: View, frame: FrameName, c: TroggSk
     rect(p, 20 + lean, 20 + hb, 6, 2, c.out); // underbite mouth
     rect(p, 20 + lean, 19 + hb, 1, 2, c.tooth); rect(p, 24 + lean, 19 + hb, 1, 2, c.tooth);
     // near leg (the near arm rides on top in troggDraw / as the overlay)
-    troggLeg(p, J("nearHip"), J("nearFoot"), c, false);
+    troggLeg(p, J("nearHip"), J("nearFoot"), c, false, -1.2);
     return;
   }
 
@@ -163,10 +170,14 @@ export function troggBody(p: PixelSink, view: View, frame: FrameName, c: TroggSk
   shaded(p, 16, 30 + b, 5.6, 7, c.base, c.shade);
   disc(p, 16, 31 + b, 3.6, 4.2, c.light);
   rect(p, 13, 27 + b, 6, 1, c.light);
-  line(p, 16, 26 + b, 16, 36 + b, c.shade);
+  // belly plates: horizontal creases across the lit belly, GSC-style bold interior breaks
+  rect(p, 13, 30 + b, 7, 1, c.shade);
+  rect(p, 13, 33 + b, 7, 1, c.shade);
   // hulking shoulders raised high, capping the arms onto the neck — the hunch
   shaded(p, 9.5, 22 + b, 4.6, 4.2, c.base, c.shade);
   shaded(p, 22.5, 22 + b, 4.6, 4.2, c.base, c.shade);
+  rect(p, 7, 20 + b, 3, 1, c.light); // lit shoulder caps
+  rect(p, 22, 20 + b, 3, 1, c.light);
   // skull head sunk low and forward between the shoulders
   shaded(p, 16, 16 + hb, 6.2, 6.6, c.base, c.shade);
   troggGscMarks(p, c, b);
@@ -188,13 +199,11 @@ export function troggBody(p: PixelSink, view: View, frame: FrameName, c: TroggSk
 export function troggMainArm(p: PixelSink, view: View, frame: FrameName, c: TroggSkin, handDy = 0): void {
   const facing: Facing = view === "side" ? "right" : view;
   if (skeletonFor("trogg", facing).behind) return;
-  const run = isRun(frame);
-  const lean = view === "side" && run ? RUN_LEAN : 0;
-  const J = (j: JointName) => jointAt("trogg", facing, frame, j);
+  const J = (j: JointName) => jointAt("trogg", facing, frame, j); // joints carry the lean
   const thick = view === "side" ? 2.9 : 3;
-  const hx = J("mainHand").x + lean;
+  const hx = J("mainHand").x;
   const hy = J("mainHand").y + handDy;
-  drawArm(p, J("mainShoulder").x + lean, J("mainShoulder").y, hx, hy, thick, c.base, c.shade);
+  drawArm(p, J("mainShoulder").x, J("mainShoulder").y, hx, hy, thick, c.base, c.shade);
   troggFist(p, hx, hy, c);
 }
 

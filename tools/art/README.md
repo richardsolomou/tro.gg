@@ -26,7 +26,7 @@ before touching any art; it keeps changes cheap and avoids editing generated fil
 | File | Role |
 | --- | --- |
 | `shared/rig.ts` | **Skeleton data** (pure geometry, bundled). Joint rest positions per kind×facing, pose offsets (gait + attack), `handJoint`/`jointAt`/`forward`, and per-item `wieldProfile`/`wieldPose`. Read by **both** the generator and the runtime. |
-| `tools/art/rig.ts` | **Paint helpers** (tooling). `drawArm` (rig-driven limb), `feet`/`eye`, `bodyBob` (gait body dip). Turns joints into pixels. |
+| `tools/art/rig.ts` | **Paint helpers** (tooling). `drawArm` (rig-driven limb), `feet` (a creature's painted stance posed by the shared rig), `eye`, plus the legacy baked-gait maths the chicken still uses. Turns joints into pixels. |
 | `tools/art/trogg.ts` | Trogg body + palette; limbs drawn from `shared/rig.ts` joints for every facing/frame (incl. `attack_a`/`attack_b`). Splits `troggBody` + `troggMainArm` so the near arm lifts over a held item. |
 | `tools/art/hog.ts`, `buff.ts`, `dino.ts` | Hog bodies + palettes; arms drawn from the rig like the trogg (each splits `*Body` + `*MainArm`). The big buff/dino keep bespoke bodies, rigged limbs. `hog.ts` also paints the common hog's defensive **ball form** (`hogBall` → `HOG_BALL_ART`): a facing-independent curl, so it lives outside the per-facing frame grid. |
 | `tools/art/chicken.ts`, `ghost.ts` | Baked per-frame: the chicken's wings flap by a painted offset (no rig arm, attack renders as idle); the ghost is one bespoke drawing. |
@@ -42,11 +42,16 @@ before touching any art; it keeps changes cheap and avoids editing generated fil
 
 A creature is a **body** (drawn per creature) plus limbs. The **trogg** and the **hogs**
 (common, buff, dino) draw their limbs from the rig: `poseOffset` makes animation *data* —
-`idle`/`walk_*`/`run_*` are the gait swing; `attack_a` cocks the main hand, `attack_b` throws it
-forward (the arm actually extends, a short reach so it stays connected) — and the runtime reads
-the same `handJoint` to pin a held item, so it rides the swinging/extending arm. The common and
-big hogs share the one `HOG` skeleton; only the **chicken** stays baked (its wings flap by a
-painted offset, no rig arm, attack renders as idle).
+`idle`/`walk_*`/`run_*` are the gait swing, with the feet **scissoring** forward/back on the
+side facings (the lifted foot swings ahead, the planted one trails) and the upper body carrying
+`bodyLean` (the run hunch and the attack's weight shift), shared with each creature's torso
+paint so arms stay rooted to the leaning body; `attack_a` cocks the main hand, `attack_b` throws
+it forward (the arm actually extends, a short reach so it stays connected) — and the runtime
+reads the same `handJoint` to pin a held item, so it rides the swinging/extending/leaning arm.
+At runtime the stride is the GSC **four-phase cycle** — step, passing pose (idle), other step,
+passing pose (`avatarFrame`, `shared/sprites.ts`) — so each footfall plants and returns. The
+common and big hogs share the one `HOG` skeleton; only the **chicken** stays baked (its wings
+flap by a painted offset, no rig arm, attack renders as idle).
 
 Each rigged creature's paint splits into a `*Body` and a `*MainArm` so the generator can lift the
 near (main-hand) arm out of the outlined frame and emit it as an **arm overlay** (`ARM_OVERLAY_ART`)

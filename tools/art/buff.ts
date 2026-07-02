@@ -7,10 +7,10 @@
  * Standalone Node (tsx) — not part of the client or the module bundle.
  */
 
-import { disc, dot, line, rect, shaded } from "../pixel_paint.ts";
-import { bodyBob, drawArm, feet, FEET_Y, type View } from "./rig.ts";
+import { disc, dot, line, rect, shaded, translated } from "../pixel_paint.ts";
+import { drawArm, feet, FEET_Y, type View } from "./rig.ts";
 import { quillSpikes } from "./hog.ts";
-import { jointAt, skeletonFor, type JointName } from "../../shared/rig.ts";
+import { bodyLean, jointAt, rootBob, skeletonFor, type JointName } from "../../shared/rig.ts";
 import type { Facing, FrameName, PixelSink } from "../../shared/sprites.ts";
 
 export const BUFF = {
@@ -45,9 +45,9 @@ function buffArmRig(p: PixelSink, facing: Facing, frame: FrameName, slot: "main"
 export function buffBody(p: PixelSink, view: View, frame: FrameName): void {
   const c = BUFF;
   const facing: Facing = view === "side" ? "right" : view;
-  const b = bodyBob(frame);
+  const b = rootBob(frame); // the rig's bob, so the body dips exactly with the rig-driven arms
   const behind = skeletonFor("hog", facing).behind;
-  feet(p, frame, c.skin, c.out, FEET_Y, 11, 20);
+  feet(p, "hog", facing, frame, c.skin, c.out, FEET_Y, view === "side" ? 20 : 11, view === "side" ? 11 : 20);
   shaded(p, 12, 35 + b, 3.4, 4.4, c.skin, c.skinDk);
   shaded(p, 19, 35 + b, 3.4, 4.4, c.skin, c.skinDk);
 
@@ -65,16 +65,18 @@ export function buffBody(p: PixelSink, view: View, frame: FrameName): void {
   }
 
   if (view === "side") {
-    // right profile: muscular torso side-on, head leaning forward under the mane
-    shaded(p, 14, 28 + b, 7.2, 8, c.skin, c.skinDk); // torso
-    disc(p, 16, 27 + b, 3, 2.8, c.skinHi); // near pec
-    line(p, 12, 31 + b, 18, 31 + b, c.skinDk); // ab hint
-    disc(p, 16, 14 + b, 4.6, 3.6, c.quill);
-    quillSpikes(p, 15, 14 + b, 4.8, 3.2, c.quill);
-    rect(p, 13, 12 + b, 5, 1, c.quillHi);
-    shaded(p, 20, 18 + b, 3.6, 3.4, c.face, c.skinDk); // jutting muzzle
-    rect(p, 21, 17 + b, 2, 2, c.eye); dot(p, 21, 17 + b, 0xffffff);
-    dot(p, 23, 19 + b, c.nose);
+    // right profile: muscular torso side-on, head leaning forward under the mane.
+    // The body group leans through a shifted sink, matching the rig's arm lean.
+    const q = translated(p, bodyLean("hog", facing, frame), 0);
+    shaded(q, 14, 28 + b, 7.2, 8, c.skin, c.skinDk); // torso
+    disc(q, 16, 27 + b, 3, 2.8, c.skinHi); // near pec
+    line(q, 12, 31 + b, 18, 31 + b, c.skinDk); // ab hint
+    disc(q, 16, 14 + b, 4.6, 3.6, c.quill);
+    quillSpikes(q, 15, 14 + b, 4.8, 3.2, c.quill);
+    rect(q, 13, 12 + b, 5, 1, c.quillHi);
+    shaded(q, 20, 18 + b, 3.6, 3.4, c.face, c.skinDk); // jutting muzzle
+    rect(q, 21, 17 + b, 2, 2, c.eye); dot(q, 21, 17 + b, 0xffffff);
+    dot(q, 23, 19 + b, c.nose);
     return; // the near arm is drawn on top by buffDraw / as the overlay
   }
 
