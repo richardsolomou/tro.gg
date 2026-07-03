@@ -217,8 +217,8 @@ export class World3D {
   private readonly hazeDay = new THREE.Color(DAYLIGHT_3D.haze);
   private readonly hazeNight = new THREE.Color(0x101a2c);
 
-  /** The Commands drawer's sky lock: a fixed day phase for this client's
-   *  rendering only (the cycle is cosmetic, nothing authoritative reads it). */
+  /** The shared sky lock (`world_state` row): a pinned day phase for every
+   *  client — the sky is shared fiction, so a scrub changes everyone's sun. */
   private dayPhaseOverride?: number;
 
   /** The shared day–night cycle: wall-clock phased (every player sees the same
@@ -226,7 +226,7 @@ export class World3D {
    *  to a dim moonlit blue where the glowmoss carries the light. */
   private updateDaylight(): void {
     if (!this.orbit) return;
-    const phase = this.dayPhaseOverride ?? (Date.now() % DAY_CYCLE_MS) / DAY_CYCLE_MS; // 0 = dawn
+    const phase = this.dayPhaseOverride ?? (Date.now() % DAY_CYCLE_MS) / DAY_CYCLE_MS; // 0 = dawn (override: the shared world_state sky lock)
     const sunAngle = phase * Math.PI * 2 - Math.PI / 2;
     const elevation = Math.sin(sunAngle + Math.PI / 2); // 1 noon, -1 midnight
     const daylight = Math.max(0, Math.min(1, (elevation + 0.12) * 2.4));
@@ -237,10 +237,12 @@ export class World3D {
     this.keyLight.target.position.set(fx, 0, fz);
     this.keyLight.intensity = 3.2 * daylight;
     this.hemi.intensity = 0.3 + 1.2 * daylight;
-    // the sun you can actually look up at, and the moon opposite it
-    this.sun.position.set(fx + Math.cos(sunAngle) * 85, Math.max(-20, elevation * 70), fz + Math.sin(sunAngle) * 40 + 8);
+    // The sun you can actually look up at, and the moon opposite it. Both ride
+    // ON the horizon at their low points, never below it — a body under y=0 can
+    // shine up "through the ground" wherever no streamed chunk covers the pixel.
+    this.sun.position.set(fx + Math.cos(sunAngle) * 85, 4 + Math.max(0, elevation) * 66, fz + Math.sin(sunAngle) * 40 + 8);
     this.sun.visible = elevation > -0.08;
-    this.moon.position.set(fx - Math.cos(sunAngle) * 85, Math.max(-20, -elevation * 70), fz - Math.sin(sunAngle) * 40 + 8);
+    this.moon.position.set(fx - Math.cos(sunAngle) * 85, 4 + Math.max(0, -elevation) * 66, fz - Math.sin(sunAngle) * 40 + 8);
     this.moon.visible = elevation < 0.08;
     (this.scene.background as THREE.Color).lerpColors(this.skyNight, this.skyDay, daylight);
     (this.scene.fog as THREE.Fog).color.lerpColors(this.hazeNight, this.hazeDay, daylight);
@@ -434,12 +436,13 @@ export class World3D {
     window.addEventListener("trogg-debug-hitboxes", ((e: Event) => {
       this.entities.setHitboxes((e as CustomEvent<boolean>).detail === true);
     }) as EventListener);
-    // Commands-drawer sky lock: a number locks this client's day phase, null
-    // hands the sky back to the shared wall clock.
-    window.addEventListener("trogg-debug-daylight", ((e: Event) => {
-      const phase = (e as CustomEvent<number | null>).detail;
-      this.dayPhaseOverride = typeof phase === "number" ? Math.min(1, Math.max(0, phase)) : undefined;
-    }) as EventListener);
+    // The shared sky lock rides the world_state singleton: locked pins the
+    // phase for everyone, unlocked resumes the shared wall clock.
+    const applySky = (row: { skyLocked: boolean; skyPhase: number }) => {
+      this.dayPhaseOverride = row.skyLocked ? Math.min(1, Math.max(0, row.skyPhase)) : undefined;
+    };
+    conn.db.worldState.onInsert((_ctx, row) => applySky(row));
+    conn.db.worldState.onUpdate((_ctx, _old, row) => applySky(row));
     // Fly cheat lift: hold Space to climb, C to sink. Key transitions send a
     // synced vertical intent (`setLift` — the move reducer's third axis), so
     // every client derives the same altitude. keyup always clears, so a hold
@@ -487,6 +490,7 @@ export class World3D {
       `SELECT * FROM ground_item WHERE zone_id = '${this.slug}'`,
       `SELECT * FROM boulder WHERE zone_id = '${this.slug}'`,
       `SELECT * FROM tree WHERE zone_id = '${this.slug}'`,
+      "SELECT * FROM world_state",
     ];
     if (this.myId) queries.push(`SELECT * FROM inventory WHERE player_id = '${this.myId}'`);
     if (this.useHogs) queries.push(`SELECT * FROM hog WHERE zone_id = '${this.slug}'`);
@@ -598,7 +602,7 @@ export class World3D {
       // a click-to-move injection, so probes can route with the real pathfinding.
       this.selfPos = { x: motion.x, y: motion.y };
       const hooks = window as unknown as {
-        __troggPos?: { x: number; y: number };
+        __troggPos?: { x: number; y: number; z: number };
         __troggMoveTo?: (x: number, y: number) => void;
         __renderInfo?: () => { calls: number; triangles: number };
       };

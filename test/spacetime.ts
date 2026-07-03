@@ -97,6 +97,7 @@ export function makeCtx(opts: FakeCtxOpts) {
       claimCode: makeTable({ pk: "code" }),
       hogWander: makeTable({ pk: "scheduledId", autoInc: true }),
       playerRespawn: makeTable({ pk: "scheduledId", autoInc: true, indexes: ["playerId"] }),
+      worldState: makeTable({ pk: "id" }),
       creatureRegen: makeTable({ pk: "scheduledId", autoInc: true }),
     },
   };

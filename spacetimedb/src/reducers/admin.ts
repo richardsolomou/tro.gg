@@ -280,3 +280,16 @@ export const rescue = spacetimedb.reducer((ctx) => {
     movedAt: ctx.timestamp,
   });
 });
+
+/**
+ * Pin (or release) the shared day-night cycle (GDD "Debug cheats"). The sky is
+ * shared fiction — a scrubbed noon is noon for every client — so the override
+ * lives in the public `world_state` singleton rather than any one client.
+ * Phase is wrapped into [0, 1); live = the shared wall clock resumes.
+ */
+export const setSky = spacetimedb.reducer({ phase: t.f64(), locked: t.bool() }, (ctx, { phase, locked }) => {
+  const wrapped = ((phase % 1) + 1) % 1;
+  const existing = ctx.db.worldState.id.find(0);
+  if (existing) ctx.db.worldState.id.update({ ...existing, skyLocked: locked, skyPhase: wrapped });
+  else ctx.db.worldState.insert({ id: 0, skyLocked: locked, skyPhase: wrapped });
+});

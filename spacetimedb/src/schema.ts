@@ -370,7 +370,23 @@ const creatureRegen = table(
   },
 );
 
-const spacetimedb = schema({ player, chatMessage, ghostHaunt, claimCode, boulder, tree, hog, groundItem, inventory, playerConnection, hogWander, playerRespawn, creatureRegen });
+/**
+ * Shared world dials (GDD "Debug cheats") — one public singleton row (id 0).
+ * `skyLocked`/`skyPhase` pin the day-night cycle for EVERYONE: the cycle is
+ * cosmetic, but the sky is shared fiction, so a Commands-drawer scrub changes
+ * every client's sun, not just the scrubber's. Written by `setSky`; clients
+ * subscribe and read it in their daylight pass.
+ */
+const worldState = table(
+  { name: "world_state", public: true },
+  {
+    id: t.u32().primaryKey(),
+    skyLocked: t.bool(),
+    skyPhase: t.f64(),
+  },
+);
+
+const spacetimedb = schema({ player, chatMessage, ghostHaunt, claimCode, boulder, tree, hog, groundItem, inventory, playerConnection, hogWander, playerRespawn, creatureRegen, worldState });
 export default spacetimedb;
 
 /** The reducer context, typed against this module's schema (db view + sender). */

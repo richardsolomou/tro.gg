@@ -249,7 +249,7 @@ Developer/alpha-tester tools in the Commands drawer (a lone top-right toggle ope
 - **God mode:** `damagePlayer` no-ops on the target; the attacker's swing still lands and animates.
 - **Heal** (`healSelf`): full health for a living trogg — respawn already handles the dead.
 - **Unstuck** (`rescue`): settle, ground, and step to the nearest standable tile (spawn as the last resort) — the universal escape hatch.
-- **Sky lock (World section):** a slider locks this client's day-night phase for inspection ("Live" resumes the shared wall clock). Client-side rendering only — the cycle is cosmetic and nothing authoritative reads it, so a locked sky never changes another player's view.
+- **Sky lock (World section):** a slider pins the day-night phase for **everyone** — the sky is shared fiction, so a scrubbed noon is noon on every client. The override lives in the public `world_state` singleton (id 0, `skyLocked`/`skyPhase`), written by `setSky` (phase wrapped into [0, 1)); "Live" releases it back to the shared wall clock. Clients subscribe to the row and read it in their daylight pass; the drawer's controls paint from it, so every open drawer agrees.
 
 ### Crafting
 

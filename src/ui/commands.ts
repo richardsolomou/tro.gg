@@ -44,7 +44,7 @@ export function mountCommands({ conn, zone }: CommandPanelContext): void {
 
   if (flags.cheats) {
     const toggle = cheatToggles(conn, zone.slug, status);
-    body.append(movementSection(toggle), survivalSection(conn, zone.slug, status, toggle), worldSection(status));
+    body.append(movementSection(toggle), survivalSection(conn, zone.slug, status, toggle), worldSection(conn, zone.slug, status));
   }
   if (flags.spawn) body.appendChild(spawnSection(conn, zone.slug, status));
   if (flags.resetBoulders || flags.resetHogs) body.appendChild(resetSection(conn, zone.slug, flags, status));
@@ -69,11 +69,11 @@ export function mountCommands({ conn, zone }: CommandPanelContext): void {
   hudRoot().appendChild(root);
 }
 
-/** Client-side world dials. The daylight slider overrides the shared wall-clock
- *  day phase for THIS client's rendering only (the cycle is cosmetic — nothing
- *  authoritative reads it), so scrubbing to noon never changes another player's
- *  sky; "live" hands the sky back to the shared clock. */
-function worldSection(status: HTMLElement): HTMLElement {
+/** Shared world dials. The daylight slider pins the day-night phase for EVERY
+ *  client via the `world_state` singleton (the sky is shared fiction); "Live"
+ *  hands the sky back to the shared wall clock. The controls paint from the
+ *  synced row, so every open drawer shows the same sky state. */
+function worldSection(conn: DbConnection, zone: string, status: HTMLElement): HTMLElement {
   const section = commandSection("World");
 
   const row = document.createElement("div");
@@ -90,16 +90,28 @@ function worldSection(status: HTMLElement): HTMLElement {
   const names = ["dawn", "morning", "noon", "afternoon", "dusk", "evening", "midnight", "small hours"];
   const label = document.createElement("div");
   label.className = "command-hint";
+  label.textContent = "live — the shared sky";
 
-  const apply = (phase: number | null) => {
-    live.setAttribute("aria-pressed", String(phase === null));
-    label.textContent = phase === null ? "live — the shared sky" : `sky locked at ${names[Math.floor(phase * 8) % 8]}`;
-    window.dispatchEvent(new CustomEvent("trogg-debug-daylight", { detail: phase }));
-    status.textContent = phase === null ? "sky follows the shared clock" : "sky locked (this client only)";
+  const paint = (state: { skyLocked: boolean; skyPhase: number }) => {
+    live.setAttribute("aria-pressed", String(!state.skyLocked));
+    if (state.skyLocked) slider.value = String(Math.round(state.skyPhase * 1000));
+    label.textContent = state.skyLocked ? `sky locked at ${names[Math.floor(state.skyPhase * 8) % 8]} — for everyone` : "live — the shared sky";
   };
-  slider.addEventListener("input", () => apply(Number(slider.value) / 1000));
-  live.addEventListener("click", () => apply(null));
-  apply(null);
+  conn.db.worldState.onInsert((_ctx, state) => paint(state));
+  conn.db.worldState.onUpdate((_ctx, _old, state) => paint(state));
+
+  const send = (phase: number, locked: boolean) => {
+    void conn.reducers.setSky({ phase, locked }).catch((err: unknown) => {
+      logError("Sky change failed", { surface: "commands", action: "set_sky", zone, error: err });
+      audio.playError();
+      status.textContent = "couldn't change the sky";
+    });
+    logInfo("Sky changed", { surface: "commands", action: "set_sky", zone, locked, source: "commands" });
+    audio.playCommand();
+    status.textContent = locked ? "sky locked — for everyone" : "sky follows the shared clock";
+  };
+  slider.addEventListener("input", () => send(Number(slider.value) / 1000, true));
+  live.addEventListener("click", () => send(0, false));
 
   row.append(slider, live);
   section.append(row, label);

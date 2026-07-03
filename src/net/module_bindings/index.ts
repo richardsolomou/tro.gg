@@ -53,6 +53,7 @@ import ResetHogsReducer from "./reset_hogs_reducer";
 import RestyleReducer from "./restyle_reducer";
 import SetCheatsReducer from "./set_cheats_reducer";
 import SetLiftReducer from "./set_lift_reducer";
+import SetSkyReducer from "./set_sky_reducer";
 import SpawnReducer from "./spawn_reducer";
 import StartClaimReducer from "./start_claim_reducer";
 import UseEquippedReducer from "./use_equipped_reducer";
@@ -81,6 +82,7 @@ import HogRow from "./hog_table";
 import InventoryRow from "./inventory_table";
 import PlayerRow from "./player_table";
 import TreeRow from "./tree_table";
+import WorldStateRow from "./world_state_table";
 
 /** Type-only namespace exports for generated type groups. */
 
@@ -198,6 +200,17 @@ const tablesSchema = __schema({
       { name: 'tree_id_key', constraint: 'unique', columns: ['id'] },
     ],
   }, TreeRow),
+  worldState: __table({
+    name: 'world_state',
+    indexes: [
+      { accessor: 'id', name: 'world_state_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+    ],
+    constraints: [
+      { name: 'world_state_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, WorldStateRow),
 });
 
 /** The schema information for all reducers in this module. This is defined the same way as the reducers would have been defined in the server, except the body of the reducer is omitted in code generation. */
@@ -221,6 +234,7 @@ const reducersSchema = __reducers(
   __reducerSchema("restyle", RestyleReducer),
   __reducerSchema("set_cheats", SetCheatsReducer),
   __reducerSchema("set_lift", SetLiftReducer),
+  __reducerSchema("set_sky", SetSkyReducer),
   __reducerSchema("spawn", SpawnReducer),
   __reducerSchema("start_claim", StartClaimReducer),
   __reducerSchema("use_equipped", UseEquippedReducer),

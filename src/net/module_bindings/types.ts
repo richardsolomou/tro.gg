@@ -154,3 +154,10 @@ export const Tree = __t.object("Tree", {
 });
 export type Tree = __Infer<typeof Tree>;
 
+export const WorldState = __t.object("WorldState", {
+  id: __t.u32(),
+  skyLocked: __t.bool(),
+  skyPhase: __t.f64(),
+});
+export type WorldState = __Infer<typeof WorldState>;
+

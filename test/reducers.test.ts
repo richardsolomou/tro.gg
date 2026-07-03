@@ -59,6 +59,7 @@ import {
   resetHogs,
   setCheats,
   setLift,
+  setSky,
   healSelf,
   rescue,
   respawnPlayers,
@@ -1360,4 +1361,15 @@ test("rescue lands a stuck trogg on standable ground", () => {
   const p = ctx.db.player.identity.find(me);
   assert.ok(isWalkable(zone, Math.round(p.x), Math.round(p.y)), `rescued to ${p.x},${p.y}`);
   assert.equal(p.z, 0);
+});
+
+test("setSky pins the shared day phase for everyone and live releases it", () => {
+  const { ctx } = withPlayer({ x: 108, y: 105 });
+  setSky(ctx, { phase: 1.25, locked: true });
+  let state = ctx.db.worldState.id.find(0);
+  assert.equal(state.skyLocked, true);
+  assert.ok(Math.abs(state.skyPhase - 0.25) < 1e-9); // wrapped into [0, 1)
+  setSky(ctx, { phase: 0, locked: false });
+  state = ctx.db.worldState.id.find(0);
+  assert.equal(state.skyLocked, false);
 });
