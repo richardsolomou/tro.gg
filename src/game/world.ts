@@ -2,6 +2,7 @@ import * as THREE from "three";
 import type { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { CLICK_SLOP_PX, createOrbit } from "./controls.js";
 import {
+  birthCellContains,
   isDryFloor,
   EQUIPMENT_ACTION_MS,
   CHAT_BUBBLE_MS,
@@ -220,13 +221,27 @@ export class World3D {
   /** The shared sky lock (`world_state` row): a pinned day phase for every
    *  client — the sky is shared fiction, so a scrub changes everyone's sun. */
   private dayPhaseOverride?: number;
+  /** Set while the local trogg is still inside its birth cell; cleared (and the
+   *  first-dawn beat started) the first time it steps out (GDD "Onboarding"). */
+  private inBirthCell = false;
+  /** When the local trogg first emerged from its birth cell, for the dawn blend. */
+  private emergedAtMs?: number;
 
   /** The shared day–night cycle: wall-clock phased (every player sees the same
    *  sun), the sun arcs east→west shifting the shadows with it, and night falls
    *  to a dim moonlit blue where the glowmoss carries the light. */
   private updateDaylight(): void {
     if (!this.orbit) return;
-    const phase = this.dayPhaseOverride ?? (Date.now() % DAY_CYCLE_MS) / DAY_CYCLE_MS; // 0 = dawn (override: the shared world_state sky lock)
+    let phase = this.dayPhaseOverride ?? (Date.now() % DAY_CYCLE_MS) / DAY_CYCLE_MS; // 0 = dawn (override: the shared world_state sky lock)
+    // The first dawn: for a few breaths after a newborn emerges, its OWN sky
+    // blends from morning gold into the shared phase — every trogg's first
+    // sight of the world is sunlit, whatever the clock says. Local-only, and
+    // the shared sky lock outranks it.
+    if (this.emergedAtMs !== undefined && this.dayPhaseOverride === undefined) {
+      const t = (performance.now() - this.emergedAtMs) / 12_000;
+      if (t >= 1) this.emergedAtMs = undefined;
+      else phase = 0.16 + (phase - 0.16) * t * t;
+    }
     const sunAngle = phase * Math.PI * 2 - Math.PI / 2;
     const elevation = Math.sin(sunAngle + Math.PI / 2); // 1 noon, -1 midnight
     const daylight = Math.max(0, Math.min(1, (elevation + 0.12) * 2.4));
@@ -568,6 +583,14 @@ export class World3D {
         entry.lastStepTile = stepKey;
         continue;
       }
+      // Emergence (GDD "Onboarding: the Warren"): born in a cell, now outside it —
+      // fire the funnel beat once and let the first dawn break.
+      if (this.inBirthCell && !this.zone.cells.some((cell) => birthCellContains(cell, motion.x, motion.y))) {
+        this.inBirthCell = false;
+        this.emergedAtMs = now;
+        captureEvent("warren_emerged", { zone: this.slug });
+        logInfo("Newborn emerged from the warren", { surface: "world", action: "warren_emerged", zone: this.slug });
+      }
       // The camera rides the local trogg: the orbit pivot glides to its position, so
       // drag-to-rotate and wheel-zoom stay live while walking (dead or alive — you
       // keep your camera while waiting to respawn). The very first sight of the
@@ -592,8 +615,10 @@ export class World3D {
         if (!this.cameraSnapped) {
           this.cameraSnapped = true;
           // open BEHIND the trogg at shoulder height (a chase view, not top-down):
-          // the world reads at its own scale from the first frame
-          const aim = this.self.aim;
+          // the world reads at its own scale from the first frame. The row's
+          // facing is the truth at spawn (a newborn faces its corridor).
+          const face = playerFacing(entry.player);
+          const aim = face.dirX !== 0 || face.dirY !== 0 ? { dirX: face.dirX, dirY: face.dirY } : this.self.aim;
           const back = Math.hypot(aim.dirX, aim.dirY) || 1;
           this.camera.position.set(this.orbit.target.x - (aim.dirX / back) * 7.5, 3.6, this.orbit.target.z - (aim.dirY / back) * 7.5);
           this.camera.lookAt(this.orbit.target);
@@ -832,6 +857,10 @@ export class World3D {
   private addPlayer(p: Player): void {
     const id = p.identity.toHexString();
     if (this.tracked.has(id)) return;
+    // the first sight of the local trogg tells us whether this is a birth
+    if (id === this.myId) {
+      this.inBirthCell = this.zone.cells.some((cell) => birthCellContains(cell, p.x, p.y));
+    }
     const face = playerFacing(p);
     const facing = facingFromDir(face.dirX, face.dirY, "down");
     const style = troggStyleFor(p.style, id);

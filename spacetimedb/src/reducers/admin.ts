@@ -57,7 +57,7 @@ function runSpawn(ctx: Ctx, { kind, item = "", source = "" }: { kind: string; it
 
   const existing =
     kind === "boulder"
-      ? countRows(ctx.db.boulder.zoneId.filter(p.zoneId))
+      ? [...ctx.db.boulder.zoneId.filter(p.zoneId)].filter((b) => !b.cellId).length
       : kind === "tree"
         ? countRows(ctx.db.tree.zoneId.filter(p.zoneId))
         : kind === "hog"
@@ -76,7 +76,7 @@ function runSpawn(ctx: Ctx, { kind, item = "", source = "" }: { kind: string; it
   if (!tile) return [];
 
   if (kind === "boulder") {
-    ctx.db.boulder.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y, health: BOULDER_MAX_HEALTH });
+    ctx.db.boulder.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y, health: BOULDER_MAX_HEALTH, cellId: 0 });
   } else if (kind === "tree") {
     ctx.db.tree.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y, health: TREE_MAX_HEALTH });
   } else if (kind === "hog") {
@@ -119,7 +119,10 @@ function runResetBoulders(ctx: Ctx, source = ""): AnalyticsEvent[] {
   if (!p) return [];
   const zone = getZone(p.zoneId);
   if (!zone) return [];
-  for (const b of [...ctx.db.boulder.zoneId.filter(zone.slug)]) ctx.db.boulder.id.delete(b.id);
+  // warren rubble (cellId > 0) belongs to the birth cells, not the registry
+  for (const b of [...ctx.db.boulder.zoneId.filter(zone.slug)]) {
+    if (!b.cellId) ctx.db.boulder.id.delete(b.id);
+  }
   seedBoulders(ctx, zone);
   return [{ distinctId: distinctId(ctx), event: "boulders_reset", properties: { zone: zone.slug, ...sourceProp(source) } }];
 }

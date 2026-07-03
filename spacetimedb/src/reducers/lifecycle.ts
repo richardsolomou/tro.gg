@@ -1,6 +1,7 @@
 import spacetimedb from "../schema";
 import { Timestamp } from "spacetimedb";
 import {
+  birthCellContains,
   nearestSafeTile,
   COLOR_UNSET,
   getZone,
@@ -16,6 +17,9 @@ import {
   seedTrees,
   seedHogs,
   seedGroundItems,
+  seedBirthCells,
+  healWarren,
+  assignBirthCell,
   playerConnectionCount,
   rememberPlayerConnection,
   forgetPlayerConnection,
@@ -45,6 +49,8 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
   seedTrees(ctx, startingZone);
   seedHogs(ctx, startingZone);
   seedGroundItems(ctx, startingZone);
+  seedBirthCells(ctx, startingZone);
+  healWarren(ctx, startingZone);
   // A player is here, so make sure the Hogs are roaming (no-op if already armed).
   armWander(ctx);
   armRegen(ctx);
@@ -71,10 +77,24 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
     // a tilemap edit could leave its resting tile inside a new wall; nudge it back
     // to spawn so it never resumes embedded in an obstacle (invariant 6).
     const zone = getZone(existing.zoneId);
-    // A map regen can strand a returning trogg inside new rock or a river: relocate
-    // to the nearest safe tile beside where it logged out, spawn as the last resort.
+    // A map regen can strand a returning trogg inside new rock or a river; and a
+    // trogg who logged off inside a birth cell may find it resealed around someone
+    // else (lazy reclaim, GDD "Onboarding: the Warren"). Relocate: their own fresh
+    // cell if one is free, else the nearest safe tile, spawn as the last resort.
     const stuck = zone && !isWalkable(zone, Math.round(existing.x), Math.round(existing.y));
-    const pos = stuck ? (nearestSafeTile(zone, existing.x, existing.y) ?? spawnAt(zone)) : { x: existing.x, y: existing.y };
+    const lostCell =
+      zone &&
+      !stuck &&
+      zone.cells.some((cell, i) => {
+        if (!birthCellContains(cell, existing.x, existing.y)) return false;
+        const row = ctx.db.birthCell.id.find(i + 1);
+        return !row || !row.occupant || !row.occupant.isEqual(ctx.sender);
+      });
+    const pos = stuck
+      ? (nearestSafeTile(zone, existing.x, existing.y) ?? spawnAt(zone))
+      : lostCell
+        ? (assignBirthCell(ctx, zone, ctx.sender) ?? nearestSafeTile(zone, existing.x, existing.y) ?? spawnAt(zone))
+        : { x: existing.x, y: existing.y };
     ctx.db.player.identity.update({ ...existing, x: pos.x, y: pos.y, dirX: 0, dirY: 0, running: false, path: "", online: true, movedAt: ctx.timestamp });
     return;
   }
@@ -85,7 +105,10 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
   const isAccount = isSpacetimeAuthCaller(ctx);
 
   const zone = getZone(STARTING_ZONE_SLUG)!;
-  const at = spawnAt(zone);
+  // A newborn wakes in a sealed birth cell and mines out (GDD "Onboarding: the
+  // Warren"); the town takes the overflow when every cell is mid-dig.
+  const cell = assignBirthCell(ctx, zone, ctx.sender);
+  const at = cell ?? spawnAt(zone);
   // Identity hex starts with a fixed `c200` tag, so name from the variable tail.
   const hex = ctx.sender.toHexString();
   const generated = `trogg-${hex.slice(-4)}`;
@@ -112,7 +135,7 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
     path: "",
     style: STYLE_UNSET,
     faceX: 0,
-    faceY: 1,
+    faceY: cell ? -1 : 1,
     equippedMainHand: "",
     equipmentAction: "",
     equipmentActionAt: Timestamp.UNIX_EPOCH,

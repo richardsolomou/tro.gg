@@ -420,7 +420,12 @@ export function createSelfController(deps: SelfControllerDeps) {
       entry.baseMs = toBaseMs(p.movedAt);
       sent = keyboardControlling ? playerIntent(p) : { dirX: 0, dirY: 0, running: false };
     }
-    if (p.faceX !== 0 || p.faceY !== 0) facing = playerFacing(p);
+    if (p.faceX !== 0 || p.faceY !== 0) {
+      facing = playerFacing(p);
+      // Before any local input, the swing aim follows the synced facing too — a
+      // newborn faces its corridor, so the first F digs forward, not backward.
+      if (!keyboardControlling && isIdle(sent)) aim = { dirX: p.faceX, dirY: p.faceY };
+    }
     syncDestinationFromPath(p.path);
   };
 

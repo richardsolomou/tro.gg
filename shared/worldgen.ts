@@ -1,5 +1,5 @@
 import { DEEP_WATER_TILE, GLOWMOSS_TILE, GRAVEL_TILE, MOSS_TILE, WALL_TILE, WATER_TILE } from "./glyphs";
-import type { BigHog, Coord, GroundItemSeed, Zone, ZoneExit } from "./constants";
+import type { BigHog, BirthCellSeed, Coord, GroundItemSeed, Zone, ZoneExit } from "./constants";
 
 /**
  * Biomes: the same cave automaton dressed differently. A biome picks the
@@ -256,6 +256,7 @@ export function generateCaveZone(opts: CaveOptions): Zone {
     hogs,
     items,
     bigHogs,
+    cells: [],
   };
 }
 
@@ -336,6 +337,7 @@ export interface GeneratedWorld {
   hogs: Coord[];
   items: GroundItemSeed[];
   bigHogs: BigHog[];
+  cells: BirthCellSeed[];
   spawn: Coord;
 }
 
@@ -618,5 +620,57 @@ export function generateWorld(): GeneratedWorld {
     }
   }
 
-  return { tiles: glyphs.map((row) => row.join("")), regions: regionGrid.map((row) => row.join("")), boulders, trees, hogs, items, bigHogs, spawn };
+  // 10. the birth warren (GDD "Onboarding: the Warren"): a row of sealed 3×3
+  // cells burrowed into the south-coast rock, each with a corridor of open
+  // floor tunnelling north to reachable ground. Newborn troggs wake in a cell
+  // and mine out — the corridor is plugged with rubble rows at assignment
+  // (server-side), so at the tile level every cell stays connected to the world
+  // and the reachability guarantee holds. Carving only turns rock into floor,
+  // so every other committed tile stays byte-identical.
+  const CELL_STRIDE = 5;
+  const CORRIDOR_LEN = 4;
+  const cells: BirthCellSeed[] = [];
+  for (let c = 4; c <= W - 5; c += CELL_STRIDE) {
+    // The southernmost world floor in this column — the cell burrows beneath
+    // it. Columns whose coast sits north of the southern band are skipped, so
+    // the warren hugs the TRUE south coast rather than creeping up the sides
+    // of the continent at its east/west tips.
+    let mouth = -1;
+    for (let y = H - 2; y >= Math.floor(H * 0.72); y--) {
+      if (reachable[idx(c, y)]) {
+        mouth = y;
+        break;
+      }
+    }
+    if (mouth < 0) continue;
+    const cellTop = mouth + 1 + CORRIDOR_LEN;
+    if (cellTop + 2 > H - 2) continue;
+    // carve only into solid rock: corridor column, the 3×3 room, and require the
+    // room's surround untouched so neighbouring cells never share an opening
+    let solid = true;
+    for (let y = mouth + 1; y <= cellTop + 2 && solid; y++) {
+      for (let x = y < cellTop ? c : c - 1; x <= (y < cellTop ? c : c + 1) && solid; x++) {
+        if (glyphs[y]![x] !== WALL_TILE) solid = false;
+      }
+    }
+    for (let y = cellTop - 1; y <= cellTop + 3 && solid; y++) {
+      for (const x of [c - 2, c + 2]) {
+        if (glyphs[y]?.[x] !== undefined && glyphs[y]![x] !== WALL_TILE && !(y === mouth)) solid = false;
+      }
+    }
+    if (!solid) continue;
+
+    const corridor: Coord[] = [];
+    for (let y = mouth + 1; y <= mouth + CORRIDOR_LEN; y++) {
+      glyphs[y]![c] = ".";
+      corridor.push({ x: c, y });
+    }
+    for (let y = cellTop; y <= cellTop + 2; y++) {
+      for (let x = c - 1; x <= c + 1; x++) glyphs[y]![x] = ".";
+    }
+    glyphs[cellTop]![c + 1] = GLOWMOSS_TILE; // a dim light to wake to
+    cells.push({ x: c, y: cellTop + 1, corridor, pickaxe: { x: c - 1, y: cellTop + 1 } });
+  }
+
+  return { tiles: glyphs.map((row) => row.join("")), regions: regionGrid.map((row) => row.join("")), boulders, trees, hogs, items, bigHogs, cells, spawn };
 }

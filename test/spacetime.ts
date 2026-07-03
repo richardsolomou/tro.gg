@@ -98,6 +98,7 @@ export function makeCtx(opts: FakeCtxOpts) {
       hogWander: makeTable({ pk: "scheduledId", autoInc: true }),
       playerRespawn: makeTable({ pk: "scheduledId", autoInc: true, indexes: ["playerId"] }),
       worldState: makeTable({ pk: "id" }),
+      birthCell: makeTable({ pk: "id" }),
       creatureRegen: makeTable({ pk: "scheduledId", autoInc: true }),
     },
   };

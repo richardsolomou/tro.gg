@@ -1,7 +1,7 @@
 export * from "./glyphs";
 import { SOLID_GLYPHS, TILE_GLYPHS, WATER_TILE } from "./glyphs";
 import { setRegionRows, WORLD_H, WORLD_W } from "./worldgen";
-import { WORLD_BIG_HOGS, WORLD_BOULDERS, WORLD_HOGS, WORLD_ITEMS, WORLD_REGION_ROWS, WORLD_SPAWN, WORLD_TILES, WORLD_TREES } from "./world-map";
+import { WORLD_BIG_HOGS, WORLD_BOULDERS, WORLD_CELLS, WORLD_HOGS, WORLD_ITEMS, WORLD_REGION_ROWS, WORLD_SPAWN, WORLD_TILES, WORLD_TREES } from "./world-map";
 
 // regionAt() reads the committed grid on both client and module
 setRegionRows(WORLD_REGION_ROWS);
@@ -398,6 +398,23 @@ export interface ZoneExit {
   y: number;
 }
 
+/** One birth cell in the warren (GDD "Onboarding: the Warren"): a sealed 3×3
+ *  room burrowed into the south-coast rock where a newborn trogg wakes. The
+ *  corridor tiles are open floor in the tilemap but plugged with mineable
+ *  rubble rows at assignment; the pickaxe seeds beside the spawn point. */
+export interface BirthCellSeed extends Coord {
+  corridor: readonly Coord[];
+  pickaxe: Coord;
+}
+
+/** Whether a (fractional) position sits inside a birth cell's room or corridor. */
+export function birthCellContains(cell: BirthCellSeed, x: number, y: number): boolean {
+  const tx = Math.round(x);
+  const ty = Math.round(y);
+  if (Math.abs(tx - cell.x) <= 1 && Math.abs(ty - cell.y) <= 1) return true;
+  return cell.corridor.some((t) => t.x === tx && t.y === ty);
+}
+
 export interface Zone {
   slug: string;
   name: string;
@@ -416,6 +433,8 @@ export interface Zone {
   hogs: readonly Coord[];
   items: readonly GroundItemSeed[];
   bigHogs: readonly BigHog[];
+  /** The birth warren's cells; empty for zones without one. */
+  cells: readonly BirthCellSeed[];
 }
 
 /**
@@ -442,6 +461,7 @@ export const ZONES: Record<string, Zone> = {
     hogs: WORLD_HOGS,
     items: WORLD_ITEMS,
     bigHogs: WORLD_BIG_HOGS,
+    cells: WORLD_CELLS,
   },
 };
 

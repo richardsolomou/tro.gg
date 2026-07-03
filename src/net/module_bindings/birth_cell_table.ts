@@ -11,10 +11,7 @@ import {
 } from "spacetimedb";
 
 export default __t.row({
-  id: __t.u64().primaryKey(),
-  zoneId: __t.string().name("zone_id"),
-  x: __t.i32(),
-  y: __t.i32(),
-  health: __t.i32(),
-  cellId: __t.u32().name("cell_id"),
+  id: __t.u32().primaryKey(),
+  occupant: __t.option(__t.identity()),
+  assignedAt: __t.timestamp().name("assigned_at"),
 });

@@ -12,6 +12,8 @@ import {
   BOULDER_MAX_HEALTH,
   TREE_MAX_HEALTH,
   SPACETIMEAUTH_ISSUER,
+  birthCellContains,
+  tileKey,
   walkableSteps,
   type Zone,
   type ZoneBounds,
@@ -84,11 +86,12 @@ export function healStaleWorld(ctx: Ctx, zone: Zone): void {
   for (const g of items) ctx.db.groundItem.id.delete(g.id);
 }
 
-/** Seed a zone's boulders from the registry, unless it already has some. */
+/** Seed a zone's boulders from the registry, unless it already has some.
+ *  Warren rubble is not the registry's — only world boulders count. */
 export function seedBoulders(ctx: Ctx, zone: Zone): void {
-  if ([...ctx.db.boulder.zoneId.filter(zone.slug)].length > 0) return;
+  if ([...ctx.db.boulder.zoneId.filter(zone.slug)].some((b) => !b.cellId)) return;
   for (const b of zone.boulders) {
-    ctx.db.boulder.insert({ id: 0n, zoneId: zone.slug, x: b.x, y: b.y, health: BOULDER_MAX_HEALTH });
+    ctx.db.boulder.insert({ id: 0n, zoneId: zone.slug, x: b.x, y: b.y, health: BOULDER_MAX_HEALTH, cellId: 0 });
   }
 }
 
@@ -119,6 +122,105 @@ export function seedGroundItems(ctx: Ctx, zone: Zone): void {
   for (const item of zone.items) {
     ctx.db.groundItem.insert({ id: 0n, zoneId: zone.slug, item: item.item, x: item.x, y: item.y, qty: 1 });
   }
+}
+
+// ── the birth warren (GDD "Onboarding: the Warren") ────────────────────────────
+// Newborn troggs wake in sealed cells and mine out. Everything here is lazy and
+// input-driven: connects heal vacated cells and assignment hands over a sealed
+// one — no timers (invariant 1). A cell's rubble rows are tagged cellId = index+1.
+
+/** Every online player's resting tile, for "is someone standing in this cell". */
+function onlinePlayerTiles(ctx: Ctx): Set<string> {
+  const tiles = new Set<string>();
+  for (const p of ctx.db.player.iter()) {
+    if (p.online) tiles.add(tileKey(Math.round(p.x), Math.round(p.y)));
+  }
+  return tiles;
+}
+
+function cellTiles(cell: Zone["cells"][number]): { x: number; y: number }[] {
+  const tiles: { x: number; y: number }[] = [...cell.corridor];
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) tiles.push({ x: cell.x + dx, y: cell.y + dy });
+  return tiles;
+}
+
+/** Reseal and restock one cell: full rubble down the corridor, a pickaxe by the
+ *  spawn spot, nothing else on the floor. Never called with a player inside. */
+function resealCell(ctx: Ctx, zone: Zone, index: number): void {
+  const cell = zone.cells[index]!;
+  const tag = index + 1;
+  for (const b of [...ctx.db.boulder.zoneId.filter(zone.slug)]) {
+    if (b.cellId === tag) ctx.db.boulder.id.delete(b.id);
+  }
+  const inCell = new Set(cellTiles(cell).map((t) => tileKey(t.x, t.y)));
+  for (const item of [...ctx.db.groundItem.zoneId.filter(zone.slug)]) {
+    if (inCell.has(tileKey(item.x, item.y))) ctx.db.groundItem.id.delete(item.id);
+  }
+  for (const t of cell.corridor) {
+    ctx.db.boulder.insert({ id: 0n, zoneId: zone.slug, x: t.x, y: t.y, health: BOULDER_MAX_HEALTH, cellId: tag });
+  }
+  ctx.db.groundItem.insert({ id: 0n, zoneId: zone.slug, item: "pickaxe", x: cell.pickaxe.x, y: cell.pickaxe.y, qty: 1 });
+}
+
+/** Whether a cell's rubble plug is complete (a sealed cell is birth-ready). */
+function cellSealed(ctx: Ctx, zone: Zone, index: number): boolean {
+  const tag = index + 1;
+  let rubble = 0;
+  for (const b of ctx.db.boulder.zoneId.filter(zone.slug)) if (b.cellId === tag) rubble++;
+  return rubble >= zone.cells[index]!.corridor.length;
+}
+
+/** Register the warren's cells, once (the occupancy rows behind `WORLD_CELLS`). */
+export function seedBirthCells(ctx: Ctx, zone: Zone): void {
+  if (zone.cells.length === 0) return;
+  if (countRows(ctx.db.birthCell.iter()) > 0) return;
+  zone.cells.forEach((_, i) => {
+    ctx.db.birthCell.insert({ id: i + 1, occupant: undefined, assignedAt: Timestamp.UNIX_EPOCH });
+  });
+}
+
+/** Reseal every vacated cell nobody is standing in — each connect tidies the
+ *  warren, so free cells are birth-ready by the time assignment wants one. */
+export function healWarren(ctx: Ctx, zone: Zone): void {
+  if (zone.cells.length === 0) return;
+  const players = onlinePlayerTiles(ctx);
+  for (const row of [...ctx.db.birthCell.iter()]) {
+    if (row.occupant !== undefined) continue;
+    const index = row.id - 1;
+    if (cellSealed(ctx, zone, index)) continue;
+    if (cellTiles(zone.cells[index]!).some((t) => players.has(tileKey(t.x, t.y)))) continue;
+    resealCell(ctx, zone, index);
+  }
+}
+
+/** Hand a newborn a birth cell and return its spawn spot: a sealed free cell
+ *  first, else reclaim the stalest cell whose occupant has moved on (offline or
+ *  outside it), else undefined — the town takes the overflow. */
+export function assignBirthCell(ctx: Ctx, zone: Zone, newborn: Ctx["sender"]): { x: number; y: number } | undefined {
+  if (zone.cells.length === 0) return undefined;
+  const rows = [...ctx.db.birthCell.iter()].sort((a, b) => a.id - b.id);
+  const players = onlinePlayerTiles(ctx);
+  const claim = (row: (typeof rows)[number]): { x: number; y: number } => {
+    const cell = zone.cells[row.id - 1]!;
+    ctx.db.birthCell.id.update({ ...row, occupant: newborn, assignedAt: ctx.timestamp });
+    return { x: cell.x, y: cell.y };
+  };
+  for (const row of rows) {
+    if (row.occupant === undefined && cellSealed(ctx, zone, row.id - 1)) return claim(row);
+  }
+  const reclaimable = rows
+    .filter((row) => {
+      const cell = zone.cells[row.id - 1]!;
+      if (cellTiles(cell).some((t) => players.has(tileKey(t.x, t.y)))) return false;
+      if (row.occupant === undefined) return true;
+      const occupant = ctx.db.player.identity.find(row.occupant);
+      return !occupant || !occupant.online || !birthCellContains(cell, occupant.x, occupant.y);
+    })
+    .sort((a, b) => Number(a.assignedAt.microsSinceUnixEpoch - b.assignedAt.microsSinceUnixEpoch));
+  const chosen = reclaimable[0];
+  if (!chosen) return undefined;
+  resealCell(ctx, zone, chosen.id - 1);
+  return claim(chosen);
 }
 
 /** Whether any player is currently online — the Hogs only roam while someone is
