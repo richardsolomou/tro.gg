@@ -1,5 +1,5 @@
 import { HOG_STYLES, ITEMS, SPAWNABLE_ITEM_IDS, type HogStyle, type SpawnableItemId, type Zone } from "@trogg/shared";
-import { hogIcon as hogModelIcon } from "../game3d/icons3d.js";
+import { hogIcon as hogModelIcon } from "../game/icons.js";
 import type { DbConnection } from "../net/module_bindings";
 import { logError, logInfo } from "../analytics.js";
 import { audio } from "../audio.js";

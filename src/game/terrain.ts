@@ -3,14 +3,14 @@ import { GLOWMOSS_TILE, GRAVEL_TILE, isWalkable, MOSS_TILE, WATER_TILE, type Zon
 import { CAVE_3D } from "./palette.js";
 
 /**
- * Procedural cave terrain in 3D. The floor and void are pixel-painted patch
+ * Procedural cave terrain. The floor and void are pixel-painted patch
  * textures (nearest-filtered, so the cave stays chunky); walls are beveled
  * blocks read from the same tilemap movement collides against, so what you see
  * is exactly what blocks you. Decorative floor decals (gravel, moss, water,
  * glowmoss) lie as thin transparent quads; glowmoss also drops a teal point light.
  */
 
-/** Art pixels per tile edge (matches the 2D terrain). */
+/** Texels per tile edge of the painted patch textures. */
 const ART = 16;
 /** Tiles per generated patch; tiling a multi-tile patch hides the repeat. */
 const PATCH = 4;

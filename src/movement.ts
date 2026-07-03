@@ -18,8 +18,8 @@ import type { MoveIntent } from "./input.js";
 
 /**
  * The slice of a tracked player this controller drives: the synced row, the local
- * extrapolation base, and the display facing. Renderer-agnostic — any world layer's
- * tracked entry (2D or 3D) satisfies it structurally.
+ * extrapolation base, and the display facing. Renderer-agnostic — any world
+ * layer's tracked entry satisfies it structurally.
  */
 export interface MotionEntry {
   player: Player;

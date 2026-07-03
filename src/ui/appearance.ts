@@ -15,7 +15,7 @@ import { hudLeft } from "./hud.js";
 import { registerKeybind } from "./keybinds.js";
 import { recolorTrogg, renameTrogg, restyleTrogg } from "../net/procedures.js";
 
-/** Human label for a trogg style id (GDD "Avatars"); the id is the sprite key. */
+/** Human label for a trogg style id (GDD "Avatars"). */
 const STYLE_LABELS: Record<string, string> = { moss: "Moss", stone: "Stone", ridge: "Ridge" };
 
 /**

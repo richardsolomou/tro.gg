@@ -1,16 +1,16 @@
 import * as THREE from "three";
-import { createOrbit } from "../game3d/controls3d.js";
+import { createOrbit } from "../game/controls.js";
 import { COMMON_HOG_STYLES, HOG_STYLES, hogSize, TROGG_STYLES, type Kind } from "@trogg/shared";
-import { buildHog, buildHogBall, buildTrogg } from "../game3d/creatures3d.js";
-import { buildHeldItem, hasItem3D } from "../game3d/items3d.js";
-import { hogIcon, itemIcon, troggIcon } from "../game3d/icons3d.js";
-import { applyFlinch, disposeObject, FLINCH_MS } from "../game3d/entities3d.js";
-import { type CreatureModel } from "../game3d/rig3d.js";
+import { buildHog, buildHogBall, buildTrogg } from "../game/creatures.js";
+import { buildHeldItem, hasItem3D } from "../game/items.js";
+import { hogIcon, itemIcon, troggIcon } from "../game/icons.js";
+import { applyFlinch, disposeObject, FLINCH_MS } from "../game/entities.js";
+import { type CreatureModel } from "../game/rig.js";
 
 /**
- * Dev art preview (`/preview`): a connectionless Three.js page for inspecting
- * every creature model, animation clip, and held item — the 3D successor of the
- * old sprite preview. Every control is URL-addressable so a preview state is a
+ * Dev model preview (`/preview`): a connectionless Three.js page for inspecting
+ * every creature model, animation clip, and held item. Every control is
+ * URL-addressable so a preview state is a
  * shareable deep link, e.g.
  * `/preview?view=holder&creature=hog:buff&item=sword&off=shield&mode=attack&paused=1&scrub=0.35&bones=1`.
  * Unknown values fall back to defaults. The e2e harness boots these states

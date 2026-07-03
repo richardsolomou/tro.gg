@@ -1,6 +1,6 @@
 import * as THREE from "three";
-import { buildHog, buildTrogg } from "./creatures3d.js";
-import { buildBoulder, buildHeldItem } from "./items3d.js";
+import { buildHog, buildTrogg } from "./creatures.js";
+import { buildBoulder, buildHeldItem } from "./items.js";
 
 /**
  * HUD icons rendered from the real 3D models — the inventory, equipped slot, and
@@ -93,7 +93,7 @@ export function hogIcon(style: string): HTMLCanvasElement {
   return cached(`hog:${style}`, () => buildHog(style).root);
 }
 
-/** A trogg style's icon canvas (the art preview's creature palette). */
+/** A trogg style's icon canvas (the model preview's creature palette). */
 export function troggIcon(style: string): HTMLCanvasElement {
   return cached(`trogg:${style}`, () => buildTrogg(style).root);
 }

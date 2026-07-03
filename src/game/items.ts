@@ -5,7 +5,7 @@ import { ITEM_3D } from "./palette.js";
  * Tool, prop, and resource models. A held item is built with its **grip at the
  * origin, business end up (+y)** so that parented to a rig hand node it stands in
  * the fist at rest and swings forward with the arm's attack pitch — the 3D
- * restatement of the 2D "authored once, rides the hand joint" rule. Ground
+ * one authored pose riding the rig's hand joint on every creature. Ground
  * variants lie the same model down with a little scatter tilt.
  */
 

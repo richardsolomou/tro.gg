@@ -2,16 +2,16 @@ import * as THREE from "three";
 import { forward, HOG_MAX_HEALTH, hogSize, PLAYER_MAX_HEALTH, RUN_SPEED_TILES_PER_SEC, timestampMs, type EquipSlot, type Facing, type ProjectedMotion, type Stamp } from "@trogg/shared";
 import type { Player } from "../net/module_bindings/types";
 import { audio } from "../audio.js";
-import { buildGhost, buildHog, buildHogBall, buildTrogg } from "./creatures3d.js";
-import { buildBoulder, buildGroundItem, buildHeldItem } from "./items3d.js";
-import { makeBubble, makeHealthBar, makeLabel, makeStatusText, type Overlay } from "./overlays3d.js";
-import { ATTACK_PERIOD, type CreatureModel } from "./rig3d.js";
+import { buildGhost, buildHog, buildHogBall, buildTrogg } from "./creatures.js";
+import { buildBoulder, buildGroundItem, buildHeldItem } from "./items.js";
+import { makeBubble, makeHealthBar, makeLabel, makeStatusText, type Overlay } from "./overlays.js";
+import { ATTACK_PERIOD, type CreatureModel } from "./rig.js";
 import { UI_3D } from "./palette.js";
 
 /**
- * 3D entity builders and per-frame drivers — the renderer half of the world,
- * mirroring the 2D `createEntities` contract: it builds display objects from game
- * state (no netcode or prediction) and the world scene places and animates them.
+ * Entity builders and per-frame drivers — the renderer half of the world: it
+ * builds display objects from game state (no netcode or prediction) and the
+ * world scene places and animates them.
  * All positions are in tile units on the XZ plane; `place` pins an object's tile
  * anchor, and each creature group centres its own footprint.
  */

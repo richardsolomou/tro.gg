@@ -1,7 +1,7 @@
 /*
  * HUD chrome — HTML/CSS overlays above the game canvas (chat, account, help,
  * appearance, inventory, commands).
- * GSC-inspired pixel HUD: solid ink panels, high-contrast cream text, amber
+ * Retro pixel-styled HUD: solid ink panels, high-contrast cream text, amber
  * active states, and bevels built from crisp 1px/2px shadows rather than soft UI
  * chrome. The world (troggs, bubbles, terrain) is drawn by the 3D renderer; everything
  * here is DOM, so the browser owns layout, text input, focus, and resize.
@@ -371,9 +371,9 @@
   border-radius: 2px;
   box-shadow: var(--hud-tile-pressed);
 }
-/* Item icons are the world pixel art on a small canvas — keep the pixels crisp. */
+/* Item icons are small renders of the world's 3D models (src/game/icons.ts). */
 #hud canvas.item-icon {
-  image-rendering: pixelated;
+  image-rendering: auto;
 }
 #hud .inventory-equipped-slot .item-icon {
   width: 28px;
@@ -571,7 +571,6 @@
 }
 #hud .command-avatar-icon {
   display: block;
-  image-rendering: pixelated;
 }
 #hud .command-status {
   color: var(--hud-cream-dim);

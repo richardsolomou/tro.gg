@@ -1,23 +1,23 @@
 import * as THREE from "three";
 
 /**
- * The 3D creature rig: jointed box models on named nodes, animated by real
+ * The creature rig: jointed box models on named nodes, animated by real
  * `AnimationClip`s through Three's `AnimationMixer` — the engine does the mixing
- * and crossfades; the *data* (proportions, palettes, clip amplitudes) is authored
- * in code, mirroring the 2D pipeline's assets-as-code philosophy.
+ * and crossfades; the *data* (proportions, palettes, clip amplitudes) is
+ * authored in code. No modelled assets, no editor files.
  *
  * Shared joint vocabulary (every creature): `Bob` (gait dip), `LegL`/`LegR`,
  * `Torso`, `ArmL`/`ArmR`, `Head`, plus the equip attach nodes `HandR`/`HandL` —
- * the 3D restatement of the 2D rig's cross-species slot contract (`mainHand` is
- * the right hand, `offHand` the left), so any held item can pin to any creature.
+ * the cross-species slot contract (`mainHand` is the right hand, `offHand` the
+ * left), so any held item can pin to any creature.
  *
  * Units: 1 unit = 1 tile. Models face +z at rest; yaw the root to steer.
  */
 
-/** Gait timing shared with the 2D client's phase lengths (WALK/RUN_PHASE_MS × 4). */
+/** Stride periods: at 4 tiles/s walking, a footfall lands about every half tile. */
 export const WALK_PERIOD = 0.5;
 export const RUN_PERIOD = 0.32;
-/** Attack clip length — matches the 2D EQUIPMENT_ACTION_MS impulse. */
+/** Attack clip length — matches the synced EQUIPMENT_ACTION_MS use impulse. */
 export const ATTACK_PERIOD = 0.3;
 
 export interface CreatureModel {
@@ -41,7 +41,7 @@ export class Parts {
   private readonly tint?: THREE.Color;
 
   constructor(tint?: number) {
-    // The per-player colour rides as a multiply over the whole body, like the 2D sprite tint.
+    // The per-player colour rides as a multiply over the whole body.
     this.tint = tint === undefined ? undefined : new THREE.Color(tint);
   }
 
@@ -126,7 +126,7 @@ export interface GaitSpec {
 }
 
 /** A stride loop: legs scissor in opposite phase, arms counter-swing, the body dips
- *  on each footfall — the 3D restatement of the 2D rig's gait pose data. */
+ *  on each footfall. */
 function gaitClip(name: string, period: number, s: GaitSpec, scale: number, dip: number, lean: number): THREE.AnimationClip {
   const t = [0, period / 4, period / 2, (3 * period) / 4, period];
   const leg = s.legSwing * scale;
@@ -153,10 +153,10 @@ function idleClip(s: GaitSpec): THREE.AnimationClip {
 }
 
 /** The swing: cock the main (right) arm back, throw it forward past horizontal,
- *  settle — the wind-up → strike → recovery shape of the 2D attack. An arm hangs
+ *  settle. An arm hangs
  *  along −y, so *negative* pitch swings it toward the +z facing. */
 function attackClip(s: GaitSpec): THREE.AnimationClip {
-  const strike = ATTACK_PERIOD * 0.35; // 2D STRIKE_PEAK: quick wind-up, slower recovery
+  const strike = ATTACK_PERIOD * 0.35; // quick wind-up, slower recovery
   return new THREE.AnimationClip("attack", ATTACK_PERIOD, [
     pitchTrack("ArmR", s.restArm, [0, strike * 0.6, strike, ATTACK_PERIOD], [0, 0.9, -1.5, -0.1]),
     pitchTrack("Torso", s.restTorso, [0, strike * 0.6, strike, ATTACK_PERIOD], [0, -0.06, 0.14, 0.02]),

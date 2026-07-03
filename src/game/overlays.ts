@@ -5,7 +5,7 @@ import { UI_3D } from "./palette.js";
  * World-space text/bar overlays: name labels, health bars, speech bubbles, and
  * the respawn countdown, each a camera-facing sprite with a crisp canvas texture.
  * They draw with depth-test off (renderOrder above the world) so a nameplate is
- * never swallowed by a wall — the same always-on-top the 2D HUD text had.
+ * never swallowed by a wall.
  */
 
 const FONT = "monospace";
@@ -59,7 +59,7 @@ export function makeLabel(text: string, colour: number): Overlay {
   return spriteFor(canvas, worldH);
 }
 
-/** A health bar at `ratio` (0–1); colour-coded like the 2D bar. */
+/** A health bar at `ratio` (0–1), colour-coded green → amber → red. */
 export function makeHealthBar(ratio: number, dead: boolean): Overlay {
   const canvas = document.createElement("canvas");
   canvas.width = 72;
@@ -73,7 +73,7 @@ export function makeHealthBar(ratio: number, dead: boolean): Overlay {
   return spriteFor(canvas, 0.09);
 }
 
-/** A speech bubble: parchment rounded rect, ink text, wrapped like the 2D bubble. */
+/** A speech bubble: parchment rounded rect, ink text, word-wrapped. */
 export function makeBubble(text: string): Overlay {
   const worldH = 0.42; // per text line
   const px = Math.round(worldH * CRISP * 0.62);

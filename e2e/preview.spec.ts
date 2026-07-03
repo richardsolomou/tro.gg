@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 /**
- * Smoke-tests the art preview at a handful of URL-addressed states. Each asserts the WebGL
+ * Smoke-tests the model preview at a handful of URL-addressed states. Each asserts the WebGL
  * canvas paints a non-trivial number of non-background pixels — a deterministic "the rig still
  * draws" check that survives across machines (unlike a pixel snapshot), and attaches the
  * rendered frame to the report for human sign-off. Paused states give a stable frame to read.

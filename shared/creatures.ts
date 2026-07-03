@@ -1,7 +1,6 @@
 /**
  * Creature vocabulary shared by the client and the module: kinds, body styles,
- * facings, footprints, and equip slots. (Named for the sprite sheet it once
- * described; the renderer is 3D now, but this is still where the cast lives.)
+ * facings, footprints, and equip slots — where the cast lives.
  */
 
 export type Kind = "trogg" | "hog";
@@ -24,9 +23,6 @@ export const BIG_HOG_STYLES = ["buff", "dino"] as const;
 export type TroggStyle = (typeof TROGG_STYLES)[number];
 export type HogStyle = (typeof HOG_STYLES)[number];
 export type Style = TroggStyle | HogStyle;
-
-export const KINDS: readonly Kind[] = ["trogg", "hog"] as const;
-export const FACINGS: readonly Facing[] = ["down", "up", "left", "right"] as const;
 
 /** A hog style's tile-footprint span: 2 for the big showpieces, 1 for the rest. */
 export function hogSize(style: string): number {

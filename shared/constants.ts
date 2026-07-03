@@ -4,7 +4,7 @@
  * tuning or experiments are useful. See docs/gdd.md.
  */
 
-import { BIG_HOG_STYLES } from "./sprites";
+import { BIG_HOG_STYLES } from "./creatures";
 
 /** Movement speed shared by click-to-move and WASD. (initial) */
 export const MOVE_SPEED_TILES_PER_SEC = 4;

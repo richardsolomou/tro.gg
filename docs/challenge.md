@@ -8,4 +8,4 @@ Build a multiplayer browser game using nothing but tools under the PostHog umbre
 
 ## The game, in brief
 
-OldSchool RuneScape meets Valheim, radically reduced: a persistent pixel-art world, click-to-move and WASD, gathering and crafting skills that gate harder content — better tools reach better materials, repeat outward — and hedgehog NPCs to befriend and protect. Event-based, not twitchy — the gameplay is inventories, timers, and numbers going up, which is exactly the shape an event-based server and PostHog are good at. The binding spec is [gdd.md](gdd.md); setting and tone are in [world.md](world.md).
+OldSchool RuneScape meets Valheim, radically reduced: a persistent low-poly 3D world, click-to-move and WASD, gathering and crafting skills that gate harder content — better tools reach better materials, repeat outward — and hedgehog NPCs to befriend and protect. Event-based, not twitchy — the gameplay is inventories, timers, and numbers going up, which is exactly the shape an event-based server and PostHog are good at. The binding spec is [gdd.md](gdd.md); setting and tone are in [world.md](world.md).

@@ -1,8 +1,7 @@
 /**
- * Creature, item, and terrain palettes for the 3D renderer — the same colour
- * vocabulary as the 2D pixel art (`tools/art/*`, `tools/gen-item-art.ts`), restated
- * here because the tooling files stay out of the client bundle. If a palette
- * changes there, change it here.
+ * Creature, item, and terrain palettes — the canonical colour vocabulary for
+ * everything the renderer draws. The tones descend from the original pixel-art
+ * concept work (`docs/art-refs/`).
  */
 
 export interface TroggSkin3D {
@@ -74,7 +73,7 @@ export const CAVE_3D = {
   glowmoss: { core: 0x7ff0d8, mid: 0x3fb6a2, halo: 0x224f48 },
 } as const;
 
-/** HUD/world accent colours shared with the 2D client. */
+/** HUD/world accent colours, matching the HTML HUD (`src/ui/hud.css`). */
 export const UI_3D = {
   parchment: 0xe8dcc4,
   gold: 0xf2c94c,

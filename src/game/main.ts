@@ -1,4 +1,4 @@
-import { World3D, type WorldData } from "./world3d.js";
+import { World3D, type WorldData } from "./world.js";
 
 /**
  * Boot the 3D world into the given parent element with the live connection

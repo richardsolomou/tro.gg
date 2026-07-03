@@ -27,7 +27,7 @@ The repo follows SpacetimeDB's layout:
 
 | Path | What it is | Runs on |
 | ---- | ---------- | ------- |
-| `src/` | Three.js + Vite game client (`spacetimedb` SDK, `posthog-js`), grouped into `game3d/` (the 3D world: renderer, creature/item models, rig, HUD icons), `preview/` (the dev model preview page), `ui/` (HTML/CSS HUD), and `net/` (connection + the generated `module_bindings/`, produced from the module schema) | Cloudflare Workers |
+| `src/` | Three.js + Vite game client (`spacetimedb` SDK, `posthog-js`), grouped into `game/` (the 3D world: renderer, creature/item models, rig, HUD icons), `preview/` (the dev model preview page), `ui/` (HTML/CSS HUD), and `net/` (connection + the generated `module_bindings/`, produced from the module schema) | Cloudflare Workers |
 | `spacetimedb/` | SpacetimeDB TypeScript module — the tables, reducers, and telemetry procedure wrappers that are the whole backend (matches SpacetimeDB's template layout; intentionally not a pnpm workspace package, so it resolves the SDK from the root `node_modules`) | Self-hosted SpacetimeDB (Hetzner VPS) |
 | `shared/` | Pure game logic (motion, constants, avatar colours), imported by both the client and the module | — |
 

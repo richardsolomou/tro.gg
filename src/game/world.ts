@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import type { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { CLICK_SLOP_PX, createOrbit } from "./controls3d.js";
+import { CLICK_SLOP_PX, createOrbit } from "./controls.js";
 import {
   CHAT_BUBBLE_MS,
   DIR_SCALE,
@@ -34,8 +34,8 @@ import { captureEvent, isFeatureEnabled, logError, logInfo } from "../analytics.
 import { audio } from "../audio.js";
 import { interact, useEquipped } from "../net/procedures.js";
 import { isOlderPlayerMotion, playerMotionChanged, withPlayerMotion } from "../motion_sync.js";
-import { createEntities, disposeObject, type Entities, type HogView, type Tracked } from "./entities3d.js";
-import { buildTerrain, type Terrain3D } from "./terrain3d.js";
+import { createEntities, disposeObject, type Entities, type HogView, type Tracked } from "./entities.js";
+import { buildTerrain, type Terrain3D } from "./terrain.js";
 import { CAVE_3D, UI_3D } from "./palette.js";
 
 /** Fraction of the viewport the zone fills, leaving a rim of cave around it. */
@@ -60,8 +60,7 @@ export interface WorldData {
  * The 3D game world (GDD "Camera and rendering"): renders the zone in Three.js and
  * runs the per-frame extrapolation loop. Movement stays intent-based — the `player`
  * table syncs origin/direction/start-time and every client extrapolates locally each
- * frame (invariant 2); all authority stays server-side (invariant 3). This is the
- * WorldScene port: same subscriptions, same prediction wiring, a 3D renderer.
+ * frame (invariant 2); all authority stays server-side (invariant 3).
  */
 export class World3D {
   private readonly conn: DbConnection;
@@ -212,7 +211,7 @@ export class World3D {
     // only open-space clicks reach the canvas. Dragging orbits the camera instead,
     // so a click only moves when the pointer barely travelled between down and up —
     // measured as accumulated movement, since under the drag's pointer lock the
-    // cursor coordinates freeze (controls3d).
+    // cursor coordinates freeze (controls).
     const ray = new THREE.Raycaster();
     const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
     let pressed = false;

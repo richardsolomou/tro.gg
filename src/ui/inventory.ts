@@ -1,5 +1,5 @@
 import { equipSlotOf, INVENTORY_SLOT_COUNT, ITEMS, isEquippableItem } from "@trogg/shared";
-import { itemIcon } from "../game3d/icons3d.js";
+import { itemIcon } from "../game/icons.js";
 import { logError } from "../analytics.js";
 import type { DbConnection } from "../net/module_bindings";
 import type { Inventory, Player } from "../net/module_bindings/types";
@@ -254,6 +254,6 @@ function inventoryIcon(): SVGSVGElement {
   return icon;
 }
 
-// Item icons render from the real 3D models (game3d/icons3d.ts) so the inventory,
+// Item icons render from the real 3D models (game/icons.ts) so the inventory,
 // equipped slot, and spawn buttons show the exact object the world renders.
-export { itemIcon } from "../game3d/icons3d.js";
+export { itemIcon } from "../game/icons.js";

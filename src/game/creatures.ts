@@ -1,10 +1,10 @@
 import * as THREE from "three";
 import { BUFF_3D, CHICK_3D, DINO_3D, GHOST_3D, HOG_SKINS_3D, TROGG_SKINS_3D, type HogSkin3D } from "./palette.js";
-import { finishCreature, joint, Parts, type CreatureModel, type GaitSpec } from "./rig3d.js";
+import { finishCreature, joint, Parts, type CreatureModel, type GaitSpec } from "./rig.js";
 
 /**
  * Every creature body, built procedurally on the shared joint vocabulary
- * (`rig3d.ts`). Proportions echo the 2D silhouettes: the hunched big-shouldered
+ * (`rig.ts`). Proportions follow the concept art (`docs/art-refs/`): the hunched big-shouldered
  * trogg, the round quilled hog, the swole buff, the dino costume, the chicken.
  * Model style notes live with each builder; palettes in `palette.ts`.
  */
