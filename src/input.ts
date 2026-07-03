@@ -1,4 +1,4 @@
-/** A cardinal direction: one axis at a time; (0, 0) = stop. No diagonals. */
+/** A movement direction: each axis −1/0/1, diagonals allowed; (0, 0) = stop. */
 interface Dir {
   dirX: number;
   dirY: number;
@@ -49,20 +49,21 @@ export function attachKeyboard(
   let shiftHeld = false;
   let current: MoveIntent = { dirX: 0, dirY: 0, running: false };
 
-  // Last key still held wins — pure 4-directional movement, no diagonals, like
-  // Pokémon/Zelda. A Set keeps insertion order, so the newest held key is the last
-  // one we see; holding right then tapping up goes up, releasing up resumes right.
-  // Each KEY_VECTORS entry is a single cardinal axis, so the intent is always
-  // cardinal by construction. Running only matters while moving, so a lone shift
-  // tap never produces a move.
+  // Free 8-directional movement: the axes combine, so holding W+D walks the
+  // diagonal. Within one axis the newest held key wins (a Set keeps insertion
+  // order): holding right then tapping left goes left, releasing left resumes
+  // right. Running only matters while moving, so a lone shift tap never moves.
   const compute = (): MoveIntent => {
-    let dir: Dir = { dirX: 0, dirY: 0 };
+    let dirX = 0;
+    let dirY = 0;
     for (const code of held) {
       const vector = KEY_VECTORS[code];
-      if (vector) dir = vector;
+      if (!vector) continue;
+      if (vector.dirX !== 0) dirX = vector.dirX;
+      if (vector.dirY !== 0) dirY = vector.dirY;
     }
-    const moving = dir.dirX !== 0 || dir.dirY !== 0;
-    return { ...dir, running: canRun && shiftHeld && moving };
+    const moving = dirX !== 0 || dirY !== 0;
+    return { dirX, dirY, running: canRun && shiftHeld && moving };
   };
 
   const emit = (immediate?: boolean) => {

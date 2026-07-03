@@ -1,4 +1,5 @@
-import { blitArt, equipSlotOf, INVENTORY_SLOT_COUNT, ITEM_ART, ITEM_ART_H, ITEM_ART_W, ITEMS, isEquippableItem, rgbaSink } from "@trogg/shared";
+import { equipSlotOf, INVENTORY_SLOT_COUNT, ITEMS, isEquippableItem } from "@trogg/shared";
+import { itemIcon } from "../game3d/icons3d.js";
 import { logError } from "../analytics.js";
 import type { DbConnection } from "../net/module_bindings";
 import type { Inventory, Player } from "../net/module_bindings/types";
@@ -253,20 +254,6 @@ function inventoryIcon(): SVGSVGElement {
   return icon;
 }
 
-/** The item's pixel art (the same `ITEM_ART` drawn in the world) rendered into a small
- *  canvas, so the inventory, equipped slot, and spawn buttons show the exact world
- *  sprite — one drawing per item, not a separate icon. Unknown ids render blank. */
-export function itemIcon(item: string): HTMLCanvasElement {
-  const canvas = document.createElement("canvas");
-  canvas.width = ITEM_ART_W;
-  canvas.height = ITEM_ART_H;
-  canvas.className = "item-icon";
-  const art = ITEM_ART[item];
-  if (art) {
-    const ctx = canvas.getContext("2d")!;
-    const img = ctx.createImageData(ITEM_ART_W, ITEM_ART_H);
-    blitArt(rgbaSink(img.data, ITEM_ART_W, ITEM_ART_H), art, 0, 0);
-    ctx.putImageData(img, 0, 0);
-  }
-  return canvas;
-}
+// Item icons render from the real 3D models (game3d/icons3d.ts) so the inventory,
+// equipped slot, and spawn buttons show the exact object the world renders.
+export { itemIcon } from "../game3d/icons3d.js";

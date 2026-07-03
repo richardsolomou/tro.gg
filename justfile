@@ -57,7 +57,3 @@ typecheck:
 # Run the shared pure-logic unit tests.
 test:
     pnpm test
-
-# Regenerate the trogg + Hog avatar sprite sheet (assets/sprites/) from shared/sprites.ts.
-sprites:
-    pnpm sprites

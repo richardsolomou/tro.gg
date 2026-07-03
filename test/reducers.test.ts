@@ -10,6 +10,9 @@ import {
   INVENTORY_SLOT_COUNT,
   isWalkable,
   MAX_BOULDERS_PER_ZONE,
+  MOVE_SPEED_TILES_PER_SEC,
+  projectMotion,
+  zoneBounds,
   MAX_GROUND_ITEMS_PER_ZONE,
   MAX_HOGS_PER_ZONE,
   parsePath,
@@ -215,11 +218,29 @@ test("push refuses when a Hog stands beyond the boulder", () => {
 
 // --- Movement authority ---
 
-test("move rejects a diagonal intent and keeps the prior heading", () => {
+test("move accepts a diagonal intent, facing its dominant axis (free movement)", () => {
   const { ctx, me } = withPlayer({ dirX: 0, dirY: 1, faceX: 0, faceY: 1 });
   move(ctx, { dirX: 1, dirY: 1, running: false });
   const p = ctx.db.player.identity.find(me);
-  assert.deepEqual({ dirX: p.dirX, dirY: p.dirY, faceX: p.faceX, faceY: p.faceY }, { dirX: 0, dirY: 1, faceX: 0, faceY: 1 });
+  assert.deepEqual({ dirX: p.dirX, dirY: p.dirY, faceX: p.faceX, faceY: p.faceY }, { dirX: 1, dirY: 1, faceX: 1, faceY: 0 });
+});
+
+test("move clamps heading axes to the wire scale, never trusting the client", () => {
+  const { ctx, me } = withPlayer({ dirX: 0, dirY: 0, faceX: 0, faceY: 1 });
+  move(ctx, { dirX: 999999, dirY: -407, running: false });
+  const p = ctx.db.player.identity.find(me);
+  // Magnitude never buys speed (the projection normalises); axes clamp to ±1000.
+  assert.deepEqual({ dirX: p.dirX, dirY: p.dirY }, { dirX: 1000, dirY: -407 });
+});
+
+test("an off-axis heading moves at unit speed along its direction", () => {
+  const { ctx, me } = withPlayer({ x: 5, y: 8, dirX: 0, dirY: 0 });
+  move(ctx, { dirX: 966, dirY: -259, running: false }); // ~15° above east
+  const p = ctx.db.player.identity.find(me);
+  const zone = getZone(ZONE)!;
+  const at = projectMotion(p, 1_000, zoneBounds(zone));
+  const dist = Math.hypot(at.x - 5, at.y - 8);
+  assert.ok(Math.abs(dist - MOVE_SPEED_TILES_PER_SEC) < 1e-6, `moved ${dist}`);
 });
 
 test("move stores an accepted cardinal intent and synced facing", () => {
