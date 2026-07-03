@@ -270,19 +270,23 @@ export function generateCaveZone(opts: CaveOptions): Zone {
  */
 export function generateBirthCave(): Zone {
   const W = 26;
-  const H = 34;
+  const H = 26;
   const rand = mulberry32(0xb117);
   const idx = (x: number, y: number) => y * W + x;
+  // One open glowmoss cavern under a solid top band. The newborn wakes in the
+  // cavern itself (lit, roomy — the opening frame reads at a glance); the only
+  // way up to the exit landing is a 1-wide neck through the band, plugged with
+  // a couple of rubble rows at seeding. Break the rocks, reach the light.
   let rock = new Uint8Array(W * H);
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
-      const rim = x < 2 || x >= W - 2 || y < 2 || y >= H - 12;
-      rock[idx(x, y)] = rim || rand() < 0.34 ? 1 : 0;
+      const rim = x < 2 || x >= W - 2 || y < 6 || y >= H - 2;
+      rock[idx(x, y)] = rim || rand() < 0.3 ? 1 : 0;
     }
   }
   for (let pass = 0; pass < 4; pass++) {
     const next = new Uint8Array(rock);
-    for (let y = 2; y < H - 12; y++) {
+    for (let y = 6; y < H - 2; y++) {
       for (let x = 2; x < W - 2; x++) {
         let n = 0;
         for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) n += rock[idx(x + dx, y + dy)] ?? 1;
@@ -292,11 +296,16 @@ export function generateBirthCave(): Zone {
     rock = next;
   }
   const cx = Math.floor(W / 2);
-  // the exit landing (top) and the cell mouth (bottom) always open, then keep
+  // the exit landing above the band, and the rubble neck through it
+  for (let y = 2; y <= 3; y++) for (let x = cx - 1; x <= cx + 1; x++) rock[idx(x, y)] = 0;
+  const corridor: Coord[] = [
+    { x: cx, y: 4 },
+    { x: cx, y: 5 },
+  ];
+  for (const t of corridor) rock[idx(t.x, t.y)] = 0;
+  rock[idx(cx, 6)] = 0; // the neck always meets the cavern
+
   // one cavern: everything the exit can't reach returns to rock
-  for (let y = 2; y <= 4; y++) for (let x = cx - 1; x <= cx + 1; x++) rock[idx(x, y)] = 0;
-  const cellMouthY = H - 12;
-  for (let x = cx - 1; x <= cx + 1; x++) rock[idx(x, cellMouthY)] = 0;
   const reach = new Uint8Array(W * H);
   const queue = [idx(cx, 2)];
   reach[idx(cx, 2)] = 1;
@@ -305,8 +314,10 @@ export function generateBirthCave(): Zone {
     const x = at % W;
     const y = (at - x) / W;
     for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
-      const ni = idx(x + dx, y + dy);
-      if (x + dx < 0 || y + dy < 0 || x + dx >= W || y + dy >= H) continue;
+      const nx = x + dx;
+      const ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+      const ni = idx(nx, ny);
       if (rock[ni] || reach[ni]) continue;
       reach[ni] = 1;
       queue.push(ni);
@@ -314,18 +325,29 @@ export function generateBirthCave(): Zone {
   }
   for (let i = 0; i < rock.length; i++) if (!rock[i] && !reach[i]) rock[i] = 1;
 
-  // The sealed birth cell below the cavern: a proper room (5×4 — the opening
-  // camera must fit a trogg AND its enclosure in frame), corridor up to the
-  // cell mouth.
-  const corridor: Coord[] = [];
-  for (let y = cellMouthY + 1; y <= cellMouthY + 4; y++) {
-    rock[idx(cx, y)] = 0;
-    corridor.push({ x: cx, y });
+  // wake in the middle of the cavern, the pickaxe on the open floor beside you
+  const centre = { x: cx, y: Math.floor((6 + H - 2) / 2) };
+  let spawn: Coord = { x: cx, y: 7 };
+  let bestDist = Infinity;
+  for (let y = 7; y < H - 2; y++) {
+    for (let x = 2; x < W - 2; x++) {
+      if (rock[idx(x, y)]) continue;
+      const d = Math.hypot(x - centre.x, y - centre.y);
+      if (d < bestDist) {
+        bestDist = d;
+        spawn = { x, y };
+      }
+    }
   }
-  const cellTop = cellMouthY + 5;
-  for (let y = cellTop; y <= cellTop + 3; y++) for (let x = cx - 2; x <= cx + 2; x++) rock[idx(x, y)] = 0;
+  let pickaxe: Coord = spawn;
+  for (const [dx, dy] of [[-1, 0], [1, 0], [0, 1], [0, -1]] as const) {
+    if (!rock[idx(spawn.x + dx, spawn.y + dy)]) {
+      pickaxe = { x: spawn.x + dx, y: spawn.y + dy };
+      break;
+    }
+  }
 
-  // dress: gravel floor, thick glowmoss — the only light down here
+  // dress: gravel floor, thick glowmoss — this cave lights itself
   const glyphs: string[][] = [];
   for (let y = 0; y < H; y++) {
     const row: string[] = [];
@@ -335,15 +357,13 @@ export function generateBirthCave(): Zone {
         continue;
       }
       const roll = rand();
-      if (roll < 0.1) row.push(GLOWMOSS_TILE);
-      else if (roll < 0.35) row.push(GRAVEL_TILE);
-      else if (roll < 0.5) row.push(MOSS_TILE);
+      if (roll < 0.12) row.push(GLOWMOSS_TILE);
+      else if (roll < 0.37) row.push(GRAVEL_TILE);
+      else if (roll < 0.52) row.push(MOSS_TILE);
       else row.push(".");
     }
     glyphs.push(row);
   }
-  glyphs[cellTop]![cx + 2] = GLOWMOSS_TILE; // dim lights to wake to
-  glyphs[cellTop + 3]![cx - 2] = GLOWMOSS_TILE;
 
   return {
     slug: "birthcave",
@@ -352,7 +372,7 @@ export function generateBirthCave(): Zone {
     height: H,
     biome: "shadowdeep",
     exits: [],
-    spawn: { x: cx, y: cellTop + 2 },
+    spawn,
     exit: { x: cx, y: 3 },
     tiles: glyphs.map((row) => row.join("")),
     boulders: [],
@@ -360,7 +380,7 @@ export function generateBirthCave(): Zone {
     hogs: [],
     items: [],
     bigHogs: [],
-    cells: [{ x: cx, y: cellTop + 2, corridor, pickaxe: { x: cx - 1, y: cellTop + 2 } }],
+    cells: [{ x: spawn.x, y: spawn.y, corridor, pickaxe }],
   };
 }
 
