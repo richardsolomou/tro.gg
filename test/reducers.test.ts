@@ -21,6 +21,7 @@ import {
   SPACETIMEAUTH_ISSUER,
   WEAPON_DAMAGE,
   BOULDER_MAX_HEALTH,
+  OFF_TOOL_NODE_FACTOR,
   TREE_MAX_HEALTH,
   THROWN_OBJECT_DAMAGE,
 } from "@trogg/shared";
@@ -463,13 +464,14 @@ test("an axe chips a fresh tree, and the breaking blow on a worn one grants wood
   assert.equal(ctx.db.player.identity.find(me).equipmentAction, "axe");
 });
 
-test("an axe does not mine boulders and a pickaxe does not fell trees", () => {
+test("an axe only scratches a boulder — the wrong tool works at a fraction", () => {
   const { ctx, me } = withPlayer({ x: 69, y: 96, equippedMainHand: "axe" });
   const axe = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "axe", qty: 1 });
   ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedMainHandInventoryId: axe.id });
-  ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96 });
+  const b = ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96, health: BOULDER_MAX_HEALTH });
   useEquipped(ctx, { dirX: 1, dirY: 0 });
-  assert.equal(ctx.db.boulder.rows().length, 1);
+  const chip = Math.max(1, Math.round(WEAPON_DAMAGE.axe![0] * OFF_TOOL_NODE_FACTOR));
+  assert.equal(ctx.db.boulder.id.find(b.id)?.health, BOULDER_MAX_HEALTH - chip);
   assert.equal(ctx.db.inventory.rows().some((r: any) => r.item === "stone" || r.item === "wood"), false);
 });
 
@@ -526,6 +528,36 @@ test("weapon damage rolls between its floor and ceiling with the context RNG", (
   useEquipped(ctx, { dirX: 1, dirY: 0 });
 
   assert.equal(ctx.db.player.identity.find(other).health, PLAYER_MAX_HEALTH - WEAPON_DAMAGE.sword![1]);
+});
+
+test("an off-tool weapon scratches a node — and only when no creature is in reach", () => {
+  const { ctx, me } = withPlayer({ x: 69, y: 96, equippedMainHand: "sword" });
+  const sword = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });
+  ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedMainHandInventoryId: sword.id });
+  const tr = ctx.db.tree.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96, health: TREE_MAX_HEALTH });
+
+  useEquipped(ctx, { dirX: 1, dirY: 0 });
+  const chip = Math.max(1, Math.round(WEAPON_DAMAGE.sword![0] * OFF_TOOL_NODE_FACTOR));
+  assert.equal(ctx.db.tree.id.find(tr.id)?.health, TREE_MAX_HEALTH - chip); // whittled, barely
+
+  // a hog steps into reach: the sword goes back to being a weapon
+  const h = ctx.db.hog.insert({ id: 0n, zoneId: ZONE, x: 70, y: 97, dirX: 0, dirY: 0, movedAt: { microsSinceUnixEpoch: 0n }, path: "", homeX: 0, homeY: 0, style: "", health: HOG_MAX_HEALTH });
+  ctx.timestamp = { microsSinceUnixEpoch: micros(1000) }; // past the use cooldown
+  useEquipped(ctx, { dirX: 1, dirY: 0 });
+  assert.equal(ctx.db.hog.id.find(h.id)?.health, HOG_MAX_HEALTH - WEAPON_DAMAGE.sword![0]);
+  assert.equal(ctx.db.tree.id.find(tr.id)?.health, TREE_MAX_HEALTH - chip); // untouched this swing
+});
+
+test("the breaking hit grants the resource whatever weapon dealt it", () => {
+  const { ctx, me } = withPlayer({ x: 69, y: 96, equippedMainHand: "sword" });
+  const sword = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });
+  ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedMainHandInventoryId: sword.id });
+  ctx.db.tree.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96, health: 1 });
+
+  useEquipped(ctx, { dirX: 1, dirY: 0 });
+
+  assert.equal(ctx.db.tree.rows().length, 0);
+  assert.equal(ctx.db.inventory.rows().find((r: any) => r.item === "wood")?.qty, 1);
 });
 
 test("a tool takes its gathering node over a creature in the same swing", () => {

@@ -10,6 +10,7 @@ import {
   MAX_GROUND_ITEMS_PER_ZONE,
   spawnTile,
   weaponDamageRange,
+  OFF_TOOL_NODE_FACTOR,
   tileKey,
 } from "../../../shared/index";
 import {
@@ -178,10 +179,10 @@ export const discardItemAction = spacetimedb.procedure(
  * Use the equipped main-hand item (GDD "Avatars and equipment"). The row update
  * is a visible, low-volume impulse every client can animate. It preserves the
  * current movement intent — using a tool never turns into a stop. If the trogg is
- * carrying a Hog, `F` throws it as a tile-based impact weapon. Otherwise pickaxes
- * mine the nearest boulder in reach into one Stone inventory item, axes fell the
- * nearest tree into one Wood, and swords damage the nearest online trogg or Hog
- * in reach of the swing; at zero health the target dies.
+ * carrying a Hog, `F` throws it as a tile-based impact weapon. Otherwise the swing
+ * resolves in order: the weapon's own gathering node at full damage, a creature,
+ * then any node at a fraction of the roll; at zero health the target dies or the
+ * node breaks and grants its resource.
  */
 function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; dirY: number; source?: string }): AnalyticsEvent[] {
   const p = ctx.db.player.identity.find(ctx.sender);
@@ -224,52 +225,70 @@ function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; d
   // Melee resolves by reach and swing arc around the exact aim vector (shared
   // meleeHit), not tile adjacency — free movement means the eye judges reach in
   // world units. The server re-derives every position; nearest hit wins.
-  // Tools take their gathering node first: each swing rolls the tool's damage
-  // into the node's health, and the breaking hit grants the resource (refused —
-  // node left barely standing — when no inventory slot can take it). Any weapon
-  // with a damage range wounds the nearest creature when no node claims the swing.
+  //
+  // A swing lands on the first of: the weapon's own gathering node at full
+  // damage (pickaxe → boulder, axe → tree), a creature, then any node at
+  // OFF_TOOL_NODE_FACTOR of the roll — a sword can whittle a tree down for the
+  // first wood, it's just a terrible saw. Each node hit rolls into the node's
+  // health; the breaking hit grants the resource whatever weapon dealt it
+  // (refused — node left barely standing — when no inventory slot can take it).
   const cx = pos.x + 0.5;
   const cy = pos.y + 0.5;
   const range = weaponDamageRange(equipped.item);
-  let gathered = false;
-  if (equipped.item === "pickaxe") {
-    const b = meleeBoulderTarget(ctx, p.zoneId, cx, cy, aim);
-    if (b) {
-      const damage = ctx.random.integerInRange(range![0], range![1]);
-      if (b.target.health > damage) {
-        ctx.db.boulder.id.update({ ...b.target, health: b.target.health - damage });
-        gathered = true;
-      } else if (addInventory(ctx, p.identity, "stone", 1)) {
-        ctx.db.boulder.id.delete(b.target.id);
-        events.push({ distinctId: distinctId(ctx), event: "inventory_item_acquired", properties: { zone: p.zoneId, item: "stone", qty: 1, ...sourceProp(source) } });
-        gathered = true;
+
+  const strikeBoulder = (b: NonNullable<ReturnType<typeof meleeBoulderTarget>>["target"], damage: number): boolean => {
+    if (b.health > damage) {
+      ctx.db.boulder.id.update({ ...b, health: b.health - damage });
+      return true;
+    }
+    if (!addInventory(ctx, p.identity, "stone", 1)) return false;
+    ctx.db.boulder.id.delete(b.id);
+    events.push({ distinctId: distinctId(ctx), event: "inventory_item_acquired", properties: { zone: p.zoneId, item: "stone", qty: 1, ...sourceProp(source) } });
+    return true;
+  };
+  const strikeTree = (tr: NonNullable<ReturnType<typeof meleeTreeTarget>>["target"], damage: number): boolean => {
+    if (tr.health > damage) {
+      ctx.db.tree.id.update({ ...tr, health: tr.health - damage });
+      return true;
+    }
+    if (!addInventory(ctx, p.identity, "wood", 1)) return false;
+    ctx.db.tree.id.delete(tr.id);
+    events.push({ distinctId: distinctId(ctx), event: "inventory_item_acquired", properties: { zone: p.zoneId, item: "wood", qty: 1, ...sourceProp(source) } });
+    return true;
+  };
+
+  let landed = false;
+  if (range) {
+    const roll = () => ctx.random.integerInRange(range[0], range[1]);
+    if (equipped.item === "pickaxe") {
+      const b = meleeBoulderTarget(ctx, p.zoneId, cx, cy, aim);
+      if (b) landed = strikeBoulder(b.target, roll());
+    } else if (equipped.item === "axe") {
+      const tr = meleeTreeTarget(ctx, p.zoneId, cx, cy, aim);
+      if (tr) landed = strikeTree(tr.target, roll());
+    }
+    if (!landed) {
+      const damage = roll();
+      const trogg = meleePlayerTarget(ctx, p.zoneId, cx, cy, aim, ctx.timestamp, p.identity);
+      const hog = meleeHogTarget(ctx, p.zoneId, cx, cy, aim, ctx.timestamp);
+      if (trogg && (!hog || trogg.dist <= hog.dist)) {
+        const result = damagePlayer(ctx, trogg.target, damage);
+        events.push({ distinctId: distinctId(ctx), event: "combat_hit", properties: { ...props, weapon: equipped.item, target: "trogg", damage, killed: result.killed } });
+        if (result.killed) events.push(playerDiedEvent(trogg.target.identity.toHexString(), props, equipped.item, result));
+        landed = true;
+      } else if (hog) {
+        const result = damageHog(ctx, hog.target, damage);
+        events.push({ distinctId: distinctId(ctx), event: "combat_hit", properties: { ...props, weapon: equipped.item, target: "hog", damage, killed: result.killed } });
+        landed = true;
       }
     }
-  } else if (equipped.item === "axe") {
-    const tr = meleeTreeTarget(ctx, p.zoneId, cx, cy, aim);
-    if (tr) {
-      const damage = ctx.random.integerInRange(range![0], range![1]);
-      if (tr.target.health > damage) {
-        ctx.db.tree.id.update({ ...tr.target, health: tr.target.health - damage });
-        gathered = true;
-      } else if (addInventory(ctx, p.identity, "wood", 1)) {
-        ctx.db.tree.id.delete(tr.target.id);
-        events.push({ distinctId: distinctId(ctx), event: "inventory_item_acquired", properties: { zone: p.zoneId, item: "wood", qty: 1, ...sourceProp(source) } });
-        gathered = true;
-      }
-    }
-  }
-  if (!gathered && range) {
-    const damage = ctx.random.integerInRange(range[0], range[1]);
-    const trogg = meleePlayerTarget(ctx, p.zoneId, cx, cy, aim, ctx.timestamp, p.identity);
-    const hog = meleeHogTarget(ctx, p.zoneId, cx, cy, aim, ctx.timestamp);
-    if (trogg && (!hog || trogg.dist <= hog.dist)) {
-      const result = damagePlayer(ctx, trogg.target, damage);
-      events.push({ distinctId: distinctId(ctx), event: "combat_hit", properties: { ...props, weapon: equipped.item, target: "trogg", damage, killed: result.killed } });
-      if (result.killed) events.push(playerDiedEvent(trogg.target.identity.toHexString(), props, equipped.item, result));
-    } else if (hog) {
-      const result = damageHog(ctx, hog.target, damage);
-      events.push({ distinctId: distinctId(ctx), event: "combat_hit", properties: { ...props, weapon: equipped.item, target: "hog", damage, killed: result.killed } });
+    if (!landed) {
+      // no creature and no matching node in the swing: any node takes a scratch
+      const b = equipped.item === "pickaxe" ? undefined : meleeBoulderTarget(ctx, p.zoneId, cx, cy, aim);
+      const tr = equipped.item === "axe" ? undefined : meleeTreeTarget(ctx, p.zoneId, cx, cy, aim);
+      const chip = Math.max(1, Math.round(roll() * OFF_TOOL_NODE_FACTOR));
+      if (b && (!tr || b.dist <= tr.dist)) strikeBoulder(b.target, chip);
+      else if (tr) strikeTree(tr.target, chip);
     }
   }
 

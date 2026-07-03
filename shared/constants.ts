@@ -122,6 +122,11 @@ export function weaponDamageRange(item: string): readonly [number, number] | und
   return isItemId(item) ? WEAPON_DAMAGE[item] : undefined;
 }
 
+/** How much of a weapon's roll lands on a gathering node it wasn't made for —
+ *  a sword CAN whittle a tree down, it's just a terrible saw. Applied to the
+ *  roll, never below a 1-point scratch. (initial) */
+export const OFF_TOOL_NODE_FACTOR = 0.08;
+
 /** How long a visible equipment-use impulse lasts — the attack clip length. */
 export const EQUIPMENT_ACTION_MS = 300;
 
