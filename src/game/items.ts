@@ -178,6 +178,48 @@ const HELD_PITCH: Record<string, number> = {
   wood: Math.PI / 2,
 };
 
+/**
+ * Live behavior a held item carries with it — the single definition both the
+ * game (`entities.ts`) and the dev preview consume, so how an item is held,
+ * lit, and animated is authored once, here, per item.
+ */
+export interface HeldFx {
+  /** Flame cels to hard-swap on TORCH_FLAME_CEL_MS. */
+  cels?: THREE.Group[];
+  /** A light the item sheds. Spawns dark: the game budgets which are lit
+   *  (nearest few, like glowmoss); the preview simply turns it on. */
+  light?: THREE.PointLight;
+  /** Pitch for the holding arm, applied after each mixer update (radians;
+   *  negative raises the arm forward-up). */
+  armPitch?: number;
+}
+
+/** Wire a built held-item model's live behavior; undefined when it has none. */
+export function wireHeldFx(item: string, model: THREE.Group): HeldFx | undefined {
+  if (item === "torch") {
+    const light = new THREE.PointLight(0xff8c2e, 9, 14, 1.6);
+    light.position.set(0, 0.5, 0);
+    light.visible = false;
+    model.add(light);
+    return { cels: model.userData.flameCels as THREE.Group[], light, armPitch: -1.25 };
+  }
+  return undefined;
+}
+
+/** Advance a held item's live behavior; call once per frame with `performance.now()`. */
+export function updateHeldFx(fx: HeldFx, now: number): void {
+  if (fx.cels) {
+    const cel = Math.floor(now / TORCH_FLAME_CEL_MS) % fx.cels.length;
+    fx.cels.forEach((frame, i) => {
+      frame.visible = i === cel;
+    });
+  }
+  if (fx.light?.visible) {
+    // two offset sines make the flame breathe without a repeating beat
+    fx.light.intensity = 8.6 + Math.sin(now * 0.011) * 1.2 + Math.sin(now * 0.027 + 1.7) * 0.8;
+  }
+}
+
 /** A held-item model — parent it to a rig hand node. The shield is the exception
  *  to the fist grip: it straps along the forearm, face out, raised into guard. */
 export function buildHeldItem(item: string): THREE.Group | undefined {

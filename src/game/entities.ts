@@ -3,7 +3,7 @@ import { BOULDER_HIT_RADIUS, TREE_HIT_RADIUS, EQUIPMENT_ACTION_MS, forward, HOG_
 import type { Player } from "../net/module_bindings/types";
 import { audio } from "../audio.js";
 import { buildGhost, buildHog, buildHogBall, buildTrogg } from "./creatures.js";
-import { buildBoulder, buildGroundItem, buildHeldItem, buildTree, TORCH_FLAME_CEL_MS } from "./items.js";
+import { buildBoulder, buildGroundItem, buildHeldItem, buildTree, updateHeldFx, wireHeldFx, type HeldFx } from "./items.js";
 import { makeBubble, makeDamageText, makeHealthBar, makeLabel, makeStatusText, type Overlay } from "./overlays.js";
 import { ATTACK_PERIOD, type CreatureModel } from "./rig.js";
 import { UI_3D } from "./palette.js";
@@ -58,13 +58,9 @@ export interface Tracked {
   corrY: number;
   flinchBaseMs?: number;
   equipmentActionBaseMs?: number;
-  equip: Partial<Record<EquipSlot, { kind: string }>>;
+  equip: Partial<Record<EquipSlot, { kind: string; fx?: HeldFx; arm?: THREE.Object3D }>>;
   /** The equipped torch's firelight, when one is held (world budgets which are lit). */
   torchLight?: THREE.PointLight;
-  /** The off-hand arm joint while a torch is held — posed aloft after each mixer update. */
-  torchArm?: THREE.Object3D;
-  /** The held torch's flame cels, hard-swapped on a timer (the landing page's flicker). */
-  torchCels?: THREE.Group[];
   carried?: THREE.Group;
   carriedKind: string;
   carriedStyle: string;
@@ -372,21 +368,15 @@ export function createEntities(scene: THREE.Scene) {
         entry.respawn = { overlay: next, text, at: entry.player.respawnAt };
       }
     }
-    if (entry.torchLight?.visible) {
-      // two offset sines make the flame breathe without a repeating beat
-      entry.torchLight.intensity = 8.6 + Math.sin(now * 0.011) * 1.2 + Math.sin(now * 0.027 + 1.7) * 0.8;
-    }
-    if (entry.torchCels) {
-      // hard-swap the sculpted flame cels, steps(1)-style, like the landing torches
-      const cel = Math.floor(now / TORCH_FLAME_CEL_MS) % entry.torchCels.length;
-      entry.torchCels.forEach((frame, i) => {
-        frame.visible = i === cel;
-      });
+    for (const held of [entry.equip.mainHand, entry.equip.offHand]) {
+      if (held?.fx) updateHeldFx(held.fx, now);
     }
     entry.model.mixer.update(dt);
-    // A torch is carried aloft: after the mixer has posed the gait, pitch the
-    // off-hand arm up so the flame rides high instead of swinging at the hip.
-    if (entry.torchArm) entry.torchArm.rotation.x = -1.25;
+    // Held-item arm poses (a torch carried aloft) land after the mixer has posed
+    // the gait, so the pose wins over the swing for that arm.
+    for (const held of [entry.equip.mainHand, entry.equip.offHand]) {
+      if (held?.arm && held.fx?.armPitch !== undefined) held.arm.rotation.x = held.fx.armPitch;
+    }
   };
 
   const makeHog = (style: string, facing: Facing, health: number) => {
@@ -482,40 +472,27 @@ export function createEntities(scene: THREE.Scene) {
   /** Sync held items to the equipped rows: parent each item model to the rig's hand
    *  node, so it rides the animated (swinging, striking) arm with no placement math. */
   const applyEquipment = (entry: Tracked) => {
-    const slots: { slot: EquipSlot; item: string; hand: THREE.Group }[] = [
-      { slot: "mainHand", item: entry.player.equippedMainHand, hand: entry.model.handR },
-      { slot: "offHand", item: entry.player.equippedOffHand, hand: entry.model.handL },
+    const slots: { slot: EquipSlot; item: string; hand: THREE.Group; armName: string }[] = [
+      { slot: "mainHand", item: entry.player.equippedMainHand, hand: entry.model.handR, armName: "ArmR" },
+      { slot: "offHand", item: entry.player.equippedOffHand, hand: entry.model.handL, armName: "ArmL" },
     ];
-    for (const { slot, item, hand } of slots) {
+    for (const { slot, item, hand, armName } of slots) {
       const cur = entry.equip[slot];
       if (item === (cur?.kind ?? "")) continue;
       for (const child of [...hand.children]) disposeObject(child);
       delete entry.equip[slot];
-      if (cur?.kind === "torch") {
-        entry.torchLight = undefined;
-        entry.torchArm = undefined;
-        entry.torchCels = undefined;
-      }
       if (!item) continue;
       const model = buildHeldItem(item);
       if (!model) continue;
       model.scale.setScalar(entry.model.fit);
       hand.add(model);
-      if (item === "torch") {
-        // A pool of warm firelight at the flame — the landing page's torch light.
-        // Every light is a cost on every fragment in a forward renderer, so it
-        // spawns dark; the world lights only the nearest few (the torch
-        // counterpart of the glowmoss budget).
-        const light = new THREE.PointLight(0xff8c2e, 9, 14, 1.6);
-        light.position.set(0, 0.5, 0);
-        light.visible = false;
-        model.add(light);
-        entry.torchLight = light;
-        entry.torchArm = entry.model.root.getObjectByName("ArmL") ?? undefined;
-        entry.torchCels = (model.userData.flameCels as THREE.Group[] | undefined) ?? undefined;
-      }
-      entry.equip[slot] = { kind: item };
+      // Live behavior (light, flame cels, arm pose) comes from the item's own
+      // HeldFx definition, shared verbatim with the dev preview.
+      const fx = wireHeldFx(item, model);
+      const arm = fx?.armPitch !== undefined ? (entry.model.root.getObjectByName(armName) ?? undefined) : undefined;
+      entry.equip[slot] = { kind: item, fx, arm };
     }
+    entry.torchLight = entry.equip.mainHand?.fx?.light ?? entry.equip.offHand?.fx?.light;
   };
 
   /** Pop a speech bubble over a trogg's head, replacing any current one. */

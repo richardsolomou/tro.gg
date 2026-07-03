@@ -3,7 +3,7 @@ import * as THREE from "three";
 import { createOrbit } from "../game/controls.js";
 import { COMMON_HOG_STYLES, HOG_STYLES, hogSize, TROGG_STYLES, wieldOf, type Kind } from "@trogg/shared";
 import { buildHog, buildHogBall, buildTrogg } from "../game/creatures.js";
-import { buildHeldItem, hasItem3D } from "../game/items.js";
+import { buildHeldItem, hasItem3D, updateHeldFx, wireHeldFx, type HeldFx } from "../game/items.js";
 import { hogIcon, itemIcon, troggIcon } from "../game/icons.js";
 import { applyFlinch, disposeObject, FLINCH_MS } from "../game/entities.js";
 import { type CreatureModel } from "../game/rig.js";
@@ -27,7 +27,7 @@ const CREATURES: CreatureChoice[] = [
   ...TROGG_STYLES.map((style) => ({ kind: "trogg" as Kind, style })),
   ...HOG_STYLES.map((style) => ({ kind: "hog" as Kind, style })),
 ];
-const ITEM_CHOICES = ["none", "pickaxe", "shovel", "sword", "shield", "stone"] as const;
+const ITEM_CHOICES = ["none", "pickaxe", "shovel", "axe", "sword", "shield", "torch", "stone", "wood"] as const;
 const MODES = ["idle", "walk", "run", "attack", "hit", "ball"] as const;
 type Mode = (typeof MODES)[number];
 /** How often the hit flinch replays in `hit` mode. */
@@ -155,6 +155,18 @@ layout();
 
 let subject: THREE.Object3D | undefined;
 let model: CreatureModel | undefined;
+// Live held-item behavior (torch light, flame cels, arm pose) comes from the
+// items module's HeldFx — the exact definition the game runs, so the preview
+// never redefines how something is held. Lights are always on here (the game's
+// nearest-N budget doesn't apply to a one-creature stage).
+let heldFx: { fx: HeldFx; arm?: THREE.Object3D }[] = [];
+
+function wireHeld(item: string, held: THREE.Group, arm?: THREE.Object3D): void {
+  const fx = wireHeldFx(item, held);
+  if (!fx) return;
+  if (fx.light) fx.light.visible = true;
+  heldFx.push({ fx, arm: fx.armPitch !== undefined ? arm : undefined });
+}
 const flinchView = { facing: "down" as const, flashOn: false, flinchBaseMs: undefined as number | undefined, model: undefined as unknown as CreatureModel };
 let boneDots: THREE.Group | undefined;
 let hitCycleAt = 0;
@@ -176,11 +188,13 @@ function rebuild(): void {
   subject = undefined;
   model = undefined;
   boneDots = undefined;
+  heldFx = [];
 
   if (state.view === "item") {
     const lone = buildHeldItem(state.item === "none" ? "pickaxe" : state.item)!;
     lone.rotation.set(0, 0, 0); // upright shelf pose, spun by the ticker
     lone.position.y = 0.55;
+    wireHeld(state.item, lone);
     subject = lone;
     scene.add(lone);
     frame();
@@ -208,12 +222,13 @@ function rebuild(): void {
   flinchView.flinchBaseMs = undefined;
 
   // held items ride the rig's hand nodes, exactly like the game
-  for (const [id, hand] of [[state.item, model.handR], [state.off, model.handL]] as const) {
+  for (const [id, hand, arm] of [[state.item, model.handR, "ArmR"], [state.off, model.handL, "ArmL"]] as const) {
     if (id === "none") continue;
     const m = buildHeldItem(id);
     if (!m) continue;
     m.scale.setScalar(model.fit);
     hand.add(m);
+    wireHeld(id, m, model.root.getObjectByName(arm) ?? undefined);
   }
 
   const clip = currentClip();
@@ -401,6 +416,12 @@ function tick(): void {
         (dot.userData.track as THREE.Object3D).getWorldPosition(dot.position);
       }
     }
+  }
+
+  // held items run their in-game live behavior (cels, light, arm pose) verbatim
+  for (const { fx, arm } of heldFx) {
+    updateHeldFx(fx, now);
+    if (arm && fx.armPitch !== undefined) arm.rotation.x = fx.armPitch;
   }
 
   orbit.update();

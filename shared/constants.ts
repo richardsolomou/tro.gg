@@ -96,22 +96,24 @@ export const PLAYER_MAX_HEALTH = 100;
 export const HOG_MAX_HEALTH = 60;
 
 /**
- * Per-weapon melee damage (GDD "Combat"): every equippable main-hand item can
- * hurt a trogg or Hog, the sword just does it best. Tools resolve their
- * gathering target first (pickaxe → boulder, axe → tree) and only wound
- * creatures when no node is in reach. Unlisted items, off-hand items, and
- * bare fists deal nothing. (initial)
+ * Per-weapon melee damage as an inclusive [floor, ceiling] — every accepted hit
+ * rolls inside its weapon's range with the reducer's context RNG, so no two
+ * swings feel identical but replay stays deterministic (GDD "Combat"). Every
+ * equippable main-hand item can hurt a trogg or Hog, the sword just does it
+ * best. Tools resolve their gathering target first (pickaxe → boulder,
+ * axe → tree) and only wound creatures when no node is in reach. Unlisted
+ * items, off-hand items, and bare fists deal nothing. (initial)
  */
-export const WEAPON_DAMAGE: Partial<Record<ItemId, number>> = {
-  sword: 25,
-  axe: 18,
-  pickaxe: 15,
-  shovel: 12,
+export const WEAPON_DAMAGE: Partial<Record<ItemId, readonly [number, number]>> = {
+  sword: [20, 30],
+  axe: [14, 22],
+  pickaxe: [11, 19],
+  shovel: [8, 16],
 };
 
-/** The melee damage an equipped item deals to creatures; 0 when it can't. */
-export function weaponDamage(item: string): number {
-  return (isItemId(item) ? WEAPON_DAMAGE[item] : undefined) ?? 0;
+/** The melee damage range an equipped item rolls against creatures, if it can hurt them. */
+export function weaponDamageRange(item: string): readonly [number, number] | undefined {
+  return isItemId(item) ? WEAPON_DAMAGE[item] : undefined;
 }
 
 /** How long a visible equipment-use impulse lasts — the attack clip length. */

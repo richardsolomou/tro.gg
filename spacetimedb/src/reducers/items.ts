@@ -9,7 +9,7 @@ import {
   isEquippableItem,
   MAX_GROUND_ITEMS_PER_ZONE,
   spawnTile,
-  weaponDamage,
+  weaponDamageRange,
   tileKey,
 } from "../../../shared/index";
 import {
@@ -244,8 +244,9 @@ function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; d
       gathered = true;
     }
   }
-  const damage = weaponDamage(equipped.item);
-  if (!gathered && damage > 0) {
+  const range = weaponDamageRange(equipped.item);
+  if (!gathered && range) {
+    const damage = ctx.random.integerInRange(range[0], range[1]);
     const trogg = meleePlayerTarget(ctx, p.zoneId, cx, cy, aim, ctx.timestamp, p.identity);
     const hog = meleeHogTarget(ctx, p.zoneId, cx, cy, aim, ctx.timestamp);
     if (trogg && (!hog || trogg.dist <= hog.dist)) {
