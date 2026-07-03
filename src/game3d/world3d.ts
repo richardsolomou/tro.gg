@@ -282,6 +282,15 @@ export class World3D {
       this.entities.animate(entry, now, dt, motion);
 
       if (entry.player.identity.toHexString() !== this.myId) continue;
+      // The camera rides the local trogg: the orbit pivot glides to its position, so
+      // drag-to-rotate and wheel-zoom stay live while walking (dead or alive — you
+      // keep your camera while waiting to respawn).
+      if (this.orbit) {
+        const pivot = new THREE.Vector3(motion.x + 0.5, 0.6, motion.y + 0.5);
+        const shift = pivot.sub(this.orbit.target).multiplyScalar(Math.min(1, dt * 8));
+        this.orbit.target.add(shift);
+        this.camera.position.add(shift); // carry the camera with the pivot so following doesn't re-aim the view
+      }
       if (entry.player.dead) continue;
       this.self.update(entry, motion, now);
     }

@@ -29,19 +29,17 @@ type Settleable = { x: number; y: number; dirX: number; dirY: number; running: b
 /**
  * Derive the trogg's position at `now` from its stored motion intent, colliding
  * against everything solid to a trogg — walls, boulders, and Hogs — so it settles
- * flush against an obstacle, never inside one, then snap it to a whole tile:
- * movement is grid-locked (GDD "Movement"), so a stored origin is always a tile
- * centre. Troggs do *not* collide with each other (GDD "Hogs"), so other players
- * are absent here. The client only sends `move` when the trogg is tile-aligned, so
- * the snap is a no-op in the normal case and a guard against a misbehaving client
- * in the rest (invariant 3).
+ * flush against an obstacle, never inside one. Movement is free (GDD "Movement"),
+ * so origins are fractional; the projection is the only authority on where the
+ * trogg is, and a client can't gain distance by re-basing (invariant 3). Troggs do
+ * *not* collide with each other (GDD "Hogs"), so other players are absent here.
  */
 export function settle(ctx: Ctx, p: Settleable, now: Stamp): { x: number; y: number } {
   const zone = getZone(p.zoneId);
   if (!zone) return { x: p.x, y: p.y };
   const blockers = troggBlockers(ctx, p.zoneId, now);
   const bounds = zoneBounds(zone, (x, y) => blockers.has(tileKey(x, y)));
-  return snapToTile(projectMotion(p, elapsedMs(p.movedAt, now), bounds));
+  return projectMotion(p, elapsedMs(p.movedAt, now), bounds);
 }
 
 /** Count rows in a table iterable without materializing an array. */
@@ -264,9 +262,18 @@ export function unitStep(value: number): number {
 }
 
 /**
- * Resolve an untrusted (dirX, dirY) to a cardinal intent: idle, or one axis of
- * unit length. A diagonal (both axes set) is invalid — movement is 4-directional
- * — and returns null so the caller can reject it.
+ * Resolve an untrusted (dirX, dirY) to a movement intent: idle, a cardinal, or a
+ * diagonal — each axis coerced to unit length (movement is free 8-directional;
+ * the shared projection normalises diagonal speed).
+ */
+export function direction8(dirX: number, dirY: number): { dirX: number; dirY: number } {
+  return { dirX: unitStep(dirX), dirY: unitStep(dirY) };
+}
+
+/**
+ * Resolve an untrusted (dirX, dirY) to a cardinal: idle, or one axis of unit
+ * length. Facing (and the tile mechanics that hang off it) stays cardinal; a
+ * diagonal returns null so the caller can reject it.
  */
 export function cardinal(dirX: number, dirY: number): { dirX: number; dirY: number } | null {
   const x = unitStep(dirX);

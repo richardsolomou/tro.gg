@@ -215,11 +215,18 @@ test("push refuses when a Hog stands beyond the boulder", () => {
 
 // --- Movement authority ---
 
-test("move rejects a diagonal intent and keeps the prior heading", () => {
+test("move accepts a diagonal intent, facing its dominant axis (free movement)", () => {
   const { ctx, me } = withPlayer({ dirX: 0, dirY: 1, faceX: 0, faceY: 1 });
   move(ctx, { dirX: 1, dirY: 1, running: false });
   const p = ctx.db.player.identity.find(me);
-  assert.deepEqual({ dirX: p.dirX, dirY: p.dirY, faceX: p.faceX, faceY: p.faceY }, { dirX: 0, dirY: 1, faceX: 0, faceY: 1 });
+  assert.deepEqual({ dirX: p.dirX, dirY: p.dirY, faceX: p.faceX, faceY: p.faceY }, { dirX: 1, dirY: 1, faceX: 1, faceY: 0 });
+});
+
+test("move coerces out-of-range axis values to unit steps, never trusting the client", () => {
+  const { ctx, me } = withPlayer({ dirX: 0, dirY: 0, faceX: 0, faceY: 1 });
+  move(ctx, { dirX: 7, dirY: -3, running: false });
+  const p = ctx.db.player.identity.find(me);
+  assert.deepEqual({ dirX: p.dirX, dirY: p.dirY }, { dirX: 0, dirY: 0 });
 });
 
 test("move stores an accepted cardinal intent and synced facing", () => {
