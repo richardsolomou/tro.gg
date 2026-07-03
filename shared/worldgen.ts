@@ -270,23 +270,26 @@ export function generateCaveZone(opts: CaveOptions): Zone {
  */
 export function generateBirthCave(): Zone {
   const W = 26;
-  const H = 26;
+  const H = 30;
+  const CAVERN_TOP = 11;
   const rand = mulberry32(0xb117);
   const idx = (x: number, y: number) => y * W + x;
-  // One open glowmoss cavern under a solid top band. The newborn wakes in the
+  // One open glowmoss cavern under a thick top band. The newborn wakes in the
   // cavern itself (lit, roomy — the opening frame reads at a glance); the only
-  // way up to the exit landing is a 1-wide neck through the band, plugged with
-  // a couple of rubble rows at seeding. Break the rocks, reach the light.
+  // way up is a long 1-wide throat through the band, plugged with two rubble
+  // rows at its cavern end. Break the rocks where their stones drop, gather
+  // them, then WALK the throat — the transfer threshold sits at its far end,
+  // so nothing whisks you away before you've picked up your haul.
   let rock = new Uint8Array(W * H);
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
-      const rim = x < 2 || x >= W - 2 || y < 6 || y >= H - 2;
+      const rim = x < 2 || x >= W - 2 || y < CAVERN_TOP || y >= H - 2;
       rock[idx(x, y)] = rim || rand() < 0.3 ? 1 : 0;
     }
   }
   for (let pass = 0; pass < 4; pass++) {
     const next = new Uint8Array(rock);
-    for (let y = 6; y < H - 2; y++) {
+    for (let y = CAVERN_TOP; y < H - 2; y++) {
       for (let x = 2; x < W - 2; x++) {
         let n = 0;
         for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) n += rock[idx(x + dx, y + dy)] ?? 1;
@@ -296,16 +299,17 @@ export function generateBirthCave(): Zone {
     rock = next;
   }
   const cx = Math.floor(W / 2);
-  // The exit landing above the band, and the rubble neck through it. The rim
-  // above the landing opens too: the mouth frames a real view of the outside
-  // (the client renders a window of the world map beyond it).
+  // The exit landing (its rim opens too: the mouth frames the window of the
+  // real outside), the long open throat below it, and the two-rock plug at
+  // the throat's cavern end.
   for (let y = 0; y <= 3; y++) for (let x = cx - 1; x <= cx + 1; x++) rock[idx(x, y)] = 0;
+  for (let y = 4; y <= CAVERN_TOP - 3; y++) rock[idx(cx, y)] = 0;
   const corridor: Coord[] = [
-    { x: cx, y: 4 },
-    { x: cx, y: 5 },
+    { x: cx, y: CAVERN_TOP - 2 },
+    { x: cx, y: CAVERN_TOP - 1 },
   ];
   for (const t of corridor) rock[idx(t.x, t.y)] = 0;
-  rock[idx(cx, 6)] = 0; // the neck always meets the cavern
+  rock[idx(cx, CAVERN_TOP)] = 0; // the throat always meets the cavern
 
   // one cavern: everything the exit can't reach returns to rock
   const reach = new Uint8Array(W * H);
@@ -328,10 +332,10 @@ export function generateBirthCave(): Zone {
   for (let i = 0; i < rock.length; i++) if (!rock[i] && !reach[i]) rock[i] = 1;
 
   // wake in the middle of the cavern, the pickaxe on the open floor beside you
-  const centre = { x: cx, y: Math.floor((6 + H - 2) / 2) };
-  let spawn: Coord = { x: cx, y: 7 };
+  const centre = { x: cx, y: Math.floor((CAVERN_TOP + H - 2) / 2) };
+  let spawn: Coord = { x: cx, y: CAVERN_TOP + 1 };
   let bestDist = Infinity;
-  for (let y = 7; y < H - 2; y++) {
+  for (let y = CAVERN_TOP + 1; y < H - 2; y++) {
     for (let x = 2; x < W - 2; x++) {
       if (rock[idx(x, y)]) continue;
       const d = Math.hypot(x - centre.x, y - centre.y);
