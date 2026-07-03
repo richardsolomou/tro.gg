@@ -30,7 +30,6 @@ import {
 import type { DbConnection } from "../net/module_bindings";
 import type { Boulder, GroundItem, Hog, Player } from "../net/module_bindings/types";
 import { attachKeyboard, type MoveIntent } from "../input.js";
-import { registerKeybind } from "../ui/keybinds.js";
 import { setupChat } from "../ui/chat.js";
 import { mountCommands } from "../ui/commands.js";
 import { createSelfController, type SelfController } from "../movement.js";
@@ -112,9 +111,8 @@ export class World3D {
     const fx = this.orbit.target.x;
     const fy = this.orbit.target.z;
     const inRange = (obj: THREE.Object3D) => Math.hypot(obj.position.x - fx, obj.position.z - fy) < range;
-    for (const [id, entry] of this.tracked) {
-      // your own trogg leaves the frame in first person — you are the camera
-      entry.marker.visible = (!this.firstPerson || id !== this.myId) && inRange(entry.marker);
+    for (const entry of this.tracked.values()) {
+      entry.marker.visible = inRange(entry.marker);
     }
     for (const view of this.hogs.values()) view.marker.visible = inRange(view.marker);
     for (const view of this.boulders.values()) view.group.visible = inRange(view.group);
@@ -133,54 +131,6 @@ export class World3D {
 
   private readonly boulderTiles = new Set<string>();
   private readonly hogTiles = new Set<string>();
-  // ── first person (GDD "Camera and rendering") ─────────────────────────────
-  /** Third person opens the game — a chase view low behind the trogg, not
-   *  top-down. `V` swaps into first person (pointer-lock mouse-look) and back. */
-  private firstPerson = false;
-  private fpYaw = 0;
-  private fpPitch = -0.15;
-  private fpLocked = false;
-
-  private mountFirstPerson(): void {
-    const canvas = this.renderer.domElement;
-    canvas.addEventListener("click", () => {
-      if (this.firstPerson && !this.fpLocked) {
-        (canvas.requestPointerLock() as unknown as Promise<void> | undefined)?.catch?.(() => {});
-      }
-    });
-    document.addEventListener("pointerlockchange", () => {
-      this.fpLocked = document.pointerLockElement === canvas;
-    });
-    canvas.addEventListener("mousemove", (e) => {
-      if (!this.firstPerson || !this.fpLocked) return;
-      this.fpYaw -= e.movementX * 0.0024;
-      this.fpPitch = Math.max(-1.25, Math.min(1.35, this.fpPitch - e.movementY * 0.0022));
-    });
-    registerKeybind({ id: "camera-mode", matches: (event) => event.code === "KeyV", handler: () => this.toggleCamera() });
-  }
-
-  private toggleCamera(): void {
-    this.firstPerson = !this.firstPerson;
-    if (this.orbit) this.orbit.enabled = !this.firstPerson;
-    if (!this.firstPerson && document.pointerLockElement === this.renderer.domElement) document.exitPointerLock();
-    if (!this.firstPerson && this.orbit) {
-      // hand back a sane over-the-shoulder orbit framed on the trogg
-      const target = this.orbit.target;
-      this.camera.position.set(target.x - Math.sin(this.fpYaw) * 10, 9, target.z - Math.cos(this.fpYaw) * 10);
-      this.camera.lookAt(target);
-    }
-  }
-
-  /** Drive the first-person camera from the trogg's eyes; the orbit target keeps
-   *  following underneath so streaming, culling, and the sun stay focused. */
-  private updateFirstPerson(): void {
-    if (!this.firstPerson || !this.selfPos) return;
-    this.camera.position.set(this.selfPos.x + 0.5, 1.5, this.selfPos.y + 0.5);
-    this.camera.rotation.set(0, 0, 0);
-    this.camera.rotateY(this.fpYaw);
-    this.camera.rotateX(this.fpPitch);
-  }
-
   private keyLight!: THREE.DirectionalLight;
   private hemi!: THREE.HemisphereLight;
   private sun!: THREE.Sprite;
@@ -402,7 +352,6 @@ export class World3D {
     });
 
     window.addEventListener("resize", this.layout);
-    this.mountFirstPerson();
     this.renderer.domElement.style.opacity = "0";
     // if the snapshot stalls (or this session never gets a trogg), show the zone
     window.setTimeout(() => this.reveal(), 4000);
@@ -491,10 +440,9 @@ export class World3D {
         if (this.cameraSnapped) this.terrain.update(this.orbit.target.x, this.orbit.target.z, camDist);
         this.cullDistant(CULL_RANGE);
         this.updateDaylight();
-        // dragging past horizontal would sink the camera underground; clamping it
-        // to skim the floor turns that drag into looking up at the sky instead
-        if (!this.firstPerson && this.camera.position.y < 0.5) this.camera.position.y = 0.5;
-        this.updateFirstPerson();
+        // backstop: never let the camera sink underground (drags handle the floor
+        // — and the sky look-up — in controls.ts; this catches everything else)
+        if (this.camera.position.y < 0.5) this.camera.position.y = 0.5;
         const ease = this.cameraSnapped ? Math.min(1, dt * 8) : 1;
         const shift = pivot.sub(this.orbit.target).multiplyScalar(ease);
         this.orbit.target.add(shift);
@@ -589,9 +537,8 @@ export class World3D {
     this.orbit.target.copy(centre);
     this.orbit.minDistance = 6;
     this.orbit.maxDistance = 34; // zoom is capped; the M map is the wide view
-    this.orbit.minPolarAngle = 0.25; // not dead top-down…
-    this.orbit.maxPolarAngle = 2.05; // …past horizontal — the ground clamp below keeps it above the floor, skimming low and looking UP
-    this.orbit.enabled = !this.firstPerson;
+    this.orbit.minPolarAngle = 0.25; // not dead top-down; locked drags go past
+    this.orbit.maxPolarAngle = 2.05; // horizontal and pitch up at the sky (controls.ts)
     this.orbit.update();
   };
 
