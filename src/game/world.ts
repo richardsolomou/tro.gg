@@ -81,6 +81,8 @@ export class World3D {
 
   private readonly tracked = new Map<string, Tracked>();
   private readonly boulders = new Map<string, { row: Boulder; group: THREE.Group }>();
+  /** Cleared until the camera has snapped to the local trogg once (first snapshot). */
+  private cameraSnapped = false;
   private readonly groundItems = new Map<string, { row: GroundItem; group: THREE.Group }>();
   private readonly hogs = new Map<string, HogView>();
 
@@ -303,10 +305,14 @@ export class World3D {
       if (entry.player.identity.toHexString() !== this.myId) continue;
       // The camera rides the local trogg: the orbit pivot glides to its position, so
       // drag-to-rotate and wheel-zoom stay live while walking (dead or alive — you
-      // keep your camera while waiting to respawn).
+      // keep your camera while waiting to respawn). The very first sight of the
+      // trogg snaps instead — the pivot starts at the zone centre, and gliding
+      // from there reads as a swoop across the map on load.
       if (this.orbit) {
         const pivot = new THREE.Vector3(motion.x + 0.5, 0.6, motion.y + 0.5);
-        const shift = pivot.sub(this.orbit.target).multiplyScalar(Math.min(1, dt * 8));
+        const ease = this.cameraSnapped ? Math.min(1, dt * 8) : 1;
+        this.cameraSnapped = true;
+        const shift = pivot.sub(this.orbit.target).multiplyScalar(ease);
         this.orbit.target.add(shift);
         this.camera.position.add(shift); // carry the camera with the pivot so following doesn't re-aim the view
       }
