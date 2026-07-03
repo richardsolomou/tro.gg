@@ -1,7 +1,7 @@
 /*
  * HUD chrome — HTML/CSS overlays above the game canvas (chat, account, help,
  * appearance, inventory, commands).
- * The HUD is built from the world's own materials: deep timber slabs with
+ * The HUD is built from the world's own materials: soot-dark slabs with
  * chamfered facet corners (the low-poly cut translated to DOM), bone text, ember
  * hover states, and glowmoss for anything selected or live. Depth comes from one
  * hard torch-light drop shadow and a faint top light — flat fills, no gradients,
@@ -21,9 +21,9 @@
   --hud-bone: #e8dcc4;
   --hud-bone-dim: #a8977a;
   --hud-ink: #241708;
-  --hud-timber: rgba(46, 33, 19, 0.78);
-  --hud-well: rgba(24, 16, 8, 0.72);
-  --hud-well-lite: rgba(43, 30, 16, 0.78);
+  --hud-timber: rgba(15, 12, 9, 0.82);
+  --hud-well: rgba(6, 5, 3, 0.72);
+  --hud-well-lite: rgba(28, 22, 16, 0.82);
   --hud-ember: #ff8c2e;
   --hud-moss: #6fdc9c;
   --hud-clay: #d94f1e;
