@@ -76,7 +76,9 @@ export function makeHealthBar(ratio: number, dead: boolean): Overlay {
 }
 
 /** A speech bubble: parchment rounded rect, ink text, word-wrapped. */
-export function makeBubble(text: string): Overlay {
+export function makeBubble(fullText: string): Overlay {
+  // the bubble is a glance, not a document — long messages live in the chat log
+  const text = fullText.length > 90 ? `${fullText.slice(0, 90)}…` : fullText;
   const worldH = 0.42; // per text line
   const px = Math.round(worldH * CRISP * 0.62);
   const measure = document.createElement("canvas").getContext("2d")!;

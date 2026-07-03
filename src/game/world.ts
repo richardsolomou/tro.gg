@@ -491,6 +491,9 @@ export class World3D {
         if (this.cameraSnapped) this.terrain.update(this.orbit.target.x, this.orbit.target.z, camDist);
         this.cullDistant(CULL_RANGE);
         this.updateDaylight();
+        // dragging past horizontal would sink the camera underground; clamping it
+        // to skim the floor turns that drag into looking up at the sky instead
+        if (!this.firstPerson && this.camera.position.y < 0.5) this.camera.position.y = 0.5;
         this.updateFirstPerson();
         const ease = this.cameraSnapped ? Math.min(1, dt * 8) : 1;
         const shift = pivot.sub(this.orbit.target).multiplyScalar(ease);
@@ -587,7 +590,7 @@ export class World3D {
     this.orbit.minDistance = 6;
     this.orbit.maxDistance = 34; // zoom is capped; the M map is the wide view
     this.orbit.minPolarAngle = 0.25; // not dead top-down…
-    this.orbit.maxPolarAngle = 1.52; // …nearly horizontal, so the sky and sun are in frame
+    this.orbit.maxPolarAngle = 2.05; // …past horizontal — the ground clamp below keeps it above the floor, skimming low and looking UP
     this.orbit.enabled = !this.firstPerson;
     this.orbit.update();
   };
