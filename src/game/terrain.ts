@@ -66,7 +66,9 @@ export function buildTerrain(zone: Zone): Terrain3D {
   globalDisposables.push(voidTex);
   const voidPlane = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), new THREE.MeshStandardMaterial({ map: voidTex, roughness: 1 }));
   voidPlane.rotation.x = -Math.PI / 2;
-  voidPlane.position.set(zone.width / 2, -0.02, zone.height / 2);
+  // well below the sunken river channels (whose tops sit at -0.18): anything cut
+  // out of the floor must reveal what's carved beneath it, not this underlay
+  voidPlane.position.set(zone.width / 2, -0.62, zone.height / 2);
   voidPlane.receiveShadow = true;
   group.add(voidPlane);
 
