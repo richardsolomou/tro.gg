@@ -1,3 +1,6 @@
+export * from "./glyphs";
+import { TILE_GLYPHS, WALL_TILE } from "./glyphs";
+import { generateCaveZone } from "./worldgen";
 /**
  * Tuning values from the GDD. Those marked (initial) are starting values; keep
  * them centralized here and make them remotely configurable only when runtime
@@ -67,33 +70,6 @@ export const GHOST_HAUNT_HISTORY_MAX = 50;
  * excluding any backlog row. (initial)
  */
 export const GHOST_HAUNT_FRESH_MS = 10_000;
-
-/**
- * Tilemap glyphs (GDD "Zones"). Each character in a zone's `tiles` rows is one
- * tile. `WALL_TILE` (`#`) is the only unwalkable glyph — `isWalkable` treats it,
- * and only it, as solid; every other glyph is walkable floor. The non-wall glyphs
- * are cosmetic floor variants (gravel, moss, shallow water, glowmoss) so a zone
- * reads as varied terrain rather than one flat stone fill — they change how a tile
- * is drawn (`src/game/terrain.ts`), never how it collides. Water is a shallow puddle
- * the trogg wades through, so it stays walkable; an impassable pool would be a
- * `#`-class glyph instead. `assertZones` rejects any glyph not listed here.
- */
-export const WALL_TILE = "#";
-export const FLOOR_TILE = ".";
-export const GRAVEL_TILE = ",";
-export const MOSS_TILE = '"';
-export const WATER_TILE = "~";
-export const GLOWMOSS_TILE = "*";
-
-/** Every recognised tilemap glyph. A character outside this set is a typo, not a tile. */
-export const TILE_GLYPHS: ReadonlySet<string> = new Set([
-  WALL_TILE,
-  FLOOR_TILE,
-  GRAVEL_TILE,
-  MOSS_TILE,
-  WATER_TILE,
-  GLOWMOSS_TILE,
-]);
 
 /** An integer tile coordinate within a zone. */
 export interface Coord {
@@ -302,65 +278,24 @@ export interface Zone {
  * Every zone in the world, keyed by slug. The current world has one shared zone;
  * later zones, starting areas, and gates are added here when they serve the game.
  *
- * `hog-town` is a 24×16 cave: a one-tile rock wall around the rim with two rock
- * pillars inside, so the playable floor is a real non-rectangular shape. The floor
- * is dressed with cosmetic tile variants (see `TILE_GLYPHS`) — gravel scree (`,`)
- * spilling around the rock pillars, moss (`"`) in the damp corners, a shallow
- * water puddle (`~`) in the low corner, and glowmoss (`*`) accents scattered
- * about — so the cave reads as varied terrain. They are all walkable; only `#`
- * blocks. Edit `tiles` to carve new layouts — walkability and rendering both read
- * from it. Two boulders flank the spawn (zone centre, 12×8) so a fresh trogg can
- * push one left and one right straight away. A handful of Hogs are scattered
- * around the floor and roam on their own (GDD "Hogs").
+ * `hog-town` is a procedurally carved 64×44 cave (GDD "Zones"): grown by
+ * `generateCaveZone` from a fixed seed, so the client and the module derive the
+ * identical tilemap — winding rock formations dressed with the cosmetic floor
+ * variants, a guaranteed-open spawn plaza at the centre with the starter tools
+ * racked beside it, and seeded boulders, roaming Hogs, and the two showpiece
+ * giants scattered over the open floor. Change the seed (or dimensions) to
+ * reroll the world; every guarantee the generator makes is covered by tests.
  */
 export const ZONES: Record<string, Zone> = {
-  "hog-town": {
+  "hog-town": generateCaveZone({
     slug: "hog-town",
     name: "Hog Town",
-    width: 24,
-    height: 16,
-    tiles: [
-      "########################",
-      "#\"\"....................#",
-      "#\"\"......*.............#",
-      "#\"..,,,,.............\".#",
-      "#...,##,.............\"\"#",
-      "#...,##,...\"\".........\"#",
-      "#...,,,,............*..#",
-      "#......................#",
-      "#......................#",
-      "#.......*......,,,,....#",
-      "#..............,##,....#",
-      "#\"\".......,,...,##,....#",
-      "#.~~\"........*.,,,,....#",
-      "#~~~~\".........*...*...#",
-      "#~~~~\".................#",
-      "########################",
-    ],
-    boulders: [
-      { x: 10, y: 8 },
-      { x: 14, y: 8 },
-    ],
-    hogs: [
-      { x: 3, y: 3 },
-      { x: 20, y: 3 },
-      { x: 12, y: 2 },
-      { x: 3, y: 12 },
-      { x: 20, y: 12 },
-      { x: 8, y: 13 },
-    ],
-    items: [
-      { item: "pickaxe", x: 11, y: 7 },
-      { item: "shovel", x: 12, y: 7 },
-      { item: "sword", x: 13, y: 7 },
-    ],
-    // Two giants (GDD "Hogs"): a buff hog on the open left flat, a dino on the right.
-    // Each anchor's 2×2 footprint is clear floor (rows 7-8 are an open band).
-    bigHogs: [
-      { x: 3, y: 7, style: "buff" },
-      { x: 18, y: 7, style: "dino" },
-    ],
-  },
+    width: 64,
+    height: 44,
+    seed: 0x70660001,
+    boulders: 14,
+    hogs: 12,
+  }),
 };
 
 /** Where a fresh trogg spawns, and the default room the client joins. */

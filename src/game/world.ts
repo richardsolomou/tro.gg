@@ -326,6 +326,10 @@ export class World3D {
         this.camera.position.add(shift); // carry the camera with the pivot so following doesn't re-aim the view
         if (!this.cameraSnapped) {
           this.cameraSnapped = true;
+          // the pre-snap distance framed the whole zone (useful for its bounds
+          // math, never shown); start play at a real follow distance instead
+          const offset = this.camera.position.clone().sub(this.orbit.target).setLength(13);
+          this.camera.position.copy(this.orbit.target).add(offset);
           this.reveal();
         }
       }

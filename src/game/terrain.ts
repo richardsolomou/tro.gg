@@ -4,10 +4,13 @@ import { CAVE_3D } from "./palette.js";
 
 /**
  * Procedural cave terrain. The floor and void are pixel-painted patch
- * textures (nearest-filtered, so the cave stays chunky); walls are beveled
- * blocks read from the same tilemap movement collides against, so what you see
- * is exactly what blocks you. Decorative floor decals (gravel, moss, water,
- * glowmoss) lie as thin transparent quads; glowmoss also drops a teal point light.
+ * textures (nearest-filtered, so the cave stays chunky); walls are read from the
+ * same tilemap movement collides against, so what you see is exactly what blocks
+ * you — drawn as ONE instanced mesh, so a generated 64×44 world costs the same
+ * draw calls as the old hand-carved room. Decorative floor variants (gravel,
+ * moss, water, glowmoss) are baked into a single zone-sized overlay texture
+ * instead of per-tile quads; glowmoss point lights are clustered and capped so
+ * the forward renderer never sees more than a dozen.
  */
 
 /** Texels per tile edge of the painted patch textures. */
@@ -53,54 +56,75 @@ export function buildTerrain(zone: Zone): Terrain3D {
   voidPlane.receiveShadow = true;
   group.add(voidPlane);
 
-  // Walls: one beveled block per unwalkable tile — lit top, dark-edged faces.
+  // Walls: one instanced beveled block per unwalkable tile — lit top, dark-edged
+  // faces — in a single draw call however large the cave grows.
   const face = new THREE.MeshStandardMaterial({ color: CAVE_3D.wall.face, roughness: 1 });
   const top = new THREE.MeshStandardMaterial({ color: CAVE_3D.wall.top, roughness: 1 });
   const wallMats = [face, face, top, face, face, face];
   const wallGeo = new THREE.BoxGeometry(1, WALL_HEIGHT, 1);
   disposables.push(face, top, wallGeo);
+  const wallTiles: { x: number; y: number }[] = [];
   for (let ty = 0; ty < zone.height; ty++) {
     for (let tx = 0; tx < zone.width; tx++) {
-      if (isWalkable(zone, tx, ty)) continue;
-      const wall = new THREE.Mesh(wallGeo, wallMats);
-      wall.position.set(tx + 0.5, WALL_HEIGHT / 2, ty + 0.5);
-      wall.castShadow = true;
-      wall.receiveShadow = true;
-      group.add(wall);
+      if (!isWalkable(zone, tx, ty)) wallTiles.push({ x: tx, y: ty });
     }
   }
+  const walls = new THREE.InstancedMesh(wallGeo, wallMats, wallTiles.length);
+  const place = new THREE.Matrix4();
+  wallTiles.forEach((tile, i) => {
+    place.makeTranslation(tile.x + 0.5, WALL_HEIGHT / 2, tile.y + 0.5);
+    walls.setMatrixAt(i, place);
+  });
+  walls.castShadow = true;
+  walls.receiveShadow = true;
+  group.add(walls);
 
-  // Decals: thin transparent quads per decorated tile, sampling the patch sub-cell
-  // matching the tile's coords so adjacent same-material tiles flow together.
+  // Floor variants: every decorated tile is blitted from its patch's matching
+  // sub-cell into one zone-sized overlay canvas — a single transparent plane
+  // instead of a quad and material per tile.
   const decalCanvases: Record<string, HTMLCanvasElement> = {
     [GRAVEL_TILE]: gravelPatch(),
     [MOSS_TILE]: mossPatch(),
     [WATER_TILE]: waterPatch(),
     [GLOWMOSS_TILE]: glowmossPatch(),
   };
-  const decalGeo = new THREE.PlaneGeometry(1, 1);
-  disposables.push(decalGeo);
+  const overlay = document.createElement("canvas");
+  overlay.width = zone.width * ART;
+  overlay.height = zone.height * ART;
+  const octx = overlay.getContext("2d")!;
+  const glowTiles: { x: number; y: number }[] = [];
   for (let ty = 0; ty < zone.height; ty++) {
     const row = zone.tiles[ty]!;
     for (let tx = 0; tx < row.length; tx++) {
       const glyph = row[tx]!;
       const canvas = decalCanvases[glyph];
       if (!canvas) continue;
-      const tex = patchTexture(canvas, 1 / PATCH, 1 / PATCH);
-      tex.offset.set((tx % PATCH) / PATCH, (PATCH - 1 - (ty % PATCH)) / PATCH);
-      const mat = new THREE.MeshStandardMaterial({ map: tex, transparent: true, roughness: 1 });
-      disposables.push(mat);
-      const quad = new THREE.Mesh(decalGeo, mat);
-      quad.rotation.x = -Math.PI / 2;
-      quad.position.set(tx + 0.5, 0.01, ty + 0.5);
-      quad.receiveShadow = true;
-      group.add(quad);
-      if (glyph === GLOWMOSS_TILE) {
-        const glow = new THREE.PointLight(CAVE_3D.glowmoss.mid, 1.4, 4.5);
-        glow.position.set(tx + 0.5, 0.5, ty + 0.5);
-        group.add(glow);
-      }
+      octx.drawImage(canvas, (tx % PATCH) * ART, (ty % PATCH) * ART, ART, ART, tx * ART, ty * ART, ART, ART);
+      if (glyph === GLOWMOSS_TILE) glowTiles.push({ x: tx, y: ty });
     }
+  }
+  const overlayTex = patchTexture(overlay, 1, 1);
+  overlayTex.repeat.set(1, 1);
+  const overlayMat = new THREE.MeshStandardMaterial({ map: overlayTex, transparent: true, roughness: 1 });
+  disposables.push(overlayMat);
+  const overlayQuad = new THREE.Mesh(new THREE.PlaneGeometry(zone.width, zone.height), overlayMat);
+  overlayQuad.rotation.x = -Math.PI / 2;
+  overlayQuad.position.set(zone.width / 2, 0.01, zone.height / 2);
+  overlayQuad.receiveShadow = true;
+  group.add(overlayQuad);
+
+  // Glowmoss lights: one per patch of moss, not per tile — greedy-clustered by
+  // proximity and capped, so the light count stays renderer-friendly.
+  const clusters: { x: number; y: number; count: number }[] = [];
+  for (const tile of glowTiles) {
+    const near = clusters.find((c) => Math.abs(c.x - tile.x) + Math.abs(c.y - tile.y) <= 5);
+    if (near) near.count++;
+    else clusters.push({ x: tile.x, y: tile.y, count: 1 });
+  }
+  for (const cluster of clusters.slice(0, 12)) {
+    const glow = new THREE.PointLight(CAVE_3D.glowmoss.mid, 1.2 + Math.min(cluster.count, 3) * 0.3, 5);
+    glow.position.set(cluster.x + 0.5, 0.5, cluster.y + 0.5);
+    group.add(glow);
   }
 
   return {
