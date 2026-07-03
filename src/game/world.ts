@@ -238,12 +238,18 @@ export class World3D {
     this.keyLight.intensity = 3.2 * daylight;
     this.hemi.intensity = 0.3 + 1.2 * daylight;
     // The sun you can actually look up at, and the moon opposite it. Both ride
-    // ON the horizon at their low points, never below it — a body under y=0 can
-    // shine up "through the ground" wherever no streamed chunk covers the pixel.
+    // ON the horizon at their low points, never below it, and they dissolve
+    // into the haze as they get there (atmospheric extinction): a low disc sits
+    // where the far plane and chunk streaming leave nothing rendered behind it,
+    // so without the fade it shines "through" what reads as distant terrain.
+    const sunGlow = THREE.MathUtils.smoothstep(elevation, 0.05, 0.35);
     this.sun.position.set(fx + Math.cos(sunAngle) * 85, 4 + Math.max(0, elevation) * 66, fz + Math.sin(sunAngle) * 40 + 8);
-    this.sun.visible = elevation > -0.08;
+    (this.sun.material as THREE.SpriteMaterial).opacity = sunGlow;
+    this.sun.visible = sunGlow > 0.01;
+    const moonGlow = THREE.MathUtils.smoothstep(-elevation, 0.05, 0.35);
     this.moon.position.set(fx - Math.cos(sunAngle) * 85, 4 + Math.max(0, -elevation) * 66, fz - Math.sin(sunAngle) * 40 + 8);
-    this.moon.visible = elevation < 0.08;
+    (this.moon.material as THREE.SpriteMaterial).opacity = moonGlow;
+    this.moon.visible = moonGlow > 0.01;
     (this.scene.background as THREE.Color).lerpColors(this.skyNight, this.skyDay, daylight);
     (this.scene.fog as THREE.Fog).color.lerpColors(this.hazeNight, this.hazeDay, daylight);
   }
