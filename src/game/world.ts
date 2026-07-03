@@ -348,8 +348,10 @@ export class World3D {
       if (this.orbit) {
         const pivot = new THREE.Vector3(motion.x + 0.5, 0.6, motion.y + 0.5);
         const camDist = this.camera.position.distanceTo(this.orbit.target);
-        // stream terrain around the camera focus; fog opens up as the zoom pulls out
-        this.terrain.update(this.orbit.target.x, this.orbit.target.z, camDist);
+        // stream terrain around the camera focus (only once the camera sits on the
+        // trogg — the pre-snap zone-fit distance would build the whole world);
+        // fog opens up as the zoom pulls out
+        if (this.cameraSnapped) this.terrain.update(this.orbit.target.x, this.orbit.target.z, camDist);
         const fog = this.scene.fog as THREE.Fog;
         fog.near = camDist + 14;
         fog.far = camDist * 2.6 + 42;

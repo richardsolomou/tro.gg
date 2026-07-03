@@ -78,6 +78,7 @@ export function buildTerrain(zone: Zone): Terrain3D {
   interface BuiltChunk {
     group: THREE.Group;
     disposables: { dispose(): void }[];
+    lights: THREE.PointLight[];
   }
   const chunks = new Map<string, BuiltChunk>();
   const wallColour = new THREE.Color();
@@ -91,6 +92,7 @@ export function buildTerrain(zone: Zone): Terrain3D {
 
     const chunkGroup = new THREE.Group();
     const disposables: { dispose(): void }[] = [];
+    const lights: THREE.PointLight[] = [];
 
     // Floor: one canvas per chunk, each tile blitted from its biome's patch at
     // the world-aligned sub-cell so seams between chunks and regions vanish.
@@ -157,11 +159,13 @@ export function buildTerrain(zone: Zone): Terrain3D {
     for (const cluster of clusters.slice(0, 2)) {
       const glow = new THREE.PointLight(biomePalette(cluster.biome).glowmoss.mid, 1.2 + Math.min(cluster.count, 3) * 0.3, 5);
       glow.position.set(cluster.x + 0.5, 0.5, cluster.y + 0.5);
+      glow.visible = false; // the light budget below turns the nearest ones on
       chunkGroup.add(glow);
+      lights.push(glow);
     }
 
     group.add(chunkGroup);
-    return { group: chunkGroup, disposables };
+    return { group: chunkGroup, disposables, lights };
   };
 
   const dropChunk = (key: string) => {
@@ -211,6 +215,20 @@ export function buildTerrain(zone: Zone): Terrain3D {
       const dist = Math.hypot(cx! * CHUNK + CHUNK / 2 - focusX, cy! * CHUNK + CHUNK / 2 - focusY);
       if (dist > radius + CHUNK * 2) dropChunk(key);
     }
+
+    // The light budget: a forward renderer pays every light on every fragment, so
+    // only the nearest few glowmoss lights are live no matter how far the chunks
+    // fan out — dozens of live point lights is how the frame rate dies.
+    const allLights: { light: THREE.PointLight; dist: number }[] = [];
+    for (const chunk of chunks.values()) {
+      for (const light of chunk.lights) {
+        allLights.push({ light, dist: Math.hypot(light.position.x - focusX, light.position.z - focusY) });
+      }
+    }
+    allLights.sort((a, b) => a.dist - b.dist);
+    allLights.forEach(({ light, dist }, i) => {
+      light.visible = i < 8 && dist < 48;
+    });
   };
 
   return {
