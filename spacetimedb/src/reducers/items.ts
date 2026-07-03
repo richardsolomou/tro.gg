@@ -21,19 +21,19 @@ import {
   countRows,
   solidTiles,
   addGroundItemTiles,
-  boulderAt,
+  meleeBoulderTarget,
+  meleeHogTarget,
+  meleePlayerTarget,
   ownedInventoryRow,
   equippedInventoryRow,
   removeInventoryUnit,
   addInventory,
-  hogAt,
-  playerAt,
   playerDiedEvent,
   damageHog,
   damagePlayer,
   throwCarried,
   facingDir,
-  cardinal,
+  directionVector,
 } from "../helpers";
 
 /**
@@ -179,14 +179,18 @@ export const discardItemAction = spacetimedb.procedure(
  * current movement intent — using a tool never turns into a stop. If the trogg is
  * carrying a boulder or Hog, `F` throws it as a tile-based impact weapon. Otherwise
  * pickaxes mine the faced boulder into one Stone inventory item, and swords damage
- * the faced adjacent online trogg or Hog; at zero health the target dies.
+ * the nearest online trogg or Hog in reach of the swing; at zero health the
+ * target dies.
  */
 function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; dirY: number; source?: string }): AnalyticsEvent[] {
   const p = ctx.db.player.identity.find(ctx.sender);
   if (!p) return [];
   if (p.dead) return [];
-  const dir = cardinal(dirX, dirY);
-  if (!dir || (dir.dirX === 0 && dir.dirY === 0)) return [];
+  // The client sends its exact aim; throws and tile mechanics keep using the
+  // dominant cardinal of it.
+  const aim = directionVector(dirX, dirY);
+  if (aim.dirX === 0 && aim.dirY === 0) return [];
+  const dir = Math.abs(aim.dirX) >= Math.abs(aim.dirY) ? { dirX: Math.sign(aim.dirX), dirY: 0 } : { dirX: 0, dirY: Math.sign(aim.dirY) };
 
   const zone = getZone(p.zoneId);
   if (!zone) return [];
@@ -216,30 +220,29 @@ function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; d
   // a fresh use inside the previous swing's cooldown is dropped (invariant 3)
   if (p.equipmentAction !== "" && elapsedMs(p.equipmentActionAt, ctx.timestamp) < EQUIPMENT_USE_COOLDOWN_MS) return [];
 
+  // Melee resolves by reach and swing arc around the exact aim vector (shared
+  // meleeHit), not tile adjacency — free movement means the eye judges reach in
+  // world units. The server re-derives every position; nearest hit wins.
+  const cx = pos.x + 0.5;
+  const cy = pos.y + 0.5;
   if (equipped.item === "pickaxe") {
-    const ax = Math.round(pos.x) + dir.dirX;
-    const ay = Math.round(pos.y) + dir.dirY;
-    const b = boulderAt(ctx, p.zoneId, ax, ay);
+    const b = meleeBoulderTarget(ctx, p.zoneId, cx, cy, aim);
     if (b) {
       if (addInventory(ctx, p.identity, "stone", 1)) {
-        ctx.db.boulder.id.delete(b.id);
+        ctx.db.boulder.id.delete(b.target.id);
         events.push({ distinctId: distinctId(ctx), event: "inventory_item_acquired", properties: { zone: p.zoneId, item: "stone", qty: 1, ...sourceProp(source) } });
       }
     }
   } else if (equipped.item === "sword") {
-    const ax = Math.round(pos.x) + dir.dirX;
-    const ay = Math.round(pos.y) + dir.dirY;
-    const target = playerAt(ctx, p.zoneId, ax, ay, ctx.timestamp, p.identity);
-    if (target) {
-      const result = damagePlayer(ctx, target, SWORD_DAMAGE);
+    const trogg = meleePlayerTarget(ctx, p.zoneId, cx, cy, aim, ctx.timestamp, p.identity);
+    const hog = meleeHogTarget(ctx, p.zoneId, cx, cy, aim, ctx.timestamp);
+    if (trogg && (!hog || trogg.dist <= hog.dist)) {
+      const result = damagePlayer(ctx, trogg.target, SWORD_DAMAGE);
       events.push({ distinctId: distinctId(ctx), event: "combat_hit", properties: { ...props, weapon: "sword", target: "trogg", damage: SWORD_DAMAGE, killed: result.killed } });
-      if (result.killed) events.push(playerDiedEvent(target.identity.toHexString(), props, "sword", result));
-    } else {
-      const h = hogAt(ctx, p.zoneId, ax, ay, ctx.timestamp);
-      if (h) {
-        const result = damageHog(ctx, h, SWORD_DAMAGE);
-        events.push({ distinctId: distinctId(ctx), event: "combat_hit", properties: { ...props, weapon: "sword", target: "hog", damage: SWORD_DAMAGE, killed: result.killed } });
-      }
+      if (result.killed) events.push(playerDiedEvent(trogg.target.identity.toHexString(), props, "sword", result));
+    } else if (hog) {
+      const result = damageHog(ctx, hog.target, SWORD_DAMAGE);
+      events.push({ distinctId: distinctId(ctx), event: "combat_hit", properties: { ...props, weapon: "sword", target: "hog", damage: SWORD_DAMAGE, killed: result.killed } });
     }
   }
 

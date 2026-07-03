@@ -199,7 +199,7 @@ export class World3D {
         });
       },
       () => {
-        void useEquipped(conn, this.self.facing.dirX, this.self.facing.dirY).catch((err) => {
+        void useEquipped(conn, this.self.aim.dirX, this.self.aim.dirY).catch((err) => {
           logError("Use equipped action failed", { surface: "world", action: "use_equipped", zone: this.slug, error: err });
         });
       },

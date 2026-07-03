@@ -146,6 +146,9 @@ export function createSelfController(deps: SelfControllerDeps) {
   let desired: MoveIntent = { dirX: 0, dirY: 0, running: false };
   let sent: MoveIntent = { dirX: 0, dirY: 0, running: false };
   let facing: MoveIntent = { dirX: 0, dirY: 1, running: false };
+  // The exact heading last steered (full-resolution vector, unlike the cardinal
+  // `facing`) — what a swing aims along.
+  let aim = { dirX: 0, dirY: 1 };
   // Whether we were flush against a pushable boulder last frame, so the push sound and the
   // first shove fire once (on the rising edge), not every frame.
   let pushBlocked = false;
@@ -197,6 +200,7 @@ export function createSelfController(deps: SelfControllerDeps) {
 
   const setFacing = (entry: MotionEntry, intent: MoveIntent) => {
     if (isIdle(intent)) return;
+    aim = { dirX: intent.dirX, dirY: intent.dirY };
     facing = dominantCardinal(intent);
     entry.player = withFacing(entry.player, intent);
     entry.facing = facingFromDir(intent.dirX, intent.dirY, entry.facing);
@@ -445,6 +449,10 @@ export function createSelfController(deps: SelfControllerDeps) {
     reconcile,
     onIntent,
     onClick,
+    /** The exact heading last steered — what the use key swings along. */
+    get aim(): { dirX: number; dirY: number } {
+      return aim;
+    },
     /** The trogg's current heading (cardinal standing facing), for the interact key. */
     get facing(): MoveIntent {
       return facing;

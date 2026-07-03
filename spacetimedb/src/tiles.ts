@@ -1,7 +1,11 @@
 import {
+  BOULDER_HIT_RADIUS,
   CARDINALS,
   DIR_SCALE,
   elapsedMs,
+  HOG_HIT_RADIUS,
+  meleeHit,
+  PLAYER_HIT_RADIUS,
   footprintTiles,
   getZone,
   hogStyleFor,
@@ -179,6 +183,53 @@ export function playerAt(ctx: Ctx, zoneId: string, x: number, y: number, now: St
     if (Math.round(pos.x) === x && Math.round(pos.y) === y) return p;
   }
   return undefined;
+}
+
+/**
+ * Melee target selection (GDD "Combat"): the nearest candidate whose hit circle a
+ * swing from `cx, cy` along `aim` reaches (`meleeHit` in shared). Positions are
+ * re-derived server-side with the same projections the client renders, so what
+ * looks in reach is in reach (invariant 3). Centres are tile origin + half the
+ * footprint; a big Hog's radius scales with its size.
+ */
+export function meleePlayerTarget(ctx: Ctx, zoneId: string, cx: number, cy: number, aim: { dirX: number; dirY: number }, now: Stamp, exclude: Ctx["sender"]) {
+  const zone = getZone(zoneId);
+  if (!zone) return undefined;
+  const blockers = troggBlockers(ctx, zoneId, now);
+  const bounds = zoneBounds(zone, (tx, ty) => blockers.has(tileKey(tx, ty)));
+  let best: { target: NonNullable<ReturnType<typeof playerAt>>; dist: number } | undefined;
+  for (const p of ctx.db.player.zoneId.filter(zoneId)) {
+    if (!p.online || p.dead) continue;
+    if (p.identity.isEqual(exclude)) continue;
+    const pos = projectMotion(p, elapsedMs(p.movedAt, now), bounds);
+    const dist = meleeHit(cx, cy, aim.dirX, aim.dirY, { x: pos.x + 0.5, y: pos.y + 0.5, radius: PLAYER_HIT_RADIUS });
+    if (dist !== undefined && (!best || dist < best.dist)) best = { target: p, dist };
+  }
+  return best;
+}
+
+export function meleeHogTarget(ctx: Ctx, zoneId: string, cx: number, cy: number, aim: { dirX: number; dirY: number }, now: Stamp) {
+  const zone = getZone(zoneId);
+  if (!zone) return undefined;
+  const occupied = boulderTiles(ctx, zoneId);
+  const bounds = zoneBounds(zone, (tx, ty) => occupied.has(tileKey(tx, ty)));
+  let best: { target: NonNullable<ReturnType<typeof hogAt>>; dist: number } | undefined;
+  for (const h of ctx.db.hog.zoneId.filter(zoneId)) {
+    const size = hogSize(h.style);
+    const pos = projectMotion({ ...h, size }, elapsedMs(h.movedAt, now), bounds);
+    const dist = meleeHit(cx, cy, aim.dirX, aim.dirY, { x: pos.x + size / 2, y: pos.y + size / 2, radius: HOG_HIT_RADIUS * size });
+    if (dist !== undefined && (!best || dist < best.dist)) best = { target: h, dist };
+  }
+  return best;
+}
+
+export function meleeBoulderTarget(ctx: Ctx, zoneId: string, cx: number, cy: number, aim: { dirX: number; dirY: number }) {
+  let best: { target: NonNullable<ReturnType<typeof boulderAt>>; dist: number } | undefined;
+  for (const b of ctx.db.boulder.zoneId.filter(zoneId)) {
+    const dist = meleeHit(cx, cy, aim.dirX, aim.dirY, { x: b.x + 0.5, y: b.y + 0.5, radius: BOULDER_HIT_RADIUS });
+    if (dist !== undefined && (!best || dist < best.dist)) best = { target: b, dist };
+  }
+  return best;
 }
 
 /** Adjacent pickup candidates, with the faced tile first when the client has a heading. */
