@@ -39,7 +39,7 @@ import { interact, useEquipped } from "../net/procedures.js";
 import { isOlderPlayerMotion, playerMotionChanged, withPlayerMotion } from "../motion_sync.js";
 import { createEntities, disposeObject, type Entities, type HogView, type Tracked } from "./entities.js";
 import { buildTerrain, type Terrain3D } from "./terrain.js";
-import { biomePalette, UI_3D } from "./palette.js";
+import { DAYLIGHT_3D, UI_3D } from "./palette.js";
 
 /** Fraction of the viewport the zone fills, leaving a rim of cave around it. */
 const ZONE_FILL = 0.92;
@@ -175,14 +175,15 @@ export class World3D {
 
     // Torch-lit cave: dim warm ambient, one shadowing key light, dark fog closing in
     // past the zone. Glowmoss tiles add their own teal point lights (terrain3d).
-    const pal = biomePalette(this.zone.biome);
-    this.scene.background = new THREE.Color(pal.voidBase);
+    // Daylight: the continent lives under a sun (GDD "Camera and rendering") —
+    // sky backdrop, aerial haze, bright warm sunlight with a cool sky bounce.
+    this.scene.background = new THREE.Color(DAYLIGHT_3D.sky);
     // a faint depth haze only — the zoom is capped, so there is no fog of war
-    this.scene.fog = new THREE.Fog(pal.voidBase, 55, 130);
-    this.scene.add(new THREE.HemisphereLight(0xffe0b0, 0x201409, 0.75));
-    // The key light rides the camera focus with a tight shadow box — a static
-    // light can't shadow a 192×220 world at any usable resolution.
-    const key = new THREE.DirectionalLight(0xffd9a0, 1.6);
+    this.scene.fog = new THREE.Fog(DAYLIGHT_3D.haze, 60, 150);
+    this.scene.add(new THREE.HemisphereLight(0xdcebff, DAYLIGHT_3D.bounce, 1.5));
+    // The sun rides the camera focus with a tight shadow box — a static light
+    // can't shadow a 224×208 world at any usable resolution.
+    const key = new THREE.DirectionalLight(DAYLIGHT_3D.sun, 3.2);
     key.castShadow = true;
     key.shadow.mapSize.set(2048, 2048);
     key.shadow.camera.left = -56;
@@ -358,7 +359,7 @@ export class World3D {
         // trogg — the pre-snap zone-fit distance would build the whole world)
         if (this.cameraSnapped) this.terrain.update(this.orbit.target.x, this.orbit.target.z, camDist);
         this.cullDistant(CULL_RANGE);
-        this.keyLight.position.set(this.orbit.target.x + 6, 14, this.orbit.target.z + 8);
+        this.keyLight.position.set(this.orbit.target.x + 16, 30, this.orbit.target.z + 10);
         this.keyLight.target.position.set(this.orbit.target.x, 0, this.orbit.target.z);
         const ease = this.cameraSnapped ? Math.min(1, dt * 8) : 1;
         const shift = pivot.sub(this.orbit.target).multiplyScalar(ease);

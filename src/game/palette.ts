@@ -73,6 +73,15 @@ export const CAVE_3D = {
   glowmoss: { core: 0x7ff0d8, mid: 0x3fb6a2, halo: 0x224f48 },
 } as const;
 
+/** Overworld daylight (GDD "Camera and rendering"): the continent lives under a
+ *  sun, not in a cave — sky backdrop, warm sunlight, cool bounce. */
+export const DAYLIGHT_3D = {
+  sky: 0x8fb8dd,
+  haze: 0xa9c9e4,
+  sun: 0xfff1d6,
+  bounce: 0x8a7050,
+} as const;
+
 /** HUD/world accent colours, matching the HTML HUD (`src/ui/hud.css`). */
 export const UI_3D = {
   parchment: 0xe8dcc4,

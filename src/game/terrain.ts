@@ -17,7 +17,19 @@ import { biomePalette } from "./palette.js";
 const ART = 16;
 /** Tiles per generated patch; tiling a multi-tile patch hides the repeat. */
 const PATCH = 4;
-const WALL_HEIGHT = 0.85;
+/** Rock formations range from shoulder-height outcrops to towering crags, so the
+ *  world reads at landscape scale from a low camera. Height is a deterministic
+ *  hash of the tile, so every client carves the same skyline. */
+const ROCK_MIN = 1.4;
+const ROCK_MAX = 3.4;
+
+function rockHeight(x: number, y: number): number {
+  let h = (x * 374761393 + y * 668265263) ^ 0x2545f491;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  h ^= h >>> 16;
+  const unit = (h >>> 0) / 4294967296;
+  return ROCK_MIN + unit * (ROCK_MAX - ROCK_MIN);
+}
 
 export interface Terrain3D {
   group: THREE.Group;
@@ -75,7 +87,7 @@ export function buildTerrain(zone: Zone): Terrain3D {
   // Walls tint per tile through instance colours, so biome borders stay
   // tile-exact even when a chunk straddles two regions.
   const wallMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1 });
-  const wallGeo = new THREE.BoxGeometry(1, WALL_HEIGHT, 1);
+  const wallGeo = new THREE.BoxGeometry(1, 1, 1); // unit box, scaled per instance to its rock height
   globalDisposables.push(wallMat, wallGeo);
 
   // Rivers sink where walls rise: a sunken box per deep-water tile, its textured
@@ -176,8 +188,11 @@ export function buildTerrain(zone: Zone): Terrain3D {
     if (wallTiles.length > 0) {
       const walls = new THREE.InstancedMesh(wallGeo, wallMat, wallTiles.length);
       const place = new THREE.Matrix4();
+      const shape = new THREE.Vector3();
       wallTiles.forEach((tile, i) => {
-        place.makeTranslation(tile.x + 0.5, WALL_HEIGHT / 2, tile.y + 0.5);
+        const height = rockHeight(tile.x, tile.y);
+        place.makeTranslation(tile.x + 0.5, height / 2, tile.y + 0.5);
+        place.scale(shape.set(1, height, 1));
         walls.setMatrixAt(i, place);
         walls.setColorAt(i, wallColour.setHex(biomePalette(tile.biome).wall.face));
       });
