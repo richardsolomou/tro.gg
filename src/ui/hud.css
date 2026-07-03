@@ -685,44 +685,46 @@
 
 /* ── Commands drawer (right edge) ────────────────────────────────────────────
    Debug tools live on the opposite side from the player-facing top-left menus:
-   a lone toggle in the top-right corner, and a full-height drawer that slides
-   in from the right edge only when opened. */
+   a lone toggle pinned to the top-right corner, and an inset drawer panel that
+   slides in beneath it — the toggle is never covered, so the same button always
+   closes it, and the panel's own scrollbar makes it obvious the drawer (not the
+   page) is what scrolls. */
 #hud .command-drawer .command-toggle {
   position: fixed;
   top: 12px;
   right: 12px;
   pointer-events: auto;
   filter: drop-shadow(0 3px 0 rgba(0, 0, 0, 0.35));
-  transition: right 0.18s ease-out;
-}
-/* the toggle rides the drawer's edge, so the same button always closes it */
-#hud .command-drawer.is-open .command-toggle {
-  right: calc(min(340px, 86vw) + 12px);
 }
 #hud .command-drawer .command-body {
   position: fixed;
-  top: 0;
-  right: 0;
-  bottom: 0;
+  top: 64px;
+  right: 12px;
+  bottom: 12px;
   left: auto; /* the shared drop-down rule pins left: 0; right must win here */
+  box-sizing: border-box;
   pointer-events: auto;
-  width: min(340px, 86vw);
+  width: min(340px, calc(100vw - 24px));
   margin: 0;
   padding: 14px;
   overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--hud-moss) transparent;
   filter: none;
   clip-path: none;
   background: var(--hud-timber);
-  box-shadow: -4px 0 0 rgba(0, 0, 0, 0.35);
-  transform: translateX(100%);
+  box-shadow: var(--slab-light), 0 6px 0 rgba(0, 0, 0, 0.35);
+  transform: translateX(calc(100% + 24px));
   transition: transform 0.18s ease-out;
 }
 #hud .command-drawer.is-open .command-body {
   transform: translateX(0);
 }
-/* the drawer owns the top-right corner; the account slab steps below its toggle */
-#hud:has(.command-drawer) .account {
-  top: 64px;
+#hud .command-drawer .command-body::-webkit-scrollbar {
+  width: 8px;
+}
+#hud .command-drawer .command-body::-webkit-scrollbar-thumb {
+  background: var(--hud-moss);
 }
 #hud .command-hint {
   margin-top: 8px;
