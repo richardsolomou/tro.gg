@@ -125,10 +125,11 @@ export class World3D {
   private boulderField!: NodeField;
   /** Creatures beyond the full-rig budget render as moving silhouettes, not nothing. */
   private crowd!: FarCrowd;
-  /** The windowed outside terrain a birth cave shows beyond its mouth. */
+  /** The windowed outside terrain a birth cave shows beyond its mouth, in its
+   *  own scene so its daylight never touches the cave's enclosed dark. */
   private outside?: Terrain3D;
+  private outsideScene?: THREE.Scene;
   private outsideOffset = { x: 0, y: 0 };
-  private outsideChildCount = -1;
   /** A threshold transfer is in flight; don't re-fire while the row updates. */
   private transferPending = false;
   /** Cleared until the camera has snapped to the local trogg once (first snapshot). */
@@ -281,7 +282,9 @@ export class World3D {
     this.moon.position.set(fx - Math.cos(sunAngle) * 85, 4 + Math.max(0, -elevation) * 66, fz - Math.sin(sunAngle) * 40 + 8);
     (this.moon.material as THREE.SpriteMaterial).opacity = moonGlow;
     this.moon.visible = moonGlow > 0.01;
-    (this.scene.background as THREE.Color).lerpColors(this.skyNight, this.skyDay, daylight).lerp(this.caveSky, dark);
+    if (this.scene.background instanceof THREE.Color) {
+      this.scene.background.lerpColors(this.skyNight, this.skyDay, daylight).lerp(this.caveSky, dark);
+    }
     const fog = this.scene.fog as THREE.Fog;
     fog.color.lerpColors(this.hazeNight, this.hazeDay, daylight).lerp(this.caveSky, dark);
     fog.near = 60 - 34 * dark;
@@ -419,17 +422,34 @@ export class World3D {
       const exit = this.zone.exit;
       const worldZone = getZone(STARTING_ZONE_SLUG)!;
       this.outsideOffset = { x: CAVE_DOOR.x - exit.x, y: CAVE_DOOR.y - exit.y };
-      this.outside = buildTerrain(worldZone, { minTileY: CAVE_DOOR.y - 14, maxTileY: CAVE_DOOR.y - 4 });
+      this.outside = buildTerrain(worldZone, { minTileX: CAVE_DOOR.x - 6, maxTileX: CAVE_DOOR.x + 6, minTileY: CAVE_DOOR.y - 14, maxTileY: CAVE_DOOR.y - 4 });
       this.outside.group.position.set(-this.outsideOffset.x, 0, -this.outsideOffset.y);
-      this.scene.add(this.outside.group);
+      // The window lives in its OWN scene with its own daylight and no fog,
+      // composited beneath the cave each frame (shared depth buffer) — its
+      // lights can never spill onto the cave's enclosed dark, and the cave's
+      // fog never dims the view out.
+      this.outsideScene = new THREE.Scene();
+      this.outsideScene.add(this.outside.group);
       const daylight = new THREE.HemisphereLight(0xdcebff, DAYLIGHT_3D.bounce, 1.4);
-      daylight.layers.set(1);
       const sun = new THREE.DirectionalLight(DAYLIGHT_3D.sun, 2.6);
       sun.position.set(exit.x - 20, 30, -30);
       sun.target.position.set(exit.x, 0, -8);
-      sun.layers.set(1);
-      this.scene.add(daylight, sun, sun.target);
-      this.camera.layers.enable(1);
+      this.outsideScene.add(daylight, sun, sun.target);
+      // The throat: dark rock masses flanking and capping the window, in the
+      // CAVE scene, so the only sightline to the outside is straight through
+      // the mouth — no camera angle can catch the sunlit band floating in the
+      // void beyond the rim.
+      const throatRock = new THREE.MeshStandardMaterial({ color: 0x2b241d, roughness: 1, flatShading: true });
+      const slab = (w: number, d: number, x: number, z: number) => {
+        const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, 16, d), throatRock);
+        mesh.position.set(x, 8, z);
+        this.scene.add(mesh);
+      };
+      slab(34, 18, exit.x - 19, -9); // west of the slot
+      slab(34, 18, exit.x + 19, -9); // east of the slot
+      slab(72, 9, exit.x + 0.5, -15.4); // the far cap the view terminates in
+      // the cave scene draws over the window; its background would wipe pass 1
+      this.scene.background = null;
       // the wake-up ember: a warm hearth glow over the newborn's spot
       const cell = this.zone.cells[0];
       if (cell) {
@@ -666,21 +686,6 @@ export class World3D {
         if (this.cameraSnapped) this.terrain.update(this.orbit.target.x, this.orbit.target.z, camDist);
         if (this.cameraSnapped && this.outside) {
           this.outside.update(this.orbit.target.x + this.outsideOffset.x, this.orbit.target.z + this.outsideOffset.y, camDist);
-          // fresh chunks join the daylight layer and shrug off the cave fog
-          if (this.outside.group.children.length !== this.outsideChildCount) {
-            this.outsideChildCount = this.outside.group.children.length;
-            this.outside.group.traverse((obj) => {
-              obj.layers.set(1);
-              const mesh = obj as THREE.Mesh;
-              const mats = (Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : []) as THREE.MeshStandardMaterial[];
-              for (const m of mats) {
-                if (m.fog !== false) {
-                  m.fog = false;
-                  m.needsUpdate = true;
-                }
-              }
-            });
-          }
         }
         this.cullDistant(CULL_RANGE);
         this.updateDaylight(dt);
@@ -801,7 +806,16 @@ export class World3D {
     this.crowd.commit();
     this.entities.updateGhosts(now);
     this.orbit?.update();
-    this.renderer.render(this.scene, this.camera);
+    if (this.outsideScene) {
+      // composite: the sunlit window first, the enclosed cave over it, one
+      // shared depth buffer so cave rock still occludes the outside correctly
+      this.renderer.autoClear = false;
+      this.renderer.clear();
+      this.renderer.render(this.outsideScene, this.camera);
+      this.renderer.render(this.scene, this.camera);
+    } else {
+      this.renderer.render(this.scene, this.camera);
+    }
   };
 
   private drawDestination(): void {

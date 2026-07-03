@@ -34,9 +34,12 @@ export interface Terrain3D {
 const CHUNK = 32;
 
 export interface TerrainWindow {
-  /** Render only tiles with worldY inside [minTileY, maxTileY] — the slice of
-   *  the outside a birth cave shows beyond its mouth (GDD "Onboarding"). A
-   *  windowed terrain also skips the void underlay (the host scene has one). */
+  /** Render only tiles inside this rect — the slice of the outside a birth
+   *  cave shows beyond its mouth (GDD "Onboarding"). Hard-clipped in both
+   *  axes so streaming can never pop sunlit geometry outside the throat's
+   *  masked slot; a windowed terrain also skips the void underlay. */
+  minTileX: number;
+  maxTileX: number;
   minTileY: number;
   maxTileY: number;
 }
@@ -117,10 +120,25 @@ export function buildTerrain(zone: Zone, window?: TerrainWindow): Terrain3D {
   const wallColour = new THREE.Color();
 
   const buildChunk = (cx: number, cy: number): BuiltChunk | undefined => {
-    const x0 = cx * CHUNK;
-    const y0 = cy * CHUNK;
-    const w = Math.min(CHUNK, zone.width - x0);
-    const h = Math.min(CHUNK, zone.height - y0);
+    let x0 = cx * CHUNK;
+    let y0 = cy * CHUNK;
+    let w = Math.min(CHUNK, zone.width - x0);
+    let h = Math.min(CHUNK, zone.height - y0);
+    if (window) {
+      // clip the chunk to the window rect — a full-size floor plane with
+      // transparent texels would still write depth and z-fight the host
+      // scene's coplanar floor, and unclipped columns would stream sunlit
+      // geometry beyond the throat's masked slot
+      const rowStart = Math.max(y0, window.minTileY);
+      const rowEnd = Math.min(y0 + h - 1, window.maxTileY);
+      const colStart = Math.max(x0, window.minTileX);
+      const colEnd = Math.min(x0 + w - 1, window.maxTileX);
+      if (rowEnd < rowStart || colEnd < colStart) return undefined;
+      x0 = colStart;
+      w = colEnd - colStart + 1;
+      y0 = rowStart;
+      h = rowEnd - rowStart + 1;
+    }
     if (w <= 0 || h <= 0) return undefined;
 
     const chunkGroup = new THREE.Group();
@@ -141,10 +159,6 @@ export function buildTerrain(zone: Zone, window?: TerrainWindow): Terrain3D {
       for (let x = 0; x < w; x++) {
         const wx = x0 + x;
         const wy = y0 + y;
-        if (window && (wy < window.minTileY || wy > window.maxTileY)) {
-          ctx.clearRect(x * ART, y * ART, ART, ART);
-          continue;
-        }
         const glyph = row[wx]!;
         const biome = tileBiome(wx, wy);
         const patches = patchesFor(biome);
