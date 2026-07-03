@@ -475,9 +475,13 @@ export function createEntities(scene: THREE.Scene) {
     const positions = new Float32Array(PICKUP_MOTES * 3);
     const geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-    const material = new THREE.PointsMaterial({ color: UI_3D.gold, size: 0.07, transparent: true, opacity: 0.85, depthWrite: false, blending: THREE.AdditiveBlending });
+    // depthTest off + a high renderOrder: the sparkle reads through the item
+    // model, trees, and floor relief from any camera angle — visibility is its
+    // entire job. Overlays (renderOrder 10) still draw above it.
+    const material = new THREE.PointsMaterial({ color: UI_3D.gold, size: 0.12, transparent: true, opacity: 0.9, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending });
     const motes = new THREE.Points(geo, material);
     motes.frustumCulled = false; // the buffer mutates per frame; the marker's visibility governs
+    motes.renderOrder = 9;
     motes.userData.phase = Math.random() * 10;
     marker.add(motes);
     marker.userData.motes = motes;
@@ -496,7 +500,7 @@ export function createEntities(scene: THREE.Scene) {
       attr.setXYZ(i, 0.5 + Math.cos(angle) * 0.17, 0.12 + t * 0.6, 0.5 + Math.sin(angle) * 0.17);
     }
     attr.needsUpdate = true;
-    (motes.material as THREE.PointsMaterial).opacity = 0.6 + 0.3 * Math.sin(now * 0.004 + phase);
+    (motes.material as THREE.PointsMaterial).opacity = 0.75 + 0.2 * Math.sin(now * 0.004 + phase);
   };
 
   /** Sync the carried overlay (boulder / curled hog) to the player row. */

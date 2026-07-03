@@ -539,9 +539,10 @@ export class World3D {
       }
     }
 
-    // the pickup sparkle over every visible ground item
+    // the pickup sparkle over every ground item — driven unconditionally (a few
+    // hundred 4-vertex buffers is nothing), so it can never stall on cull state
     for (const view of this.groundItems.values()) {
-      if (view.group.visible) this.entities.animatePickupMotes(view.group, now);
+      this.entities.animatePickupMotes(view.group, now);
     }
     this.entities.updateGhosts(now);
     this.orbit?.update();
