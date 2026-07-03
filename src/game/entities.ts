@@ -48,6 +48,8 @@ export interface Tracked {
   /** The impulse the in-flight attack was started for — a fresh stamp mid-swing
    *  (chained attacks) restarts the strike. */
   attackingBaseMs?: number;
+  /** The tile last stepped on, for distance-faded footsteps of OTHER troggs. */
+  lastStepTile?: string;
   flashOn: boolean;
   /** Render-position correction state (`smoothPlace`). */
   shownX?: number;
@@ -68,6 +70,8 @@ export interface Tracked {
 
 /** A roaming Hog's display state. */
 export interface HogView {
+  /** The tile last stepped on, for the distance-faded patter of nearby Hogs. */
+  lastStepTile?: string;
   marker: THREE.Group;
   model: CreatureModel;
   row: import("../net/module_bindings/types").Hog;

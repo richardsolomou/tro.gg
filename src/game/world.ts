@@ -95,6 +95,12 @@ export class World3D {
   private readonly boulders = new Map<string, { row: Boulder; group: THREE.Group }>();
   /** Cleared until the camera has snapped to the local trogg once (first snapshot). */
   private cameraSnapped = false;
+  /** Tiles between the local trogg and a world position — Infinity before spawn. */
+  private hearingDistance(x: number, y: number): number {
+    if (!this.selfPos) return Infinity;
+    return Math.hypot(x - this.selfPos.x, y - this.selfPos.y);
+  }
+
   /** Hide world objects beyond what the fog reveals: the seamless world renders
    *  only what is around you (the row data still syncs; this is draw-cost only). */
   private cullDistant(range: number): void {
@@ -338,6 +344,11 @@ export class World3D {
       this.entities.smoothPlace(view, motion.x, motion.y, dt);
       this.entities.animateHog(view, now, dt, motion);
       const tile = snapToTile({ x: motion.x, y: motion.y });
+      const stepKey = tileKey(tile.x, tile.y);
+      if (view.lastStepTile !== undefined && view.lastStepTile !== stepKey) {
+        audio.playHogStepAt(this.hearingDistance(motion.x, motion.y));
+      }
+      view.lastStepTile = stepKey;
       for (const t of footprintTiles(tile.x, tile.y, size)) this.hogTiles.add(tileKey(t.x, t.y));
     }
 
@@ -346,7 +357,14 @@ export class World3D {
       this.entities.smoothPlace(entry, motion.x, motion.y, dt);
       this.entities.animate(entry, now, dt, motion);
 
-      if (entry.player.identity.toHexString() !== this.myId) continue;
+      if (entry.player.identity.toHexString() !== this.myId) {
+        const stepKey = tileKey(Math.round(motion.x), Math.round(motion.y));
+        if (entry.lastStepTile !== undefined && entry.lastStepTile !== stepKey) {
+          audio.playFootstepAt(entry.player.running, this.hearingDistance(motion.x, motion.y));
+        }
+        entry.lastStepTile = stepKey;
+        continue;
+      }
       // The camera rides the local trogg: the orbit pivot glides to its position, so
       // drag-to-rotate and wheel-zoom stay live while walking (dead or alive — you
       // keep your camera while waiting to respawn). The very first sight of the
@@ -629,7 +647,7 @@ export class World3D {
     const conn = this.conn;
     conn.db.boulder.onInsert((_ctx, b) => this.upsertBoulder(b));
     conn.db.boulder.onUpdate((_ctx, _old, b) => {
-      if (this.sub.live && (_old.x !== b.x || _old.y !== b.y)) audio.playBoulderSettle();
+      if (this.sub.live && (_old.x !== b.x || _old.y !== b.y)) audio.playBoulderSettleAt(this.hearingDistance(b.x + 0.5, b.y + 0.5));
       this.upsertBoulder(b);
     });
     conn.db.boulder.onDelete((_ctx, b) => this.removeBoulder(b));

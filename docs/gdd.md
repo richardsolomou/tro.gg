@@ -112,6 +112,8 @@ Ambient **Hog** NPCs (the glossary's friendly hedgehogs) roam the zone on their 
 ### Audio
 
 - Sound effects are client-side feedback only; they never affect reducers, synced state, or analytics.
+- **The game theme is composed in code** (`GameTheme` in `src/audio.ts`), like every other asset: a slow generative ambient — two detuned pads breathing a low drone under sparse pentatonic plucks with a feedback-delay tail — via WebAudio, started on the first user gesture. No music files, no licensing.
+- **World sounds are distance-based** (`EARSHOT`, 14 tiles *(initial)*): nearby troggs' footsteps and Hogs' patter (the same strides pitched small and quick) play with linear falloff from the local trogg and are silent beyond earshot, as are boulder moves heard from afar. A world of a hundred Hogs never becomes a hundred footstep tracks.
 - The current audio surface is event-driven: local trogg footsteps fire when movement starts and when the trogg crosses tiles; boulder push attempts play a scrape and confirmed boulder row movement plays a settle hit; Hog heading changes may play a sparse, low-volume Hog sound after the initial subscription snapshot; chat, commands, command errors, and the ghost haunt play short UI/ghost cues.
 - Browsers can block playback before the first user gesture, so rejected play attempts are ignored and retried on the next cue.
 - Source files and license notes live under `assets/audio/ATTRIBUTION.md`. Do not wire entire packs wholesale; pick short cues, keep volume conservative, and trim/normalize before promoting a candidate into `src/audio.ts`.

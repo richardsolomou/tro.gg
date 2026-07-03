@@ -1,6 +1,7 @@
 import { getZone, STARTING_ZONE_SLUG } from "@trogg/shared";
 import { accountSubject, authConfigured, completeSignIn, currentIdToken } from "./auth.js";
 import { captureEvent, identifyUser, initAnalytics, isFeatureEnabled, logError, logInfo } from "./analytics.js";
+import { theme } from "./audio.js";
 import { clearStoredToken, clearPendingClaim, getPendingClaim } from "./identity.js";
 import { connect } from "./net/net.js";
 import { mountAccount } from "./ui/account.js";
@@ -66,6 +67,7 @@ async function main() {
     // Three.js owns the canvas and the world render loop; StartGame boots the 3D
     // world with the live connection (game/main.ts, GDD "Camera and rendering").
     const world = StartGame("game", { conn, slug });
+    theme.start(); // the generative game theme (starts on the first user gesture)
     mountWorldMap({ zone: getZone(slug)!, selfPosition: () => world.selfPosition() });
 
     // HUD chrome (help, appearance, account) is HTML overlaid on the canvas (hud.css);
