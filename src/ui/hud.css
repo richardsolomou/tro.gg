@@ -127,23 +127,29 @@
   flex-direction: column;
   gap: 6px;
 }
+/* The log itself is invisible — no empty slab in the corner when nobody talks;
+   each sent line carries its own translucent backing instead. */
 #hud .chat-log {
-  filter: drop-shadow(0 4px 0 rgba(0, 0, 0, 0.35));
   height: min(30vh, 220px);
-  padding: 8px 12px;
+  padding: 0;
   overflow-y: auto;
-  background: var(--hud-timber);
-  clip-path: var(--facet);
-  box-shadow: var(--slab-light);
+  scrollbar-width: none;
   font-size: 14px;
   line-height: 20px;
   word-break: break-word;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
+  align-items: flex-start;
+  gap: 3px;
 }
 #hud .chat-line {
   white-space: pre-wrap;
+  max-width: 100%;
+  padding: 2px 10px;
+  background: rgba(30, 21, 12, 0.62);
+  clip-path: var(--facet);
+  --cut: 6px;
 }
 #hud .chat-name {
   font-weight: 700;

@@ -134,9 +134,9 @@ export class World3D {
   private readonly boulderTiles = new Set<string>();
   private readonly hogTiles = new Set<string>();
   // ── first person (GDD "Camera and rendering") ─────────────────────────────
-  /** First person is the default view: the world reads at its own scale and the
-   *  sky (and the sun's travel) is visible. `V` swaps to the orbit camera. */
-  private firstPerson = true;
+  /** Third person opens the game — a chase view low behind the trogg, not
+   *  top-down. `V` swaps into first person (pointer-lock mouse-look) and back. */
+  private firstPerson = false;
   private fpYaw = 0;
   private fpPitch = -0.15;
   private fpLocked = false;
@@ -469,10 +469,12 @@ export class World3D {
         this.camera.position.add(shift); // carry the camera with the pivot so following doesn't re-aim the view
         if (!this.cameraSnapped) {
           this.cameraSnapped = true;
-          // the pre-snap distance framed the whole zone (useful for its bounds
-          // math, never shown); start play at a real follow distance instead
-          const offset = this.camera.position.clone().sub(this.orbit.target).setLength(13);
-          this.camera.position.copy(this.orbit.target).add(offset);
+          // open BEHIND the trogg at shoulder height (a chase view, not top-down):
+          // the world reads at its own scale from the first frame
+          const aim = this.self.aim;
+          const back = Math.hypot(aim.dirX, aim.dirY) || 1;
+          this.camera.position.set(this.orbit.target.x - (aim.dirX / back) * 7.5, 3.6, this.orbit.target.z - (aim.dirY / back) * 7.5);
+          this.camera.lookAt(this.orbit.target);
           this.reveal();
         }
       }
