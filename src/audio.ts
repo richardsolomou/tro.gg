@@ -72,7 +72,7 @@ class AudioCues {
 
   playFootstep(running: boolean) {
     this.play(running ? "footstepsRun" : "footstepsWalk", {
-      volume: running ? 0.0022 : 0.0017,
+      volume: running ? 0.022 : 0.017,
       minGapMs: running ? 95 : 140,
       rate: running ? [1.04, 1.14] : [0.94, 1.04],
     });
@@ -91,7 +91,7 @@ class AudioCues {
     const gain = AudioCues.falloff(distance);
     if (gain <= 0.02) return;
     this.play(running ? "footstepsRun" : "footstepsWalk", {
-      volume: (running ? 0.0017 : 0.0013) * gain,
+      volume: (running ? 0.017 : 0.013) * gain,
       minGapMs: 110,
       rate: running ? [1.04, 1.14] : [0.94, 1.04],
     });
@@ -102,8 +102,8 @@ class AudioCues {
   playHogStepAt(distance: number, size = 1) {
     const gain = AudioCues.falloff(distance);
     if (gain <= 0.02) return;
-    if (size > 1) this.play("footstepsWalk", { volume: 0.0025 * gain, minGapMs: 260, rate: [0.55, 0.68] });
-    else this.play("footstepsWalk", { volume: 0.0008 * gain, minGapMs: 150, rate: [1.7, 1.95] });
+    if (size > 1) this.play("footstepsWalk", { volume: 0.025 * gain, minGapMs: 260, rate: [0.55, 0.68] });
+    else this.play("footstepsWalk", { volume: 0.008 * gain, minGapMs: 150, rate: [1.7, 1.95] });
   }
 
   /** A boulder shoved or settling somewhere nearby. */
