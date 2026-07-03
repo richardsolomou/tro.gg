@@ -230,10 +230,27 @@
   left: 0;
   margin-top: 8px;
 }
-/* Framed facet controls: the outer background is the frame colour and an inset
-   content-box layer paints the face, so highlights follow the chamfer (an inset
-   box-shadow ring would get its corners clipped into brackets). */
+/* Framed facet controls: the element paints the frame colour across the whole
+   octagon and a clipped ::before paints the face as a smaller octagon inside it,
+   so highlights follow the chamfer at full thickness — background layers can't
+   do this because a content-box layer keeps square corners, and an inset
+   box-shadow ring gets its corners clipped into brackets. Children sit above
+   the face via z-index. */
+#hud :is(.hud-icon-button, .inventory-item, .command-spawn-button)::before {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  background: var(--face);
+  clip-path: var(--facet);
+  --cut: 5px;
+  z-index: 0;
+}
+#hud :is(.hud-icon-button, .inventory-item, .command-spawn-button) > * {
+  position: relative;
+  z-index: 1;
+}
 #hud .hud-icon-button {
+  position: relative;
   width: 36px;
   height: 34px;
   padding: 2px;
@@ -241,13 +258,10 @@
   place-items: center;
   --face: var(--hud-timber);
   --frame: var(--hud-timber);
-  background-image: linear-gradient(var(--face), var(--face)), linear-gradient(var(--frame), var(--frame));
-  background-origin: content-box, border-box;
-  background-clip: content-box, border-box;
+  background: var(--frame);
   border: 0;
   clip-path: var(--facet);
   --cut: 7px;
-  box-shadow: var(--slab-light);
   cursor: pointer;
 }
 #hud .hud-icon-button:hover {
@@ -405,13 +419,10 @@
   color: var(--hud-bone);
   --face: var(--hud-well);
   --frame: var(--hud-well);
-  background-image: linear-gradient(var(--face), var(--face)), linear-gradient(var(--frame), var(--frame));
-  background-origin: content-box, border-box;
-  background-clip: content-box, border-box;
+  background: var(--frame);
   border: 0;
   clip-path: var(--facet);
   --cut: 7px;
-  box-shadow: var(--well-shade);
   cursor: pointer;
 }
 #hud .inventory-item:hover:not(:disabled) {
@@ -562,15 +573,13 @@
   height: 48px;
   padding: 2px;
   overflow: hidden;
+  position: relative;
   --face: var(--hud-well);
   --frame: var(--hud-well);
-  background-image: linear-gradient(var(--face), var(--face)), linear-gradient(var(--frame), var(--frame));
-  background-origin: content-box, border-box;
-  background-clip: content-box, border-box;
+  background: var(--frame);
   border: 0;
   clip-path: var(--facet);
   --cut: 7px;
-  box-shadow: var(--well-shade);
   cursor: pointer;
 }
 #hud .command-spawn-button:hover {
