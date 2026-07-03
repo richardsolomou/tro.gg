@@ -11,9 +11,6 @@ importers:
       oidc-client-ts:
         specifier: ^3.5.0
         version: 3.5.0
-      phaser:
-        specifier: ^4.2.0
-        version: 4.2.0
       posthog-js:
         specifier: ^1.391.2
         version: 1.391.2
@@ -367,9 +364,6 @@ packages:
     engines: {node: '>=18'}
     hasBin: true
 
-  eventemitter3@5.0.4:
-    resolution: {integrity: sha512-mlsTRyGaPBjPedk6Bvw+aqbsXDtoAyAzm5MO7JgU+yVRyMQ5O8bD4Kcci7BS85f93veegeCPkL8R4GLClnjLFw==}
-
   fdir@6.5.0:
     resolution: {integrity: sha512-tIbYtZbucOs0BRGqPJkshJUYdL+SDH7dVM8gjy+ERp3WAUjLEFJE+02kanyHtwjWOnwrKYBiwAmM0p4kLJAnXg==}
     engines: {node: '>=12.0.0'}
@@ -491,9 +485,6 @@ packages:
   oidc-client-ts@3.5.0:
     resolution: {integrity: sha512-l2q8l9CTCTOlbX+AnK4p3M+4CEpKpyQhle6blQkdFhm0IsBqsxm15bYaSa11G7pWdsYr6epdsRZxJpCyCRbT8A==}
     engines: {node: '>=18'}
-
-  phaser@4.2.0:
-    resolution: {integrity: sha512-9nSQZs4CJ9+V96i2mRC3BBStBcsQWGJJBRpdFYSbpL40/i/QM+wLofaCYMsxNyDk8WJOlHGZUh3uVRKa7lj6yg==}
 
   picocolors@1.1.1:
     resolution: {integrity: sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA==}
@@ -883,8 +874,6 @@ snapshots:
       '@esbuild/win32-ia32': 0.28.1
       '@esbuild/win32-x64': 0.28.1
 
-  eventemitter3@5.0.4: {}
-
   fdir@6.5.0(picomatch@4.0.4):
     optionalDependencies:
       picomatch: 4.0.4
@@ -961,10 +950,6 @@ snapshots:
   oidc-client-ts@3.5.0:
     dependencies:
       jwt-decode: 4.0.0
-
-  phaser@4.2.0:
-    dependencies:
-      eventemitter3: 5.0.4
 
   picocolors@1.1.1: {}
 
