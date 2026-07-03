@@ -1,7 +1,10 @@
 export * from "./glyphs";
-import { TILE_GLYPHS, WALL_TILE } from "./glyphs";
-import { WORLD_W, WORLD_H } from "./worldgen";
-import { WORLD_BIG_HOGS, WORLD_BOULDERS, WORLD_HOGS, WORLD_ITEMS, WORLD_SPAWN, WORLD_TILES } from "./world-map";
+import { SOLID_GLYPHS, TILE_GLYPHS } from "./glyphs";
+import { setRegionRows, WORLD_H, WORLD_W } from "./worldgen";
+import { WORLD_BIG_HOGS, WORLD_BOULDERS, WORLD_HOGS, WORLD_ITEMS, WORLD_REGION_ROWS, WORLD_SPAWN, WORLD_TILES } from "./world-map";
+
+// regionAt() reads the committed grid on both client and module
+setRegionRows(WORLD_REGION_ROWS);
 /**
  * Tuning values from the GDD. Those marked (initial) are starting values; keep
  * them centralized here and make them remotely configurable only when runtime
@@ -333,7 +336,7 @@ export function isWalkable(zone: Zone, tileX: number, tileY: number): boolean {
   if (tileX < 0 || tileY < 0 || tileY >= zone.tiles.length) return false;
   const row = zone.tiles[tileY]!;
   if (tileX >= row.length) return false;
-  return row[tileX] !== WALL_TILE;
+  return !SOLID_GLYPHS.has(row[tileX]!);
 }
 
 /**

@@ -234,12 +234,12 @@ test("move clamps heading axes to the wire scale, never trusting the client", ()
 });
 
 test("an off-axis heading moves at unit speed along its direction", () => {
-  const { ctx, me } = withPlayer({ x: 69, y: 96, dirX: 0, dirY: 0 });
+  const { ctx, me } = withPlayer({ x: 108, y: 105, dirX: 0, dirY: 0 });
   move(ctx, { dirX: 966, dirY: -259, running: false }); // ~15° above east
   const p = ctx.db.player.identity.find(me);
   const zone = getZone(ZONE)!;
   const at = projectMotion(p, 1_000, zoneBounds(zone));
-  const dist = Math.hypot(at.x - 69, at.y - 96);
+  const dist = Math.hypot(at.x - 108, at.y - 105);
   assert.ok(Math.abs(dist - MOVE_SPEED_TILES_PER_SEC) < 1e-6, `moved ${dist}`);
 });
 
@@ -481,11 +481,11 @@ test("useEquipped damages a faced adjacent trogg with a sword", () => {
 
 test("a sword hit at zero health kills, drops inventory, and respawns after the timer", () => {
   // fought on the generated cave's spawn plaza, which the generator keeps open
-  const { ctx, me } = withPlayer({ x: 95, y: 110, equippedMainHand: "sword" }, { now: micros(1000) });
+  const { ctx, me } = withPlayer({ x: 111, y: 104, equippedMainHand: "sword" }, { now: micros(1000) });
   const sword = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });
   ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedMainHandInventoryId: sword.id });
   const other = id("other");
-  ctx.db.player.insert(playerRow(other, { name: "SameName", color: 1, style: 2, x: 96, y: 110, dirX: 1, dirY: 0, running: true, movedAt: { microsSinceUnixEpoch: micros(1000) }, health: SWORD_DAMAGE, equippedMainHand: "pickaxe", equippedMainHandInventoryId: 10n }));
+  ctx.db.player.insert(playerRow(other, { name: "SameName", color: 1, style: 2, x: 112, y: 104, dirX: 1, dirY: 0, running: true, movedAt: { microsSinceUnixEpoch: micros(1000) }, health: SWORD_DAMAGE, equippedMainHand: "pickaxe", equippedMainHandInventoryId: 10n }));
   ctx.db.inventory.insert({ id: 0n, playerId: other, item: "pickaxe", qty: 1 });
   ctx.db.inventory.insert({ id: 0n, playerId: other, item: "stone", qty: 3 });
 
@@ -497,7 +497,7 @@ test("a sword hit at zero health kills, drops inventory, and respawns after the 
   assert.equal(target.equippedMainHand, "");
   assert.equal(target.equippedMainHandInventoryId, 0n);
   assert.equal(target.respawnAt.microsSinceUnixEpoch, micros(1000 + PLAYER_RESPAWN_MS));
-  assert.deepEqual({ x: target.x, y: target.y, dirX: target.dirX, dirY: target.dirY, running: target.running, path: target.path }, { x: 96, y: 110, dirX: 0, dirY: 0, running: false, path: "" });
+  assert.deepEqual({ x: target.x, y: target.y, dirX: target.dirX, dirY: target.dirY, running: target.running, path: target.path }, { x: 112, y: 104, dirX: 0, dirY: 0, running: false, path: "" });
   assert.equal(ctx.db.inventory.playerId.filter(other).length, 0);
   assert.deepEqual(
     ctx.db.groundItem
@@ -514,7 +514,7 @@ test("a sword hit at zero health kills, drops inventory, and respawns after the 
   (ctx as any).sender = other;
   move(ctx, { dirX: -1, dirY: 0, running: false });
   target = ctx.db.player.identity.find(other);
-  assert.deepEqual({ x: target.x, y: target.y, dirX: target.dirX, dirY: target.dirY, dead: target.dead }, { x: 96, y: 110, dirX: 0, dirY: 0, dead: true });
+  assert.deepEqual({ x: target.x, y: target.y, dirX: target.dirX, dirY: target.dirY, dead: target.dead }, { x: 112, y: 104, dirX: 0, dirY: 0, dead: true });
 
   // Firing the scheduled respawn before the timer is due re-arms it and leaves the trogg dead.
   respawnPlayers(ctx, { timer: ctx.db.playerRespawn.rows()[0] });
@@ -531,7 +531,7 @@ test("a sword hit at zero health kills, drops inventory, and respawns after the 
   assert.equal(target.name, "SameName");
   assert.equal(target.color, 1);
   assert.equal(target.style, 2);
-  assert.deepEqual({ x: target.x, y: target.y }, { x: 96, y: 110 });
+  assert.deepEqual({ x: target.x, y: target.y }, { x: 112, y: 104 });
 });
 
 test("useEquipped damages a faced adjacent Hog with a sword", () => {
@@ -773,7 +773,7 @@ test("a returning trogg embedded in a wall is nudged to spawn", () => {
   ctx.db.player.insert(playerRow(me, { online: false, x: 0, y: 0 })); // (0,0) is a rim wall
   onConnect(ctx);
   const p = ctx.db.player.identity.find(me);
-  assert.deepEqual({ x: p.x, y: p.y }, { x: 96, y: 110 }); // zone centre (spawnAt)
+  assert.deepEqual({ x: p.x, y: p.y }, { x: 112, y: 104 }); // the world spawn (spawnAt)
 });
 
 test("disconnecting drops the carried entity into the world and marks the trogg offline", () => {

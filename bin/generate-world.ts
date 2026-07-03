@@ -21,6 +21,11 @@ export const WORLD_TILES: readonly string[] = [
 ${world.tiles.map((row) => `  ${JSON.stringify(row)},`).join("\n")}
 ];
 
+/** One character per tile naming its region (worldgen REGION_CHARS; "." = void). */
+export const WORLD_REGION_ROWS: readonly string[] = [
+${world.regions.map((row) => `  ${JSON.stringify(row)},`).join("\n")}
+];
+
 export const WORLD_BOULDERS: readonly Coord[] = ${JSON.stringify(world.boulders)};
 
 export const WORLD_HOGS: readonly Coord[] = ${JSON.stringify(world.hogs)};

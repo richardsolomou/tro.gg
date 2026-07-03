@@ -66,6 +66,9 @@ export interface WorldData {
  * table syncs origin/direction/start-time and every client extrapolates locally each
  * frame (invariant 2); all authority stays server-side (invariant 3).
  */
+/** World objects beyond this many tiles from the camera focus stop rendering. */
+const CULL_RANGE = 72;
+
 export class World3D {
   /** The local trogg's live projected position (the overworld map marker). */
   selfPosition(): { x: number; y: number } | undefined {
@@ -172,7 +175,8 @@ export class World3D {
     // past the zone. Glowmoss tiles add their own teal point lights (terrain3d).
     const pal = biomePalette(this.zone.biome);
     this.scene.background = new THREE.Color(pal.voidBase);
-    this.scene.fog = new THREE.Fog(pal.voidBase, 26, 60);
+    // a faint depth haze only — the zoom is capped, so there is no fog of war
+    this.scene.fog = new THREE.Fog(pal.voidBase, 55, 130);
     this.scene.add(new THREE.HemisphereLight(0xffe0b0, 0x201409, 0.75));
     // The key light rides the camera focus with a tight shadow box — a static
     // light can't shadow a 192×220 world at any usable resolution.
@@ -349,13 +353,9 @@ export class World3D {
         const pivot = new THREE.Vector3(motion.x + 0.5, 0.6, motion.y + 0.5);
         const camDist = this.camera.position.distanceTo(this.orbit.target);
         // stream terrain around the camera focus (only once the camera sits on the
-        // trogg — the pre-snap zone-fit distance would build the whole world);
-        // fog opens up as the zoom pulls out
+        // trogg — the pre-snap zone-fit distance would build the whole world)
         if (this.cameraSnapped) this.terrain.update(this.orbit.target.x, this.orbit.target.z, camDist);
-        const fog = this.scene.fog as THREE.Fog;
-        fog.near = camDist + 14;
-        fog.far = camDist * 2.6 + 42;
-        this.cullDistant(fog.far + 6);
+        this.cullDistant(CULL_RANGE);
         this.keyLight.position.set(this.orbit.target.x + 6, 14, this.orbit.target.z + 8);
         this.keyLight.target.position.set(this.orbit.target.x, 0, this.orbit.target.z);
         const ease = this.cameraSnapped ? Math.min(1, dt * 8) : 1;
@@ -449,7 +449,7 @@ export class World3D {
     this.orbit = createOrbit(this.camera, this.renderer.domElement);
     this.orbit.target.copy(centre);
     this.orbit.minDistance = 6;
-    this.orbit.maxDistance = hi * 1.7;
+    this.orbit.maxDistance = 34; // zoom is capped; the M map is the wide view
     this.orbit.minPolarAngle = 0.25; // not dead top-down…
     this.orbit.maxPolarAngle = 1.35; // …and never under the floor
     this.orbit.update();

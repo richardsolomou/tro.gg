@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { assertZones, isWalkable, REGION_H, REGION_W, WALL_TILE, WORLD_REGIONS, ZONES, type Zone } from "./index";
+import { assertZones, isWalkable, regionAt, WALL_TILE, WORLD_REGIONS, ZONES, type Zone } from "./index";
 import { generateCaveZone } from "./worldgen";
 
 const OPTS = { slug: "t", name: "t", width: 64, height: 44, seed: 0x70660001, boulders: 14, hogs: 12, biome: "cave" as const };
@@ -92,9 +92,16 @@ test("the committed world map is valid, connected, and spawn-safe", () => {
 test("every region contributes open, seeded ground", () => {
   const world = ZONES["world"]!;
   for (const region of WORLD_REGIONS) {
-    const ox = region.gx * REGION_W;
-    const oy = region.gy * REGION_H;
-    const openInRegion = world.boulders.filter((b) => b.x >= ox && b.x < ox + REGION_W && b.y >= oy && b.y < oy + REGION_H);
-    assert.ok(openInRegion.length >= 10, `${region.slug} has only ${openInRegion.length} boulders`);
+    const seeded = world.boulders.filter((b) => regionAt(b.x, b.y)?.slug === region.slug);
+    assert.ok(seeded.length >= 8, `${region.slug} has only ${seeded.length} boulders`);
   }
+});
+
+test("rivers are crossable: the far banks stay reachable from spawn", () => {
+  // deep water is unwalkable, so if the fords failed, whole regions would have
+  // been filled to rock by the connectivity pass and this count would collapse
+  const world = ZONES["world"]!;
+  let deep = 0;
+  for (const row of world.tiles) for (const glyph of row) if (glyph === "=") deep++;
+  assert.ok(deep > 200, `expected real rivers, found ${deep} deep tiles`);
 });

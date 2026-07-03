@@ -1,4 +1,4 @@
-import { GLOWMOSS_TILE, GRAVEL_TILE, MOSS_TILE, WALL_TILE, WATER_TILE } from "./glyphs";
+import { DEEP_WATER_TILE, GLOWMOSS_TILE, GRAVEL_TILE, MOSS_TILE, WALL_TILE, WATER_TILE } from "./glyphs";
 import type { BigHog, Coord, GroundItemSeed, Zone, ZoneExit } from "./constants";
 
 /**
@@ -10,6 +10,8 @@ export const BIOMES = ["cave", "mossglen", "emberrift", "frosthollow", "floodway
 export type BiomeId = (typeof BIOMES)[number];
 
 interface BiomeParams {
+  /** Rock density fed to the automaton — low is open flats, high is tight warrens. */
+  fill: number;
   /** Decoration probabilities per open tile (moss requires nearby rock, glowmoss open air). */
   moss: number;
   gravel: number;
@@ -19,17 +21,17 @@ interface BiomeParams {
 }
 
 const BIOME_PARAMS: Record<BiomeId, BiomeParams> = {
-  cave: { moss: 0.3, gravel: 0.36, glow: 0.035, pools: 4 },
-  mossglen: { moss: 0.62, gravel: 0.2, glow: 0.05, pools: 5 },
-  emberrift: { moss: 0.08, gravel: 0.5, glow: 0.03, pools: 0 },
-  frosthollow: { moss: 0.2, gravel: 0.3, glow: 0.045, pools: 7 },
-  floodways: { moss: 0.35, gravel: 0.2, glow: 0.03, pools: 16 },
-  glowvault: { moss: 0.25, gravel: 0.25, glow: 0.11, pools: 3 },
-  shadowdeep: { moss: 0.12, gravel: 0.3, glow: 0.012, pools: 2 },
-  dustworks: { moss: 0.05, gravel: 0.62, glow: 0.02, pools: 0 },
-  boneyard: { moss: 0.1, gravel: 0.45, glow: 0.025, pools: 1 },
-  starwell: { moss: 0.2, gravel: 0.2, glow: 0.09, pools: 6 },
-  rustgallery: { moss: 0.15, gravel: 0.48, glow: 0.03, pools: 3 },
+  cave: { fill: 0.42, moss: 0.3, gravel: 0.36, glow: 0.035, pools: 4 },
+  mossglen: { fill: 0.38, moss: 0.62, gravel: 0.2, glow: 0.05, pools: 5 },
+  emberrift: { fill: 0.47, moss: 0.08, gravel: 0.5, glow: 0.03, pools: 0 },
+  frosthollow: { fill: 0.45, moss: 0.2, gravel: 0.3, glow: 0.045, pools: 7 },
+  floodways: { fill: 0.36, moss: 0.35, gravel: 0.2, glow: 0.03, pools: 16 },
+  glowvault: { fill: 0.44, moss: 0.25, gravel: 0.25, glow: 0.11, pools: 3 },
+  shadowdeep: { fill: 0.52, moss: 0.12, gravel: 0.3, glow: 0.012, pools: 2 },
+  dustworks: { fill: 0.33, moss: 0.05, gravel: 0.62, glow: 0.02, pools: 0 },
+  boneyard: { fill: 0.4, moss: 0.1, gravel: 0.45, glow: 0.025, pools: 1 },
+  starwell: { fill: 0.46, moss: 0.2, gravel: 0.2, glow: 0.09, pools: 6 },
+  rustgallery: { fill: 0.44, moss: 0.15, gravel: 0.48, glow: 0.03, pools: 3 },
 };
 
 /**
@@ -253,52 +255,78 @@ export function generateCaveZone(opts: CaveOptions): Zone {
   };
 }
 
-// ── the stitched world ─────────────────────────────────────────────────────────
-// One seamless coordinate space: a plus-shaped grid of biome regions, each grown
-// by the same automaton with its own seed, stitched into a single tilemap with
-// natural openings carved between neighbours (no gates — you walk across).
-// `generateWorld` is deterministic; `bin/generate-world` runs it once and commits
-// the result (shared/world-map.ts), so the world is data that can be hand-edited.
+// ── the continent ──────────────────────────────────────────────────────────────
+// One seamless landmass, grown like terrain rather than assembled from blocks:
+// an irregular continent mask, organic warped-Voronoi regions around hand-laid
+// capitals, ONE global cave automaton whose density varies per region (so
+// borders blend, no seams), deep-water rivers crossable at fords, and a real
+// town around the spawn. `generateWorld` is deterministic; `bin/generate-world`
+// commits the result (tiles + per-tile region grid) to shared/world-map.ts.
 
 export interface WorldRegion {
   slug: string;
   name: string;
   biome: BiomeId;
-  /** Grid cell (plus-shaped layout) and derived world-tile origin. */
-  gx: number;
-  gy: number;
-  seed: number;
+  /** The region's capital: the warped-Voronoi seed point in world tiles. */
+  x: number;
+  y: number;
 }
 
-export const REGION_W = 64;
-export const REGION_H = 44;
+export const WORLD_W = 224;
+export const WORLD_H = 208;
 
 export const WORLD_REGIONS: readonly WorldRegion[] = [
-  { slug: "hog-town", name: "Hog Town", biome: "cave", gx: 1, gy: 2, seed: 0x70660001 },
-  { slug: "glowvault", name: "Glowvault", biome: "glowvault", gx: 1, gy: 1, seed: 0x70668071 },
-  { slug: "starwell", name: "Starwell", biome: "starwell", gx: 1, gy: 0, seed: 0x70668061 },
-  { slug: "mossglen", name: "Mossglen", biome: "mossglen", gx: 1, gy: 3, seed: 0x70668091 },
-  { slug: "boneyard", name: "Boneyard", biome: "boneyard", gx: 1, gy: 4, seed: 0x706680a1 },
-  { slug: "frosthollow", name: "Frosthollow", biome: "frosthollow", gx: 0, gy: 2, seed: 0x70667081 },
-  { slug: "shadowdeep", name: "Shadowdeep", biome: "shadowdeep", gx: 0, gy: 1, seed: 0x70667071 },
-  { slug: "floodways", name: "Floodways", biome: "floodways", gx: 0, gy: 3, seed: 0x70667091 },
-  { slug: "rustgallery", name: "Rust Gallery", biome: "rustgallery", gx: 2, gy: 2, seed: 0x70669081 },
-  { slug: "emberrift", name: "Emberrift", biome: "emberrift", gx: 2, gy: 1, seed: 0x70669071 },
-  { slug: "dustworks", name: "Dustworks", biome: "dustworks", gx: 2, gy: 3, seed: 0x70669091 },
+  { slug: "hog-town", name: "Hog Town", biome: "cave", x: 112, y: 104 },
+  { slug: "glowvault", name: "Glowvault", biome: "glowvault", x: 88, y: 62 },
+  { slug: "starwell", name: "Starwell", biome: "starwell", x: 138, y: 34 },
+  { slug: "mossglen", name: "Mossglen", biome: "mossglen", x: 128, y: 148 },
+  { slug: "boneyard", name: "Boneyard", biome: "boneyard", x: 90, y: 178 },
+  { slug: "frosthollow", name: "Frosthollow", biome: "frosthollow", x: 48, y: 66 },
+  { slug: "shadowdeep", name: "Shadowdeep", biome: "shadowdeep", x: 42, y: 130 },
+  { slug: "floodways", name: "Floodways", biome: "floodways", x: 160, y: 176 },
+  { slug: "rustgallery", name: "Rust Gallery", biome: "rustgallery", x: 184, y: 104 },
+  { slug: "emberrift", name: "Emberrift", biome: "emberrift", x: 176, y: 56 },
+  { slug: "dustworks", name: "Dustworks", biome: "dustworks", x: 66, y: 174 },
 ];
 
-export const WORLD_W = 3 * REGION_W;
-export const WORLD_H = 5 * REGION_H;
+/** Region index → the single character it packs to in the committed grid. */
+const REGION_CHARS = "abcdefghijk";
 
-/** The region covering a world tile, or undefined in the void outside the plus. */
+let regionRows: readonly string[] | undefined;
+
+/** Wire the committed per-tile region grid (world-map.ts) into `regionAt`. */
+export function setRegionRows(rows: readonly string[]): void {
+  regionRows = rows;
+}
+
+/** The region owning a world tile, from the committed grid; undefined in the void. */
 export function regionAt(x: number, y: number): WorldRegion | undefined {
-  const gx = Math.floor(x / REGION_W);
-  const gy = Math.floor(y / REGION_H);
-  return WORLD_REGIONS.find((r) => r.gx === gx && r.gy === gy);
+  const char = regionRows?.[y]?.[x];
+  if (!char || char === ".") return undefined;
+  return WORLD_REGIONS[REGION_CHARS.indexOf(char)];
+}
+
+// deterministic value noise: a mulberry-hashed lattice, bilinearly interpolated
+function latticeNoise(seed: number): (x: number, y: number) => number {
+  const cell = (cx: number, cy: number): number => {
+    return mulberry32((seed ^ (cx * 0x9e3779b1) ^ (cy * 0x85ebca6b)) >>> 0)();
+  };
+  return (x: number, y: number) => {
+    const x0 = Math.floor(x);
+    const y0 = Math.floor(y);
+    const fx = x - x0;
+    const fy = y - y0;
+    const sx = fx * fx * (3 - 2 * fx);
+    const sy = fy * fy * (3 - 2 * fy);
+    const top = cell(x0, y0) * (1 - sx) + cell(x0 + 1, y0) * sx;
+    const bot = cell(x0, y0 + 1) * (1 - sx) + cell(x0 + 1, y0 + 1) * sx;
+    return top * (1 - sy) + bot * sy;
+  };
 }
 
 export interface GeneratedWorld {
   tiles: string[];
+  regions: string[];
   boulders: Coord[];
   hogs: Coord[];
   items: GroundItemSeed[];
@@ -307,157 +335,244 @@ export interface GeneratedWorld {
 }
 
 export function generateWorld(): GeneratedWorld {
-  const rock = new Uint8Array(WORLD_W * WORLD_H).fill(1);
-  const idx = (x: number, y: number) => y * WORLD_W + x;
-  const spawn = { x: WORLD_REGIONS[0]!.gx * REGION_W + REGION_W / 2, y: WORLD_REGIONS[0]!.gy * REGION_H + REGION_H / 2 };
+  const W = WORLD_W;
+  const H = WORLD_H;
+  const idx = (x: number, y: number) => y * W + x;
+  const spawn = { x: WORLD_REGIONS[0]!.x, y: WORLD_REGIONS[0]!.y };
 
-  // 1. grow each region's cave with its own automaton, offset into world space
-  for (const region of WORLD_REGIONS) {
-    const zone = generateCaveZone({
-      slug: region.slug,
-      name: region.name,
-      width: REGION_W,
-      height: REGION_H,
-      seed: region.seed,
-      boulders: 0,
-      hogs: 0,
-      biome: region.biome,
-    });
-    const ox = region.gx * REGION_W;
-    const oy = region.gy * REGION_H;
-    for (let y = 0; y < REGION_H; y++) {
-      for (let x = 0; x < REGION_W; x++) {
-        rock[idx(ox + x, oy + y)] = zone.tiles[y]![x] === WALL_TILE ? 1 : 0;
-      }
+  // 1. the continent: an irregular landmass, not a rectangle
+  const coast = latticeNoise(0x70663001);
+  const land = new Uint8Array(W * H);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const nx = (x - W / 2) / (W * 0.46);
+      const ny = (y - H / 2) / (H * 0.46);
+      const r = Math.hypot(nx, ny);
+      const wobble = (coast(x / 34, y / 34) - 0.5) * 0.9 + (coast(x / 11 + 90, y / 11) - 0.5) * 0.25;
+      if (r + wobble < 0.92) land[idx(x, y)] = 1;
     }
   }
 
-  // 2. carve natural openings between neighbouring regions: two 4-wide passages
-  //    per shared edge, tunnelled inward from the border until both sides open up
-  const carve = (x: number, y: number) => {
-    if (x > 0 && y > 0 && x < WORLD_W - 1 && y < WORLD_H - 1) rock[idx(x, y)] = 0;
-  };
-  const carveOpening = (borderX: number, borderY: number, axis: "x" | "y", rand: () => number) => {
-    for (const half of [-1, 1]) {
-      let x = borderX;
-      let y = borderY;
-      for (let depth = 0; depth < REGION_H; depth++) {
-        for (let w = -2; w <= 1; w++) {
-          if (axis === "x") carve(x + w, y);
-          else carve(x, y + w);
-        }
-        const ahead = axis === "x" ? { x, y: y + half } : { x: x + half, y };
-        if (!rock[idx(ahead.x, ahead.y)]) break;
-        if (axis === "x") y += half;
-        else x += half;
-        // wander a little so passages read carved, not drilled
-        if (rand() < 0.3) {
-          if (axis === "x") x += rand() < 0.5 ? -1 : 1;
-          else y += rand() < 0.5 ? -1 : 1;
+  // 2. organic regions: warped Voronoi around the capitals
+  const warpX = latticeNoise(0x70663002);
+  const warpY = latticeNoise(0x70663003);
+  const regionOf = new Int8Array(W * H).fill(-1);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      if (!land[idx(x, y)]) continue;
+      const wx = x + (warpX(x / 26, y / 26) - 0.5) * 34;
+      const wy = y + (warpY(x / 26, y / 26) - 0.5) * 34;
+      let bestRegion = 0;
+      let bestDist = Infinity;
+      for (let i = 0; i < WORLD_REGIONS.length; i++) {
+        const region = WORLD_REGIONS[i]!;
+        const dist = Math.hypot(wx - region.x, wy - region.y);
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestRegion = i;
         }
       }
-    }
-  };
-  const passRand = mulberry32(0x70660777);
-  for (const region of WORLD_REGIONS) {
-    for (const other of WORLD_REGIONS) {
-      if (other.gx === region.gx + 1 && other.gy === region.gy) {
-        const bx = other.gx * REGION_W;
-        const by = region.gy * REGION_H + Math.floor(REGION_H * (0.35 + passRand() * 0.3));
-        carveOpening(bx, by, "y", passRand);
-      }
-      if (other.gy === region.gy + 1 && other.gx === region.gx) {
-        const by = other.gy * REGION_H;
-        const bx = region.gx * REGION_W + Math.floor(REGION_W * (0.35 + passRand() * 0.3));
-        carveOpening(bx, by, "x", passRand);
-      }
+      regionOf[idx(x, y)] = bestRegion;
     }
   }
+  const paramsAt = (x: number, y: number): BiomeParams => {
+    const region = regionOf[idx(x, y)] ?? -1;
+    return BIOME_PARAMS[WORLD_REGIONS[region === -1 ? 0 : region]!.biome];
+  };
 
-  // 3. global connectivity: everything unreachable from spawn returns to rock
-  const reachable = new Uint8Array(WORLD_W * WORLD_H);
+  // 3. one global automaton, density varying by region — borders blend naturally
+  const fillRand = mulberry32(0x70663004);
+  let rock = new Uint8Array(W * H);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      if (!land[idx(x, y)]) {
+        rock[idx(x, y)] = 1;
+        continue;
+      }
+      rock[idx(x, y)] = fillRand() < paramsAt(x, y).fill ? 1 : 0;
+    }
+  }
+  for (let pass = 0; pass < SMOOTH_PASSES; pass++) {
+    const next = new Uint8Array(rock);
+    for (let y = 1; y < H - 1; y++) {
+      for (let x = 1; x < W - 1; x++) {
+        if (!land[idx(x, y)]) continue;
+        let n = 0;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) n += rock[idx(x + dx, y + dy)]!;
+        next[idx(x, y)] = n >= 5 ? 1 : 0;
+      }
+    }
+    rock = next;
+  }
+
+  // 4. rivers: deep water winding across the continent, crossable at fords
+  const water = new Uint8Array(W * H); // 1 deep, 2 ford
+  const riverRand = mulberry32(0x70663005);
+  const town = WORLD_REGIONS[0]!;
+  const carveRiver = (from: Coord, to: Coord) => {
+    let x = from.x;
+    let y = from.y;
+    let sinceFord = 12;
+    for (let step = 0; step < W + H; step++) {
+      const ford = sinceFord >= 26;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const px = x + dx;
+          const py = y + dy;
+          if (px < 1 || py < 1 || px >= W - 1 || py >= H - 1 || !land[idx(px, py)]) continue;
+          water[idx(px, py)] = ford ? 2 : Math.max(water[idx(px, py)]!, 1);
+          if (ford) rock[idx(px, py)] = 0; // a ford's approach is always open
+        }
+      }
+      sinceFord = ford ? 0 : sinceFord + 1;
+      if (Math.abs(x - to.x) + Math.abs(y - to.y) < 3) break;
+      // wander toward the far bank, repelled from the town plaza
+      const bias = riverRand();
+      let stepX = bias < 0.62 ? Math.sign(to.x - x) : bias < 0.81 ? 1 : -1;
+      let stepY = riverRand() < 0.62 ? Math.sign(to.y - y) : riverRand() < 0.5 ? 1 : -1;
+      if (Math.hypot(x - town.x, y - town.y) < 18) {
+        stepX = Math.sign(x - town.x) || 1;
+        stepY = Math.sign(y - town.y) || 1;
+      }
+      x = Math.max(1, Math.min(W - 2, x + stepX));
+      y = Math.max(1, Math.min(H - 2, y + stepY));
+    }
+  };
+  carveRiver({ x: 8, y: 58 }, { x: W - 8, y: 148 });
+  carveRiver({ x: 150, y: 8 }, { x: 96, y: H - 8 });
+
+  // 5. the town: a cleared plaza ringed by stone huts
+  const plaza = 5;
+  for (let dy = -plaza - 7; dy <= plaza + 7; dy++) {
+    for (let dx = -plaza - 7; dx <= plaza + 7; dx++) {
+      const d = Math.hypot(dx, dy);
+      const x = town.x + dx;
+      const y = town.y + dy;
+      if (d <= plaza + 7) water[idx(x, y)] = 0; // no river through town
+      if (d <= plaza) rock[idx(x, y)] = 0;
+    }
+  }
+  const hutRand = mulberry32(0x70663006);
+  const huts = 6;
+  for (let i = 0; i < huts; i++) {
+    const angle = (i / huts) * Math.PI * 2 + hutRand() * 0.5;
+    const hx = Math.round(town.x + Math.cos(angle) * (plaza + 5));
+    const hy = Math.round(town.y + Math.sin(angle) * (plaza + 5));
+    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) rock[idx(hx + dx, hy + dy)] = 0;
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (dx !== 0 || dy !== 0) rock[idx(hx + dx, hy + dy)] = 1;
+      }
+    }
+    // the doorway faces the plaza
+    const doorX = Math.abs(Math.cos(angle)) >= Math.abs(Math.sin(angle)) ? -Math.sign(Math.cos(angle)) : 0;
+    const doorY = doorX === 0 ? -Math.sign(Math.sin(angle)) : 0;
+    rock[idx(hx + doorX, hy + doorY)] = 0;
+    rock[idx(hx, hy)] = 0;
+  }
+
+  // 6. connectivity: everything a trogg can't reach from spawn returns to rock
+  const walkableNow = (x: number, y: number) => !rock[idx(x, y)] && water[idx(x, y)] !== 1;
+  const reachable = new Uint8Array(W * H);
   const queue = [idx(spawn.x, spawn.y)];
   rock[idx(spawn.x, spawn.y)] = 0;
+  water[idx(spawn.x, spawn.y)] = 0;
   reachable[idx(spawn.x, spawn.y)] = 1;
   while (queue.length > 0) {
     const at = queue.pop()!;
-    const x = at % WORLD_W;
-    const y = (at - x) / WORLD_W;
+    const x = at % W;
+    const y = (at - x) / W;
     for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
       const nx = x + dx;
       const ny = y + dy;
-      if (nx < 0 || ny < 0 || nx >= WORLD_W || ny >= WORLD_H) continue;
+      if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
       const ni = idx(nx, ny);
-      if (rock[ni] || reachable[ni]) continue;
+      if (!walkableNow(nx, ny) || reachable[ni]) continue;
       reachable[ni] = 1;
       queue.push(ni);
     }
   }
-  for (let i = 0; i < rock.length; i++) if (!rock[i] && !reachable[i]) rock[i] = 1;
+  for (let i = 0; i < rock.length; i++) {
+    if (!rock[i] && water[i] !== 1 && !reachable[i]) rock[i] = 1;
+  }
 
-  // 4. dress each region's floor with its biome mix
+  // 7. dress the floor per region
   const glyphs: string[][] = [];
-  for (let y = 0; y < WORLD_H; y++) glyphs.push(new Array(WORLD_W).fill(WALL_TILE));
+  const regionGrid: string[][] = [];
+  const decorRand = mulberry32(0x70663007);
   const wallNeighbours = (x: number, y: number): number => {
     let n = 0;
     for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) n += rock[idx(x + dx, y + dy)] ?? 1;
     return n;
   };
-  for (const region of WORLD_REGIONS) {
-    const params = BIOME_PARAMS[region.biome];
-    const rand = mulberry32(region.seed ^ 0x5eed);
-    const ox = region.gx * REGION_W;
-    const oy = region.gy * REGION_H;
-    for (let y = 0; y < REGION_H; y++) {
-      for (let x = 0; x < REGION_W; x++) {
-        const wx = ox + x;
-        const wy = oy + y;
-        if (rock[idx(wx, wy)]) continue;
-        const nearRock = wallNeighbours(wx, wy);
-        const roll = rand();
-        if (nearRock >= 3 && roll < params.moss) glyphs[wy]![wx] = MOSS_TILE;
-        else if (nearRock >= 2 && roll < params.gravel) glyphs[wy]![wx] = GRAVEL_TILE;
-        else if (nearRock === 0 && roll < params.glow) glyphs[wy]![wx] = GLOWMOSS_TILE;
-        else glyphs[wy]![wx] = ".";
+  for (let y = 0; y < H; y++) {
+    const row: string[] = [];
+    const regionRow: string[] = [];
+    for (let x = 0; x < W; x++) {
+      const region = regionOf[idx(x, y)] ?? -1;
+      regionRow.push(region === -1 ? "." : REGION_CHARS[region]!);
+      if (water[idx(x, y)] === 1 && !rock[idx(x, y)]) {
+        row.push(DEEP_WATER_TILE);
+        continue;
       }
+      if (rock[idx(x, y)]) {
+        row.push(WALL_TILE);
+        continue;
+      }
+      if (water[idx(x, y)] === 2) {
+        row.push(WATER_TILE); // the ford: wadeable shallows
+        continue;
+      }
+      const params = paramsAt(x, y);
+      const nearRock = wallNeighbours(x, y);
+      const roll = decorRand();
+      if (nearRock >= 3 && roll < params.moss) row.push(MOSS_TILE);
+      else if (nearRock >= 2 && roll < params.gravel) row.push(GRAVEL_TILE);
+      else if (nearRock === 0 && roll < params.glow) row.push(GLOWMOSS_TILE);
+      else row.push(".");
     }
-    for (let pool = 0; pool < params.pools; pool++) {
-      let x = ox + 1 + Math.floor(rand() * (REGION_W - 2));
-      let y = oy + 1 + Math.floor(rand() * (REGION_H - 2));
-      for (let step = 0; step < 6; step++) {
-        if (!rock[idx(x, y)] && Math.abs(x - spawn.x) + Math.abs(y - spawn.y) > 6) glyphs[y]![x] = WATER_TILE;
-        x = Math.max(1, Math.min(WORLD_W - 2, x + Math.floor(rand() * 3) - 1));
-        y = Math.max(1, Math.min(WORLD_H - 2, y + Math.floor(rand() * 3) - 1));
-      }
+    glyphs.push(row);
+    regionGrid.push(regionRow);
+  }
+  // gravel dresses the town plaza
+  for (let dy = -plaza; dy <= plaza; dy++) {
+    for (let dx = -plaza; dx <= plaza; dx++) {
+      if (Math.hypot(dx, dy) <= plaza && glyphs[town.y + dy]![town.x + dx] === ".") glyphs[town.y + dy]![town.x + dx] = GRAVEL_TILE;
     }
   }
 
-  // 5. seed the dynamics per region; starter tools and the giants stay in Hog Town
+  // 8. seed the dynamics per region
   const taken = new Set<string>();
+  const seedRand = mulberry32(0x70663008);
   const boulders: Coord[] = [];
   const hogs: Coord[] = [];
-  const seedRand = mulberry32(0x70660bbb);
-  const openTileIn = (region: WorldRegion, minSpawnDist: number, fits?: (x: number, y: number) => boolean): Coord | undefined => {
-    const ox = region.gx * REGION_W;
-    const oy = region.gy * REGION_H;
-    for (let attempt = 0; attempt < 3000; attempt++) {
-      const x = ox + 1 + Math.floor(seedRand() * (REGION_W - 2));
-      const y = oy + 1 + Math.floor(seedRand() * (REGION_H - 2));
-      if (rock[idx(x, y)] || taken.has(`${x},${y}`)) continue;
-      if (Math.abs(x - spawn.x) + Math.abs(y - spawn.y) < minSpawnDist) continue;
-      if (fits && !fits(x, y)) continue;
-      taken.add(`${x},${y}`);
-      return { x, y };
+  const openTiles: Coord[][] = WORLD_REGIONS.map(() => []);
+  for (let y = 1; y < H - 1; y++) {
+    for (let x = 1; x < W - 1; x++) {
+      const region = regionOf[idx(x, y)] ?? -1;
+      if (region === -1 || rock[idx(x, y)] || water[idx(x, y)] === 1) continue;
+      if (Math.abs(x - spawn.x) + Math.abs(y - spawn.y) < 8) continue;
+      openTiles[region]!.push({ x, y });
+    }
+  }
+  const drawFrom = (region: number): Coord | undefined => {
+    const pool = openTiles[region]!;
+    for (let attempt = 0; attempt < 60; attempt++) {
+      const tile = pool[Math.floor(seedRand() * pool.length)];
+      if (tile && !taken.has(`${tile.x},${tile.y}`)) {
+        taken.add(`${tile.x},${tile.y}`);
+        return tile;
+      }
     }
     return undefined;
   };
-  for (const region of WORLD_REGIONS) {
-    for (let i = 0; i < 14; i++) {
-      const tile = openTileIn(region, 5);
+  for (let region = 0; region < WORLD_REGIONS.length; region++) {
+    for (let i = 0; i < 12; i++) {
+      const tile = drawFrom(region);
       if (tile) boulders.push(tile);
     }
-    for (let i = 0; i < 12; i++) {
-      const tile = openTileIn(region, 6);
+    for (let i = 0; i < 10; i++) {
+      const tile = drawFrom(region);
       if (tile) hogs.push(tile);
     }
   }
@@ -466,21 +581,23 @@ export function generateWorld(): GeneratedWorld {
     taken.add(`${tile.x},${tile.y}`);
     return { item, ...tile };
   });
-  const hogTown = WORLD_REGIONS[0]!;
-  const giantFits = (x: number, y: number): boolean => {
+  const bigHogs: BigHog[] = [];
+  const giantFits = (tile: Coord): boolean => {
     for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) {
-      if (rock[idx(x + dx, y + dy)] !== 0 || taken.has(`${x + dx},${y + dy}`)) return false;
+      if (rock[idx(tile.x + dx, tile.y + dy)] !== 0 || water[idx(tile.x + dx, tile.y + dy)] === 1 || taken.has(`${tile.x + dx},${tile.y + dy}`)) return false;
     }
     return true;
   };
-  const bigHogs: BigHog[] = [];
   for (const style of ["buff", "dino"] as const) {
-    const tile = openTileIn(hogTown, 10, giantFits);
-    if (tile) {
-      for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) taken.add(`${tile.x + dx},${tile.y + dy}`);
-      bigHogs.push({ ...tile, style });
+    for (let attempt = 0; attempt < 400; attempt++) {
+      const tile = openTiles[0]![Math.floor(seedRand() * openTiles[0]!.length)];
+      if (tile && giantFits(tile)) {
+        for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) taken.add(`${tile.x + dx},${tile.y + dy}`);
+        bigHogs.push({ ...tile, style });
+        break;
+      }
     }
   }
 
-  return { tiles: glyphs.map((row) => row.join("")), boulders, hogs, items, bigHogs, spawn };
+  return { tiles: glyphs.map((row) => row.join("")), regions: regionGrid.map((row) => row.join("")), boulders, hogs, items, bigHogs, spawn };
 }

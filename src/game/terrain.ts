@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { GLOWMOSS_TILE, GRAVEL_TILE, MOSS_TILE, regionAt, WALL_TILE, WATER_TILE, type Zone } from "@trogg/shared";
+import { DEEP_WATER_TILE, GLOWMOSS_TILE, GRAVEL_TILE, MOSS_TILE, regionAt, WALL_TILE, WATER_TILE, type Zone } from "@trogg/shared";
 import { biomePalette } from "./palette.js";
 
 /**
@@ -46,6 +46,7 @@ export function buildTerrain(zone: Zone): Terrain3D {
         [MOSS_TILE]: mossPatch(pal),
         [WATER_TILE]: waterPatch(pal),
         [GLOWMOSS_TILE]: glowmossPatch(pal),
+        [DEEP_WATER_TILE]: deepWaterPatch(pal),
       };
       patchCache.set(biome, entry);
     }
@@ -384,6 +385,24 @@ function waterPatch(pal: ReturnType<typeof biomePalette>): HTMLCanvasElement {
 }
 
 /** Glowmoss: sparse bioluminescent specks with a dim halo, mostly transparent. */
+/** The river: deep water too dark to wade — near-opaque, sparse slow ripples. */
+function deepWaterPatch(pal: ReturnType<typeof biomePalette>): HTMLCanvasElement {
+  const size = ART * PATCH;
+  const rand = rng(0x2f6fae);
+  const W = pal.water;
+  return pixelCanvas(size, size, (set) => {
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) set(x, y, rand() < 0.16 ? W.base : W.deep, 0xfa);
+    }
+    for (let k = 0; k < 26; k++) {
+      const x = Math.floor(rand() * size);
+      const y = Math.floor(rand() * size);
+      const len = 2 + Math.floor(rand() * 3);
+      for (let s = 0; s < len; s++) set(x + s, y, W.ripple, 0x70);
+    }
+  });
+}
+
 function glowmossPatch(pal: ReturnType<typeof biomePalette>): HTMLCanvasElement {
   const size = ART * PATCH;
   const rand = rng(0x33d6c0);

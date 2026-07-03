@@ -7,6 +7,7 @@ import {
   isGeneratedName,
   isValidName,
   isWalkable,
+  SOLID_GLYPHS,
   STARTING_ZONE_SLUG,
   TILE_GLYPHS,
   WALL_TILE,
@@ -52,11 +53,11 @@ test("every zone's tilemap matches its declared dimensions", () => {
   assert.doesNotThrow(assertZones);
 });
 
-test("only the wall glyph is unwalkable; decorative floor glyphs stay walkable", () => {
+test("only the solid glyphs (rock, deep water) are unwalkable", () => {
   const zone = getZone(STARTING_ZONE_SLUG)!;
   for (const [y, row] of zone.tiles.entries()) {
     for (let x = 0; x < row.length; x++) {
-      assert.equal(isWalkable(zone, x, y), row[x] !== WALL_TILE, `tile (${x}, ${y}) glyph ${row[x]}`);
+      assert.equal(isWalkable(zone, x, y), !SOLID_GLYPHS.has(row[x]!), `tile (${x}, ${y}) glyph ${row[x]}`);
     }
   }
 });

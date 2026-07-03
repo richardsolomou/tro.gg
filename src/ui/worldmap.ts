@@ -1,4 +1,4 @@
-import { REGION_H, REGION_W, regionAt, WORLD_REGIONS, type Zone } from "@trogg/shared";
+import { regionAt, WORLD_REGIONS, type Zone } from "@trogg/shared";
 import { biomePalette } from "../game/palette.js";
 import { hudRoot } from "./hud.js";
 import { registerKeybind } from "./keybinds.js";
@@ -32,11 +32,13 @@ function paintMap(zone: Zone): HTMLCanvasElement {
       const pal = biomePalette(region.biome);
       let open = 0;
       let water = false;
+      let deep = false;
       let glow = false;
       for (let dy = 0; dy < CELL; dy++) {
         for (let dx = 0; dx < CELL; dx++) {
           const glyph = zone.tiles[y0 + dy]?.[x0 + dx];
-          if (glyph === undefined || glyph === "#") continue;
+          if (glyph === "=") deep = true;
+          if (glyph === undefined || glyph === "#" || glyph === "=") continue;
           open++;
           if (glyph === "~") water = true;
           if (glyph === "*") glow = true;
@@ -44,7 +46,11 @@ function paintMap(zone: Zone): HTMLCanvasElement {
       }
       ctx.fillStyle = open >= CELL ? css(pal.floor.base) : css(darker(pal.wall.face));
       ctx.fillRect(cx * PX, cy * PX, PX, PX);
-      if (water) {
+      if (deep) {
+        // rivers read as rivers: deep water paints over everything in the cell
+        ctx.fillStyle = css(pal.water.deep);
+        ctx.fillRect(cx * PX, cy * PX, PX, PX);
+      } else if (water) {
         ctx.fillStyle = css(pal.water.base);
         ctx.fillRect(cx * PX + 1, cy * PX + 1, PX - 2, PX - 2);
       } else if (glow) {
@@ -56,12 +62,12 @@ function paintMap(zone: Zone): HTMLCanvasElement {
     }
   }
 
-  // region names over their cells
+  // region names at their capitals
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   for (const region of WORLD_REGIONS) {
-    const x = ((region.gx * REGION_W + REGION_W / 2) / CELL) * PX;
-    const y = ((region.gy * REGION_H + REGION_H / 2) / CELL) * PX;
+    const x = (region.x / CELL) * PX;
+    const y = (region.y / CELL) * PX;
     ctx.font = '700 15px "Baloo 2", "Trebuchet MS", system-ui, sans-serif';
     ctx.fillStyle = "rgba(10, 8, 6, 0.65)";
     ctx.fillText(region.name, x + 1, y + 1);
