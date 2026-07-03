@@ -81,8 +81,26 @@ export function makeBubble(text: string): Overlay {
   const px = Math.round(worldH * CRISP * 0.62);
   const measure = document.createElement("canvas").getContext("2d")!;
   measure.font = `${px}px ${FONT}`;
-  const words = text.split(/\s+/);
   const maxW = px * 14;
+  // split into words, breaking any single word too wide for the bubble (pasted
+  // walls of characters have no spaces to wrap at)
+  const words: string[] = [];
+  for (const word of text.split(/\s+/)) {
+    if (measure.measureText(word).width <= maxW) {
+      words.push(word);
+      continue;
+    }
+    let chunk = "";
+    for (const char of word) {
+      if (measure.measureText(chunk + char).width > maxW) {
+        words.push(chunk);
+        chunk = char;
+      } else {
+        chunk += char;
+      }
+    }
+    if (chunk) words.push(chunk);
+  }
   const lines: string[] = [];
   let line = "";
   for (const word of words) {

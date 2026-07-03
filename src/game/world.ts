@@ -183,6 +183,27 @@ export class World3D {
 
   private keyLight!: THREE.DirectionalLight;
   private hemi!: THREE.HemisphereLight;
+  private sun!: THREE.Sprite;
+  private moon!: THREE.Sprite;
+
+  /** A glowing disc billboard for the sun and moon. */
+  private static skyBody(colour: string, size: number): THREE.Sprite {
+    const canvas = document.createElement("canvas");
+    canvas.width = 128;
+    canvas.height = 128;
+    const ctx = canvas.getContext("2d")!;
+    const glow = ctx.createRadialGradient(64, 64, 8, 64, 64, 64);
+    glow.addColorStop(0, colour);
+    glow.addColorStop(0.35, colour);
+    glow.addColorStop(1, "rgba(255, 255, 255, 0)");
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, 128, 128);
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, fog: false, depthWrite: false }));
+    sprite.scale.setScalar(size);
+    return sprite;
+  }
   private readonly skyDay = new THREE.Color(DAYLIGHT_3D.sky);
   private readonly skyNight = new THREE.Color(0x0d1424);
   private readonly hazeDay = new THREE.Color(DAYLIGHT_3D.haze);
@@ -204,6 +225,11 @@ export class World3D {
     this.keyLight.target.position.set(fx, 0, fz);
     this.keyLight.intensity = 3.2 * daylight;
     this.hemi.intensity = 0.3 + 1.2 * daylight;
+    // the sun you can actually look up at, and the moon opposite it
+    this.sun.position.set(fx + Math.cos(sunAngle) * 85, Math.max(-20, elevation * 70), fz + Math.sin(sunAngle) * 40 + 8);
+    this.sun.visible = elevation > -0.08;
+    this.moon.position.set(fx - Math.cos(sunAngle) * 85, Math.max(-20, -elevation * 70), fz - Math.sin(sunAngle) * 40 + 8);
+    this.moon.visible = elevation < 0.08;
     (this.scene.background as THREE.Color).lerpColors(this.skyNight, this.skyDay, daylight);
     (this.scene.fog as THREE.Fog).color.lerpColors(this.hazeNight, this.hazeDay, daylight);
   }
@@ -281,6 +307,9 @@ export class World3D {
     key.shadow.camera.bottom = -56;
     this.scene.add(key, key.target);
     this.keyLight = key;
+    this.sun = World3D.skyBody("rgba(255, 236, 190, 1)", 16);
+    this.moon = World3D.skyBody("rgba(214, 226, 248, 0.85)", 9);
+    this.scene.add(this.sun, this.moon);
 
     this.terrain = buildTerrain(this.zone);
     this.scene.add(this.terrain.group);
@@ -558,7 +587,7 @@ export class World3D {
     this.orbit.minDistance = 6;
     this.orbit.maxDistance = 34; // zoom is capped; the M map is the wide view
     this.orbit.minPolarAngle = 0.25; // not dead top-down…
-    this.orbit.maxPolarAngle = 1.35; // …and never under the floor
+    this.orbit.maxPolarAngle = 1.52; // …nearly horizontal, so the sky and sun are in frame
     this.orbit.enabled = !this.firstPerson;
     this.orbit.update();
   };
