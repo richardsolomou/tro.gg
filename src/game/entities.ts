@@ -132,17 +132,20 @@ function setGait(model: CreatureModel, state: { gait: Gait }, next: Gait, armsHe
 }
 
 /** Fade a model's whole body to the downed translucency (or back). */
-function setDowned(model: CreatureModel, downed: boolean): void {
+export function setDowned(model: CreatureModel, downed: boolean): void {
   for (const m of model.materials) {
     m.transparent = downed;
     m.opacity = downed ? 0.45 : 1;
   }
 }
 
-/** Lay a creature flat on the ground — the dead stance. The pose holds because
- *  dead creatures skip their per-frame drive (no steer, no gait). */
-function poseDead(model: CreatureModel, centre: number, lift: number): void {
-  model.root.rotation.x = -Math.PI / 2;
+/** Lay a creature on its side — the dead stance. Tipping about the roll axis
+ *  works with the rig's rest pose (legs stay in the body plane instead of
+ *  dangling), so every creature reads as keeled over. The pose holds because
+ *  dead creatures skip their per-frame drive (no steer, no gait). Shared with
+ *  the dev preview's "dead" mode, so the stance is authored once. */
+export function poseDead(model: CreatureModel, centre: number, lift: number): void {
+  model.root.rotation.z = Math.PI / 2;
   model.root.position.set(centre, lift, centre);
 }
 
@@ -274,7 +277,7 @@ export function createEntities(scene: THREE.Scene) {
     model.actions.idle.arms.play();
     if (dead) {
       setDowned(model, true);
-      poseDead(model, 0.5, 0.3);
+      poseDead(model, 0.5, 0.24);
     }
 
     const overlays: Overlay[] = [];
@@ -417,7 +420,7 @@ export function createEntities(scene: THREE.Scene) {
     marker.add(model.root);
     model.actions.idle.legs.play();
     model.actions.idle.arms.play();
-    if (dead) poseDead(model, c, 0.28 * size);
+    if (dead) poseDead(model, c, 0.2 * size);
     if (!dead) addHitbox(marker, hitRing(HOG_HIT_RADIUS * size, 0x6fdc9c), c);
     const overlays: Overlay[] = [];
     const max = hogMaxHealth(style);

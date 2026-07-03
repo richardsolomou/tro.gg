@@ -5,7 +5,7 @@ import { COMMON_HOG_STYLES, HOG_STYLES, hogSize, TROGG_STYLES, wieldOf, type Kin
 import { buildHog, buildHogBall, buildTrogg } from "../game/creatures.js";
 import { buildHeldItem, hasItem3D, updateHeldFx, wireHeldFx, type HeldFx } from "../game/items.js";
 import { hogIcon, itemIcon, troggIcon } from "../game/icons.js";
-import { applyFlinch, disposeObject, FLINCH_MS } from "../game/entities.js";
+import { applyFlinch, disposeObject, FLINCH_MS, poseDead, setDowned } from "../game/entities.js";
 import { type CreatureModel } from "../game/rig.js";
 
 /**
@@ -28,7 +28,7 @@ const CREATURES: CreatureChoice[] = [
   ...HOG_STYLES.map((style) => ({ kind: "hog" as Kind, style })),
 ];
 const ITEM_CHOICES = ["none", "pickaxe", "shovel", "axe", "sword", "shield", "torch", "stone", "wood"] as const;
-const MODES = ["idle", "walk", "run", "attack", "hit", "ball"] as const;
+const MODES = ["idle", "walk", "run", "attack", "hit", "dead", "ball"] as const;
 type Mode = (typeof MODES)[number];
 /** How often the hit flinch replays in `hit` mode. */
 const HIT_LOOP_MS = 900;
@@ -221,9 +221,10 @@ function rebuild(): void {
   flinchView.flashOn = false;
   flinchView.flinchBaseMs = undefined;
 
-  // held items ride the rig's hand nodes, exactly like the game
+  // held items ride the rig's hand nodes, exactly like the game (a corpse is
+  // empty-handed — death drops everything)
   for (const [id, hand, arm] of [[state.item, model.handR, "ArmR"], [state.off, model.handL, "ArmL"]] as const) {
-    if (id === "none") continue;
+    if (id === "none" || state.mode === "dead") continue;
     const m = buildHeldItem(id);
     if (!m) continue;
     m.scale.setScalar(model.fit);
@@ -235,6 +236,13 @@ function rebuild(): void {
   for (const action of clip?.actions ?? []) {
     action.setLoop(THREE.LoopRepeat, Infinity);
     action.reset().play();
+  }
+
+  // The in-game dead stance, verbatim: flat on the ground, troggs also faded
+  // (Hog corpses stay opaque, like the game's). Frozen — the tick skips the mixer.
+  if (state.mode === "dead") {
+    poseDead(model, 0, state.creature.kind === "hog" ? 0.2 * scale : 0.24);
+    if (state.creature.kind === "trogg") setDowned(model, true);
   }
 
   // gold joint dots — the bones overlay, for checking joint placement
@@ -362,10 +370,10 @@ function mountControls(): void {
   // rig; the ball is one static pose (hogs only); the hit flinch runs on its own
   // cycle, so pause/scrub only apply to the clip modes.
   const holder = () => state.view !== "item";
-  const clipMode = () => holder() && state.mode !== "ball" && state.mode !== "hit";
+  const clipMode = () => holder() && state.mode !== "ball" && state.mode !== "hit" && state.mode !== "dead";
   showWhen(creatureG, holder);
-  showWhen(offG, () => holder() && state.mode !== "ball");
-  showWhen(mainG, () => state.view === "item" || state.mode !== "ball");
+  showWhen(offG, () => holder() && state.mode !== "ball" && state.mode !== "dead");
+  showWhen(mainG, () => state.view === "item" || (state.mode !== "ball" && state.mode !== "dead"));
   showWhen(animG, holder);
   showWhen(ballBtn, () => state.creature.kind === "hog");
   showWhen(pauseBtn, clipMode);
@@ -399,7 +407,7 @@ function tick(): void {
       }
       applyFlinch(flinchView, now, 0);
       model.mixer.update(state.paused ? 0 : dt);
-    } else if (state.mode !== "ball") {
+    } else if (state.mode !== "ball" && state.mode !== "dead") {
       const clip = currentClip();
       if (clip && state.paused) {
         for (const action of clip.actions) {
