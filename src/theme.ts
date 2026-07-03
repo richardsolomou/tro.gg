@@ -6,25 +6,28 @@
  */
 class GameTheme {
   private ctx?: AudioContext;
+  private armed = false;
   private started = false;
 
   start(): void {
-    if (this.started) return;
+    if (this.armed) return;
+    this.armed = true;
     const boot = () => {
       if (this.started) return;
       try {
-        this.ctx = new AudioContext();
-        if (this.ctx.state === "suspended") {
-          void this.ctx.resume();
-          if (this.ctx.state === "suspended") return; // retried by the next gesture
-        }
+        this.ctx ??= new AudioContext();
+      } catch {
+        return; // no WebAudio — the world just plays silent
+      }
+      // resume() resolves asynchronously — a synchronous state check right after
+      // still reads "suspended" even inside a real user gesture and never starts
+      void this.ctx.resume().then(() => {
+        if (this.started || this.ctx!.state !== "running") return;
         this.started = true;
-        this.compose(this.ctx);
+        this.compose(this.ctx!);
         window.removeEventListener("pointerdown", boot);
         window.removeEventListener("keydown", boot);
-      } catch {
-        // no WebAudio — the world just plays silent
-      }
+      }).catch(() => {});
     };
     window.addEventListener("pointerdown", boot);
     window.addEventListener("keydown", boot);
