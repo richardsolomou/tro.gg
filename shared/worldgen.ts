@@ -260,6 +260,110 @@ export function generateCaveZone(opts: CaveOptions): Zone {
   };
 }
 
+/**
+ * The instanced birth cave (GDD "Onboarding: the Warren"): ONE small, fully
+ * enclosed template every newborn gets a private copy of — rows are scoped by a
+ * per-player `birth:<identity>` zone id, the geometry is this shared, purely
+ * deterministic map. A sealed cell at the bottom (rubble rows plug the corridor
+ * at seeding), a glowmoss cavern to cross, and the exit light at the top where
+ * `E` emerges into the world. No other player can ever appear or reach in.
+ */
+export function generateBirthCave(): Zone {
+  const W = 26;
+  const H = 34;
+  const rand = mulberry32(0xb117);
+  const idx = (x: number, y: number) => y * W + x;
+  let rock = new Uint8Array(W * H);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const rim = x < 2 || x >= W - 2 || y < 2 || y >= H - 12;
+      rock[idx(x, y)] = rim || rand() < 0.34 ? 1 : 0;
+    }
+  }
+  for (let pass = 0; pass < 4; pass++) {
+    const next = new Uint8Array(rock);
+    for (let y = 2; y < H - 12; y++) {
+      for (let x = 2; x < W - 2; x++) {
+        let n = 0;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) n += rock[idx(x + dx, y + dy)] ?? 1;
+        next[idx(x, y)] = n >= 5 ? 1 : 0;
+      }
+    }
+    rock = next;
+  }
+  const cx = Math.floor(W / 2);
+  // the exit landing (top) and the cell mouth (bottom) always open, then keep
+  // one cavern: everything the exit can't reach returns to rock
+  for (let y = 2; y <= 4; y++) for (let x = cx - 1; x <= cx + 1; x++) rock[idx(x, y)] = 0;
+  const cellMouthY = H - 12;
+  for (let x = cx - 1; x <= cx + 1; x++) rock[idx(x, cellMouthY)] = 0;
+  const reach = new Uint8Array(W * H);
+  const queue = [idx(cx, 2)];
+  reach[idx(cx, 2)] = 1;
+  while (queue.length > 0) {
+    const at = queue.pop()!;
+    const x = at % W;
+    const y = (at - x) / W;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+      const ni = idx(x + dx, y + dy);
+      if (x + dx < 0 || y + dy < 0 || x + dx >= W || y + dy >= H) continue;
+      if (rock[ni] || reach[ni]) continue;
+      reach[ni] = 1;
+      queue.push(ni);
+    }
+  }
+  for (let i = 0; i < rock.length; i++) if (!rock[i] && !reach[i]) rock[i] = 1;
+
+  // The sealed birth cell below the cavern: a proper room (5×4 — the opening
+  // camera must fit a trogg AND its enclosure in frame), corridor up to the
+  // cell mouth.
+  const corridor: Coord[] = [];
+  for (let y = cellMouthY + 1; y <= cellMouthY + 4; y++) {
+    rock[idx(cx, y)] = 0;
+    corridor.push({ x: cx, y });
+  }
+  const cellTop = cellMouthY + 5;
+  for (let y = cellTop; y <= cellTop + 3; y++) for (let x = cx - 2; x <= cx + 2; x++) rock[idx(x, y)] = 0;
+
+  // dress: gravel floor, thick glowmoss — the only light down here
+  const glyphs: string[][] = [];
+  for (let y = 0; y < H; y++) {
+    const row: string[] = [];
+    for (let x = 0; x < W; x++) {
+      if (rock[idx(x, y)]) {
+        row.push(WALL_TILE);
+        continue;
+      }
+      const roll = rand();
+      if (roll < 0.1) row.push(GLOWMOSS_TILE);
+      else if (roll < 0.35) row.push(GRAVEL_TILE);
+      else if (roll < 0.5) row.push(MOSS_TILE);
+      else row.push(".");
+    }
+    glyphs.push(row);
+  }
+  glyphs[cellTop]![cx + 2] = GLOWMOSS_TILE; // dim lights to wake to
+  glyphs[cellTop + 3]![cx - 2] = GLOWMOSS_TILE;
+
+  return {
+    slug: "birthcave",
+    name: "The Old Dark",
+    width: W,
+    height: H,
+    biome: "shadowdeep",
+    exits: [],
+    spawn: { x: cx, y: cellTop + 2 },
+    exit: { x: cx, y: 3 },
+    tiles: glyphs.map((row) => row.join("")),
+    boulders: [],
+    trees: [],
+    hogs: [],
+    items: [],
+    bigHogs: [],
+    cells: [{ x: cx, y: cellTop + 2, corridor, pickaxe: { x: cx - 1, y: cellTop + 2 } }],
+  };
+}
+
 // ── the continent ──────────────────────────────────────────────────────────────
 // One seamless landmass, grown like terrain rather than assembled from blocks:
 // an irregular continent mask, organic warped-Voronoi regions around hand-laid
@@ -278,11 +382,7 @@ export interface WorldRegion {
 }
 
 export const WORLD_W = 224;
-/** Height of the sunlit continent; the map continues below it into Deephome. */
-export const WORLD_LAND_H = 208;
-/** Rows of the enclosed birth cave appended beneath the continent. */
-export const CAVE_H = 96;
-export const WORLD_H = WORLD_LAND_H + CAVE_H;
+export const WORLD_H = 208;
 
 export const WORLD_REGIONS: readonly WorldRegion[] = [
   { slug: "hog-town", name: "Hog Town", biome: "cave", x: 112, y: 104 },
@@ -296,14 +396,10 @@ export const WORLD_REGIONS: readonly WorldRegion[] = [
   { slug: "rustgallery", name: "Rust Gallery", biome: "rustgallery", x: 184, y: 104 },
   { slug: "emberrift", name: "Emberrift", biome: "emberrift", x: 176, y: 56 },
   { slug: "dustworks", name: "Dustworks", biome: "dustworks", x: 66, y: 174 },
-  // Deephome is not a Voronoi region: it is the enclosed birth cave appended
-  // beneath the continent (every row below WORLD_LAND_H), where troggs are born
-  // and dig for the light. The client renders it in permanent cave-dark.
-  { slug: "deephome", name: "Deephome", biome: "shadowdeep", x: 112, y: 256 },
 ];
 
 /** Region index → the single character it packs to in the committed grid. */
-const REGION_CHARS = "abcdefghijkl";
+const REGION_CHARS = "abcdefghijk";
 
 let regionRows: readonly string[] | undefined;
 
@@ -346,14 +442,14 @@ export interface GeneratedWorld {
   items: GroundItemSeed[];
   bigHogs: BigHog[];
   cells: BirthCellSeed[];
+  /** Where an emerging newborn lands: inside the coast's cave-mouth alcove. */
+  arrival: Coord;
   spawn: Coord;
 }
 
 export function generateWorld(): GeneratedWorld {
   const W = WORLD_W;
-  // Every continent stage runs at the LAND height, so appending Deephome below
-  // leaves the sunlit surface byte-identical.
-  const H = WORLD_LAND_H;
+  const H = WORLD_H;
   const idx = (x: number, y: number) => y * W + x;
   const spawn = { x: WORLD_REGIONS[0]!.x, y: WORLD_REGIONS[0]!.y };
 
@@ -630,146 +726,26 @@ export function generateWorld(): GeneratedWorld {
     }
   }
 
-  // 10. Deephome (GDD "Onboarding: the Warren"): the troggs' homeland — a
-  // massive, completely enclosed cavern appended beneath the continent. Born in
-  // sealed cells along its far (southern) wall, a trogg digs out, crosses the
-  // dark, and climbs the one exit passage into the light. The cave is part of
-  // the same seamless map (one zone, one subscription), but its own region —
-  // the client renders Deephome in permanent cave-dark.
-  const deepRand = mulberry32(0x7066300a);
-  const bandIdx = (x: number, yl: number) => yl * W + x;
-  let band = new Uint8Array(W * CAVE_H);
-  for (let yl = 0; yl < CAVE_H; yl++) {
-    for (let x = 0; x < W; x++) {
-      // the far (southern) rim stays thick: the birth cells carve into it
-      const rim = x < 3 || x >= W - 3 || yl < 4 || yl >= CAVE_H - 12;
-      band[bandIdx(x, yl)] = rim || deepRand() < 0.42 ? 1 : 0;
-    }
-  }
-  for (let pass = 0; pass < SMOOTH_PASSES; pass++) {
-    const next = new Uint8Array(band);
-    for (let yl = 4; yl < CAVE_H - 12; yl++) {
-      for (let x = 3; x < W - 3; x++) {
-        let n = 0;
-        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) n += band[bandIdx(x + dx, yl + dy)] ?? 1;
-        next[bandIdx(x, yl)] = n >= 5 ? 1 : 0;
-      }
-    }
-    band = next;
-  }
-
-  // The exit passage: from the surface's south coast straight down through the
-  // divider into the cavern — the one way out, walked (not dug), 3 tiles wide.
-  const EXIT_X = 112;
-  let surfaceMouth = -1;
+  // 10. the birth-cave mouth (GDD "Onboarding: the Warren"): newborns dig out
+  // of their own instanced cave and step into the world HERE — a small dead-end
+  // alcove burrowed into the south-coast rock, so every trogg's first steps
+  // walk out of a cave mouth. Carving only turns rock into floor.
+  const MOUTH_X = 112;
+  let mouthY = -1;
   for (let y = H - 2; y >= Math.floor(H * 0.6); y--) {
-    if (reachable[idx(EXIT_X, y)]) {
-      surfaceMouth = y;
+    if (reachable[idx(MOUTH_X, y)]) {
+      mouthY = y;
       break;
     }
   }
-  const tunnelTop = surfaceMouth + 1;
-  // carve the land-rows portion (a sunlit canyon up to the coast)…
-  for (let y = tunnelTop; y < H; y++) {
-    for (let x = EXIT_X - 1; x <= EXIT_X + 1; x++) glyphs[y]![x] = ".";
-  }
-  // …and the band portion until it opens into the cavern proper
-  for (let yl = 0; yl < CAVE_H - 8; yl++) {
-    let open = false;
-    for (let x = EXIT_X - 1; x <= EXIT_X + 1; x++) {
-      if (!band[bandIdx(x, yl + 1)]) open = true;
-      band[bandIdx(x, yl)] = 0;
-    }
-    if (open && yl >= 4) break;
-  }
-
-  // one cavern: everything the exit passage can't reach returns to rock
-  const bandReach = new Uint8Array(W * CAVE_H);
-  const bandQueue: number[] = [bandIdx(EXIT_X, 0)];
-  bandReach[bandIdx(EXIT_X, 0)] = 1;
-  while (bandQueue.length > 0) {
-    const at = bandQueue.pop()!;
-    const x = at % W;
-    const yl = (at - x) / W;
-    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
-      const nx = x + dx;
-      const nyl = yl + dy;
-      if (nx < 0 || nyl < 0 || nx >= W || nyl >= CAVE_H) continue;
-      const ni = bandIdx(nx, nyl);
-      if (band[ni] || bandReach[ni]) continue;
-      bandReach[ni] = 1;
-      bandQueue.push(ni);
+  const ARRIVAL_DEPTH = 5;
+  for (let y = mouthY + 1; y <= mouthY + ARRIVAL_DEPTH && y < H - 1; y++) {
+    for (let x = MOUTH_X - 1; x <= MOUTH_X + 1; x++) {
+      if (glyphs[y]![x] === WALL_TILE) glyphs[y]![x] = ".";
     }
   }
-  for (let i = 0; i < band.length; i++) if (!band[i] && !bandReach[i]) band[i] = 1;
-
-  // dress the cavern: glowmoss is the only light down here, so it grows thick
-  const bandRows: string[][] = [];
-  for (let yl = 0; yl < CAVE_H; yl++) {
-    const row: string[] = [];
-    for (let x = 0; x < W; x++) {
-      if (band[bandIdx(x, yl)]) {
-        row.push(WALL_TILE);
-        continue;
-      }
-      let nearRock = 0;
-      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) nearRock += band[bandIdx(x + dx, yl + dy)] ?? 1;
-      const roll = deepRand();
-      if (nearRock >= 3 && roll < 0.28) row.push(MOSS_TILE);
-      else if (nearRock >= 2 && roll < 0.5) row.push(GRAVEL_TILE);
-      else if (roll < 0.12) row.push(GLOWMOSS_TILE);
-      else row.push(".");
-    }
-    bandRows.push(row);
-  }
-
-  // birth cells along the cavern's far wall: sealed 3×3 rooms with a 4-tile
-  // corridor of open floor, plugged with rubble rows at assignment
-  const CELL_STRIDE = 5;
-  const CORRIDOR_LEN = 4;
+  const arrival: Coord = { x: MOUTH_X, y: Math.min(mouthY + ARRIVAL_DEPTH - 1, H - 2) };
   const cells: BirthCellSeed[] = [];
-  for (let c = 5; c <= W - 6; c += CELL_STRIDE) {
-    let mouth = -1;
-    for (let yl = CAVE_H - 4; yl >= Math.floor(CAVE_H * 0.4); yl--) {
-      if (!band[bandIdx(c, yl)] && bandReach[bandIdx(c, yl)]) {
-        mouth = yl;
-        break;
-      }
-    }
-    if (mouth < 0) continue;
-    const cellTop = mouth + 1 + CORRIDOR_LEN;
-    if (cellTop + 2 > CAVE_H - 2) continue;
-    let solidOk = true;
-    for (let yl = mouth + 1; yl <= cellTop + 3 && solidOk; yl++) {
-      for (let x = c - 2; x <= c + 2 && solidOk; x++) {
-        const inCorridor = yl < cellTop && x === c;
-        const inRoom = yl >= cellTop && yl <= cellTop + 2 && x >= c - 1 && x <= c + 1;
-        if (inCorridor || inRoom) {
-          if (bandRows[yl]![x] !== WALL_TILE) solidOk = false;
-        } else if (yl >= cellTop - 1 && bandRows[yl]?.[x] !== undefined && bandRows[yl]![x] !== WALL_TILE) {
-          solidOk = false;
-        }
-      }
-    }
-    if (!solidOk) continue;
-    const corridor: Coord[] = [];
-    for (let yl = mouth + 1; yl <= mouth + CORRIDOR_LEN; yl++) {
-      bandRows[yl]![c] = ".";
-      corridor.push({ x: c, y: H + yl });
-    }
-    for (let yl = cellTop; yl <= cellTop + 2; yl++) {
-      for (let x = c - 1; x <= c + 1; x++) bandRows[yl]![x] = ".";
-    }
-    bandRows[cellTop]![c + 1] = GLOWMOSS_TILE; // a dim light to wake to
-    cells.push({ x: c, y: H + cellTop + 1, corridor, pickaxe: { x: c - 1, y: H + cellTop + 1 } });
-  }
 
-  // append the band to the world: tiles and an all-Deephome region stripe
-  const deepChar = REGION_CHARS[WORLD_REGIONS.findIndex((r) => r.slug === "deephome")]!;
-  for (const row of bandRows) {
-    glyphs.push(row);
-    regionGrid.push(Array.from({ length: W }, () => deepChar));
-  }
-
-  return { tiles: glyphs.map((row) => row.join("")), regions: regionGrid.map((row) => row.join("")), boulders, trees, hogs, items, bigHogs, cells, spawn };
+  return { tiles: glyphs.map((row) => row.join("")), regions: regionGrid.map((row) => row.join("")), boulders, trees, hogs, items, bigHogs, cells, arrival, spawn };
 }

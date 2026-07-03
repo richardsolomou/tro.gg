@@ -10,8 +10,4 @@ import {
   type Infer as __Infer,
 } from "spacetimedb";
 
-export default __t.row({
-  id: __t.u32().primaryKey(),
-  occupant: __t.option(__t.identity()),
-  assignedAt: __t.timestamp().name("assigned_at"),
-});
+export default {};

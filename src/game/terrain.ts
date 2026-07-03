@@ -56,7 +56,8 @@ export function buildTerrain(zone: Zone): Terrain3D {
     }
     return entry;
   };
-  const tileBiome = (x: number, y: number): string => regionAt(x, y)?.biome ?? "cave";
+  // region palettes are the world map's; any other zone is one biome throughout
+  const tileBiome = (x: number, y: number): string => (zone.slug === "world" ? (regionAt(x, y)?.biome ?? "cave") : zone.biome);
 
   // The void beyond and beneath the world: one dim rock plane.
   const cavePal = biomePalette("cave");

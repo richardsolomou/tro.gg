@@ -2,7 +2,7 @@ import * as THREE from "three";
 import type { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { CLICK_SLOP_PX, createOrbit } from "./controls.js";
 import {
-  WORLD_LAND_H,
+  isBirthZone,
   isDryFloor,
   EQUIPMENT_ACTION_MS,
   CHAT_BUBBLE_MS,
@@ -124,6 +124,8 @@ export class World3D {
   private boulderField!: NodeField;
   /** Creatures beyond the full-rig budget render as moving silhouettes, not nothing. */
   private crowd!: FarCrowd;
+  /** The birth cave's exit beacon (sparkle + warm light), when this is one. */
+  private exitGlow?: THREE.Group;
   /** Cleared until the camera has snapped to the local trogg once (first snapshot). */
   private cameraSnapped = false;
   /** Whether the local trogg currently has the fly cheat on. */
@@ -223,14 +225,10 @@ export class World3D {
   /** The shared sky lock (`world_state` row): a pinned day phase for every
    *  client — the sky is shared fiction, so a scrub changes everyone's sun. */
   private dayPhaseOverride?: number;
-  /** Set while the local trogg has never left Deephome; cleared (and the
-   *  first-dawn beat started) the first time it crosses into the daylight
-   *  (GDD "Onboarding: the Warren"). */
-  private inDeephome = false;
   /** When the local trogg first emerged into the daylight, for the dawn blend. */
   private emergedAtMs?: number;
-  /** 0 = surface daylight, 1 = Deephome cave-dark; eased so crossing the exit
-   *  passage reads as light breaking rather than a switch flip. */
+  /** 0 = surface daylight, 1 = birth-cave dark. The instanced birth cave never
+   *  sees the sun; the world always does. */
   private caveDark = 0;
 
   /** The shared day–night cycle: wall-clock phased (every player sees the same
@@ -238,10 +236,10 @@ export class World3D {
    *  to a dim moonlit blue where the glowmoss carries the light. */
   private updateDaylight(dt: number): void {
     if (!this.orbit) return;
-    // Deephome never sees the sun: while the camera focus is below the seam,
-    // ease the whole scene into cave-dark — glowmoss carries the light — and
-    // ease back out as the exit passage climbs into the day.
-    const target = this.orbit.target.z >= WORLD_LAND_H ? 1 : 0;
+    // The birth cave never sees the sun: inside it the whole scene sits in
+    // cave-dark — glowmoss carries the light. (Eased, though in practice the
+    // zone is fixed for the page's life.)
+    const target = isBirthZone(this.slug) ? 1 : 0;
     this.caveDark += (target - this.caveDark) * Math.min(1, dt * 1.4);
     const dark = this.caveDark;
     let phase = this.dayPhaseOverride ?? (Date.now() % DAY_CYCLE_MS) / DAY_CYCLE_MS; // 0 = dawn (override: the shared world_state sky lock)
@@ -263,7 +261,8 @@ export class World3D {
     this.keyLight.position.set(fx + Math.cos(sunAngle) * 30, 8 + Math.max(0.05, elevation) * 26, fz + Math.sin(sunAngle) * 14 + 8);
     this.keyLight.target.position.set(fx, 0, fz);
     this.keyLight.intensity = 3.2 * daylight * (1 - dark);
-    this.hemi.intensity = (0.3 + 1.2 * daylight) * (1 - dark) + 0.18 * dark;
+    // cave-dark is dim, not blind: enough ambient to read the walls around you
+    this.hemi.intensity = (0.3 + 1.2 * daylight) * (1 - dark) + 0.5 * dark;
     // The sun you can actually look up at, and the moon opposite it. Both ride
     // ON the horizon at their low points, never below it, and they dissolve
     // into the haze as they get there (atmospheric extinction): a low disc sits
@@ -403,6 +402,33 @@ export class World3D {
       audio: { ...audio, playFootstep: (running: boolean) => { if (!this.selfFlying()) audio.playFootstep(running); } },
     });
 
+    // Instanced birth cave: mark the way out with warm light and the pickup
+    // sparkle (the established "you can E this" language), and let the first
+    // dawn break if this boot IS the arrival from one.
+    if (isBirthZone(this.slug) && this.zone.exit) {
+      const exitGlow = this.entities.makeGroundItem("exit-light");
+      this.entities.place(exitGlow, this.zone.exit.x, this.zone.exit.y);
+      const light = new THREE.PointLight(0xffd27a, 7, 12, 1.4);
+      light.position.set(0.5, 1.6, 0.5);
+      exitGlow.add(light);
+      this.exitGlow = exitGlow;
+      this.scene.add(exitGlow);
+      // the birth cell's own ember: a warm hearth glow so the newborn can see
+      // the room it wakes sealed inside
+      const cell = this.zone.cells[0];
+      if (cell) {
+        const ember = new THREE.PointLight(0xffa658, 4.5, 9, 1.2);
+        ember.position.set(cell.x + 0.5, 1.5, cell.y + 0.5);
+        this.scene.add(ember);
+      }
+    }
+    if (!isBirthZone(this.slug) && sessionStorage.getItem("trogg-emerged") === "1") {
+      sessionStorage.removeItem("trogg-emerged");
+      this.emergedAtMs = performance.now();
+      captureEvent("warren_emerged", { zone: this.slug });
+      logInfo("Newborn emerged into the world", { surface: "world", action: "warren_emerged", zone: this.slug });
+    }
+
     this.wirePlayers();
     this.wireGroundItems();
     this.wireBoulders();
@@ -419,6 +445,15 @@ export class World3D {
       },
       () => {
         if (!this.useInteract) return;
+        // In a birth cave, E beside the light is the way out (GDD "Onboarding"):
+        // the server verifies proximity, wipes the instance, and transfers us.
+        const exit = this.zone.exit;
+        if (isBirthZone(this.slug) && exit && this.selfPos && Math.hypot(this.selfPos.x - exit.x, this.selfPos.y - exit.y) < 2.5) {
+          void conn.reducers.emerge({}).catch((err) => {
+            logError("Emerge failed", { surface: "world", action: "emerge", zone: this.slug, error: err });
+          });
+          return;
+        }
         void interact(conn, this.self.facing.dirX, this.self.facing.dirY).catch((err) => {
           logError("Interact action failed", { surface: "world", action: "interact", zone: this.slug, error: err });
         });
@@ -598,14 +633,7 @@ export class World3D {
         entry.lastStepTile = stepKey;
         continue;
       }
-      // Emergence (GDD "Onboarding: the Warren"): born in Deephome, now across
-      // the seam into the daylight — fire the funnel beat once, let dawn break.
-      if (this.inDeephome && motion.y < WORLD_LAND_H) {
-        this.inDeephome = false;
-        this.emergedAtMs = now;
-        captureEvent("warren_emerged", { zone: this.slug });
-        logInfo("Newborn emerged from Deephome", { surface: "world", action: "warren_emerged", zone: this.slug });
-      }
+
       // The camera rides the local trogg: the orbit pivot glides to its position, so
       // drag-to-rotate and wheel-zoom stay live while walking (dead or alive — you
       // keep your camera while waiting to respawn). The very first sight of the
@@ -631,11 +659,22 @@ export class World3D {
           this.cameraSnapped = true;
           // open BEHIND the trogg at shoulder height (a chase view, not top-down):
           // the world reads at its own scale from the first frame. The row's
-          // facing is the truth at spawn (a newborn faces its corridor).
+          // facing is the truth at spawn (a newborn faces its corridor). An
+          // emergence arrival instead opens high — the trogg stands in a
+          // dead-end cave mouth, where a chase camera would sit inside rock,
+          // and the raised shot doubles as the first look across the world.
           const face = playerFacing(entry.player);
           const aim = face.dirX !== 0 || face.dirY !== 0 ? { dirX: face.dirX, dirY: face.dirY } : this.self.aim;
           const back = Math.hypot(aim.dirX, aim.dirY) || 1;
-          this.camera.position.set(this.orbit.target.x - (aim.dirX / back) * 7.5, 3.6, this.orbit.target.z - (aim.dirY / back) * 7.5);
+          if (this.emergedAtMs !== undefined) {
+            this.camera.position.set(this.orbit.target.x, 13, this.orbit.target.z + 7);
+          } else if (isBirthZone(this.slug)) {
+            // a birth opens raised and close: the trogg visibly sealed in its
+            // cell (a shoulder camera here would sit inside the cell wall)
+            this.camera.position.set(this.orbit.target.x, 8, this.orbit.target.z + 5.5);
+          } else {
+            this.camera.position.set(this.orbit.target.x - (aim.dirX / back) * 7.5, 3.6, this.orbit.target.z - (aim.dirY / back) * 7.5);
+          }
           this.camera.lookAt(this.orbit.target);
           this.reveal();
         }
@@ -704,6 +743,7 @@ export class World3D {
     for (const view of this.groundItems.values()) {
       this.entities.animatePickupMotes(view.group, now);
     }
+    if (this.exitGlow) this.entities.animatePickupMotes(this.exitGlow, now);
     this.crowd.commit();
     this.entities.updateGhosts(now);
     this.orbit?.update();
@@ -818,6 +858,11 @@ export class World3D {
 
   private wirePlayers(): void {
     const conn = this.conn;
+    // The boot's own-row subscription (main.ts) may have delivered rows before
+    // these callbacks existed; adopt anything already cached for this zone.
+    for (const p of conn.db.player.iter()) {
+      if (p.zoneId === this.slug && p.online) this.addPlayer(p);
+    }
     conn.db.player.onInsert((_ctx, p) => this.addPlayer(p));
     conn.db.player.onUpdate((_ctx, _old, p) => {
       const id = p.identity.toHexString();
@@ -825,6 +870,13 @@ export class World3D {
       if (!entry) return this.addPlayer(p);
 
       if (id === this.myId) {
+        if (p.zoneId !== this.slug) {
+          // zone transfer (emergence): reboot into the new zone; the boot
+          // screen masks the swap and the arrival boot plays the first dawn
+          if (isBirthZone(this.slug)) sessionStorage.setItem("trogg-emerged", "1");
+          window.location.reload();
+          return;
+        }
         this.observeLocalLifecycle(_old, p);
         this.self.reconcile(entry, p);
       } else {
@@ -872,10 +924,7 @@ export class World3D {
   private addPlayer(p: Player): void {
     const id = p.identity.toHexString();
     if (this.tracked.has(id)) return;
-    // the first sight of the local trogg tells us whether this is a birth
-    if (id === this.myId) {
-      this.inDeephome = p.y >= WORLD_LAND_H;
-    }
+
     const face = playerFacing(p);
     const facing = facingFromDir(face.dirX, face.dirY, "down");
     const style = troggStyleFor(p.style, id);

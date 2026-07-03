@@ -10,13 +10,6 @@ import {
   type Infer as __Infer,
 } from "spacetimedb";
 
-export const BirthCell = __t.object("BirthCell", {
-  id: __t.u32(),
-  occupant: __t.option(__t.identity()),
-  assignedAt: __t.timestamp(),
-});
-export type BirthCell = __Infer<typeof BirthCell>;
-
 export const Boulder = __t.object("Boulder", {
   id: __t.u64(),
   zoneId: __t.string(),

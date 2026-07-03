@@ -375,22 +375,6 @@ const creatureRegen = table(
 );
 
 /**
- * One birth cell (GDD "Onboarding: the Warren"): the sealed room a newborn
- * trogg wakes in. Geometry (room, corridor, pickaxe spot) is static world data
- * (`WORLD_CELLS`); the row tracks only occupancy. Assignment is lazy and
- * input-driven: connects heal vacated cells and hand the stalest one over when
- * every sealed cell is taken — no timers (invariant 1).
- */
-const birthCell = table(
-  { name: "birth_cell", public: true },
-  {
-    id: t.u32().primaryKey(),
-    occupant: t.option(t.identity()),
-    assignedAt: t.timestamp(),
-  },
-);
-
-/**
  * Shared world dials (GDD "Debug cheats") — one public singleton row (id 0).
  * `skyLocked`/`skyPhase` pin the day-night cycle for EVERYONE: the cycle is
  * cosmetic, but the sky is shared fiction, so a Commands-drawer scrub changes
@@ -406,7 +390,7 @@ const worldState = table(
   },
 );
 
-const spacetimedb = schema({ player, chatMessage, ghostHaunt, claimCode, boulder, tree, hog, groundItem, inventory, playerConnection, hogWander, playerRespawn, creatureRegen, worldState, birthCell });
+const spacetimedb = schema({ player, chatMessage, ghostHaunt, claimCode, boulder, tree, hog, groundItem, inventory, playerConnection, hogWander, playerRespawn, creatureRegen, worldState });
 export default spacetimedb;
 
 /** The reducer context, typed against this module's schema (db view + sender). */

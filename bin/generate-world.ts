@@ -40,6 +40,9 @@ export const WORLD_BIG_HOGS: readonly BigHog[] = ${JSON.stringify(world.bigHogs)
 export const WORLD_CELLS: readonly BirthCellSeed[] = [
 ${world.cells.map((cell) => `  ${JSON.stringify(cell)},`).join("\n")}
 ];
+
+/** Where an emerging newborn lands: the coast's cave-mouth alcove. */
+export const WORLD_ARRIVAL: Coord = ${JSON.stringify(world.arrival)};
 `;
 writeFileSync(fileURLToPath(new URL("../shared/world-map.ts", import.meta.url)), out);
 console.log(`world committed: ${world.tiles.length} rows, ${world.boulders.length} boulders, ${world.trees.length} trees, ${world.hogs.length} hogs, ${world.cells.length} birth cells`);

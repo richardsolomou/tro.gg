@@ -11,6 +11,9 @@ import {
   isWalkable,
   MAX_BOULDERS_PER_ZONE,
   MOVE_SPEED_TILES_PER_SEC,
+  EMERGE_ARRIVAL,
+  birthZoneFor,
+  isBirthZone,
   CHEAT_SPEED_MULTIPLIER,
   FLY_VERTICAL_TILES_PER_SEC,
   FLY_MAX_HEIGHT,
@@ -50,6 +53,7 @@ import {
   move,
   moveTo,
   onConnect,
+  emerge,
   onDisconnect,
   recolor,
   redeemClaim,
@@ -935,13 +939,12 @@ test("connecting as a guest inserts an online guest and lazily seeds the zone", 
   assert.equal(p.isGuest, true);
   assert.equal(p.online, true);
   const zone = getZone(ZONE)!;
-  // world boulders + every birth cell's rubble plug (healWarren seals the warren)
-  const rubble = zone.cells.reduce((n, cell) => n + cell.corridor.length, 0);
-  assert.equal(ctx.db.boulder.rows().length, zone.boulders.length + rubble);
+  const cave = getZone(birthZoneFor(me.toHexString()))!;
+  // world boulders, plus the newborn's private instance rubble in its own zone
+  assert.equal(ctx.db.boulder.rows().length, zone.boulders.length + cave.cells[0]!.corridor.length);
   assert.equal(ctx.db.hog.rows().length, zone.hogs.length + zone.bigHogs.length);
-  // starter rack + one pickaxe per birth cell
-  assert.equal(ctx.db.groundItem.rows().length, zone.items.length + zone.cells.length);
-  assert.equal(ctx.db.birthCell.rows().length, zone.cells.length);
+  // the world's starter rack, plus the instance's pickaxe
+  assert.equal(ctx.db.groundItem.rows().length, zone.items.length + 1);
 });
 
 test("connecting with a SpacetimeAuth token inserts an account, not a guest", () => {
@@ -1213,10 +1216,10 @@ test("onConnect wipes and reseeds rows stranded in rock by a map regen", () => {
   ctx.db.hog.insert({ id: 0n, zoneId: ZONE, x: 0, y: 1, dirX: 0, dirY: 0, movedAt: { microsSinceUnixEpoch: 0n }, style: "", health: 60 });
   onConnect(ctx);
   const zone = getZone(ZONE)!;
-  for (const b of ctx.db.boulder.rows()) {
+  for (const b of ctx.db.boulder.zoneId.filter(ZONE)) {
     assert.ok(isWalkable(zone, b.x, b.y), `reseeded boulder at ${b.x},${b.y} is in rock`);
   }
-  assert.ok(ctx.db.boulder.rows().length > 0);
+  assert.ok(ctx.db.boulder.zoneId.filter(ZONE).length > 0);
   assert.ok(ctx.db.hog.rows().every((h: any) => isWalkable(zone, Math.round(h.x), Math.round(h.y))));
 });
 
@@ -1379,75 +1382,73 @@ test("setSky pins the shared day phase for everyone and live releases it", () =>
   assert.equal(state.skyLocked, false);
 });
 
-// --- The birth warren (GDD "Onboarding: the Warren") ---
+// --- The instanced birth cave (GDD "Onboarding: the Warren") ---
 
-test("a newborn wakes in a sealed birth cell with a pickaxe", () => {
+test("a newborn is born alone in its own instanced birth cave", () => {
   const me = id("newborn");
   const ctx = makeCtx({ sender: me });
   onConnect(ctx);
-  const zone = getZone(ZONE)!;
   const p = ctx.db.player.identity.find(me);
-  const cellIndex = zone.cells.findIndex((cell) => p.x === cell.x && p.y === cell.y);
-  assert.ok(cellIndex >= 0, `spawned at ${p.x},${p.y}, not a cell centre`);
-  assert.equal(p.faceY, -1); // facing the corridor
-  const cell = zone.cells[cellIndex]!;
-  const rubble = ctx.db.boulder.rows().filter((b: any) => b.cellId === cellIndex + 1);
-  assert.equal(rubble.length, cell.corridor.length);
-  const pick = ctx.db.groundItem.rows().find((g: any) => g.x === cell.pickaxe.x && g.y === cell.pickaxe.y);
+  assert.ok(isBirthZone(p.zoneId));
+  assert.equal(p.zoneId, birthZoneFor(me.toHexString()));
+  const cave = getZone(p.zoneId)!;
+  assert.equal(p.x, cave.spawn!.x);
+  assert.equal(p.y, cave.spawn!.y);
+  assert.equal(p.faceY, -1);
+  const rubble = ctx.db.boulder.zoneId.filter(p.zoneId);
+  assert.equal(rubble.length, cave.cells[0]!.corridor.length);
+  const pick = ctx.db.groundItem.zoneId.filter(p.zoneId)[0];
   assert.equal(pick?.item, "pickaxe");
-  assert.ok(ctx.db.birthCell.id.find(cellIndex + 1).occupant.isEqual(me));
 });
 
-test("when every cell is taken, the stalest vacated one is reclaimed and resealed", () => {
-  const zone = getZone(ZONE)!;
-  const ctx = makeCtx({ sender: id("first") });
+test("two newborns never share a cave", () => {
+  const a = id("baby-a");
+  const b = id("baby-b");
+  const ctx = makeCtx({ sender: a });
   onConnect(ctx);
-  // occupy every cell with an online digger standing inside it
-  zone.cells.forEach((cell, i) => {
-    const occ = id(`occ-${i}`);
-    ctx.db.birthCell.id.update({ id: i + 1, occupant: occ, assignedAt: { microsSinceUnixEpoch: BigInt(1000 + i) } });
-    if (i > 0 && i !== 2) ctx.db.player.insert(playerRow(occ, { x: cell.x, y: cell.y }));
-  });
-  // cell 3's occupant emerged and walked to town
-  ctx.db.player.insert(playerRow(id("occ-2"), { x: 112, y: 104 }));
-  // mine out part of cell 3's rubble so the reseal is observable
-  const stale = ctx.db.boulder.rows().find((b: any) => b.cellId === 3);
-  if (stale) ctx.db.boulder.id.delete(stale.id);
-
-  const baby = id("late-baby");
-  const ctx2 = { ...ctx, sender: baby };
-  onConnect(ctx2);
-  const p = ctx.db.player.identity.find(baby);
-  const cell = zone.cells[2]!;
-  assert.equal(p.x, cell.x);
-  assert.equal(p.y, cell.y);
-  assert.ok(ctx.db.birthCell.id.find(3).occupant.isEqual(baby));
-  assert.equal(ctx.db.boulder.rows().filter((b: any) => b.cellId === 3).length, cell.corridor.length);
+  onConnect({ ...ctx, sender: b });
+  const pa = ctx.db.player.identity.find(a);
+  const pb = ctx.db.player.identity.find(b);
+  assert.notEqual(pa.zoneId, pb.zoneId);
+  assert.equal(ctx.db.boulder.zoneId.filter(pa.zoneId).length, getZone(pa.zoneId)!.cells[0]!.corridor.length);
+  assert.equal(ctx.db.boulder.zoneId.filter(pb.zoneId).length, getZone(pb.zoneId)!.cells[0]!.corridor.length);
 });
 
-test("a returning trogg whose cell was recycled wakes in a fresh cell", () => {
-  const zone = getZone(ZONE)!;
-  const cell = zone.cells[0]!;
+test("emerge beside the exit light transfers to the world and wipes the instance", () => {
+  const me = id("emerging");
+  const ctx = makeCtx({ sender: me });
+  onConnect(ctx);
+  const birthZone = birthZoneFor(me.toHexString());
+  const cave = getZone(birthZone)!;
+  ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), x: cave.exit!.x, y: cave.exit!.y + 1 });
+  emerge(ctx);
+  const p = ctx.db.player.identity.find(me);
+  assert.equal(p.zoneId, ZONE);
+  assert.equal(p.x, EMERGE_ARRIVAL.x);
+  assert.equal(p.y, EMERGE_ARRIVAL.y);
+  assert.equal(ctx.db.boulder.zoneId.filter(birthZone).length, 0);
+  assert.equal(ctx.db.groundItem.zoneId.filter(birthZone).length, 0);
+});
+
+test("emerge is refused away from the exit — the dig cannot be skipped", () => {
+  const me = id("cheater");
+  const ctx = makeCtx({ sender: me });
+  onConnect(ctx);
+  emerge(ctx); // still standing in the sealed birth cell
+  const p = ctx.db.player.identity.find(me);
+  assert.ok(isBirthZone(p.zoneId));
+});
+
+test("a returning mid-dig trogg resumes its own cave, reseeded if wiped", () => {
   const me = id("sleeper");
   const ctx = makeCtx({ sender: me });
-  // logged off mid-dig inside cell 1, but the cell now belongs to someone else
-  ctx.db.player.insert(playerRow(me, { x: cell.x, y: cell.y, online: false }));
-  ctx.db.birthCell.insert({ id: 1, occupant: id("usurper"), assignedAt: { microsSinceUnixEpoch: 5n } });
-  zone.cells.forEach((_, i) => {
-    if (i > 0) ctx.db.birthCell.insert({ id: i + 1, occupant: undefined, assignedAt: { microsSinceUnixEpoch: 0n } });
-  });
+  onConnect(ctx);
+  const birthZone = birthZoneFor(me.toHexString());
+  for (const b of [...ctx.db.boulder.zoneId.filter(birthZone)]) ctx.db.boulder.id.delete(b.id);
+  ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), online: false });
+  ctx.db.playerConnection.connectionId.delete(ctx.connectionId);
   onConnect(ctx);
   const p = ctx.db.player.identity.find(me);
-  assert.ok(!(p.x === cell.x && p.y === cell.y), "still inside the recycled cell");
-  assert.equal(p.online, true);
-});
-
-test("resetBoulders leaves warren rubble standing", () => {
-  const ctx = makeCtx({ sender: id("me") });
-  onConnect(ctx);
-  const rubbleBefore = ctx.db.boulder.rows().filter((b: any) => b.cellId > 0).length;
-  assert.ok(rubbleBefore > 0);
-  resetBoulders(ctx);
-  assert.equal(ctx.db.boulder.rows().filter((b: any) => b.cellId > 0).length, rubbleBefore);
-  assert.equal(ctx.db.boulder.rows().filter((b: any) => !b.cellId || b.cellId === 0).length, getZone(ZONE)!.boulders.length);
+  assert.equal(p.zoneId, birthZone);
+  assert.ok(ctx.db.boulder.zoneId.filter(birthZone).length > 0);
 });

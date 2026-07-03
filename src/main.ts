@@ -68,8 +68,20 @@ async function main() {
       if (subject) identifyUser(subject);
     }
 
-    // One seamless world: a single zone holds every region (GDD "Zones").
-    const slug = STARTING_ZONE_SLUG;
+    // A newborn boots into its own instanced birth cave; everyone else into the
+    // world (GDD "Onboarding: the Warren"). The player row's zone decides.
+    bootStage("finding your cave…");
+    let slug = STARTING_ZONE_SLUG;
+    if (conn.identity) {
+      const identity = conn.identity;
+      await new Promise<void>((resolve) => {
+        conn
+          .subscriptionBuilder()
+          .onApplied(() => resolve())
+          .subscribe([`SELECT * FROM player WHERE identity = 0x${identity.toHexString()}`]);
+      });
+      slug = conn.db.player.identity.find(identity)?.zoneId ?? STARTING_ZONE_SLUG;
+    }
 
     captureEvent("player_joined", { zone: slug, is_guest: !signedIn });
     logInfo("Player joined world", { zone: slug, is_guest: !signedIn });

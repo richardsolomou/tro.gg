@@ -37,6 +37,7 @@ import {
 import ChatReducer from "./chat_reducer";
 import DiscardItemReducer from "./discard_item_reducer";
 import DropItemReducer from "./drop_item_reducer";
+import EmergeReducer from "./emerge_reducer";
 import EquipItemReducer from "./equip_item_reducer";
 import FaceReducer from "./face_reducer";
 import HauntGhostReducer from "./haunt_ghost_reducer";
@@ -74,7 +75,6 @@ import * as SpawnActionProcedure from "./spawn_action_procedure";
 import * as UseEquippedActionProcedure from "./use_equipped_action_procedure";
 
 // Import all table schema definitions
-import BirthCellRow from "./birth_cell_table";
 import BoulderRow from "./boulder_table";
 import ChatMessageRow from "./chat_message_table";
 import GhostHauntRow from "./ghost_haunt_table";
@@ -89,17 +89,6 @@ import WorldStateRow from "./world_state_table";
 
 /** The schema information for all tables in this module. This is defined the same was as the tables would have been defined in the server. */
 const tablesSchema = __schema({
-  birthCell: __table({
-    name: 'birth_cell',
-    indexes: [
-      { accessor: 'id', name: 'birth_cell_id_idx_btree', algorithm: 'btree', columns: [
-        'id',
-      ] },
-    ],
-    constraints: [
-      { name: 'birth_cell_id_key', constraint: 'unique', columns: ['id'] },
-    ],
-  }, BirthCellRow),
   boulder: __table({
     name: 'boulder',
     indexes: [
@@ -230,6 +219,7 @@ const reducersSchema = __reducers(
   __reducerSchema("chat", ChatReducer),
   __reducerSchema("discard_item", DiscardItemReducer),
   __reducerSchema("drop_item", DropItemReducer),
+  __reducerSchema("emerge", EmergeReducer),
   __reducerSchema("equip_item", EquipItemReducer),
   __reducerSchema("face", FaceReducer),
   __reducerSchema("haunt_ghost", HauntGhostReducer),

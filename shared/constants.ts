@@ -1,7 +1,7 @@
 export * from "./glyphs";
 import { SOLID_GLYPHS, TILE_GLYPHS, WATER_TILE } from "./glyphs";
-import { setRegionRows, WORLD_H, WORLD_W } from "./worldgen";
-import { WORLD_BIG_HOGS, WORLD_BOULDERS, WORLD_CELLS, WORLD_HOGS, WORLD_ITEMS, WORLD_REGION_ROWS, WORLD_SPAWN, WORLD_TILES, WORLD_TREES } from "./world-map";
+import { generateBirthCave, setRegionRows, WORLD_H, WORLD_W } from "./worldgen";
+import { WORLD_ARRIVAL, WORLD_BIG_HOGS, WORLD_BOULDERS, WORLD_CELLS, WORLD_HOGS, WORLD_ITEMS, WORLD_REGION_ROWS, WORLD_SPAWN, WORLD_TILES, WORLD_TREES } from "./world-map";
 
 // regionAt() reads the committed grid on both client and module
 setRegionRows(WORLD_REGION_ROWS);
@@ -435,6 +435,8 @@ export interface Zone {
   bigHogs: readonly BigHog[];
   /** The birth warren's cells; empty for zones without one. */
   cells: readonly BirthCellSeed[];
+  /** Where `E` emerges from an instanced birth cave (GDD "Onboarding"). */
+  exit?: Coord;
 }
 
 /**
@@ -463,13 +465,31 @@ export const ZONES: Record<string, Zone> = {
     bigHogs: WORLD_BIG_HOGS,
     cells: WORLD_CELLS,
   },
+  birthcave: generateBirthCave(),
 };
+
+/** Per-player birth zone ids: `birth:<identity hex>`. Rows scoped by such an id
+ *  are one newborn's private copy of the shared `birthcave` template — nobody
+ *  else subscribes to it, so onboarding is single-player by construction. */
+export const BIRTH_ZONE_PREFIX = "birth:";
+
+export function birthZoneFor(identityHex: string): string {
+  return `${BIRTH_ZONE_PREFIX}${identityHex}`;
+}
+
+export function isBirthZone(slug: string): boolean {
+  return slug.startsWith(BIRTH_ZONE_PREFIX);
+}
+
+/** Where an emerging newborn lands: the coast's cave-mouth alcove. */
+export const EMERGE_ARRIVAL = WORLD_ARRIVAL;
 
 /** Where a fresh trogg spawns, and the default room the client joins. */
 export const STARTING_ZONE_SLUG = "world";
 
 /** Look up a zone definition, or undefined if the slug is unknown. */
 export function getZone(slug: string): Zone | undefined {
+  if (isBirthZone(slug)) return ZONES["birthcave"];
   return ZONES[slug];
 }
 
