@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import type { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { createOrbit } from "./controls3d.js";
+import { CLICK_SLOP_PX, createOrbit } from "./controls3d.js";
 import {
   CHAT_BUBBLE_MS,
   DIR_SCALE,
@@ -210,16 +210,23 @@ export class World3D {
     // Click-to-move: cast the pointer through the camera onto the floor plane and
     // walk to that tile. HUD panels consume their own clicks (pointer-events), so
     // only open-space clicks reach the canvas. Dragging orbits the camera instead,
-    // so a click only moves when the pointer barely travelled between down and up.
+    // so a click only moves when the pointer barely travelled between down and up —
+    // measured as accumulated movement, since under the drag's pointer lock the
+    // cursor coordinates freeze (controls3d).
     const ray = new THREE.Raycaster();
     const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-    let downAt: { x: number; y: number } | undefined;
-    this.renderer.domElement.addEventListener("pointerdown", (e) => {
-      downAt = { x: e.clientX, y: e.clientY };
+    let pressed = false;
+    let travelled = 0;
+    this.renderer.domElement.addEventListener("pointerdown", () => {
+      pressed = true;
+      travelled = 0;
+    });
+    this.renderer.domElement.addEventListener("pointermove", (e) => {
+      if (pressed) travelled += Math.abs(e.movementX) + Math.abs(e.movementY);
     });
     this.renderer.domElement.addEventListener("pointerup", (e) => {
-      const wasClick = downAt && Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) < 6;
-      downAt = undefined;
+      const wasClick = pressed && travelled <= CLICK_SLOP_PX;
+      pressed = false;
       if (!wasClick) return;
       const rect = this.renderer.domElement.getBoundingClientRect();
       const ndc = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
