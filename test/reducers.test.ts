@@ -11,6 +11,7 @@ import {
   isWalkable,
   MAX_BOULDERS_PER_ZONE,
   MOVE_SPEED_TILES_PER_SEC,
+  CHEAT_SPEED_MULTIPLIER,
   projectMotion,
   zoneBounds,
   MAX_GROUND_ITEMS_PER_ZONE,
@@ -49,6 +50,7 @@ import {
   restyle,
   resetBoulders,
   resetHogs,
+  setCheats,
   respawnPlayers,
   regenCreatures,
   spawn,
@@ -1210,4 +1212,76 @@ test("onConnect leaves healthy world rows alone", () => {
   const kept = ctx.db.boulder.insert({ id: 7n, zoneId: ZONE, x: seed.x, y: seed.y });
   onConnect(ctx);
   assert.ok(ctx.db.boulder.rows().some((b: any) => b.id === kept.id));
+});
+
+// --- Cheats (Commands panel debug tools) ---
+
+test("setCheats clamps speed to the fixed multiplier and settles motion", () => {
+  const { ctx, me } = withPlayer({ x: 108, y: 105 });
+  move(ctx, { dirX: 1000, dirY: 0, running: false });
+  setCheats(ctx, { speed: 99, fly: true, noclip: true, invulnerable: true });
+  const p = ctx.db.player.identity.find(me);
+  assert.equal(p.cheatSpeed, CHEAT_SPEED_MULTIPLIER);
+  assert.equal(p.cheatFly, true);
+  assert.equal(p.cheatInvulnerable, true);
+  assert.equal(p.cheatNoclip, true);
+  assert.equal(p.dirX, 0); // a rules change never replays motion history
+  assert.equal(p.dirY, 0);
+});
+
+test("setCheats off resets every cheat", () => {
+  const { ctx, me } = withPlayer({ x: 108, y: 105, cheatSpeed: CHEAT_SPEED_MULTIPLIER, cheatFly: true, cheatInvulnerable: true, cheatNoclip: true });
+  setCheats(ctx, { speed: 1, fly: false, noclip: false, invulnerable: false });
+  const p = ctx.db.player.identity.find(me);
+  assert.equal(p.cheatSpeed, 1);
+  assert.equal(p.cheatFly, false);
+  assert.equal(p.cheatInvulnerable, false);
+  assert.equal(p.cheatNoclip, false);
+});
+
+test("switching noclip off inside geometry settles onto walkable ground", () => {
+  const zone = getZone(ZONE)!;
+  // park the flyer mid-air over unwalkable rock beside real ground (the map
+  // corner is rock for further than the landing search reaches)
+  let wall: { x: number; y: number } | undefined;
+  for (let y = 1; y < zone.height - 1 && !wall; y++) {
+    for (let x = 1; x < zone.width - 1 && !wall; x++) {
+      if (!isWalkable(zone, x, y) && isWalkable(zone, x + 1, y)) wall = { x, y };
+    }
+  }
+  const { ctx, me } = withPlayer({ x: wall!.x, y: wall!.y, cheatNoclip: true });
+  setCheats(ctx, { speed: 1, fly: false, noclip: false, invulnerable: false });
+  const p = ctx.db.player.identity.find(me);
+  assert.ok(isWalkable(zone, Math.round(p.x), Math.round(p.y)), `landed at ${p.x},${p.y}`);
+});
+
+test("the speed cheat multiplies projected distance", () => {
+  const zone = getZone(ZONE)!;
+  const motion = { x: 108, y: 105, dirX: 1000, dirY: 0, cheatSpeed: CHEAT_SPEED_MULTIPLIER, cheatNoclip: true };
+  const at = projectMotion(motion, 1_000, zoneBounds(zone));
+  assert.ok(Math.abs(at.x - 108 - MOVE_SPEED_TILES_PER_SEC * CHEAT_SPEED_MULTIPLIER) < 1e-6, `moved to ${at.x}`);
+});
+
+test("noclipped and airborne troggs project through walls, a normal one clamps", () => {
+  const bounds = { width: 20, height: 20, isWalkable: (x: number) => x < 5 };
+  const grounded = projectMotion({ x: 3, y: 3, dirX: 1000, dirY: 0 }, 5_000, bounds);
+  assert.ok(grounded.x < 5, `grounded clamped at ${grounded.x}`);
+  const noclip = projectMotion({ x: 3, y: 3, dirX: 1000, dirY: 0, cheatNoclip: true }, 2_000, bounds);
+  assert.ok(Math.abs(noclip.x - 11) < 1e-6, `passed through to ${noclip.x}`);
+  const airborne = projectMotion({ x: 3, y: 3, dirX: 1000, dirY: 0, cheatFly: true }, 2_000, bounds);
+  assert.ok(Math.abs(airborne.x - 11) < 1e-6, `flew over to ${airborne.x}`);
+});
+
+test("an invulnerable trogg takes no damage from a swing", () => {
+  const { ctx, me } = withPlayer({ x: 69, y: 96, equippedMainHand: "sword" });
+  const sword = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });
+  ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedMainHandInventoryId: sword.id });
+  const other = id("other");
+  ctx.db.player.insert(playerRow(other, { x: 70, y: 96, health: PLAYER_MAX_HEALTH, cheatInvulnerable: true }));
+
+  useEquipped(ctx, { dirX: 1, dirY: 0 });
+
+  const target = ctx.db.player.identity.find(other);
+  assert.equal(target.health, PLAYER_MAX_HEALTH);
+  assert.equal(target.dead, false);
 });

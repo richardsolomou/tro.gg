@@ -188,9 +188,14 @@ export function createSelfController(deps: SelfControllerDeps) {
   };
 
   /** Would this intent make any progress from (x, y) right now? False means flush
-   *  against a wall, boulder, or Hog with nowhere to slide. */
-  const canProgress = (x: number, y: number, intent: MoveIntent): boolean => {
-    const probe = projectMotionState({ x, y, dirX: intent.dirX, dirY: intent.dirY, running: intent.running, path: "" }, PROBE_MS, bounds);
+   *  against a wall, boulder, or Hog with nowhere to slide. The probe carries the
+   *  row's cheat flags so a noclipped trogg never reads as pinned by geometry. */
+  const canProgress = (entry: MotionEntry, x: number, y: number, intent: MoveIntent): boolean => {
+    const probe = projectMotionState(
+      { x, y, dirX: intent.dirX, dirY: intent.dirY, running: intent.running, path: "", cheatSpeed: entry.player.cheatSpeed, cheatFly: entry.player.cheatFly, cheatNoclip: entry.player.cheatNoclip },
+      PROBE_MS,
+      bounds,
+    );
     return Math.abs(probe.x - x) + Math.abs(probe.y - y) > 1e-4;
   };
 
@@ -247,7 +252,7 @@ export function createSelfController(deps: SelfControllerDeps) {
         sendMove(entry, desired, x, y, now);
         return;
       }
-      if (!canProgress(x, y, desired)) {
+      if (!canProgress(entry, x, y, desired)) {
         // Flush against a wall, boulder, or Hog: stand facing it rather than store a
         // moving intent that banks elapsed travel (the moment the blocker cleared, a
         // stale origin would fling the trogg to wherever the uninterrupted walk had
@@ -266,7 +271,7 @@ export function createSelfController(deps: SelfControllerDeps) {
       // re-base the origin on each tile crossing so position is only ever derived
       // over the last tile — an obstacle landing on a tile already crossed sits
       // behind the origin and can't rewind us.
-      if (!canProgress(x, y, sent)) {
+      if (!canProgress(entry, x, y, sent)) {
         sendMove(entry, { dirX: 0, dirY: 0, running: false }, x, y, now);
         return;
       }

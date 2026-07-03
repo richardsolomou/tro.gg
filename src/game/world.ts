@@ -33,7 +33,7 @@ import {
 } from "@trogg/shared";
 import type { DbConnection } from "../net/module_bindings";
 import type { Boulder, GroundItem, Hog, Player, Tree } from "../net/module_bindings/types";
-import { attachKeyboard, type MoveIntent } from "../input.js";
+import { attachKeyboard, isTyping, type MoveIntent } from "../input.js";
 import { setupChat } from "../ui/chat.js";
 import { mountCommands } from "../ui/commands.js";
 import { createSelfController, type SelfController } from "../movement.js";
@@ -92,6 +92,14 @@ const TORCH_LIGHT_BUDGET = 4;
  *  are dropped whole (no projection, no render). */
 const FRAME_CAP_FPS = 60;
 
+/** Fly cheat (GDD "Commands panel"): climb/sink rate and ceiling. Altitude is
+ *  local display state for the flyer — the server's world stays planar (x, y),
+ *  so other clients show a flying trogg at a fixed hover instead. */
+const FLY_VERTICAL_TILES_PER_SEC = 5;
+const FLY_MAX_HEIGHT = 14;
+/** Where other clients draw someone else's flying trogg. */
+const FLY_HOVER_Y = 0.55;
+
 export class World3D {
   /** The local trogg's live projected position (the overworld map marker). */
   selfPosition(): { x: number; y: number } | undefined {
@@ -123,6 +131,11 @@ export class World3D {
   private crowd!: FarCrowd;
   /** Cleared until the camera has snapped to the local trogg once (first snapshot). */
   private cameraSnapped = false;
+  /** Whether the local trogg currently has the fly cheat on. */
+  private selfFlying(): boolean {
+    return (this.myId && this.tracked.get(this.myId)?.player.cheatFly) === true;
+  }
+
   /** Tiles between the local trogg and a world position — Infinity before spawn. */
   private hearingDistance(x: number, y: number): number {
     if (!this.selfPos) return Infinity;
@@ -210,12 +223,16 @@ export class World3D {
   private readonly hazeDay = new THREE.Color(DAYLIGHT_3D.haze);
   private readonly hazeNight = new THREE.Color(0x101a2c);
 
+  /** The Commands drawer's sky lock: a fixed day phase for this client's
+   *  rendering only (the cycle is cosmetic, nothing authoritative reads it). */
+  private dayPhaseOverride?: number;
+
   /** The shared day–night cycle: wall-clock phased (every player sees the same
    *  sun), the sun arcs east→west shifting the shadows with it, and night falls
    *  to a dim moonlit blue where the glowmoss carries the light. */
   private updateDaylight(): void {
     if (!this.orbit) return;
-    const phase = (Date.now() % DAY_CYCLE_MS) / DAY_CYCLE_MS; // 0 = dawn
+    const phase = this.dayPhaseOverride ?? (Date.now() % DAY_CYCLE_MS) / DAY_CYCLE_MS; // 0 = dawn
     const sunAngle = phase * Math.PI * 2 - Math.PI / 2;
     const elevation = Math.sin(sunAngle + Math.PI / 2); // 1 noon, -1 midnight
     const daylight = Math.max(0, Math.min(1, (elevation + 0.12) * 2.4));
@@ -251,6 +268,12 @@ export class World3D {
   private useGhost = false;
   private canRun = false;
   private useInteract = false;
+
+  /** The local flyer's altitude (tiles above ground) and held lift input:
+   *  Space climbs, C sinks, release holds. Decays to 0 when not flying. */
+  private flyAltitude = 0;
+  private flySpaceHeld = false;
+  private flySinkHeld = false;
 
   constructor(parent: HTMLElement, data: WorldData) {
     this.conn = data.conn;
@@ -343,7 +366,8 @@ export class World3D {
       },
       toBaseMs: timestampBaseMs,
       facingFromDir,
-      audio,
+      // a flying trogg's feet never land, so its stride makes no sound
+      audio: { ...audio, playFootstep: (running: boolean) => { if (!this.selfFlying()) audio.playFootstep(running); } },
     });
 
     this.wirePlayers();
@@ -415,6 +439,28 @@ export class World3D {
     window.addEventListener("trogg-debug-hitboxes", ((e: Event) => {
       this.entities.setHitboxes((e as CustomEvent<boolean>).detail === true);
     }) as EventListener);
+    // Commands-drawer sky lock: a number locks this client's day phase, null
+    // hands the sky back to the shared wall clock.
+    window.addEventListener("trogg-debug-daylight", ((e: Event) => {
+      const phase = (e as CustomEvent<number | null>).detail;
+      this.dayPhaseOverride = typeof phase === "number" ? Math.min(1, Math.max(0, phase)) : undefined;
+    }) as EventListener);
+    // Fly cheat lift: hold Space to climb, C to sink (only bites while the
+    // cheat is on — see the tick's self branch). keyup always clears, so a
+    // hold that ends over the chat input can't stick.
+    window.addEventListener("keydown", (e) => {
+      if (isTyping(e.target)) return;
+      if (e.code === "Space") {
+        if (this.selfFlying()) e.preventDefault();
+        this.flySpaceHeld = true;
+      } else if (e.code === "KeyC") {
+        this.flySinkHeld = true;
+      }
+    });
+    window.addEventListener("keyup", (e) => {
+      if (e.code === "Space") this.flySpaceHeld = false;
+      else if (e.code === "KeyC") this.flySinkHeld = false;
+    });
     this.layout();
 
     if (isFeatureEnabled("chat-enabled")) {
@@ -482,14 +528,25 @@ export class World3D {
     }
 
     for (const entry of this.tracked.values()) {
+      const isSelf = entry.player.identity.toHexString() === this.myId;
       const motion = projectMotionState(entry.player, now - entry.baseMs, this.troggBounds);
       this.entities.smoothPlace(entry, motion.x, motion.y, dt);
+      // The fly cheat lifts the marker off the ground. The local flyer holds a
+      // live altitude (Space climbs, C sinks — display state only; the server's
+      // world stays planar); everyone else's flyer shows a fixed gentle hover.
+      if (isSelf) {
+        const lift = entry.player.cheatFly ? (this.flySpaceHeld ? 1 : 0) - (this.flySinkHeld ? 1 : 0) : -3;
+        this.flyAltitude = Math.min(FLY_MAX_HEIGHT, Math.max(0, this.flyAltitude + lift * FLY_VERTICAL_TILES_PER_SEC * dt));
+        entry.marker.position.y = this.flyAltitude;
+      } else {
+        entry.marker.position.y = entry.player.cheatFly ? FLY_HOVER_Y + Math.sin(now * 0.0025) * 0.07 : 0;
+      }
       if (entry.marker.visible) this.entities.animate(entry, now, dt, motion);
       else if (!entry.player.dead) this.crowd.add("trogg", motion.x, motion.y, Math.atan2(motion.dirX, motion.dirY), 1, entry.style, entry.baseColor);
 
-      if (entry.player.identity.toHexString() !== this.myId) {
+      if (!isSelf) {
         const stepKey = tileKey(Math.round(motion.x), Math.round(motion.y));
-        if (entry.lastStepTile !== undefined && entry.lastStepTile !== stepKey) {
+        if (entry.lastStepTile !== undefined && entry.lastStepTile !== stepKey && !entry.player.cheatFly) {
           audio.playFootstepAt(entry.player.running, this.hearingDistance(motion.x, motion.y));
         }
         entry.lastStepTile = stepKey;
@@ -501,7 +558,8 @@ export class World3D {
       // trogg snaps instead — the pivot starts at the zone centre, and gliding
       // from there reads as a swoop across the map on load.
       if (this.orbit) {
-        const pivot = new THREE.Vector3(motion.x + 0.5, 0.6, motion.y + 0.5);
+        // the pivot rides the flyer's altitude, so the camera climbs with you
+        const pivot = new THREE.Vector3(motion.x + 0.5, 0.6 + this.flyAltitude, motion.y + 0.5);
         const camDist = this.camera.position.distanceTo(this.orbit.target);
         // stream terrain around the camera focus (only once the camera sits on the
         // trogg — the pre-snap zone-fit distance would build the whole world)

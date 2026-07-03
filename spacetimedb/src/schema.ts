@@ -124,6 +124,15 @@ const player = table(
     equippedOffHandInventoryId: t.u64().default(0n),
     // When damage last landed — the out-of-combat clock the regen sweep reads.
     lastDamagedAt: t.timestamp().default(Timestamp.UNIX_EPOCH),
+    // Debug cheats (GDD "Commands panel"): a move-speed multiplier, flight
+    // (hover + client-side altitude; display only), invulnerability
+    // (damagePlayer no-ops), and noclip (the shared projection ignores tile
+    // walkability). They ride the synced row like `running`, so every client
+    // derives the same motion; written only by `setCheats`.
+    cheatSpeed: t.f64().default(1),
+    cheatFly: t.bool().default(false),
+    cheatInvulnerable: t.bool().default(false),
+    cheatNoclip: t.bool().default(false),
   },
 );
 

@@ -123,6 +123,10 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
     dead: false,
     respawnAt: undefined,
     lastDamagedAt: Timestamp.UNIX_EPOCH,
+    cheatSpeed: 1,
+    cheatFly: false,
+    cheatInvulnerable: false,
+    cheatNoclip: false,
   });
 });
 

@@ -7,6 +7,7 @@ export interface ChatCommandFlags {
   resetBoulders: boolean;
   resetHogs: boolean;
   ghost: boolean;
+  cheats: boolean;
 }
 
 /** Resolve the live Commands panel flags once per mounted HUD surface. */
@@ -16,5 +17,6 @@ export function currentCommandFlags(): ChatCommandFlags {
     resetBoulders: isFeatureEnabled("boulder-reset"),
     resetHogs: isFeatureEnabled("hog-reset"),
     ghost: isFeatureEnabled("ghost-trogg"),
+    cheats: isFeatureEnabled("cheat-commands", import.meta.env.DEV || !POSTHOG_KEY),
   };
 }

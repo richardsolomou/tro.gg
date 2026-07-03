@@ -13,6 +13,8 @@ import {
   MAX_GROUND_ITEMS_PER_ZONE,
   MAX_HOGS_PER_ZONE,
   MAX_TREES_PER_ZONE,
+  CHEAT_SPEED_MULTIPLIER,
+  nearestSafeTile,
   spawnTile,
   tileKey,
 } from "../../../shared/index";
@@ -167,3 +169,43 @@ export const resetHogsAction = spacetimedb.procedure(
   },
 );
 
+
+/**
+ * Debug cheats (GDD "Commands panel"): a move-speed multiplier, flight (hover;
+ * altitude is client display state), noclip (walk through anything), and
+ * invulnerability, toggled from the Commands panel. Motion settles first — a
+ * speed or noclip change re-derives position from the origin, so an unsettled
+ * intent would replay its history at the new rules and teleport (the same
+ * reason `move` settles before storing a new heading). Values are clamped,
+ * never trusted (invariant 3): speed only 1 or the fixed multiplier, and a
+ * trogg switching noclip off while inside geometry settles to the nearest safe
+ * tile so it can't end up standing inside a wall.
+ */
+export const setCheats = spacetimedb.reducer({ speed: t.f64(), fly: t.bool(), noclip: t.bool(), invulnerable: t.bool() }, (ctx, { speed, fly, noclip, invulnerable }) => {
+  const p = ctx.db.player.identity.find(ctx.sender);
+  if (!p) return;
+  const zone = getZone(p.zoneId);
+  if (!zone) return;
+  const settled = settle(ctx, p, ctx.timestamp);
+  let at = { x: settled.x, y: settled.y };
+  if ((p.cheatNoclip && !noclip) || (p.cheatFly && !fly)) {
+    // touching down / re-clipping: airborne or noclipped projection ignored
+    // walkability, so the settled spot may be a wall or water — step to the
+    // nearest standable ground
+    const tile = nearestSafeTile(zone, Math.round(at.x), Math.round(at.y));
+    if (tile) at = tile;
+  }
+  ctx.db.player.identity.update({
+    ...p,
+    x: at.x,
+    y: at.y,
+    dirX: 0,
+    dirY: 0,
+    path: "",
+    movedAt: ctx.timestamp,
+    cheatSpeed: speed > 1 ? CHEAT_SPEED_MULTIPLIER : 1,
+    cheatFly: fly,
+    cheatInvulnerable: invulnerable,
+    cheatNoclip: noclip,
+  });
+});

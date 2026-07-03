@@ -40,4 +40,8 @@ export default __t.row({
   equippedOffHand: __t.string().name("equipped_off_hand"),
   equippedOffHandInventoryId: __t.u64().name("equipped_off_hand_inventory_id"),
   lastDamagedAt: __t.timestamp().name("last_damaged_at"),
+  cheatSpeed: __t.f64().name("cheat_speed"),
+  cheatFly: __t.bool().name("cheat_fly"),
+  cheatInvulnerable: __t.bool().name("cheat_invulnerable"),
+  cheatNoclip: __t.bool().name("cheat_noclip"),
 });

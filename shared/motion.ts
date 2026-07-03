@@ -34,6 +34,19 @@ export interface Motion {
    *  or common Hog, 2 for a big 2×2 Hog (GDD "Hogs"). Absent = 1. The footprint
    *  clamps against walls across its whole width/height, not a single tile. */
   size?: number;
+  /** Debug speed multiplier (GDD "Commands panel" cheats). Rides the synced
+   *  intent like `running`, so every client derives the same faster position.
+   *  Absent = 1. */
+  cheatSpeed?: number;
+  /** Debug flight (GDD "Commands panel" cheats): airborne clears everything —
+   *  the projection ignores tile walkability like noclip (altitude is client
+   *  display state, so ground-level collision cannot be height-conditional). */
+  cheatFly?: boolean;
+  /** Debug noclip (GDD "Commands panel" cheats): walk through anything — the
+   *  projection ignores tile walkability and clamps only to the zone
+   *  rectangle. On the row, so prediction, other clients, and the server all
+   *  derive the same motion. */
+  cheatNoclip?: boolean;
 }
 
 export interface ProjectedMotion {
@@ -338,18 +351,30 @@ export function projectMotion(motion: Motion, elapsedMs: number, zone: ZoneBound
   return { x: projected.x, y: projected.y };
 }
 
+/** A mover's tiles-per-second, from its synced intent (`running`, `cheatSpeed`). */
+function motionSpeed(motion: Motion): number {
+  return (motion.running ? RUN_SPEED_TILES_PER_SEC : MOVE_SPEED_TILES_PER_SEC) * (motion.cheatSpeed || 1);
+}
+
+/** The collision context a mover actually projects against: a noclipped or
+ *  airborne mover keeps only the zone rectangle (`isWalkable` omitted = open
+ *  floor). */
+function motionBounds(motion: Motion, zone: ZoneBounds): ZoneBounds {
+  return motion.cheatNoclip || motion.cheatFly ? { width: zone.width, height: zone.height } : zone;
+}
+
 export function projectMotionState(motion: Motion, elapsedMs: number, zone: ZoneBounds): ProjectedMotion {
+  const bounds = motionBounds(motion, zone);
   const path = parsePath(motion.path);
-  if (path.length > 0) return projectPathMotion(motion, path, elapsedMs, zone);
+  if (path.length > 0) return projectPathMotion(motion, path, elapsedMs, bounds);
 
   const { dirX, dirY } = motion;
   if (dirX === 0 && dirY === 0) return { x: motion.x, y: motion.y, dirX: 0, dirY: 0, arrived: true };
 
-  const speed = motion.running ? RUN_SPEED_TILES_PER_SEC : MOVE_SPEED_TILES_PER_SEC;
-  const dist = (speed * Math.max(elapsedMs, 0)) / 1000;
+  const dist = (motionSpeed(motion) * Math.max(elapsedMs, 0)) / 1000;
   const size = motion.size ?? 1;
 
-  const p = slideAdvance(motion.x, motion.y, dirX, dirY, dist, zone, size);
+  const p = slideAdvance(motion.x, motion.y, dirX, dirY, dist, bounds, size);
   return { x: p.x, y: p.y, dirX, dirY, arrived: false };
 }
 
@@ -466,9 +491,8 @@ function boundaryDistance(p: number, step: number, size: number): number {
 }
 
 function projectPathMotion(motion: Motion, path: readonly Coord[], elapsedMs: number, zone: ZoneBounds): ProjectedMotion {
-  const speed = motion.running ? RUN_SPEED_TILES_PER_SEC : MOVE_SPEED_TILES_PER_SEC;
   const size = motion.size ?? 1;
-  let remaining = (speed * Math.max(elapsedMs, 0)) / 1000;
+  let remaining = (motionSpeed(motion) * Math.max(elapsedMs, 0)) / 1000;
   let current = { x: motion.x, y: motion.y };
 
   for (const next of path) {

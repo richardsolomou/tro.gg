@@ -49,6 +49,7 @@ import RenameReducer from "./rename_reducer";
 import ResetBouldersReducer from "./reset_boulders_reducer";
 import ResetHogsReducer from "./reset_hogs_reducer";
 import RestyleReducer from "./restyle_reducer";
+import SetCheatsReducer from "./set_cheats_reducer";
 import SpawnReducer from "./spawn_reducer";
 import StartClaimReducer from "./start_claim_reducer";
 import UseEquippedReducer from "./use_equipped_reducer";
@@ -213,6 +214,7 @@ const reducersSchema = __reducers(
   __reducerSchema("reset_boulders", ResetBouldersReducer),
   __reducerSchema("reset_hogs", ResetHogsReducer),
   __reducerSchema("restyle", RestyleReducer),
+  __reducerSchema("set_cheats", SetCheatsReducer),
   __reducerSchema("spawn", SpawnReducer),
   __reducerSchema("start_claim", StartClaimReducer),
   __reducerSchema("use_equipped", UseEquippedReducer),

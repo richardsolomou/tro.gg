@@ -145,6 +145,8 @@ export function dropInventory(ctx: Ctx, target: NonNullable<ReturnType<typeof pl
 
 /** Apply weapon damage to a trogg; zero health kills, drops inventory, and starts respawn. */
 export function damagePlayer(ctx: Ctx, target: NonNullable<ReturnType<typeof playerAt>>, amount: number): PlayerDamageResult {
+  // the invulnerability cheat (GDD "Commands panel"): the swing lands, nothing changes
+  if (target.cheatInvulnerable) return { health: target.health, killed: false, droppedItemRows: 0, droppedItemQty: 0, respawnMs: 0 };
   const health = Math.max(0, target.health - amount);
   if (health > 0) {
     ctx.db.player.identity.update({ ...target, health, lastDamagedAt: ctx.timestamp });

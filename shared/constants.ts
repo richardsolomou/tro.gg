@@ -176,6 +176,10 @@ export const OFF_TOOL_NODE_FACTOR = 0.08;
  *  weakest option. Stored as the "fists" action impulse so clients animate it. */
 export const UNARMED_DAMAGE: readonly [number, number] = [5, 10];
 
+/** The Commands-panel speed cheat's multiplier (GDD "Commands panel"). Also the
+ *  ceiling `setCheats` clamps to — a forged call can't buy more (invariant 3). */
+export const CHEAT_SPEED_MULTIPLIER = 3;
+
 /** How long a visible equipment-use impulse lasts — the attack clip length. */
 export const EQUIPMENT_ACTION_MS = 300;
 

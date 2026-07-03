@@ -122,6 +122,10 @@ export const Player = __t.object("Player", {
   equippedOffHand: __t.string(),
   equippedOffHandInventoryId: __t.u64(),
   lastDamagedAt: __t.timestamp(),
+  cheatSpeed: __t.f64(),
+  cheatFly: __t.bool(),
+  cheatInvulnerable: __t.bool(),
+  cheatNoclip: __t.bool(),
 });
 export type Player = __Infer<typeof Player>;
 

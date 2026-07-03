@@ -143,7 +143,7 @@ export function attachKeyboard(
   };
 }
 
-function isTyping(target: EventTarget | null): boolean {
+export function isTyping(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null;
   return el?.tagName === "INPUT" || el?.tagName === "TEXTAREA" || el?.isContentEditable === true;
 }
