@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { COMMON_HOG_STYLES, HOG_STYLES, hogSize, TROGG_STYLES, type Kind } from "@trogg/shared";
 import { buildHog, buildHogBall, buildTrogg } from "../game3d/creatures3d.js";
 import { buildHeldItem, hasItem3D } from "../game3d/items3d.js";
@@ -93,6 +94,10 @@ const key = new THREE.DirectionalLight(0xffd9a0, 1.8);
 key.position.set(3, 5, 4);
 key.castShadow = true;
 scene.add(key);
+// a dim fill from behind so the model still reads when orbited to its dark side
+const fill = new THREE.DirectionalLight(0xc0d0ff, 0.5);
+fill.position.set(-3, 2, -4);
+scene.add(fill);
 
 const floor = new THREE.Mesh(new THREE.CircleGeometry(2.4, 40), new THREE.MeshStandardMaterial({ color: 0x342819, roughness: 1 }));
 floor.rotation.x = -Math.PI / 2;
@@ -102,8 +107,15 @@ scene.add(floor);
 const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 50);
 const CAMERA_DIR = new THREE.Vector3(0.28, 0.42, 1).normalize();
 
-/** Frame the current subject: pull the camera back along its direction until the
- *  model fits with headroom, so a 2× buff hog and a lone item both read well. */
+// Mouse orbit: drag to rotate around the subject, wheel to zoom.
+const orbit = new OrbitControls(camera, renderer.domElement);
+orbit.enableDamping = true;
+orbit.enablePan = false;
+orbit.maxPolarAngle = Math.PI * 0.72; // don't dive under the floor
+
+/** Frame the current subject: aim the orbit at its centre and pull the camera back
+ *  until the model fits with headroom, so a 2× buff hog and a lone item both read
+ *  well — then the mouse takes over from there. */
 function frame(): void {
   if (!subject) return;
   const bounds = new THREE.Box3().setFromObject(subject);
@@ -113,6 +125,10 @@ function frame(): void {
   const distance = (radius / Math.tan((camera.fov * Math.PI) / 360)) * 1.25;
   camera.position.copy(centre).addScaledVector(CAMERA_DIR, distance);
   camera.lookAt(centre);
+  orbit.target.copy(centre);
+  orbit.minDistance = radius * 0.8;
+  orbit.maxDistance = distance * 4;
+  orbit.update();
 }
 
 function layout(): void {
@@ -340,6 +356,7 @@ function tick(): void {
     }
   }
 
+  orbit.update();
   renderer.render(scene, camera);
   (window as unknown as { __previewReady?: boolean }).__previewReady = true;
   requestAnimationFrame(tick);

@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import {
   CHAT_BUBBLE_MS,
   facingFromDir,
@@ -69,6 +70,7 @@ export class World3D {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene = new THREE.Scene();
   private readonly camera: THREE.PerspectiveCamera;
+  private orbit?: OrbitControls;
   private readonly parent: HTMLElement;
   private terrain!: Terrain3D;
   private entities!: Entities;
@@ -181,7 +183,7 @@ export class World3D {
     attachKeyboard(
       (intent, immediate) => {
         if (this.myId && this.tracked.get(this.myId)?.player.dead) return;
-        this.self.onIntent(intent, immediate);
+        this.self.onIntent(this.toWorldIntent(intent), immediate);
       },
       () => {
         if (!this.useInteract) return;
@@ -199,10 +201,18 @@ export class World3D {
 
     // Click-to-move: cast the pointer through the camera onto the floor plane and
     // walk to that tile. HUD panels consume their own clicks (pointer-events), so
-    // only open-space clicks reach the canvas.
+    // only open-space clicks reach the canvas. Dragging orbits the camera instead,
+    // so a click only moves when the pointer barely travelled between down and up.
     const ray = new THREE.Raycaster();
     const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+    let downAt: { x: number; y: number } | undefined;
     this.renderer.domElement.addEventListener("pointerdown", (e) => {
+      downAt = { x: e.clientX, y: e.clientY };
+    });
+    this.renderer.domElement.addEventListener("pointerup", (e) => {
+      const wasClick = downAt && Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) < 6;
+      downAt = undefined;
+      if (!wasClick) return;
       const rect = this.renderer.domElement.getBoundingClientRect();
       const ndc = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
       ray.setFromCamera(ndc, this.camera);
@@ -277,6 +287,7 @@ export class World3D {
     }
 
     this.entities.updateGhosts(now);
+    this.orbit?.update();
     this.renderer.render(this.scene, this.camera);
   };
 
@@ -289,14 +300,17 @@ export class World3D {
     this.destination.visible = true;
   }
 
-  /** Fit the whole zone in view at the 3/4 angle: walk the camera back along its
-   *  fixed direction until every zone corner projects inside the ZONE_FILL frame. */
+  /** Size the viewport; on the first pass, fit the whole zone at the 3/4 angle
+   *  (walk the camera back along its start direction until every zone corner
+   *  projects inside the ZONE_FILL frame) and hand the camera to the mouse orbit —
+   *  drag rotates around the zone, wheel zooms, clamped so the cave stays in view. */
   private readonly layout = () => {
     const w = this.parent.clientWidth || window.innerWidth;
     const h = this.parent.clientHeight || window.innerHeight;
     this.renderer.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    if (this.orbit) return;
 
     const centre = new THREE.Vector3(this.zone.width / 2, 0, this.zone.height / 2);
     const corners = [
@@ -323,7 +337,28 @@ export class World3D {
       else lo = mid;
     }
     fits(hi);
+
+    this.orbit = new OrbitControls(this.camera, this.renderer.domElement);
+    this.orbit.target.copy(centre);
+    this.orbit.enableDamping = true;
+    this.orbit.enablePan = false;
+    this.orbit.minDistance = 6;
+    this.orbit.maxDistance = hi * 1.7;
+    this.orbit.minPolarAngle = 0.25; // not dead top-down…
+    this.orbit.maxPolarAngle = 1.35; // …and never under the floor
+    this.orbit.update();
   };
+
+  /** Map a WASD intent from screen space to world space by the camera's heading,
+   *  snapped to the nearest quadrant so cardinal input stays cardinal: after
+   *  orbiting the camera, "up" is still whatever direction is up on screen. */
+  private toWorldIntent<T extends { dirX: number; dirY: number }>(intent: T): T {
+    if (!this.orbit || (intent.dirX === 0 && intent.dirY === 0)) return intent;
+    const a = -Math.round(this.orbit.getAzimuthalAngle() / (Math.PI / 2)) * (Math.PI / 2);
+    const cos = Math.round(Math.cos(a));
+    const sin = Math.round(Math.sin(a));
+    return { ...intent, dirX: intent.dirX * cos - intent.dirY * sin, dirY: intent.dirX * sin + intent.dirY * cos };
+  }
 
   /** A soft radial darkening over the whole viewport — the cave vignette. */
   private mountVignette(): void {
