@@ -168,6 +168,7 @@ export class World3D {
   /** Fade the world in — held black until the camera sits on the local trogg, so a
    *  slow first snapshot never shows the zone-centre framing at all. */
   private reveal(): void {
+    document.getElementById("boot-screen")?.remove();
     const canvas = this.renderer.domElement;
     canvas.style.transition = "opacity 0.35s ease-out";
     canvas.style.opacity = "1";

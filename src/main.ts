@@ -14,12 +14,20 @@ import { startReconnect } from "./net/reconnect.js";
 import { watchForUpdate } from "./version.js";
 import { StartGame } from "./game/main.js";
 
+/** Narrate boot progress onto the play page's boot screen — when the game feels
+ *  slow to open, the stage on screen names which phase is eating the time. */
+function bootStage(text: string): void {
+  const stage = document.getElementById("boot-stage");
+  if (stage) stage.textContent = text;
+}
+
 async function main() {
   initAnalytics();
 
   try {
     // If this load is the redirect back from SpacetimeAuth, finish the exchange
     // before connecting so we can present the account's ID token (GDD "Identity").
+    bootStage("checking identity…");
     const signInReturn = await completeSignIn();
     const idToken = await currentIdToken();
 
@@ -36,6 +44,7 @@ async function main() {
 
     // A redeploy closes every live socket at once; recover automatically instead
     // of leaving players frozen on stale state until they refresh (reconnect.ts).
+    bootStage("connecting…");
     const conn = await connect(idToken ?? undefined, () => startReconnect(idToken ?? undefined));
     const signedIn = idToken !== null;
 
@@ -67,6 +76,7 @@ async function main() {
 
     // Three.js owns the canvas and the world render loop; StartGame boots the 3D
     // world with the live connection (game/main.ts, GDD "Camera and rendering").
+    bootStage("entering the world…");
     const world = StartGame("game", { conn, slug });
     theme.start(); // the generative game theme (starts on the first user gesture)
     mountWorldMap({ zone: getZone(slug)!, selfPosition: () => world.selfPosition() });
@@ -89,6 +99,7 @@ async function main() {
     // offer a refresh when newer assets ship (version.ts).
     watchForUpdate();
   } catch (err) {
+    bootStage("couldn't reach the world — is the server up?");
     logError("Failed to connect to SpacetimeDB", { surface: "startup", action: "connect_spacetimedb", error: err });
   }
 }
