@@ -2,6 +2,7 @@ import * as THREE from "three";
 import type { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { CLICK_SLOP_PX, createOrbit } from "./controls.js";
 import {
+  isDryFloor,
   EQUIPMENT_ACTION_MS,
   CHAT_BUBBLE_MS,
   DIR_SCALE,
@@ -168,7 +169,8 @@ export class World3D {
       interact: this.useInteract,
     });
 
-    this.hogBounds = zoneBounds(this.zone, (x, y) => this.boulderTiles.has(tileKey(x, y)));
+    // mirrors the server: water blocks a Hog like a boulder (GDD "Zones")
+    this.hogBounds = zoneBounds(this.zone, (x, y) => this.boulderTiles.has(tileKey(x, y)) || !isDryFloor(this.zone, x, y));
     this.troggBounds = zoneBounds(this.zone, (x, y) => this.boulderTiles.has(tileKey(x, y)) || this.hogTiles.has(tileKey(x, y)));
 
     // Torch-lit cave: dim warm ambient, one shadowing key light, dark fog closing in
