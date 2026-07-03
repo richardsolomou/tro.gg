@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+TSX_TSCONFIG_PATH=test/tsconfig.json pnpm exec tsx bin/loadtest.ts "$@"
