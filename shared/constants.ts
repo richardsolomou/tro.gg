@@ -108,7 +108,7 @@ export const SPAWNABLE_ITEM_IDS = ["pickaxe", "shovel", "sword", "shield"] as co
 export type SpawnableItemId = (typeof SPAWNABLE_ITEM_IDS)[number];
 
 /** Inventory capacity (GDD "Inventory"): each row occupies one visible carry slot. (initial) */
-export const INVENTORY_SLOT_COUNT = 10;
+export const INVENTORY_SLOT_COUNT = 20;
 
 /** Trogg/Hog combat health, damage, and respawn timing. (initial) */
 export const PLAYER_MAX_HEALTH = 100;
