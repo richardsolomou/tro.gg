@@ -18,5 +18,3 @@ test-results/
 playwright-report/
 blob-report/
 playwright/.cache/
-spike-godot/.godot/
-spike-godot/web-export/
