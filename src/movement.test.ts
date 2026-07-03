@@ -151,6 +151,27 @@ test("walking flush into a Hog stops the trogg, keeping it idle (no stale intent
   assert.deepEqual(h.moves.at(-1), { dirX: 0, dirY: 0, running: false });
 });
 
+test("a server settle near the optimistic origin acks it — clock drift is not a snap", () => {
+  const h = harness();
+  h.self.onIntent(right, true); // optimistic move(right) from (0,0)
+  const predictedBaseMs = h.entry.baseMs;
+  // The server derived the same trajectory on its own clock: same heading, slightly
+  // different fractional origin (latency × speed).
+  const server = { x: 0.42, y: 0, dirX: 1, dirY: 0, faceX: 1, faceY: 0, running: false, path: "", movedAt: { microsSinceUnixEpoch: 5n } } as unknown as Player;
+  h.self.reconcile(h.entry, server);
+  assert.equal(h.entry.player.x, 0); // local prediction kept
+  assert.equal(h.entry.baseMs, predictedBaseMs); // no animation restart
+});
+
+test("a server motion far from the optimistic origin still snaps to authority", () => {
+  const h = harness();
+  h.self.onIntent(right, true);
+  const server = { x: 7, y: 3, dirX: 1, dirY: 0, faceX: 1, faceY: 0, running: false, path: "", movedAt: { microsSinceUnixEpoch: 5n } } as unknown as Player;
+  h.self.reconcile(h.entry, server);
+  assert.equal(h.entry.player.x, 7); // genuine disagreement → server truth
+  assert.equal(h.entry.baseMs, 1000); // re-based to the server stamp
+});
+
 test("a server row that matches a pending move is an ack, not a snap", () => {
   const h = harness();
   h.self.onIntent(right, true); // optimistic move(right) from (0,0)

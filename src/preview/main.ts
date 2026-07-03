@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { createOrbit } from "../game3d/controls3d.js";
 import { COMMON_HOG_STYLES, HOG_STYLES, hogSize, TROGG_STYLES, type Kind } from "@trogg/shared";
 import { buildHog, buildHogBall, buildTrogg } from "../game3d/creatures3d.js";
 import { buildHeldItem, hasItem3D } from "../game3d/items3d.js";
@@ -108,9 +108,7 @@ const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 50);
 const CAMERA_DIR = new THREE.Vector3(0.28, 0.42, 1).normalize();
 
 // Mouse orbit: drag to rotate around the subject, wheel to zoom.
-const orbit = new OrbitControls(camera, renderer.domElement);
-orbit.enableDamping = true;
-orbit.enablePan = false;
+const orbit = createOrbit(camera, renderer.domElement);
 orbit.maxPolarAngle = Math.PI * 0.72; // don't dive under the floor
 
 /** Frame the current subject: aim the orbit at its centre and pull the camera back

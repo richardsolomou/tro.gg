@@ -43,6 +43,13 @@ const PROBE_MS = 60;
 
 const motionTol = 1e-6;
 
+/** How far (tiles) a server settle may sit from our optimistic origin and still ack it.
+ *  With fractional origins both sides derive the same trajectory on slightly different
+ *  clocks, so positions differ by (skew + latency) × speed — never exactly equal. The
+ *  heading, run state, and path still must match exactly; only genuine disagreement
+ *  (a rejected move, a collision we didn't predict) exceeds this and snaps. */
+const ACK_POSITION_TOL = 1.25;
+
 const sameIntent = (a: MoveIntent, b: MoveIntent) => a.dirX === b.dirX && a.dirY === b.dirY;
 const sameMoveIntent = (a: MoveIntent, b: MoveIntent) => sameIntent(a, b) && a.running === b.running;
 const isIdle = (i: MoveIntent) => i.dirX === 0 && i.dirY === 0;
@@ -68,6 +75,12 @@ function playerMotion(p: Pick<Player, "x" | "y" | "dirX" | "dirY" | "running" | 
 
 function sameMotion(a: MotionSnapshot, b: MotionSnapshot): boolean {
   return Math.abs(a.x - b.x) < motionTol && Math.abs(a.y - b.y) < motionTol && sameMoveIntent(a, b) && a.path === b.path;
+}
+
+/** Does a server motion acknowledge an optimistic one? Exact on intent and path,
+ *  positional within `ACK_POSITION_TOL` (see its comment). */
+function acksMotion(server: MotionSnapshot, local: MotionSnapshot): boolean {
+  return sameMoveIntent(server, local) && server.path === local.path && Math.hypot(server.x - local.x, server.y - local.y) <= ACK_POSITION_TOL;
 }
 
 function withMotion(p: Player, motion: MotionSnapshot): Player {
@@ -370,12 +383,12 @@ export function createSelfController(deps: SelfControllerDeps) {
     // re-routing is allowed again.
     awaitingMoveTo = false;
     const serverMotion = playerMotion(p);
-    const pendingIndex = pendingSelfMoves.findIndex((motion) => sameMotion(motion, serverMotion));
+    const pendingIndex = pendingSelfMoves.findIndex((motion) => acksMotion(serverMotion, motion));
     if (pendingIndex >= 0) {
       pendingSelfMoves.splice(0, pendingIndex + 1);
       acknowledgedMotion = serverMotion;
       entry.player = withMotion(p, playerMotion(entry.player));
-    } else if (sameMotion(playerMotion(entry.player), serverMotion)) {
+    } else if (acksMotion(serverMotion, playerMotion(entry.player))) {
       acknowledgedMotion = serverMotion;
       entry.player = withMotion(p, playerMotion(entry.player));
     } else if (pendingSelfMoves.length > 0 && acknowledgedMotion && sameMotion(serverMotion, acknowledgedMotion)) {

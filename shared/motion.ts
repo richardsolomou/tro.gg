@@ -71,23 +71,35 @@ export function zoneBounds(zone: Zone, occupied?: (tileX: number, tileY: number)
 }
 
 /**
- * The tile a trogg pressing a **cardinal** direction would act on — or null when
- * it isn't lined up. With free movement a trogg is rarely exactly on a tile, so
- * "facing a tile" means: pressing one axis only (a diagonal press faces nothing),
+ * The tile a trogg pressing a **mostly-cardinal** direction would act on — or null
+ * when it isn't lined up. With free movement a trogg is rarely exactly on a tile
+ * and headings are camera-relative vectors, so "facing a tile" means: a press
+ * whose minor axis is small next to its major (an oblique press faces nothing),
  * within `tol` of the lane on the perpendicular axis, and within `tol` of flush
  * along the movement axis (walking into a blocker clamps exactly flush, so a
  * deliberate push always qualifies). Pushing and interacting stay tile mechanics
  * on top of free movement.
  */
 export function facingTile(x: number, y: number, dirX: number, dirY: number, tol = 0.35): Coord | null {
-  if ((dirX === 0) === (dirY === 0)) return null; // idle or diagonal — no square facing
+  const ax = Math.abs(dirX);
+  const ay = Math.abs(dirY);
+  if (ax === 0 && ay === 0) return null;
+  if (Math.min(ax, ay) > Math.max(ax, ay) * 0.35) return null; // oblique — no square facing
   const tx = Math.round(x);
   const ty = Math.round(y);
   if (Math.abs(x - tx) > tol || Math.abs(y - ty) > tol) return null;
-  return { x: tx + Math.sign(dirX), y: ty + Math.sign(dirY) };
+  return ax >= ay ? { x: tx + Math.sign(dirX), y: ty } : { x: tx, y: ty + Math.sign(dirY) };
 }
 
-/** The four cardinal movement directions — the only headings the game allows. */
+/**
+ * Wire scale for movement headings: a direction is an integer vector with each
+ * axis in [-DIR_SCALE, DIR_SCALE] (the columns are i32). Only the vector's
+ * *direction* matters — projection normalises, so magnitude never buys speed.
+ * Hogs and legacy rows use plain ±1 vectors, which are just short headings.
+ */
+export const DIR_SCALE = 1000;
+
+/** The four cardinal movement directions — the headings Hog wander picks from. */
 export const CARDINALS: readonly { dirX: number; dirY: number }[] = [
   { dirX: 0, dirY: -1 },
   { dirX: 0, dirY: 1 },
@@ -297,8 +309,8 @@ export function projectMotionState(motion: Motion, elapsedMs: number, zone: Zone
   const dist = (speed * Math.max(elapsedMs, 0)) / 1000;
   const size = motion.size ?? 1;
 
-  // Cardinal: exactly one axis moves. Clamp to bounds (the footprint stays inside),
-  // then to the first wall the footprint meets.
+  // Cardinal fast path: exactly one axis moves. Clamp to bounds (the footprint
+  // stays inside), then to the first wall the footprint meets.
   if (dirY === 0) {
     const step = Math.sign(dirX);
     const target = clamp(motion.x + step * dist, 0, zone.width - size);
@@ -309,19 +321,25 @@ export function projectMotionState(motion: Motion, elapsedMs: number, zone: Zone
     const target = clamp(motion.y + step * dist, 0, zone.height - size);
     return { x: motion.x, y: zone.isWalkable ? wallY(zone, motion.x, motion.y, target, step, size) : target, dirX, dirY, arrived: false };
   }
-  const p = projectDiagonal(motion.x, motion.y, Math.sign(dirX), Math.sign(dirY), dist, zone, size);
+  const p = projectAngled(motion.x, motion.y, dirX, dirY, dist, zone, size);
   return { x: p.x, y: p.y, dirX, dirY, arrived: false };
 }
 
 /**
- * Diagonal movement with wall slide: both axes advance at 1/√2 of move speed, and
- * when one axis meets a wall (or the zone edge) the other keeps going. Advanced in
+ * Off-axis movement with wall slide. The direction is any vector (camera-relative
+ * headings quantise to ints on the wire; only its *direction* matters — the length
+ * never affects speed): the trogg advances along the normalised heading, and when
+ * one axis meets a wall (or the zone edge) the other keeps going. Advanced in
  * segments that end at each tile-boundary crossing, so the footprint's row/column
  * span — what the `wallX`/`wallY` clamps check against — is constant within a
  * segment; a pure function of its inputs, so client and server derive identically.
  */
-function projectDiagonal(ox: number, oy: number, stepX: number, stepY: number, dist: number, zone: ZoneBounds, size: number): { x: number; y: number } {
-  const component = Math.SQRT1_2; // per-axis share of unit speed on a diagonal
+function projectAngled(ox: number, oy: number, dirX: number, dirY: number, dist: number, zone: ZoneBounds, size: number): { x: number; y: number } {
+  const len = Math.hypot(dirX, dirY);
+  const nx = dirX / len; // per-axis share of unit speed along the heading
+  const ny = dirY / len;
+  const stepX = Math.sign(nx);
+  const stepY = Math.sign(ny);
   let x = ox;
   let y = oy;
   let remaining = dist;
@@ -331,18 +349,18 @@ function projectDiagonal(ox: number, oy: number, stepX: number, stepY: number, d
 
   for (let i = 0; i < guard && remaining > EPS; i++) {
     // Path length until each axis next crosses a tile boundary (∞ once blocked).
-    const untilX = blockedX ? Number.POSITIVE_INFINITY : boundaryDistance(x, stepX, size) / component;
-    const untilY = blockedY ? Number.POSITIVE_INFINITY : boundaryDistance(y, stepY, size) / component;
+    const untilX = blockedX ? Number.POSITIVE_INFINITY : boundaryDistance(x, stepX, size) / Math.abs(nx);
+    const untilY = blockedY ? Number.POSITIVE_INFINITY : boundaryDistance(y, stepY, size) / Math.abs(ny);
     const segment = Math.min(remaining, untilX, untilY);
 
     if (!blockedX) {
-      const target = clamp(x + stepX * component * segment, 0, zone.width - size);
+      const target = clamp(x + nx * segment, 0, zone.width - size);
       const cx = zone.isWalkable ? wallX(zone, x, y, target, stepX, size) : target;
       blockedX = stepX > 0 ? cx < target - EPS : cx > target + EPS;
       x = cx;
     }
     if (!blockedY) {
-      const target = clamp(y + stepY * component * segment, 0, zone.height - size);
+      const target = clamp(y + ny * segment, 0, zone.height - size);
       const cy = zone.isWalkable ? wallY(zone, x, y, target, stepY, size) : target;
       blockedY = stepY > 0 ? cy < target - EPS : cy > target + EPS;
       y = cy;

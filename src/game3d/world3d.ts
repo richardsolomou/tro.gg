@@ -1,7 +1,9 @@
 import * as THREE from "three";
-import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import type { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { createOrbit } from "./controls3d.js";
 import {
   CHAT_BUBBLE_MS,
+  DIR_SCALE,
   facingFromDir,
   footprintTiles,
   getZone,
@@ -24,7 +26,7 @@ import {
 } from "@trogg/shared";
 import type { DbConnection } from "../net/module_bindings";
 import type { Boulder, GroundItem, Hog, Player } from "../net/module_bindings/types";
-import { attachKeyboard } from "../input.js";
+import { attachKeyboard, type MoveIntent } from "../input.js";
 import { setupChat } from "../ui/chat.js";
 import { mountCommands } from "../ui/commands.js";
 import { createSelfController, type SelfController } from "../movement.js";
@@ -90,6 +92,10 @@ export class World3D {
   private destinationTile?: Coord;
   private readonly sub = { live: false };
   private lastMs = performance.now();
+  /** The raw screen-space WASD intent and its last camera-mapped delivery, so the
+   *  tick can re-steer a held walk when the camera turns. */
+  private rawIntent: MoveIntent = { dirX: 0, dirY: 0, running: false };
+  private lastMapped: MoveIntent = { dirX: 0, dirY: 0, running: false };
 
   private useHogs = false;
   private useGhost = false;
@@ -183,7 +189,9 @@ export class World3D {
     attachKeyboard(
       (intent, immediate) => {
         if (this.myId && this.tracked.get(this.myId)?.player.dead) return;
-        this.self.onIntent(this.toWorldIntent(intent), immediate);
+        this.rawIntent = intent;
+        this.lastMapped = this.mapIntent(intent);
+        this.self.onIntent(this.lastMapped, immediate);
       },
       () => {
         if (!this.useInteract) return;
@@ -293,6 +301,19 @@ export class World3D {
       }
       if (entry.player.dead) continue;
       this.self.update(entry, motion, now);
+      // Exposed for the e2e harness: the local trogg's projected tile position.
+      (window as unknown as { __troggPos?: { x: number; y: number } }).__troggPos = { x: motion.x, y: motion.y };
+    }
+
+    // A held key steers relative to the camera: while the orbit turns, re-map the
+    // raw intent and re-deliver when the world heading actually changed (the 15°
+    // quantisation keeps this to real turns, not damping jitter).
+    if (this.rawIntent.dirX !== 0 || this.rawIntent.dirY !== 0) {
+      const mapped = this.mapIntent(this.rawIntent);
+      if (mapped.dirX !== this.lastMapped.dirX || mapped.dirY !== this.lastMapped.dirY) {
+        this.lastMapped = mapped;
+        this.self.onIntent(mapped);
+      }
     }
 
     this.entities.updateGhosts(now);
@@ -347,10 +368,8 @@ export class World3D {
     }
     fits(hi);
 
-    this.orbit = new OrbitControls(this.camera, this.renderer.domElement);
+    this.orbit = createOrbit(this.camera, this.renderer.domElement);
     this.orbit.target.copy(centre);
-    this.orbit.enableDamping = true;
-    this.orbit.enablePan = false;
     this.orbit.minDistance = 6;
     this.orbit.maxDistance = hi * 1.7;
     this.orbit.minPolarAngle = 0.25; // not dead top-down…
@@ -358,15 +377,19 @@ export class World3D {
     this.orbit.update();
   };
 
-  /** Map a WASD intent from screen space to world space by the camera's heading,
-   *  snapped to the nearest quadrant so cardinal input stays cardinal: after
-   *  orbiting the camera, "up" is still whatever direction is up on screen. */
-  private toWorldIntent<T extends { dirX: number; dirY: number }>(intent: T): T {
-    if (!this.orbit || (intent.dirX === 0 && intent.dirY === 0)) return intent;
-    const a = -Math.round(this.orbit.getAzimuthalAngle() / (Math.PI / 2)) * (Math.PI / 2);
-    const cos = Math.round(Math.cos(a));
-    const sin = Math.round(Math.sin(a));
-    return { ...intent, dirX: intent.dirX * cos - intent.dirY * sin, dirY: intent.dirX * sin + intent.dirY * cos };
+  /** Map a WASD intent from screen space to world space by the camera's heading:
+   *  W walks where the camera looks, A/D strafe, S backs up. The heading quantises
+   *  to 15° buckets (so orbit damping doesn't spam re-sends) and the result rides
+   *  the DIR_SCALE integer wire format. `tick` re-maps while keys are held, so
+   *  turning the camera mid-walk curves the walk with it. */
+  private mapIntent(intent: MoveIntent): MoveIntent {
+    if (!this.orbit || (intent.dirX === 0 && intent.dirY === 0)) return { ...intent };
+    const bucket = Math.PI / 12;
+    const a = -Math.round(this.orbit.getAzimuthalAngle() / bucket) * bucket;
+    const wx = intent.dirX * Math.cos(a) - intent.dirY * Math.sin(a);
+    const wy = intent.dirX * Math.sin(a) + intent.dirY * Math.cos(a);
+    const len = Math.hypot(wx, wy) || 1;
+    return { dirX: Math.round((wx / len) * DIR_SCALE), dirY: Math.round((wy / len) * DIR_SCALE), running: intent.running };
   }
 
   /** A soft radial darkening over the whole viewport — the cave vignette. */

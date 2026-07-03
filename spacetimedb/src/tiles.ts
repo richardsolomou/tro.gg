@@ -1,5 +1,6 @@
 import {
   CARDINALS,
+  DIR_SCALE,
   elapsedMs,
   footprintTiles,
   getZone,
@@ -262,12 +263,15 @@ export function unitStep(value: number): number {
 }
 
 /**
- * Resolve an untrusted (dirX, dirY) to a movement intent: idle, a cardinal, or a
- * diagonal — each axis coerced to unit length (movement is free 8-directional;
- * the shared projection normalises diagonal speed).
+ * Resolve an untrusted (dirX, dirY) to a movement heading: an integer vector with
+ * each axis clamped to [-DIR_SCALE, DIR_SCALE]. Movement is free-direction
+ * (camera-relative headings quantise to this wire scale); only the vector's
+ * direction matters — the shared projection normalises, so magnitude never buys
+ * speed. (0, 0) = idle.
  */
-export function direction8(dirX: number, dirY: number): { dirX: number; dirY: number } {
-  return { dirX: unitStep(dirX), dirY: unitStep(dirY) };
+export function directionVector(dirX: number, dirY: number): { dirX: number; dirY: number } {
+  const axis = (v: number) => (Number.isFinite(v) ? Math.max(-DIR_SCALE, Math.min(DIR_SCALE, Math.trunc(v))) : 0);
+  return { dirX: axis(dirX), dirY: axis(dirY) };
 }
 
 /**

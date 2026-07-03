@@ -18,28 +18,29 @@ import {
   troggBlockers,
   boulderAt,
   cardinal,
-  direction8,
+  directionVector,
 } from "../helpers";
 
 /**
- * A WASD direction intent (GDD "Movement"). Movement is free 8-directional —
- * cardinals and diagonals, with diagonal speed normalised by the shared
- * projection. Settle the origin to where the trogg is now (so elapsed travel
+ * A WASD direction intent (GDD "Movement"). Movement is free-direction: the
+ * heading is an integer vector on the DIR_SCALE wire format (camera-relative
+ * strafing quantises to it; the shared projection normalises, so magnitude never
+ * buys speed). Settle the origin to where the trogg is now (so elapsed travel
  * under the old direction — and the old speed — isn't lost or replayed), then
- * store the new direction, `running`, and timestamp; origins are fractional.
+ * store the new heading, `running`, and timestamp; origins are fractional.
  * `running` (shift held) rides the intent so all clients derive the same faster
  * speed. Non-idle movement also updates the synced standing facing (its dominant
  * cardinal), so stopping preserves the heading other clients just saw. Position
- * is never ticked (invariant 1); axis values are coerced to unit steps, never
- * trusted (invariant 3).
+ * is never ticked (invariant 1); axis values are clamped, never trusted
+ * (invariant 3).
  */
 export const move = spacetimedb.reducer({ dirX: t.i32(), dirY: t.i32(), running: t.bool() }, (ctx, { dirX, dirY, running }) => {
   const p = ctx.db.player.identity.find(ctx.sender);
   if (!p) return;
   if (p.dead) return;
-  const dir = direction8(dirX, dirY);
+  const dir = directionVector(dirX, dirY);
   const idle = dir.dirX === 0 && dir.dirY === 0;
-  const dominant = Math.abs(dir.dirX) >= Math.abs(dir.dirY) ? { x: dir.dirX, y: 0 } : { x: 0, y: dir.dirY };
+  const dominant = Math.abs(dir.dirX) >= Math.abs(dir.dirY) ? { x: Math.sign(dir.dirX), y: 0 } : { x: 0, y: Math.sign(dir.dirY) };
   const settled = settle(ctx, p, ctx.timestamp);
   ctx.db.player.identity.update({
     ...p,
