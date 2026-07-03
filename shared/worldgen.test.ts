@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { assertZones, isWalkable, regionAt, WALL_TILE, WORLD_REGIONS, ZONES, type Zone } from "./index";
+import { assertZones, isDryFloor, isWalkable, regionAt, WALL_TILE, WORLD_REGIONS, ZONES, type Zone } from "./index";
 import { generateCaveZone } from "./worldgen";
 
 const OPTS = { slug: "t", name: "t", width: 64, height: 44, seed: 0x70660001, boulders: 14, hogs: 12, biome: "cave" as const };
@@ -65,6 +65,10 @@ test("giants sit on clear 2×2 footprints and every seed is on open floor", () =
   const zone = generateCaveZone(OPTS);
   for (const seed of [...zone.boulders, ...zone.hogs, ...zone.items]) {
     assert.ok(isWalkable(zone, seed.x, seed.y), `seed at ${seed.x},${seed.y} is in rock`);
+  }
+  const world = ZONES["world"]!;
+  for (const seed of [...world.boulders, ...world.hogs, ...world.items]) {
+    assert.ok(isDryFloor(world, seed.x, seed.y), `world seed at ${seed.x},${seed.y} is wet or in rock`);
   }
   for (const giant of zone.bigHogs) {
     for (let dy = 0; dy < 2; dy++) {

@@ -1,4 +1,5 @@
-import { type Coord, isWalkable, MOVE_SPEED_TILES_PER_SEC, RUN_SPEED_TILES_PER_SEC, type Zone } from "./constants";
+import {
+  isDryFloor, type Coord, isWalkable, MOVE_SPEED_TILES_PER_SEC, RUN_SPEED_TILES_PER_SEC, type Zone } from "./constants";
 
 /**
  * Position-over-time derivation, shared by server and client so both agree
@@ -247,7 +248,7 @@ export function spawnTiles(
   const px = Math.round(x);
   const py = Math.round(y);
   const wanted = Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0;
-  const free = (tx: number, ty: number) => isWalkable(zone, tx, ty) && !occupied(tx, ty);
+  const free = (tx: number, ty: number) => isDryFloor(zone, tx, ty) && !occupied(tx, ty);
   const tiles: Coord[] = [];
   const seen = new Set<string>();
 
@@ -280,6 +281,24 @@ export function spawnTiles(
   }
 
   return tiles;
+}
+
+/** The walkable dry tile nearest to (x, y), ring-searched outward — where a
+ *  returning trogg relocates when the map changed underneath it, so it comes
+ *  back beside where it logged out instead of teleporting to spawn. */
+export function nearestSafeTile(zone: Zone, x: number, y: number, maxRadius = 32): Coord | undefined {
+  const px = Math.round(x);
+  const py = Math.round(y);
+  if (isDryFloor(zone, px, py)) return { x: px, y: py };
+  for (let radius = 1; radius <= maxRadius; radius++) {
+    for (let dy = -radius; dy <= radius; dy++) {
+      const dx = radius - Math.abs(dy);
+      for (const tx of dx === 0 ? [px] : [px + dx, px - dx]) {
+        if (isDryFloor(zone, tx, py + dy)) return { x: tx, y: py + dy };
+      }
+    }
+  }
+  return undefined;
 }
 
 /** Pick the first free tile for one spawned or dropped thing. */

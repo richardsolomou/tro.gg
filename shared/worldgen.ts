@@ -547,10 +547,12 @@ export function generateWorld(): GeneratedWorld {
   const boulders: Coord[] = [];
   const hogs: Coord[] = [];
   const openTiles: Coord[][] = WORLD_REGIONS.map(() => []);
+  const DRY = new Set([".", MOSS_TILE, GRAVEL_TILE, GLOWMOSS_TILE]);
   for (let y = 1; y < H - 1; y++) {
     for (let x = 1; x < W - 1; x++) {
       const region = regionOf[idx(x, y)] ?? -1;
-      if (region === -1 || rock[idx(x, y)] || water[idx(x, y)] === 1) continue;
+      // seeds keep to dry open floor: never in rivers, fords, or pools
+      if (region === -1 || !DRY.has(glyphs[y]![x]!)) continue;
       if (Math.abs(x - spawn.x) + Math.abs(y - spawn.y) < 8) continue;
       openTiles[region]!.push({ x, y });
     }
@@ -584,7 +586,7 @@ export function generateWorld(): GeneratedWorld {
   const bigHogs: BigHog[] = [];
   const giantFits = (tile: Coord): boolean => {
     for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) {
-      if (rock[idx(tile.x + dx, tile.y + dy)] !== 0 || water[idx(tile.x + dx, tile.y + dy)] === 1 || taken.has(`${tile.x + dx},${tile.y + dy}`)) return false;
+      if (!DRY.has(glyphs[tile.y + dy]![tile.x + dx]!) || taken.has(`${tile.x + dx},${tile.y + dy}`)) return false;
     }
     return true;
   };

@@ -1,4 +1,5 @@
 import {
+  isDryFloor,
   BOULDER_HIT_RADIUS,
   CARDINALS,
   DIR_SCALE,
@@ -145,7 +146,7 @@ export function hogAt(ctx: Ctx, zoneId: string, x: number, y: number, now: Stamp
   const zone = getZone(zoneId);
   if (!zone) return undefined;
   const occupied = boulderTiles(ctx, zoneId);
-  const bounds = zoneBounds(zone, (tx, ty) => occupied.has(tileKey(tx, ty)));
+  const bounds = zoneBounds(zone, (tx, ty) => occupied.has(tileKey(tx, ty)) || !isDryFloor(zone, tx, ty));
   for (const h of ctx.db.hog.zoneId.filter(zoneId)) {
     const size = hogSize(h.style);
     const pos = projectMotion({ ...h, size }, elapsedMs(h.movedAt, now), bounds);
@@ -160,7 +161,7 @@ export function hogTile(ctx: Ctx, h: NonNullable<ReturnType<typeof hogAt>>, now:
   const zone = getZone(h.zoneId);
   if (!zone) return { x: h.x, y: h.y };
   const occupied = boulderTiles(ctx, h.zoneId);
-  const bounds = zoneBounds(zone, (tx, ty) => occupied.has(tileKey(tx, ty)));
+  const bounds = zoneBounds(zone, (tx, ty) => occupied.has(tileKey(tx, ty)) || !isDryFloor(zone, tx, ty));
   const pos = projectMotion(h, elapsedMs(h.movedAt, now), bounds);
   return { x: Math.round(pos.x), y: Math.round(pos.y) };
 }
@@ -212,7 +213,7 @@ export function meleeHogTarget(ctx: Ctx, zoneId: string, cx: number, cy: number,
   const zone = getZone(zoneId);
   if (!zone) return undefined;
   const occupied = boulderTiles(ctx, zoneId);
-  const bounds = zoneBounds(zone, (tx, ty) => occupied.has(tileKey(tx, ty)));
+  const bounds = zoneBounds(zone, (tx, ty) => occupied.has(tileKey(tx, ty)) || !isDryFloor(zone, tx, ty));
   let best: { target: NonNullable<ReturnType<typeof hogAt>>; dist: number } | undefined;
   for (const h of ctx.db.hog.zoneId.filter(zoneId)) {
     const size = hogSize(h.style);

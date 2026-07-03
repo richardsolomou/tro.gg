@@ -967,3 +967,30 @@ test("redeemClaim ignores a caller without a SpacetimeAuth token", () => {
   redeemClaim(ctx, { code: "c" });
   assert.ok(ctx.db.claimCode.code.find("c")); // nonce untouched
 });
+
+// --- World healing (regenerated maps under a live database) ---
+
+test("onConnect wipes and reseeds rows stranded in rock by a map regen", () => {
+  const me = id("healer");
+  const ctx = makeCtx({ sender: me });
+  // a boulder from an old layout, now inside the new map's rock at (0, 0)
+  ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 0, y: 0 });
+  ctx.db.hog.insert({ id: 0n, zoneId: ZONE, x: 0, y: 1, dirX: 0, dirY: 0, movedAt: { microsSinceUnixEpoch: 0n }, style: "", health: 60 });
+  onConnect(ctx);
+  const zone = getZone(ZONE)!;
+  for (const b of ctx.db.boulder.rows()) {
+    assert.ok(isWalkable(zone, b.x, b.y), `reseeded boulder at ${b.x},${b.y} is in rock`);
+  }
+  assert.ok(ctx.db.boulder.rows().length > 0);
+  assert.ok(ctx.db.hog.rows().every((h: any) => isWalkable(zone, Math.round(h.x), Math.round(h.y))));
+});
+
+test("onConnect leaves healthy world rows alone", () => {
+  const me = id("keeper");
+  const ctx = makeCtx({ sender: me });
+  const zone = getZone(ZONE)!;
+  const seed = zone.boulders[0]!;
+  const kept = ctx.db.boulder.insert({ id: 7n, zoneId: ZONE, x: seed.x, y: seed.y });
+  onConnect(ctx);
+  assert.ok(ctx.db.boulder.rows().some((b: any) => b.id === kept.id));
+});

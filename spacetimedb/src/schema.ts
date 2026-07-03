@@ -3,6 +3,7 @@ import { Timestamp } from "spacetimedb";
 import {
   COLOR_UNSET,
   elapsedMs,
+  isDryFloor,
   footprintTiles,
   getZone,
   hogSize,
@@ -359,7 +360,8 @@ export const wanderHogs = spacetimedb.reducer({ timer: hogWander.rowType }, (ctx
     if (!zone) continue;
     const size = hogSize(h.style);
     const blockers = blockersFor(h.zoneId);
-    const bounds = zoneBounds(zone, (x, y) => blockers.has(tileKey(x, y)));
+    // Hogs keep to dry ground: water blocks them like a boulder does (GDD "Zones").
+    const bounds = zoneBounds(zone, (x, y) => blockers.has(tileKey(x, y)) || !isDryFloor(zone, x, y));
     // Round the in-between position (the footprint's top-left) to the tile it ended on:
     // a Hog steps tile-to-tile over walkable floor, so rounding stays on walkable floor.
     const pos = projectMotion({ ...h, size }, elapsedMs(h.movedAt, now), bounds);
@@ -392,6 +394,7 @@ export const wanderHogs = spacetimedb.reducer({ timer: hogWander.rowType }, (ctx
     const own = new Set(footprintTiles(s.x, s.y, s.size).map((t) => tileKey(t.x, t.y)));
     const bounds = zoneBounds(s.zone, (x, y) => {
       const k = tileKey(x, y);
+      if (!isDryFloor(s.zone, x, y)) return true;
       return !own.has(k) && (s.blockers.has(k) || hogTiles.has(k) || claimed!.has(k));
     });
     const dir = online ? pickWanderDir(ctx, bounds, s.hog, { x: s.x, y: s.y }, s.size) : { dirX: 0, dirY: 0 };

@@ -76,6 +76,20 @@ export function buildTerrain(zone: Zone): Terrain3D {
   const wallGeo = new THREE.BoxGeometry(1, WALL_HEIGHT, 1);
   globalDisposables.push(wallMat, wallGeo);
 
+  // Rivers sink where walls rise: a sunken box per deep-water tile, its textured
+  // top a step below the floor with dark banks — impassability reads in the
+  // z-axis without a tooltip.
+  const riverTopTex = new THREE.CanvasTexture(deepWaterPatch(cavePal));
+  riverTopTex.colorSpace = THREE.SRGBColorSpace;
+  riverTopTex.magFilter = THREE.NearestFilter;
+  riverTopTex.minFilter = THREE.NearestFilter;
+  const riverTop = new THREE.MeshStandardMaterial({ map: riverTopTex, roughness: 0.7 });
+  const riverBank = new THREE.MeshStandardMaterial({ color: cavePal.floor.crack, roughness: 1 });
+  const riverMats = [riverBank, riverBank, riverTop, riverBank, riverBank, riverBank];
+  const RIVER_DEPTH = 0.5;
+  const riverGeo = new THREE.BoxGeometry(1, RIVER_DEPTH, 1);
+  globalDisposables.push(riverTopTex, riverTop, riverBank, riverGeo);
+
   interface BuiltChunk {
     group: THREE.Group;
     disposables: { dispose(): void }[];
@@ -103,6 +117,7 @@ export function buildTerrain(zone: Zone): Terrain3D {
     const ctx = canvas.getContext("2d")!;
     const wallTiles: { x: number; y: number; biome: string }[] = [];
     const glowTiles: { x: number; y: number; biome: string }[] = [];
+    const deepTiles: { x: number; y: number }[] = [];
     for (let y = 0; y < h; y++) {
       const row = zone.tiles[y0 + y]!;
       for (let x = 0; x < w; x++) {
@@ -113,6 +128,14 @@ export function buildTerrain(zone: Zone): Terrain3D {
         const patches = patchesFor(biome);
         const sx = (wx % PATCH) * ART;
         const sy = (wy % PATCH) * ART;
+        if (glyph === DEEP_WATER_TILE) {
+          // impassable water is CUT OUT of the floor: a sunken channel renders
+          // below it, so depth says "you can't walk here" the way height does
+          // for walls (GDD "Zones")
+          ctx.clearRect(x * ART, y * ART, ART, ART);
+          deepTiles.push({ x: wx, y: wy });
+          continue;
+        }
         ctx.drawImage(patches.floor!, sx, sy, ART, ART, x * ART, y * ART, ART, ART);
         if (glyph === WALL_TILE) {
           wallTiles.push({ x: wx, y: wy, biome });
@@ -128,13 +151,25 @@ export function buildTerrain(zone: Zone): Terrain3D {
     floorTex.magFilter = THREE.NearestFilter;
     floorTex.minFilter = THREE.NearestFilter;
     disposables.push(floorTex);
-    const floorMat = new THREE.MeshStandardMaterial({ map: floorTex, roughness: 1 });
+    const floorMat = new THREE.MeshStandardMaterial({ map: floorTex, roughness: 1, transparent: true });
     disposables.push(floorMat);
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(w, h), floorMat);
     floor.rotation.x = -Math.PI / 2;
     floor.position.set(x0 + w / 2, 0, y0 + h / 2);
     floor.receiveShadow = true;
     chunkGroup.add(floor);
+
+    if (deepTiles.length > 0) {
+      const channel = new THREE.InstancedMesh(riverGeo, riverMats, deepTiles.length);
+      const place = new THREE.Matrix4();
+      deepTiles.forEach((tile, i) => {
+        place.makeTranslation(tile.x + 0.5, -RIVER_DEPTH / 2 - 0.18, tile.y + 0.5);
+        channel.setMatrixAt(i, place);
+      });
+      channel.receiveShadow = true;
+      chunkGroup.add(channel);
+      disposables.push(channel);
+    }
 
     if (wallTiles.length > 0) {
       const walls = new THREE.InstancedMesh(wallGeo, wallMat, wallTiles.length);

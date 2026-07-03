@@ -55,6 +55,28 @@ export function unit(): {} {
   return {};
 }
 
+/**
+ * Regenerating the committed world map under a live database leaves rows seeded
+ * from the old layout sitting inside the new map's rock — visibly embedded in
+ * walls, and poisoning collision (a hog projected from inside rock makes the
+ * client and server disagree about blocked tiles). Detect any seedable row on
+ * unwalkable ground and wipe the zone's boulders, Hogs, and ground items; the
+ * idempotent seeders right after then re-seed from the current map.
+ */
+export function healStaleWorld(ctx: Ctx, zone: Zone): void {
+  const boulders = [...ctx.db.boulder.zoneId.filter(zone.slug)];
+  const hogs = [...ctx.db.hog.zoneId.filter(zone.slug)];
+  const items = [...ctx.db.groundItem.zoneId.filter(zone.slug)];
+  const stale =
+    boulders.some((b) => !isWalkable(zone, b.x, b.y)) ||
+    hogs.some((h) => !isWalkable(zone, Math.round(h.x), Math.round(h.y))) ||
+    items.some((g) => !isWalkable(zone, g.x, g.y));
+  if (!stale) return;
+  for (const b of boulders) ctx.db.boulder.id.delete(b.id);
+  for (const h of hogs) ctx.db.hog.id.delete(h.id);
+  for (const g of items) ctx.db.groundItem.id.delete(g.id);
+}
+
 /** Seed a zone's boulders from the registry, unless it already has some. */
 export function seedBoulders(ctx: Ctx, zone: Zone): void {
   if ([...ctx.db.boulder.zoneId.filter(zone.slug)].length > 0) return;

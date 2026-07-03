@@ -1,5 +1,5 @@
 export * from "./glyphs";
-import { SOLID_GLYPHS, TILE_GLYPHS } from "./glyphs";
+import { SOLID_GLYPHS, TILE_GLYPHS, WATER_TILE } from "./glyphs";
 import { setRegionRows, WORLD_H, WORLD_W } from "./worldgen";
 import { WORLD_BIG_HOGS, WORLD_BOULDERS, WORLD_HOGS, WORLD_ITEMS, WORLD_REGION_ROWS, WORLD_SPAWN, WORLD_TILES } from "./world-map";
 
@@ -332,6 +332,18 @@ export function getZone(slug: string): Zone | undefined {
  * unwalkable, so movement clamps at the zone edge the same way it clamps at a
  * wall. Coordinates are integer tile indices.
  */
+/** The glyph at a tile, or undefined out of bounds. */
+export function tileGlyph(zone: Zone, tileX: number, tileY: number): string | undefined {
+  return zone.tiles[tileY]?.[tileX];
+}
+
+/** Walkable AND dry: where things may be placed and ambient creatures roam —
+ *  a trogg wades through shallow water, but items don't float and Hogs keep to
+ *  the banks (GDD "Zones"). */
+export function isDryFloor(zone: Zone, tileX: number, tileY: number): boolean {
+  return isWalkable(zone, tileX, tileY) && tileGlyph(zone, tileX, tileY) !== WATER_TILE;
+}
+
 export function isWalkable(zone: Zone, tileX: number, tileY: number): boolean {
   if (tileX < 0 || tileY < 0 || tileY >= zone.tiles.length) return false;
   const row = zone.tiles[tileY]!;

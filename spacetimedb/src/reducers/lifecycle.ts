@@ -1,6 +1,7 @@
 import spacetimedb from "../schema";
 import { Timestamp } from "spacetimedb";
 import {
+  nearestSafeTile,
   COLOR_UNSET,
   getZone,
   STYLE_UNSET,
@@ -10,6 +11,7 @@ import {
 } from "../../../shared/index";
 import {
   spawnAt,
+  healStaleWorld,
   seedBoulders,
   seedHogs,
   seedGroundItems,
@@ -36,6 +38,7 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
   // init runs first-publish only, so it can't seed a table added to an already-published
   // module; seed lazily on connect, idempotently.
   const startingZone = getZone(STARTING_ZONE_SLUG)!;
+  healStaleWorld(ctx, startingZone);
   seedBoulders(ctx, startingZone);
   seedHogs(ctx, startingZone);
   seedGroundItems(ctx, startingZone);
@@ -64,8 +67,10 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
     // a tilemap edit could leave its resting tile inside a new wall; nudge it back
     // to spawn so it never resumes embedded in an obstacle (invariant 6).
     const zone = getZone(existing.zoneId);
+    // A map regen can strand a returning trogg inside new rock or a river: relocate
+    // to the nearest safe tile beside where it logged out, spawn as the last resort.
     const stuck = zone && !isWalkable(zone, Math.round(existing.x), Math.round(existing.y));
-    const pos = stuck ? spawnAt(zone) : { x: existing.x, y: existing.y };
+    const pos = stuck ? (nearestSafeTile(zone, existing.x, existing.y) ?? spawnAt(zone)) : { x: existing.x, y: existing.y };
     ctx.db.player.identity.update({ ...existing, x: pos.x, y: pos.y, dirX: 0, dirY: 0, running: false, path: "", online: true, movedAt: ctx.timestamp });
     return;
   }
