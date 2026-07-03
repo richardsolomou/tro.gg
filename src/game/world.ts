@@ -41,6 +41,7 @@ import { captureEvent, isFeatureEnabled, logError, logInfo } from "../analytics.
 import { audio } from "../audio.js";
 import { interact, useEquipped } from "../net/procedures.js";
 import { isOlderPlayerMotion, playerMotionChanged, withPlayerMotion } from "../motion_sync.js";
+import { FarCrowd } from "./crowd.js";
 import { createEntities, disposeObject, type Entities, type HogView, type Tracked } from "./entities.js";
 import { buildBoulder, buildTree } from "./items.js";
 import { NodeField } from "./nodes.js";
@@ -118,6 +119,8 @@ export class World3D {
   /** All trees (and, separately, boulders) draw as a handful of instanced meshes. */
   private treeField!: NodeField;
   private boulderField!: NodeField;
+  /** Creatures beyond the full-rig budget render as moving silhouettes, not nothing. */
+  private crowd!: FarCrowd;
   /** Cleared until the camera has snapped to the local trogg once (first snapshot). */
   private cameraSnapped = false;
   /** Tiles between the local trogg and a world position — Infinity before spawn. */
@@ -318,6 +321,7 @@ export class World3D {
     this.entities = createEntities(this.scene);
     this.treeField = new NodeField(this.scene, buildTree(), MAX_TREES_PER_ZONE);
     this.boulderField = new NodeField(this.scene, buildBoulder(), MAX_BOULDERS_PER_ZONE);
+    this.crowd = new FarCrowd(this.scene);
 
     // The click-to-move destination marker: a flat gold-edged tile highlight.
     this.destination = new THREE.Mesh(
@@ -456,6 +460,7 @@ export class World3D {
 
     // Hogs first, so trogg collision this frame sees where the Hogs actually are.
     this.hogTiles.clear();
+    this.crowd.begin();
     for (const view of this.hogs.values()) {
       const size = hogSize(view.style);
       const motion = projectMotionState({ ...view.row, size }, now - view.baseMs, this.hogBounds);
@@ -463,8 +468,10 @@ export class World3D {
       // a corpse lies where it fell: no gait, no patter, and no collision
       if (view.row.health <= 0) continue;
       // hidden creatures (budgeted out or out of range) skip their animation
-      // mixers — position, collision, and sound still derive above
+      // mixers — position, collision, and sound still derive above; a moving
+      // silhouette stands in so a zoomed-out world still looks inhabited
       if (view.marker.visible) this.entities.animateHog(view, now, dt, motion);
+      else this.crowd.add("hog", motion.x, motion.y, Math.atan2(motion.dirX, motion.dirY), size, view.style);
       const tile = snapToTile({ x: motion.x, y: motion.y });
       const stepKey = tileKey(tile.x, tile.y);
       if (view.lastStepTile !== undefined && view.lastStepTile !== stepKey) {
@@ -478,6 +485,7 @@ export class World3D {
       const motion = projectMotionState(entry.player, now - entry.baseMs, this.troggBounds);
       this.entities.smoothPlace(entry, motion.x, motion.y, dt);
       if (entry.marker.visible) this.entities.animate(entry, now, dt, motion);
+      else if (!entry.player.dead) this.crowd.add("trogg", motion.x, motion.y, Math.atan2(motion.dirX, motion.dirY), 1, entry.style, entry.baseColor);
 
       if (entry.player.identity.toHexString() !== this.myId) {
         const stepKey = tileKey(Math.round(motion.x), Math.round(motion.y));
@@ -582,6 +590,7 @@ export class World3D {
     for (const view of this.groundItems.values()) {
       this.entities.animatePickupMotes(view.group, now);
     }
+    this.crowd.commit();
     this.entities.updateGhosts(now);
     this.orbit?.update();
     this.renderer.render(this.scene, this.camera);
