@@ -91,7 +91,7 @@
   color: var(--hud-bone-dim);
 }
 #hud .field:focus {
-  box-shadow: var(--well-shade), inset 0 0 0 2px var(--hud-moss);
+  box-shadow: var(--well-shade), inset 0 -2px 0 var(--hud-moss);
 }
 
 #hud .btn {
@@ -183,11 +183,23 @@
   box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.18);
   cursor: pointer;
 }
-#hud .swatch:hover {
-  box-shadow: inset 0 0 0 2px var(--hud-bone);
+#hud .swatch {
+  position: relative;
 }
-#hud .swatch[aria-pressed="true"] {
-  box-shadow: inset 0 0 0 2px var(--hud-moss);
+#hud .swatch:hover {
+  filter: brightness(1.2);
+}
+#hud .swatch[aria-pressed="true"]::after {
+  content: "";
+  position: absolute;
+  inset: 50% auto auto 50%;
+  width: 8px;
+  height: 8px;
+  translate: -50% -50%;
+  background: var(--hud-moss);
+  clip-path: var(--facet);
+  --cut: 2px;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.4);
 }
 
 /* ── Top-left toggle bar (Help, Appearance, Inventory, Commands) ──────────── */
@@ -218,13 +230,20 @@
   left: 0;
   margin-top: 8px;
 }
+/* Framed facet controls: the outer background is the frame colour and an inset
+   content-box layer paints the face, so highlights follow the chamfer (an inset
+   box-shadow ring would get its corners clipped into brackets). */
 #hud .hud-icon-button {
   width: 36px;
   height: 34px;
   padding: 2px;
   display: grid;
   place-items: center;
-  background: var(--hud-timber);
+  --face: var(--hud-timber);
+  --frame: var(--hud-timber);
+  background-image: linear-gradient(var(--face), var(--face)), linear-gradient(var(--frame), var(--frame));
+  background-origin: content-box, border-box;
+  background-clip: content-box, border-box;
   border: 0;
   clip-path: var(--facet);
   --cut: 7px;
@@ -232,12 +251,13 @@
   cursor: pointer;
 }
 #hud .hud-icon-button:hover {
-  box-shadow: var(--slab-light), inset 0 0 0 2px var(--hud-ember);
+  --frame: var(--hud-ember);
 }
 #hud .hud-icon-button:active,
 #hud .hud-icon-button[aria-expanded="true"] {
-  background: var(--hud-well-lite);
-  box-shadow: inset 0 0 0 2px var(--hud-ember), inset 0 3px 0 rgba(0, 0, 0, 0.3);
+  --frame: var(--hud-ember);
+  --face: var(--hud-well-lite);
+  box-shadow: inset 0 3px 0 rgba(0, 0, 0, 0.2);
 }
 #hud .hud-icon-button svg {
   width: 20px;
@@ -310,7 +330,7 @@
 }
 #hud .style-option:hover {
   background: var(--hud-well-lite);
-  box-shadow: var(--well-shade), inset 0 0 0 2px var(--hud-ember);
+  color: var(--hud-ember);
 }
 #hud .style-option[aria-pressed="true"] {
   color: var(--hud-ink);
@@ -379,11 +399,15 @@
   box-sizing: border-box;
   width: 40px;
   height: 40px;
-  padding: 3px;
+  padding: 2px;
   display: grid;
   place-items: center;
   color: var(--hud-bone);
-  background: var(--hud-well);
+  --face: var(--hud-well);
+  --frame: var(--hud-well);
+  background-image: linear-gradient(var(--face), var(--face)), linear-gradient(var(--frame), var(--frame));
+  background-origin: content-box, border-box;
+  background-clip: content-box, border-box;
   border: 0;
   clip-path: var(--facet);
   --cut: 7px;
@@ -391,15 +415,15 @@
   cursor: pointer;
 }
 #hud .inventory-item:hover:not(:disabled) {
-  background: var(--hud-well-lite);
-  box-shadow: var(--well-shade), inset 0 0 0 2px var(--hud-ember);
+  --frame: var(--hud-ember);
+  --face: var(--hud-well-lite);
 }
 #hud .inventory-item[aria-pressed="true"] {
-  box-shadow: var(--well-shade), inset 0 0 0 2px var(--hud-ember);
+  --frame: var(--hud-ember);
 }
 #hud .inventory-item.is-selected {
-  background: var(--hud-well-lite);
-  box-shadow: var(--well-shade), inset 0 0 0 2px var(--hud-moss);
+  --frame: var(--hud-moss);
+  --face: var(--hud-well-lite);
 }
 #hud .inventory-item:disabled {
   opacity: 0.9;
@@ -468,14 +492,17 @@
 }
 #hud .inventory-action:hover {
   background: var(--hud-well-lite);
-  box-shadow: var(--well-shade), inset 0 0 0 2px var(--hud-ember);
+  color: var(--hud-ember);
 }
 #hud .inventory-action:active {
   box-shadow: var(--well-shade), inset 0 3px 0 rgba(0, 0, 0, 0.35);
 }
 #hud .inventory-action.is-danger {
   color: #ffb49a;
-  box-shadow: var(--well-shade), inset 0 0 0 2px var(--hud-clay);
+}
+#hud .inventory-action.is-danger:hover {
+  background: var(--hud-clay);
+  color: var(--hud-bone);
 }
 
 /* ── Commands ────────────────────────────────────────────────────────────── */
@@ -533,19 +560,26 @@
   place-items: center;
   width: 48px;
   height: 48px;
-  padding: 0;
+  padding: 2px;
   overflow: hidden;
-  background: var(--hud-well);
+  --face: var(--hud-well);
+  --frame: var(--hud-well);
+  background-image: linear-gradient(var(--face), var(--face)), linear-gradient(var(--frame), var(--frame));
+  background-origin: content-box, border-box;
+  background-clip: content-box, border-box;
   border: 0;
   clip-path: var(--facet);
   --cut: 7px;
   box-shadow: var(--well-shade);
   cursor: pointer;
 }
-#hud .command-spawn-button:hover,
+#hud .command-spawn-button:hover {
+  --frame: var(--hud-ember);
+  --face: var(--hud-well-lite);
+}
 #hud .command-button:hover {
   background: var(--hud-well-lite);
-  box-shadow: var(--well-shade), inset 0 0 0 2px var(--hud-ember);
+  color: var(--hud-ember);
 }
 #hud .command-spawn-button:active,
 #hud .command-button:active {
