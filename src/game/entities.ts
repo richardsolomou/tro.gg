@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { forward, HOG_MAX_HEALTH, hogSize, PLAYER_MAX_HEALTH, RUN_SPEED_TILES_PER_SEC, timestampMs, type EquipSlot, type Facing, type ProjectedMotion, type Stamp } from "@trogg/shared";
+import { forward, HOG_MAX_HEALTH, hogSize, PLAYER_MAX_HEALTH, RUN_SPEED_TILES_PER_SEC, timestampMs, wieldOf, type EquipSlot, type Facing, type ProjectedMotion, type Stamp } from "@trogg/shared";
 import type { Player } from "../net/module_bindings/types";
 import { audio } from "../audio.js";
 import { buildGhost, buildHog, buildHogBall, buildTrogg } from "./creatures.js";
@@ -45,7 +45,8 @@ export interface Tracked {
   style: string;
   baseColor: number;
   gait: Gait;
-  attacking: boolean;
+  /** The in-flight attack action, so the same one fades out when the impulse ends. */
+  attacking?: THREE.AnimationAction;
   flashOn: boolean;
   /** Render-position correction state (`smoothPlace`). */
   shownX?: number;
@@ -260,16 +261,18 @@ export function createEntities(scene: THREE.Scene) {
     if (!attack) setGait(model, state, moving ? (running ? "run" : "walk") : "idle");
   };
 
-  /** Start (or continue) the one-shot attack action alongside the gait. */
+  /** Start (or continue) the one-shot attack action alongside the gait. The clip
+   *  is the wield class of whatever the main hand holds — stab, chop, scoop, or
+   *  the bare-fisted swing. */
   const driveAttack = (entry: Tracked, now: number) => {
     const phase = attackPhase(entry, now);
     if (phase !== undefined && !entry.attacking) {
-      entry.attacking = true;
+      entry.attacking = entry.model.actions.attacks[wieldOf(entry.player.equippedMainHand)];
       entry.model.actions[entry.gait].fadeOut(0.05);
-      entry.model.actions.attack.reset().setDuration(ATTACK_PERIOD).fadeIn(0.05).play();
+      entry.attacking.reset().setDuration(ATTACK_PERIOD).fadeIn(0.05).play();
     } else if (phase === undefined && entry.attacking) {
-      entry.attacking = false;
-      entry.model.actions.attack.fadeOut(0.1);
+      entry.attacking.fadeOut(0.1);
+      entry.attacking = undefined;
       entry.model.actions[entry.gait].reset().fadeIn(0.1).play();
     }
   };
@@ -279,7 +282,7 @@ export function createEntities(scene: THREE.Scene) {
     const moving = motion.dirX !== 0 || motion.dirY !== 0;
     const faceX = moving ? motion.dirX : entry.player.faceX;
     const faceY = moving ? motion.dirY : entry.player.faceY;
-    driveCreature(entry.model, entry, faceX, faceY, entry.player.running, dt, moving, entry.attacking);
+    driveCreature(entry.model, entry, faceX, faceY, entry.player.running, dt, moving, entry.attacking !== undefined);
     driveAttack(entry, now);
     applyFlinch(entry, now, 0.5);
     if (entry.respawn && entry.player.respawnAt) {
@@ -389,6 +392,7 @@ export function createEntities(scene: THREE.Scene) {
       if (!item) continue;
       const model = buildHeldItem(item);
       if (!model) continue;
+      model.scale.setScalar(entry.model.fit);
       hand.add(model);
       entry.equip[slot] = { kind: item };
     }

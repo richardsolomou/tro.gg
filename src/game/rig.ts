@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import type { Wield } from "@trogg/shared";
 
 /**
  * The creature rig: jointed box models on named nodes, animated by real
@@ -23,7 +24,7 @@ export const ATTACK_PERIOD = 0.3;
 export interface CreatureModel {
   root: THREE.Group;
   mixer: THREE.AnimationMixer;
-  actions: { idle: THREE.AnimationAction; walk: THREE.AnimationAction; run: THREE.AnimationAction; attack: THREE.AnimationAction };
+  actions: { idle: THREE.AnimationAction; walk: THREE.AnimationAction; run: THREE.AnimationAction; attacks: Record<Wield, THREE.AnimationAction> };
   /** Every material on this instance, for the hit flash. */
   materials: THREE.MeshStandardMaterial[];
   /** Equip attach nodes: items parented here ride the animated arm. */
@@ -31,6 +32,8 @@ export interface CreatureModel {
   handL: THREE.Group;
   /** Top of the head in model units — where labels/bubbles/carries hang. */
   height: number;
+  /** Scale for held-item models, so every species grips gear sized to its fist. */
+  fit: number;
   /** Turn the solid-white hit flash on or off. */
   flash(on: boolean): void;
 }
@@ -152,29 +155,69 @@ function idleClip(s: GaitSpec): THREE.AnimationClip {
   ]);
 }
 
-/** The swing: cock the main (right) arm back, throw it forward past horizontal,
- *  settle. An arm hangs
- *  along −y, so *negative* pitch swings it toward the +z facing. */
-function attackClip(s: GaitSpec): THREE.AnimationClip {
-  const strike = ATTACK_PERIOD * 0.35; // quick wind-up, slower recovery
-  return new THREE.AnimationClip("attack", ATTACK_PERIOD, [
-    pitchTrack("ArmR", s.restArm, [0, strike * 0.6, strike, ATTACK_PERIOD], [0, 0.9, -1.5, -0.1]),
-    pitchTrack("Torso", s.restTorso, [0, strike * 0.6, strike, ATTACK_PERIOD], [0, -0.06, 0.14, 0.02]),
-    bobTrack([0, strike, ATTACK_PERIOD], [0, -0.03, 0]),
-  ]);
+/** The per-wield attack clips. Every clip is wind-up → strike (at ~35%) → recovery
+ *  over the same ATTACK_PERIOD, so any of them stays timed to the synced
+ *  equipment-use impulse. An arm hangs along −y, so *negative* arm pitch swings it
+ *  toward the +z facing; the hand node doubles as a wrist, whose pitch tips the
+ *  held item relative to the forearm (items rest perpendicular to it, see
+ *  items.ts) — arm carries the blow, wrist aims the business end.
+ *  All amplitudes ride the species' GaitSpec rests, so one authored clip per
+ *  weapon class fits every creature that implements the joint vocabulary. */
+function attackClip(name: Wield, s: GaitSpec, strikeAt: number, tracks: (t: number[], strike: number) => THREE.KeyframeTrack[]): THREE.AnimationClip {
+  const strike = ATTACK_PERIOD * strikeAt;
+  return new THREE.AnimationClip(name, ATTACK_PERIOD, tracks([0, strike * 0.6, strike, ATTACK_PERIOD], strike));
 }
 
-/** Wrap a built body in the animation machinery: mixer, the four standard actions,
- *  and the white hit flash over this instance's materials. */
-export function finishCreature(root: THREE.Group, parts: Parts, spec: GaitSpec, height: number): CreatureModel {
+function attackClips(s: GaitSpec): Record<Wield, THREE.AnimationClip> {
+  return {
+    // bare-fisted haymaker: cock back, throw forward past horizontal
+    swing: attackClip("swing", s, 0.35, (t, strike) => [
+      pitchTrack("ArmR", s.restArm, t, [0, 0.9, -1.5, -0.1]),
+      pitchTrack("Torso", s.restTorso, t, [0, -0.06, 0.14, 0.02]),
+      bobTrack([0, strike, ATTACK_PERIOD], [0, -0.03, 0]),
+    ]),
+    // sword thrust: draw back at the waist, lunge with the blade level along the arm
+    stab: attackClip("stab", s, 0.35, (t, strike) => [
+      pitchTrack("ArmR", s.restArm, t, [0, 0.55, -1.5, -0.15]),
+      pitchTrack("HandR", 0, t, [0, 0.6, 2.45, 0.15]),
+      pitchTrack("Torso", s.restTorso, t, [0, -0.08, 0.18, 0.02]),
+      bobTrack([0, strike, ATTACK_PERIOD], [0, -0.04, 0]),
+    ]),
+    // pickaxe chop: haul overhead behind the shoulder, slam down in front
+    chop: attackClip("chop", s, 0.4, (t, strike) => [
+      pitchTrack("ArmR", s.restArm, t, [0, -2.4, -0.8, -0.1]),
+      pitchTrack("HandR", 0, t, [0, 1.64, 2.04, 0.1]),
+      pitchTrack("Torso", s.restTorso, t, [0, -0.14, 0.2, 0.02]),
+      bobTrack([0, strike, ATTACK_PERIOD], [0, -0.05, 0]),
+    ]),
+    // shovel scoop: bow into a low dig, then heave the blade up over the shoulder
+    scoop: attackClip("scoop", s, 0.4, (t, strike) => [
+      pitchTrack("ArmR", s.restArm, t, [0.35, -0.85, -1.6, -0.1]),
+      pitchTrack("HandR", 0, t, [0.15, 1.79, 0.94, 0.05]),
+      pitchTrack("Torso", s.restTorso, t, [0.02, 0.24, -0.1, 0.02]),
+      bobTrack([0, strike, ATTACK_PERIOD], [-0.05, -0.02, 0]),
+    ]),
+  };
+}
+
+/** Wrap a built body in the animation machinery: mixer, the standard actions
+ *  (gaits plus one attack per wield class), and the white hit flash over this
+ *  instance's materials. `fit` scales held items to the species' fist. */
+export function finishCreature(root: THREE.Group, parts: Parts, spec: GaitSpec, height: number, fit = 1): CreatureModel {
   const mixer = new THREE.AnimationMixer(root);
+  const attacks = Object.fromEntries(
+    Object.entries(attackClips(spec)).map(([wield, clip]) => {
+      const action = mixer.clipAction(clip);
+      action.setLoop(THREE.LoopOnce, 1);
+      return [wield, action];
+    }),
+  ) as Record<Wield, THREE.AnimationAction>;
   const actions = {
     idle: mixer.clipAction(idleClip(spec)),
     walk: mixer.clipAction(gaitClip("walk", WALK_PERIOD, spec, 1, spec.walkDip, 0)),
     run: mixer.clipAction(gaitClip("run", RUN_PERIOD, spec, 1.55, spec.runDip, spec.runLean)),
-    attack: mixer.clipAction(attackClip(spec)),
+    attacks,
   };
-  actions.attack.setLoop(THREE.LoopOnce, 1);
   const handR = (root.getObjectByName("HandR") as THREE.Group | undefined) ?? new THREE.Group();
   const handL = (root.getObjectByName("HandL") as THREE.Group | undefined) ?? new THREE.Group();
   const saved = parts.materials.map((m) => ({ emissive: m.emissive.clone(), intensity: m.emissiveIntensity }));
@@ -189,5 +232,5 @@ export function finishCreature(root: THREE.Group, parts: Parts, spec: GaitSpec, 
       }
     });
   };
-  return { root, mixer, actions, materials: parts.materials, handR, handL, height, flash };
+  return { root, mixer, actions, materials: parts.materials, handR, handL, height, fit, flash };
 }

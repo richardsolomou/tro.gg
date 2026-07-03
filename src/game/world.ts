@@ -416,7 +416,7 @@ export class World3D {
     entry.overlays = built.overlays;
     entry.respawn = built.respawn;
     entry.gait = "idle";
-    entry.attacking = false;
+    entry.attacking = undefined;
     entry.flashOn = false;
     entry.bubble = undefined;
     entry.bubbleTimer = undefined;
@@ -501,7 +501,7 @@ export class World3D {
       style,
       baseColor: color,
       gait: "idle",
-      attacking: false,
+      attacking: undefined,
       flashOn: false,
       corrX: 0,
       corrY: 0,

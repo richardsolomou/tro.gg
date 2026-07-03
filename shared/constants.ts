@@ -120,18 +120,23 @@ export const PLAYER_RESPAWN_MS = 5000;
 
 export type EquipmentSlot = "mainHand" | "offHand";
 
+/** How a weapon is used: the attack clip class every species plays for it.
+ *  "swing" is the bare-fisted default. */
+export type Wield = "swing" | "stab" | "chop" | "scoop";
+
 export interface ItemDef {
   id: ItemId;
   name: string;
   stackable: boolean;
   blurb: string;
   slot?: EquipmentSlot;
-  sprite?: "pickaxe" | "shovel" | "sword";
+  wield?: Wield;
 }
 
 /**
  * Static item registry (GDD "Inventory"). Inventory rows store only item id and
- * quantity; holdable items point at their equipment slot and sprite.
+ * quantity; holdable items point at their equipment slot, and weapons at the
+ * wield class that picks their attack animation.
  */
 export const ITEMS: Record<ItemId, ItemDef> = {
   stone: {
@@ -146,7 +151,7 @@ export const ITEMS: Record<ItemId, ItemDef> = {
     stackable: false,
     blurb: "Equipped in the main hand. Use it to mine boulders into stone.",
     slot: "mainHand",
-    sprite: "pickaxe",
+    wield: "chop",
   },
   shovel: {
     id: "shovel",
@@ -154,7 +159,7 @@ export const ITEMS: Record<ItemId, ItemDef> = {
     stackable: false,
     blurb: "Equipped in the main hand. It is ready for digging once soil rules exist.",
     slot: "mainHand",
-    sprite: "shovel",
+    wield: "scoop",
   },
   sword: {
     id: "sword",
@@ -162,7 +167,7 @@ export const ITEMS: Record<ItemId, ItemDef> = {
     stackable: false,
     blurb: "Equipped in the main hand. Use it to attack a faced adjacent trogg.",
     slot: "mainHand",
-    sprite: "sword",
+    wield: "stab",
   },
   shield: {
     id: "shield",
@@ -188,6 +193,11 @@ export function isEquippableItem(item: string): item is ItemId {
 /** The equipment slot an item occupies, or undefined when it isn't equippable. */
 export function equipSlotOf(item: string): EquipmentSlot | undefined {
   return isItemId(item) ? ITEMS[item].slot : undefined;
+}
+
+/** The attack clip class for a held item — bare-fisted "swing" when empty or unclassed. */
+export function wieldOf(item: string): Wield {
+  return (isItemId(item) ? ITEMS[item].wield : undefined) ?? "swing";
 }
 
 export function isStackableItem(item: string): item is ItemId {

@@ -3,10 +3,12 @@ import { ITEM_3D } from "./palette.js";
 
 /**
  * Tool, prop, and resource models. A held item is built with its **grip at the
- * origin, business end up (+y)** so that parented to a rig hand node it stands in
- * the fist at rest and swings forward with the arm's attack pitch — the 3D
- * one authored pose riding the rig's hand joint on every creature. Ground
- * variants lie the same model down with a little scatter tilt.
+ * origin, business end up (+y)**, then rests in the fist **perpendicular to the
+ * forearm** — the way a fist actually grips a haft — tipped by a per-item rest
+ * pitch. The rig's hand node doubles as the wrist: attack clips pitch it to aim
+ * the business end through each wield's arc (rig.ts), so the one authored pose
+ * works on every creature and every weapon class. Ground variants lie the same
+ * model down with a little scatter tilt.
  */
 
 function mat(colour: number): THREE.MeshStandardMaterial {
@@ -76,20 +78,29 @@ export function hasItem3D(item: string): boolean {
   return BUILDERS[item] !== undefined;
 }
 
-/** Per-item rest tilt in the fist (radians about x, on top of the carry flip):
- *  tools rest tipped a touch; the shield stays flat against the forearm. */
-const HELD_PITCH: Record<string, number> = { pickaxe: 0.35, shovel: 0.3, sword: 0.15, shield: 0 };
+/** Per-item rest pitch about x, measured from the forearm line: π/2 holds the
+ *  business end level in front of the fist; less tips it up ready (sword),
+ *  more drops it low (shovel). */
+const HELD_PITCH: Record<string, number> = {
+  sword: Math.PI / 2 - 0.9, // blade up-forward, at the ready
+  pickaxe: Math.PI / 2 - 0.35, // hafted forward, head riding high
+  shovel: Math.PI / 2 + 0.25, // blade low, ready to dig
+  stone: Math.PI / 2,
+};
 
-/** A held-item model — parent it to a rig hand node. The hand hangs at the end of
- *  the arm, so the model is flipped to extend *away* from the limb (business end
- *  toward the ground at rest); when the attack pitches the arm forward past
- *  horizontal, the same flip makes the business end lead the strike. The shield is
- *  the exception: it stays upright, flat along the forearm. */
+/** A held-item model — parent it to a rig hand node. The shield is the exception
+ *  to the fist grip: it straps along the forearm, face out, raised into guard. */
 export function buildHeldItem(item: string): THREE.Group | undefined {
   const build = BUILDERS[item];
   if (!build) return undefined;
   const g = build();
-  g.rotation.x = item === "shield" ? 0 : Math.PI - (HELD_PITCH[item] ?? 0);
+  if (item === "shield") {
+    g.position.set(0, 0.14, 0.02);
+    g.rotation.set(0.12, -0.3, 0);
+    return g;
+  }
+  g.rotation.x = HELD_PITCH[item] ?? Math.PI / 2;
+  if (item === "pickaxe") g.rotation.y = Math.PI / 2; // pick tips fore-aft, striking edge forward
   return g;
 }
 

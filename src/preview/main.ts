@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { createOrbit } from "../game/controls.js";
-import { COMMON_HOG_STYLES, HOG_STYLES, hogSize, TROGG_STYLES, type Kind } from "@trogg/shared";
+import { COMMON_HOG_STYLES, HOG_STYLES, hogSize, TROGG_STYLES, wieldOf, type Kind } from "@trogg/shared";
 import { buildHog, buildHogBall, buildTrogg } from "../game/creatures.js";
 import { buildHeldItem, hasItem3D } from "../game/items.js";
 import { hogIcon, itemIcon, troggIcon } from "../game/icons.js";
@@ -12,7 +12,7 @@ import { type CreatureModel } from "../game/rig.js";
  * every creature model, animation clip, and held item. Every control is
  * URL-addressable so a preview state is a
  * shareable deep link, e.g.
- * `/preview?view=holder&creature=hog:buff&item=sword&off=shield&mode=attack&paused=1&scrub=0.35&bones=1`.
+ * `/preview?view=holder&creature=hog:buff&item=sword&off=shield&mode=attack&paused=1&scrub=0.35&bones=1&yaw=-1.2`.
  * Unknown values fall back to defaults. The e2e harness boots these states
  * headless and asserts the canvas still renders (`e2e/preview.spec.ts`).
  */
@@ -44,6 +44,8 @@ const state = {
   paused: params.get("paused") === "1",
   scrub: Math.max(0, Math.min(1, Number(params.get("scrub")) || 0)),
   bones: params.get("bones") === "1",
+  // model yaw in radians (URL-only): 0.4 reads as a three-quarter view; ±1.2 near-profile
+  yaw: Number.isFinite(Number(params.get("yaw"))) && params.get("yaw") !== null ? Number(params.get("yaw")) : 0.4,
 };
 
 function parseCreature(raw: string | null): CreatureChoice {
@@ -158,8 +160,11 @@ let hitCycleAt = 0;
 
 function currentClip(): { action: THREE.AnimationAction; duration: number } | undefined {
   if (!model) return undefined;
-  const name = state.mode === "walk" ? "walk" : state.mode === "run" ? "run" : state.mode === "attack" ? "attack" : "idle";
-  const action = model.actions[name];
+  // attack mode shows the wield class of the selected main-hand item
+  const action =
+    state.mode === "attack"
+      ? model.actions.attacks[wieldOf(state.item)]
+      : model.actions[state.mode === "walk" ? "walk" : state.mode === "run" ? "run" : "idle"];
   return { action, duration: action.getClip().duration };
 }
 
@@ -193,7 +198,7 @@ function rebuild(): void {
   model = state.creature.kind === "trogg" ? buildTrogg(state.creature.style) : buildHog(state.creature.style);
   const scale = state.creature.kind === "hog" ? hogSize(state.creature.style) : 1;
   model.root.scale.setScalar(scale);
-  model.root.rotation.y = 0.4; // three-quarter turn so the profile reads
+  model.root.rotation.y = state.yaw;
   subject = model.root;
   scene.add(model.root);
   flinchView.model = model;
@@ -201,13 +206,12 @@ function rebuild(): void {
   flinchView.flinchBaseMs = undefined;
 
   // held items ride the rig's hand nodes, exactly like the game
-  if (state.item !== "none") {
-    const m = buildHeldItem(state.item);
-    if (m) model.handR.add(m);
-  }
-  if (state.off !== "none") {
-    const m = buildHeldItem(state.off);
-    if (m) model.handL.add(m);
+  for (const [id, hand] of [[state.item, model.handR], [state.off, model.handL]] as const) {
+    if (id === "none") continue;
+    const m = buildHeldItem(id);
+    if (!m) continue;
+    m.scale.setScalar(model.fit);
+    hand.add(m);
   }
 
   const clip = currentClip();

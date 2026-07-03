@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   assertZones,
   getZone,
+  wieldOf,
   isGeneratedName,
   isValidName,
   isWalkable,
@@ -107,4 +108,13 @@ test("the starting zone seeds pickup items on walkable floor", () => {
   const zone = getZone(STARTING_ZONE_SLUG)!;
   assert.ok(zone.items.length > 0);
   for (const item of zone.items) assert.equal(isWalkable(zone, item.x, item.y), true);
+});
+
+test("wieldOf maps weapons to their attack class and everything else to the bare swing", () => {
+  assert.equal(wieldOf("sword"), "stab");
+  assert.equal(wieldOf("pickaxe"), "chop");
+  assert.equal(wieldOf("shovel"), "scoop");
+  assert.equal(wieldOf("shield"), "swing");
+  assert.equal(wieldOf(""), "swing");
+  assert.equal(wieldOf("not-an-item"), "swing");
 });

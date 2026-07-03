@@ -95,7 +95,7 @@ function buildCommonHog(skin: HogSkin3D): CreatureModel {
   p.box(head, 0.05, 0.07, 0.03, skin.eye, -0.1, 0.02, 0.22);
   p.box(head, 0.05, 0.07, 0.03, skin.eye, 0.1, 0.02, 0.22);
   p.box(head, 0.09, 0.07, 0.06, skin.nose, 0, -0.06, 0.24); // little snout
-  return finishCreature(root, p, HOG_GAIT, 0.95);
+  return finishCreature(root, p, HOG_GAIT, 0.95, 0.55);
 }
 
 /** The swole showpiece: tan muscle, quill mane, smug face. Rendered 2× by hogSize. */
@@ -129,7 +129,7 @@ function buildBuff(): CreatureModel {
   p.box(head, 0.05, 0.06, 0.03, c.eye, -0.08, 0.12, 0.25);
   p.box(head, 0.05, 0.06, 0.03, c.eye, 0.08, 0.12, 0.25);
   p.box(head, 0.07, 0.05, 0.04, c.nose, 0, 0.02, 0.25);
-  return finishCreature(root, p, { ...HOG_GAIT, restTorso: 0.05, legSwing: 0.45, armSwing: 0.4 }, 1.25);
+  return finishCreature(root, p, { ...HOG_GAIT, restTorso: 0.05, legSwing: 0.45, armSwing: 0.4 }, 1.25, 0.75);
 }
 
 /** The T-rex costume: green scales, toothy hood, back ridge, tail. Rendered 2×. */
@@ -163,7 +163,7 @@ function buildDino(): CreatureModel {
   p.box(head, 0.22, 0.16, 0.12, c.face, 0, -0.02, 0.16); // hog face inside the mouth
   p.box(head, 0.04, 0.05, 0.03, c.eye, -0.06, 0.0, 0.23);
   p.box(head, 0.04, 0.05, 0.03, c.eye, 0.06, 0.0, 0.23);
-  return finishCreature(root, p, { ...HOG_GAIT, restTorso: 0.08 }, 1.3);
+  return finishCreature(root, p, { ...HOG_GAIT, restTorso: 0.08 }, 1.3, 0.75);
 }
 
 /** The chicken costume easter egg: cream body, flapping wings, comb, beak. */
@@ -193,7 +193,7 @@ function buildChicken(): CreatureModel {
   p.box(head, 0.04, 0.05, 0.03, c.eye, -0.05, 0.09, 0.22);
   p.box(head, 0.04, 0.05, 0.03, c.eye, 0.05, 0.09, 0.22);
   p.cone(head, 0.06, 0.14, c.beak, 0, 0.0, 0.24, 4).rotation.x = Math.PI / 2; // beak
-  return finishCreature(root, p, { ...HOG_GAIT, armSwing: 0.5 }, 1.0);
+  return finishCreature(root, p, { ...HOG_GAIT, armSwing: 0.5 }, 1.0, 0.5);
 }
 
 /** Which builder makes a hog style's body. */
