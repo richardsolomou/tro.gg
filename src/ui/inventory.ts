@@ -1,5 +1,5 @@
 import { equipSlotOf, INVENTORY_SLOT_COUNT, ITEMS, isEquippableItem } from "@trogg/shared";
-import { itemIcon } from "../game/icons.js";
+import { hudIcon, itemIcon } from "../game/icons.js";
 import { logError } from "../analytics.js";
 import type { DbConnection } from "../net/module_bindings";
 import type { Inventory, Player } from "../net/module_bindings/types";
@@ -21,7 +21,7 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
   toggle.setAttribute("aria-label", "Inventory");
   toggle.setAttribute("aria-keyshortcuts", "I");
   toggle.title = "Inventory (I)";
-  toggle.appendChild(inventoryIcon());
+  toggle.appendChild(hudIcon("inventory"));
 
   const body = document.createElement("div");
   body.className = "inventory-body";
@@ -228,30 +228,6 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
   conn.db.player.onUpdate((_ctx, _old, p) => applyPlayer(p));
 
   render();
-}
-
-function svg(width: number, height: number): SVGSVGElement {
-  const node = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  node.setAttribute("viewBox", `0 0 ${width} ${height}`);
-  node.setAttribute("aria-hidden", "true");
-  node.setAttribute("focusable", "false");
-  return node;
-}
-
-function el(name: string, attrs: Record<string, string | number>): SVGElement {
-  const node = document.createElementNS("http://www.w3.org/2000/svg", name);
-  for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, String(value));
-  return node;
-}
-
-function inventoryIcon(): SVGSVGElement {
-  const icon = svg(24, 24);
-  icon.append(
-    el("path", { d: "M8 8V6c0-2.2 1.6-4 4-4s4 1.8 4 4v2", fill: "none", stroke: "#0a0806", "stroke-width": 2, "stroke-linecap": "round" }),
-    el("path", { d: "M5 8h14l-1 13H6L5 8Z", fill: "#e8dcc4", stroke: "#0a0806", "stroke-width": 2, "stroke-linejoin": "round" }),
-    el("path", { d: "M8 12h8", fill: "none", stroke: "#0a0806", "stroke-width": 2, "stroke-linecap": "round" }),
-  );
-  return icon;
 }
 
 // Item icons render from the real 3D models (game/icons.ts) so the inventory,

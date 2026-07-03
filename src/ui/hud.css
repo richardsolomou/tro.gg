@@ -375,6 +375,10 @@
 #hud canvas.item-icon {
   image-rendering: auto;
 }
+#hud .hud-icon-button .item-icon {
+  width: 24px;
+  height: 24px;
+}
 #hud .inventory-equipped-slot .item-icon {
   width: 28px;
   height: 28px;

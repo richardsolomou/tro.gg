@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { buildHog, buildTrogg } from "./creatures.js";
 import { buildBoulder, buildHeldItem } from "./items.js";
+import { ITEM_3D } from "./palette.js";
 
 /**
  * HUD icons rendered from the real 3D models — the inventory, equipped slot, and
@@ -96,4 +97,89 @@ export function hogIcon(style: string): HTMLCanvasElement {
 /** A trogg style's icon canvas (the model preview's creature palette). */
 export function troggIcon(style: string): HTMLCanvasElement {
   return cached(`trogg:${style}`, () => buildTrogg(style).root);
+}
+
+// ── HUD toggle props ─────────────────────────────────────────────────────────────
+// The panel toggles get the same treatment as the items: tiny low-poly props
+// rendered by the shared rig, so every icon in the HUD is a 3D model.
+
+function propMat(colour: number): THREE.MeshStandardMaterial {
+  return new THREE.MeshStandardMaterial({ color: colour, roughness: 0.9, flatShading: true });
+}
+
+function propBox(parent: THREE.Object3D, w: number, h: number, d: number, colour: number, x = 0, y = 0, z = 0): THREE.Mesh {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), propMat(colour));
+  m.position.set(x, y, z);
+  parent.add(m);
+  return m;
+}
+
+/** The cinched leather sack (inventory). */
+function buildSack(): THREE.Group {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.IcosahedronGeometry(0.3, 0), propMat(ITEM_3D.woodLt));
+  body.scale.y = 0.9;
+  body.position.y = 0.26;
+  g.add(body);
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.13, 0.14, 6), propMat(ITEM_3D.wood));
+  neck.position.y = 0.56;
+  g.add(neck);
+  propBox(g, 0.2, 0.05, 0.08, ITEM_3D.woodDk, 0, 0.56); // the tie
+  return g;
+}
+
+/** The debug lever on its stone base (commands). */
+function buildLever(): THREE.Group {
+  const g = new THREE.Group();
+  propBox(g, 0.44, 0.16, 0.3, ITEM_3D.rockDk, 0, 0.08);
+  const stick = propBox(g, 0.07, 0.5, 0.07, ITEM_3D.wood, 0.08, 0.36);
+  stick.rotation.z = -0.5;
+  const knob = new THREE.Mesh(new THREE.IcosahedronGeometry(0.09, 0), propMat(ITEM_3D.gold));
+  knob.position.set(0.2, 0.6, 0);
+  g.add(knob);
+  return g;
+}
+
+/** The paint pot with a resting brush (appearance). */
+function buildPaintPot(): THREE.Group {
+  const g = new THREE.Group();
+  const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.18, 0.3, 7), propMat(ITEM_3D.rock));
+  pot.position.y = 0.15;
+  g.add(pot);
+  const paint = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.05, 7), propMat(0x3fbf7a));
+  paint.position.y = 0.31;
+  g.add(paint);
+  const brush = propBox(g, 0.05, 0.42, 0.05, ITEM_3D.woodLt, 0.14, 0.42);
+  brush.rotation.z = -0.45;
+  propBox(g, 0.07, 0.1, 0.07, ITEM_3D.steel, 0.24, 0.24).rotation.z = -0.45;
+  return g;
+}
+
+/** A chunky carved question mark (help). */
+function buildQuestion(): THREE.Group {
+  const g = new THREE.Group();
+  const c = ITEM_3D.rockLt;
+  propBox(g, 0.34, 0.1, 0.12, c, 0, 0.78); // top bar
+  propBox(g, 0.1, 0.14, 0.12, c, -0.17, 0.68); // left shoulder
+  propBox(g, 0.1, 0.22, 0.12, c, 0.17, 0.64); // right descender
+  propBox(g, 0.22, 0.1, 0.12, c, 0.06, 0.5); // curl inward
+  propBox(g, 0.1, 0.14, 0.12, c, 0, 0.38); // stem
+  propBox(g, 0.11, 0.11, 0.12, c, 0, 0.14); // the dot
+  return g;
+}
+
+const HUD_PROPS: Record<string, () => THREE.Object3D> = {
+  inventory: buildSack,
+  commands: buildLever,
+  appearance: buildPaintPot,
+  help: buildQuestion,
+};
+
+/** A HUD panel-toggle icon canvas: the prop for that panel, same pipeline as items. */
+export function hudIcon(kind: "inventory" | "commands" | "appearance" | "help"): HTMLCanvasElement {
+  return cached(`hud:${kind}`, () => {
+    const model = HUD_PROPS[kind]!();
+    model.rotation.y = 0.5;
+    return model;
+  });
 }

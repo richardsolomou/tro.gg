@@ -11,6 +11,7 @@ import {
 import type { DbConnection } from "../net/module_bindings";
 import { isFeatureEnabled, logError, logWarn } from "../analytics.js";
 import { cssColor } from "../ui_text.js";
+import { hudIcon } from "../game/icons.js";
 import { hudLeft } from "./hud.js";
 import { registerKeybind } from "./keybinds.js";
 import { recolorTrogg, renameTrogg, restyleTrogg } from "../net/procedures.js";
@@ -42,7 +43,7 @@ export function mountAppearance(conn: DbConnection): void {
   toggle.setAttribute("aria-label", "Appearance");
   toggle.setAttribute("aria-keyshortcuts", "P");
   toggle.title = "Appearance (P)";
-  toggle.appendChild(appearanceIcon());
+  toggle.appendChild(hudIcon("appearance"));
 
   const body = document.createElement("div");
   body.className = "help-body appearance-body";
@@ -187,27 +188,4 @@ function section(title: string, control: HTMLElement): HTMLDivElement {
   label.textContent = title;
   block.append(label, control);
   return block;
-}
-
-function svg(width: number, height: number): SVGSVGElement {
-  const node = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  node.setAttribute("viewBox", `0 0 ${width} ${height}`);
-  node.setAttribute("aria-hidden", "true");
-  node.setAttribute("focusable", "false");
-  return node;
-}
-
-function el(name: string, attrs: Record<string, string | number>): SVGElement {
-  const node = document.createElementNS("http://www.w3.org/2000/svg", name);
-  for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, String(value));
-  return node;
-}
-
-function appearanceIcon(): SVGSVGElement {
-  const icon = svg(24, 24);
-  icon.append(
-    el("path", { d: "M12 4l2.1 4.9L19 11l-4.9 2.1L12 18l-2.1-4.9L5 11l4.9-2.1L12 4Z", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linejoin": "round" }),
-    el("path", { d: "M18 4l.8 1.9L21 7l-2.2 1.1L18 10l-.8-1.9L15 7l2.2-1.1L18 4Z", fill: "currentColor" }),
-  );
-  return icon;
 }

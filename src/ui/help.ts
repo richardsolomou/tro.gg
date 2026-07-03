@@ -1,3 +1,4 @@
+import { hudIcon } from "../game/icons.js";
 import { isFeatureEnabled } from "../analytics.js";
 import { closeHudMenus, hudLeft } from "./hud.js";
 import { registerKeybind } from "./keybinds.js";
@@ -28,7 +29,7 @@ export function mountHelp(): void {
   const toggle = document.createElement("button");
   toggle.type = "button";
   toggle.className = "hud-icon-button help-toggle";
-  toggle.textContent = "?";
+  toggle.appendChild(hudIcon("help"));
   toggle.setAttribute("aria-label", "Help");
   toggle.setAttribute("aria-keyshortcuts", "H ?");
   toggle.title = "Help (? / H)";
