@@ -24,6 +24,7 @@ snake_case. Low-volume by design — anything that could fire more than ~once/se
 | Event | Properties | Fires when |
 | ----- | ---------- | ---------- |
 | `player_joined` | `zone, is_guest` | Session starts and the trogg exists in the world |
+| `zone_traveled` | `zone, from, to, gate, source?` | Player used an edge gate: `from`/`to` are zone slugs, `gate` the edge direction. Server-side (procedure events) |
 | `connection_lost` | — | Live SpacetimeDB socket dropped after being connected (usually a backend redeploy); the client begins auto-reconnecting. Best-effort — fired just before the recovery reload, so it measures deploy disruption |
 | `client_update_available` | — | Polling spotted a newer deployed frontend than the running build (a Cloudflare-only deploy); the refresh prompt is shown. Measures how many players are on a stale client after a frontend deploy |
 | `account_claim_started` | — | Player starts the guest → account claim flow and is about to leave for SpacetimeAuth |

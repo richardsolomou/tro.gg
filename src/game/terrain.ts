@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { GLOWMOSS_TILE, GRAVEL_TILE, isWalkable, MOSS_TILE, WATER_TILE, type Zone } from "@trogg/shared";
-import { CAVE_3D } from "./palette.js";
+import { biomePalette } from "./palette.js";
 
 /**
  * Procedural cave terrain. The floor and void are pixel-painted patch
@@ -25,6 +25,7 @@ export interface Terrain3D {
 }
 
 export function buildTerrain(zone: Zone): Terrain3D {
+  const pal = biomePalette(zone.biome);
   const group = new THREE.Group();
   const disposables: { dispose(): void }[] = [];
 
@@ -41,7 +42,7 @@ export function buildTerrain(zone: Zone): Terrain3D {
   };
 
   // Zone floor, centred so tile (x, y) spans [x, x+1) on world x/z.
-  const floorTex = patchTexture(floorPatch(), zone.width / PATCH, zone.height / PATCH);
+  const floorTex = patchTexture(floorPatch(pal), zone.width / PATCH, zone.height / PATCH);
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(zone.width, zone.height), new THREE.MeshStandardMaterial({ map: floorTex, roughness: 1 }));
   floor.rotation.x = -Math.PI / 2;
   floor.position.set(zone.width / 2, 0, zone.height / 2);
@@ -49,7 +50,7 @@ export function buildTerrain(zone: Zone): Terrain3D {
   group.add(floor);
 
   // The void beyond the zone: a big dim rock plane just below the floor.
-  const voidTex = patchTexture(floorlessPatch(), 200 / PATCH, 200 / PATCH);
+  const voidTex = patchTexture(floorlessPatch(pal), 200 / PATCH, 200 / PATCH);
   const voidPlane = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.MeshStandardMaterial({ map: voidTex, roughness: 1 }));
   voidPlane.rotation.x = -Math.PI / 2;
   voidPlane.position.set(zone.width / 2, -0.02, zone.height / 2);
@@ -58,8 +59,8 @@ export function buildTerrain(zone: Zone): Terrain3D {
 
   // Walls: one instanced beveled block per unwalkable tile — lit top, dark-edged
   // faces — in a single draw call however large the cave grows.
-  const face = new THREE.MeshStandardMaterial({ color: CAVE_3D.wall.face, roughness: 1 });
-  const top = new THREE.MeshStandardMaterial({ color: CAVE_3D.wall.top, roughness: 1 });
+  const face = new THREE.MeshStandardMaterial({ color: pal.wall.face, roughness: 1 });
+  const top = new THREE.MeshStandardMaterial({ color: pal.wall.top, roughness: 1 });
   const wallMats = [face, face, top, face, face, face];
   const wallGeo = new THREE.BoxGeometry(1, WALL_HEIGHT, 1);
   disposables.push(face, top, wallGeo);
@@ -83,10 +84,10 @@ export function buildTerrain(zone: Zone): Terrain3D {
   // sub-cell into one zone-sized overlay canvas — a single transparent plane
   // instead of a quad and material per tile.
   const decalCanvases: Record<string, HTMLCanvasElement> = {
-    [GRAVEL_TILE]: gravelPatch(),
-    [MOSS_TILE]: mossPatch(),
-    [WATER_TILE]: waterPatch(),
-    [GLOWMOSS_TILE]: glowmossPatch(),
+    [GRAVEL_TILE]: gravelPatch(pal),
+    [MOSS_TILE]: mossPatch(pal),
+    [WATER_TILE]: waterPatch(pal),
+    [GLOWMOSS_TILE]: glowmossPatch(pal),
   };
   const overlay = document.createElement("canvas");
   overlay.width = zone.width * ART;
@@ -122,9 +123,26 @@ export function buildTerrain(zone: Zone): Terrain3D {
     else clusters.push({ x: tile.x, y: tile.y, count: 1 });
   }
   for (const cluster of clusters.slice(0, 12)) {
-    const glow = new THREE.PointLight(CAVE_3D.glowmoss.mid, 1.2 + Math.min(cluster.count, 3) * 0.3, 5);
+    const glow = new THREE.PointLight(pal.glowmoss.mid, 1.2 + Math.min(cluster.count, 3) * 0.3, 5);
     glow.position.set(cluster.x + 0.5, 0.5, cluster.y + 0.5);
     group.add(glow);
+  }
+
+  // Edge gates: a pair of carved pillars and a lantern glow mark each exit, so a
+  // passage reads as a place you can travel from (interact to use — GDD "Zones").
+  const pillarGeo = new THREE.BoxGeometry(0.3, 1.7, 0.3);
+  disposables.push(pillarGeo);
+  for (const exit of zone.exits) {
+    const across = exit.dir === "north" || exit.dir === "south" ? { x: 1, y: 0 } : { x: 0, y: 1 };
+    for (const side of [-1, 1]) {
+      const pillar = new THREE.Mesh(pillarGeo, wallMats);
+      pillar.position.set(exit.x + 0.5 + across.x * side, 0.85, exit.y + 0.5 + across.y * side);
+      pillar.castShadow = true;
+      group.add(pillar);
+    }
+    const lantern = new THREE.PointLight(0xffb454, 1.6, 6);
+    lantern.position.set(exit.x + 0.5, 1.4, exit.y + 0.5);
+    group.add(lantern);
   }
 
   return {
@@ -158,10 +176,10 @@ function pixelCanvas(w: number, h: number, paint: (set: (x: number, y: number, c
 }
 
 /** Cave floor: mottled stone, tile seams, a few cracks and pebbles. Deterministic. */
-function floorPatch(): HTMLCanvasElement {
+function floorPatch(pal: ReturnType<typeof biomePalette>): HTMLCanvasElement {
   const size = ART * PATCH;
   const rand = rng(0xc0ffee);
-  const F = CAVE_3D.floor;
+  const F = pal.floor;
   return pixelCanvas(size, size, (set) => {
     for (let y = 0; y < size; y += 2) {
       for (let x = 0; x < size; x += 2) {
@@ -200,15 +218,15 @@ function floorPatch(): HTMLCanvasElement {
 }
 
 /** Flat rock fill with sparse darker specks — the void beyond the zone. */
-function floorlessPatch(): HTMLCanvasElement {
+function floorlessPatch(pal: ReturnType<typeof biomePalette>): HTMLCanvasElement {
   const size = ART * PATCH;
   const rand = rng(0xbadbad);
   return pixelCanvas(size, size, (set) => {
-    for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) set(x, y, CAVE_3D.voidBase);
+    for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) set(x, y, pal.voidBase);
     for (let y = 0; y < size; y += 2) {
       for (let x = 0; x < size; x += 2) {
         if (rand() >= 0.1) continue;
-        const col = CAVE_3D.voidSpecks[Math.floor(rand() * CAVE_3D.voidSpecks.length)]!;
+        const col = pal.voidSpecks[Math.floor(rand() * pal.voidSpecks.length)]!;
         set(x, y, col);
         set(x + 1, y, col);
         set(x, y + 1, col);
@@ -219,10 +237,10 @@ function floorlessPatch(): HTMLCanvasElement {
 }
 
 /** Gravel scree: a scatter of light/dark stone chips over the floor. */
-function gravelPatch(): HTMLCanvasElement {
+function gravelPatch(pal: ReturnType<typeof biomePalette>): HTMLCanvasElement {
   const size = ART * PATCH;
   const rand = rng(0x9e3a11);
-  const G = CAVE_3D.gravel;
+  const G = pal.gravel;
   return pixelCanvas(size, size, (set) => {
     for (let i = 0; i < size * size * 0.22; i++) {
       const x = Math.floor(rand() * size);
@@ -236,10 +254,10 @@ function gravelPatch(): HTMLCanvasElement {
 }
 
 /** Moss: soft clumps of damp green with darker flecks, leaving stone gaps. */
-function mossPatch(): HTMLCanvasElement {
+function mossPatch(pal: ReturnType<typeof biomePalette>): HTMLCanvasElement {
   const size = ART * PATCH;
   const rand = rng(0x2c7b3f);
-  const M = CAVE_3D.moss;
+  const M = pal.moss;
   return pixelCanvas(size, size, (set) => {
     for (let k = 0; k < 26; k++) {
       const cx = Math.floor(rand() * size);
@@ -259,10 +277,10 @@ function mossPatch(): HTMLCanvasElement {
 }
 
 /** Shallow water: a near-opaque pool with darker depths and lit ripples. */
-function waterPatch(): HTMLCanvasElement {
+function waterPatch(pal: ReturnType<typeof biomePalette>): HTMLCanvasElement {
   const size = ART * PATCH;
   const rand = rng(0x1f6fae);
-  const W = CAVE_3D.water;
+  const W = pal.water;
   return pixelCanvas(size, size, (set) => {
     for (let y = 0; y < size; y++) {
       for (let x = 0; x < size; x++) set(x, y, rand() < 0.3 ? W.deep : W.base, 0xea);
@@ -278,10 +296,10 @@ function waterPatch(): HTMLCanvasElement {
 }
 
 /** Glowmoss: sparse bioluminescent specks with a dim halo, mostly transparent. */
-function glowmossPatch(): HTMLCanvasElement {
+function glowmossPatch(pal: ReturnType<typeof biomePalette>): HTMLCanvasElement {
   const size = ART * PATCH;
   const rand = rng(0x33d6c0);
-  const G = CAVE_3D.glowmoss;
+  const G = pal.glowmoss;
   return pixelCanvas(size, size, (set) => {
     for (let k = 0; k < 22; k++) {
       const x = Math.floor(rand() * size);

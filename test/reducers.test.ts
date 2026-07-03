@@ -967,3 +967,28 @@ test("redeemClaim ignores a caller without a SpacetimeAuth token", () => {
   redeemClaim(ctx, { code: "c" });
   assert.ok(ctx.db.claimCode.code.find("c")); // nonce untouched
 });
+
+// --- Zone travel (GDD "Zones") ---
+
+test("interacting on an edge gate travels to the neighbouring zone's reciprocal gate", () => {
+  const zone = getZone("hog-town")!;
+  const gate = zone.exits.find((exit) => exit.dir === "north")!;
+  const { ctx, me } = withPlayer({ x: gate.x, y: gate.y });
+  interact(ctx, { dirX: 0, dirY: -1 });
+
+  const p = ctx.db.player.identity.find(me);
+  assert.equal(p.zoneId, gate.to);
+  const target = getZone(gate.to)!;
+  const arrival = target.exits.find((exit) => exit.dir === "south" && exit.to === "hog-town")!;
+  assert.deepEqual({ x: p.x, y: p.y }, { x: arrival.x, y: arrival.y - 1 });
+  assert.deepEqual({ dirX: p.dirX, dirY: p.dirY, path: p.path }, { dirX: 0, dirY: 0, path: "" });
+  // the destination zone seeded lazily on first entry
+  assert.ok(ctx.db.boulder.rows().some((b: any) => b.zoneId === gate.to));
+  assert.ok(ctx.db.hog.rows().some((h: any) => h.zoneId === gate.to));
+});
+
+test("interacting away from any gate does not travel", () => {
+  const { ctx, me } = withPlayer({ x: 31, y: 22 });
+  interact(ctx, { dirX: 0, dirY: -1 });
+  assert.equal(ctx.db.player.identity.find(me).zoneId, "hog-town");
+});

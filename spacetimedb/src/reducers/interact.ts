@@ -11,6 +11,9 @@ import {
   distinctId,
   unit,
   settle,
+  seedBoulders,
+  seedGroundItems,
+  seedHogs,
   solidTiles,
   addInventory,
   pickupTarget,
@@ -39,6 +42,36 @@ function runInteract(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; dirY
   const dir = cardinal(dirX, dirY);
   const pos = settle(ctx, p, ctx.timestamp);
   const props = { zone: p.zoneId, ...sourceProp(source) };
+
+  // Standing on (or beside) an edge gate, interact travels (GDD "Zones"): the
+  // trogg arrives just inside the reciprocal gate of the neighbouring zone,
+  // settled and idle. Carried things ride along on the player row.
+  const px = Math.round(pos.x);
+  const py = Math.round(pos.y);
+  const gate = zone.exits.find((exit) => Math.abs(exit.x - px) + Math.abs(exit.y - py) <= 1);
+  if (gate) {
+    const target = getZone(gate.to);
+    const opposite = { north: "south", south: "north", east: "west", west: "east" }[gate.dir];
+    const arrivalGate = target?.exits.find((exit) => exit.dir === opposite && exit.to === p.zoneId);
+    if (target && arrivalGate) {
+      seedBoulders(ctx, target);
+      seedHogs(ctx, target);
+      seedGroundItems(ctx, target);
+      const inward = { north: { x: 0, y: 1 }, south: { x: 0, y: -1 }, west: { x: 1, y: 0 }, east: { x: -1, y: 0 } }[arrivalGate.dir];
+      ctx.db.player.identity.update({
+        ...p,
+        zoneId: gate.to,
+        x: arrivalGate.x + inward.x,
+        y: arrivalGate.y + inward.y,
+        dirX: 0,
+        dirY: 0,
+        running: false,
+        path: "",
+        movedAt: ctx.timestamp,
+      });
+      return [{ distinctId: distinctId(ctx), event: "zone_traveled", properties: { ...props, from: p.zoneId, to: gate.to, gate: gate.dir } }];
+    }
+  }
 
   if (p.carrying !== "") {
     // Put down: place the held entity on the faced tile, or the nearest free

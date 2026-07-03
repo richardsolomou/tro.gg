@@ -1,5 +1,36 @@
 import { GLOWMOSS_TILE, GRAVEL_TILE, MOSS_TILE, WALL_TILE, WATER_TILE } from "./glyphs";
-import type { BigHog, Coord, GroundItemSeed, Zone } from "./constants";
+import type { BigHog, Coord, GroundItemSeed, Zone, ZoneExit } from "./constants";
+
+/**
+ * Biomes: the same cave automaton dressed differently. A biome picks the
+ * decoration mix here (shared, so seeds and glyphs stay identical on both sides)
+ * and its colour palette on the client (`BIOME_3D` in src/game/palette.ts).
+ */
+export const BIOMES = ["cave", "mossglen", "emberrift", "frosthollow", "floodways", "glowvault", "shadowdeep", "dustworks", "boneyard", "starwell", "rustgallery"] as const;
+export type BiomeId = (typeof BIOMES)[number];
+
+interface BiomeParams {
+  /** Decoration probabilities per open tile (moss requires nearby rock, glowmoss open air). */
+  moss: number;
+  gravel: number;
+  glow: number;
+  /** How many pool random-walks to run. */
+  pools: number;
+}
+
+const BIOME_PARAMS: Record<BiomeId, BiomeParams> = {
+  cave: { moss: 0.3, gravel: 0.36, glow: 0.035, pools: 4 },
+  mossglen: { moss: 0.62, gravel: 0.2, glow: 0.05, pools: 5 },
+  emberrift: { moss: 0.08, gravel: 0.5, glow: 0.03, pools: 0 },
+  frosthollow: { moss: 0.2, gravel: 0.3, glow: 0.045, pools: 7 },
+  floodways: { moss: 0.35, gravel: 0.2, glow: 0.03, pools: 16 },
+  glowvault: { moss: 0.25, gravel: 0.25, glow: 0.11, pools: 3 },
+  shadowdeep: { moss: 0.12, gravel: 0.3, glow: 0.012, pools: 2 },
+  dustworks: { moss: 0.05, gravel: 0.62, glow: 0.02, pools: 0 },
+  boneyard: { moss: 0.1, gravel: 0.45, glow: 0.025, pools: 1 },
+  starwell: { moss: 0.2, gravel: 0.2, glow: 0.09, pools: 6 },
+  rustgallery: { moss: 0.15, gravel: 0.48, glow: 0.03, pools: 3 },
+};
 
 /**
  * Deterministic cave generation (GDD "Zones"). A zone is grown from a fixed seed
@@ -42,10 +73,14 @@ export interface CaveOptions {
   seed: number;
   boulders: number;
   hogs: number;
+  biome: BiomeId;
+  /** Which edges open into which neighbour zones (gates carved mid-edge). */
+  exits?: Partial<Record<"north" | "south" | "east" | "west", string>>;
 }
 
 export function generateCaveZone(opts: CaveOptions): Zone {
   const { width, height, seed } = opts;
+  const biome = BIOME_PARAMS[opts.biome];
   const rand = mulberry32(seed);
   const cx = Math.floor(width / 2);
   const cy = Math.floor(height / 2);
@@ -96,6 +131,35 @@ export function generateCaveZone(opts: CaveOptions): Zone {
   }
   for (let i = 0; i < rock.length; i++) if (!rock[i] && !reachable[i]) rock[i] = 1;
 
+  // ── carve the gates ───────────────────────────────────────────────────────────
+  // Each exit opens the rim mid-edge and tunnels inward until it meets the cave
+  // proper (carved after the connectivity fill, so the tunnel can't be sealed).
+  const exits: ZoneExit[] = [];
+  const gateCorridor: string[] = [];
+  const gateDefs: { dir: "north" | "south" | "east" | "west"; to: string }[] = [];
+  for (const dir of ["north", "south", "east", "west"] as const) {
+    const to = opts.exits?.[dir];
+    if (to) gateDefs.push({ dir, to });
+  }
+  for (const gate of gateDefs) {
+    const gx = gate.dir === "west" ? 0 : gate.dir === "east" ? width - 1 : cx;
+    const gy = gate.dir === "north" ? 0 : gate.dir === "south" ? height - 1 : cy;
+    const step = gate.dir === "north" ? { x: 0, y: 1 } : gate.dir === "south" ? { x: 0, y: -1 } : gate.dir === "west" ? { x: 1, y: 0 } : { x: -1, y: 0 };
+    let x = gx;
+    let y = gy;
+    // tunnel until the tile ahead is already open cave (bounded by the zone span)
+    for (let carve = 0; carve < width + height; carve++) {
+      rock[idx(x, y)] = 0;
+      gateCorridor.push(`${x},${y}`);
+      const nx = x + step.x;
+      const ny = y + step.y;
+      if (!rock[idx(nx, ny)]) break;
+      x = nx;
+      y = ny;
+    }
+    exits.push({ dir: gate.dir, to: gate.to, x: gx, y: gy });
+  }
+
   // ── dress the floor ───────────────────────────────────────────────────────────
   const glyphs: string[][] = [];
   const wallNeighbours = (x: number, y: number): number => {
@@ -112,15 +176,15 @@ export function generateCaveZone(opts: CaveOptions): Zone {
       }
       const nearRock = wallNeighbours(x, y);
       const roll = rand();
-      if (nearRock >= 3 && roll < 0.3) row.push(MOSS_TILE);
-      else if (nearRock >= 2 && roll < 0.36) row.push(GRAVEL_TILE);
-      else if (nearRock === 0 && roll < 0.035) row.push(GLOWMOSS_TILE);
+      if (nearRock >= 3 && roll < biome.moss) row.push(MOSS_TILE);
+      else if (nearRock >= 2 && roll < biome.gravel) row.push(GRAVEL_TILE);
+      else if (nearRock === 0 && roll < biome.glow) row.push(GLOWMOSS_TILE);
       else row.push(".");
     }
     glyphs.push(row);
   }
   // a few shallow pools, grown as short random walks over open floor
-  for (let pool = 0; pool < 4; pool++) {
+  for (let pool = 0; pool < biome.pools; pool++) {
     let x = 1 + Math.floor(rand() * (width - 2));
     let y = 1 + Math.floor(rand() * (height - 2));
     for (let step = 0; step < 6; step++) {
@@ -131,7 +195,8 @@ export function generateCaveZone(opts: CaveOptions): Zone {
   }
 
   // ── seed the dynamics: boulders, hogs, tools, giants ────────────────────────────
-  const taken = new Set<string>();
+  // nothing seeds inside a gate tunnel — an immovable boulder there would brick it
+  const taken = new Set<string>(gateCorridor);
   const openTile = (minSpawnDist: number, fits?: (x: number, y: number) => boolean): Coord => {
     for (let attempt = 0; attempt < 4000; attempt++) {
       const x = 1 + Math.floor(rand() * (width - 2));
@@ -178,6 +243,8 @@ export function generateCaveZone(opts: CaveOptions): Zone {
     name: opts.name,
     width,
     height,
+    biome: opts.biome,
+    exits,
     tiles: glyphs.map((row) => row.join("")),
     boulders,
     hogs,

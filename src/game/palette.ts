@@ -84,3 +84,78 @@ export const UI_3D = {
   deadBar: 0x4a3826,
   deadName: 0x9b8a6c,
 } as const;
+
+// ── biome palettes ─────────────────────────────────────────────────────────────
+// Each biome re-tints the cave palette by hue/saturation/lightness shifts (with a
+// few explicit accents like glow colour), so ten biomes cost transforms, not ten
+// hand-painted tables. Client-only: the shared generator never sees colour.
+
+function hexToHsl(hex: number): { h: number; s: number; l: number } {
+  const r = ((hex >> 16) & 255) / 255;
+  const g = ((hex >> 8) & 255) / 255;
+  const b = (hex & 255) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  if (max === min) return { h: 0, s: 0, l };
+  const d = max - min;
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  const h = max === r ? ((g - b) / d + (g < b ? 6 : 0)) / 6 : max === g ? ((b - r) / d + 2) / 6 : ((r - g) / d + 4) / 6;
+  return { h, s, l };
+}
+
+function hslToHex(h: number, s: number, l: number): number {
+  const f = (n: number) => {
+    const k = (n + h * 12) % 12;
+    const a = s * Math.min(l, 1 - l);
+    const c = l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+    return Math.round(c * 255);
+  };
+  return (f(0) << 16) | (f(8) << 8) | f(4);
+}
+
+/** Shift a colour: hue by `dh` (0..1 wraps), saturation and lightness by multipliers. */
+function shift(hex: number, dh: number, sMul: number, lMul: number): number {
+  const { h, s, l } = hexToHsl(hex);
+  return hslToHex((h + dh + 1) % 1, Math.min(1, s * sMul), Math.min(1, l * lMul));
+}
+
+type CavePalette = {
+  voidBase: number;
+  voidSpecks: readonly [number, number];
+  floor: { base: number; light: number; dark: number; pebble: number; crack: number; seam: number };
+  wall: { face: number; top: number; edge: number };
+  gravel: { light: number; mid: number; dark: number };
+  moss: { light: number; mid: number; dark: number };
+  water: { deep: number; base: number; ripple: number; glint: number };
+  glowmoss: { core: number; mid: number; halo: number };
+};
+
+function tinted(dh: number, sMul: number, lMul: number, overrides: Partial<CavePalette> = {}): CavePalette {
+  const walk = <T>(value: T): T => {
+    if (typeof value === "number") return shift(value, dh, sMul, lMul) as T;
+    if (Array.isArray(value)) return value.map(walk) as T;
+    if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, walk(v)])) as T;
+    return value;
+  };
+  return { ...(walk(CAVE_3D) as unknown as CavePalette), ...overrides };
+}
+
+export const BIOME_3D: Record<string, CavePalette> = {
+  cave: CAVE_3D as unknown as CavePalette,
+  mossglen: tinted(0.13, 1.15, 1.05),
+  emberrift: tinted(-0.045, 1.35, 1.02, { glowmoss: { core: 0xffc17a, mid: 0xe0722e, halo: 0x5a2c12 } }),
+  frosthollow: tinted(0.52, 0.75, 1.18, { glowmoss: { core: 0xbfeaff, mid: 0x6fb8dc, halo: 0x2a4f5e } }),
+  floodways: tinted(0.42, 1.0, 1.0),
+  glowvault: tinted(0.36, 1.1, 0.9, { glowmoss: { core: 0x9ffce2, mid: 0x4fd6ba, halo: 0x2a5f54 } }),
+  shadowdeep: tinted(0.62, 0.55, 0.72, { glowmoss: { core: 0xb9a8e8, mid: 0x6f5aa8, halo: 0x2e2548 } }),
+  dustworks: tinted(0.035, 0.9, 1.16),
+  boneyard: tinted(0.06, 0.42, 1.28),
+  starwell: tinted(0.72, 1.1, 0.92, { glowmoss: { core: 0xe8ddff, mid: 0x9a7fe8, halo: 0x3a2e6e } }),
+  rustgallery: tinted(-0.02, 1.5, 0.95),
+};
+
+/** The palette a zone paints with — its biome's, defaulting to the plain cave. */
+export function biomePalette(biome: string): CavePalette {
+  return BIOME_3D[biome] ?? (CAVE_3D as unknown as CavePalette);
+}

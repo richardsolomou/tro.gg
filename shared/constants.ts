@@ -1,6 +1,6 @@
 export * from "./glyphs";
 import { TILE_GLYPHS, WALL_TILE } from "./glyphs";
-import { generateCaveZone } from "./worldgen";
+import { generateCaveZone, type BiomeId } from "./worldgen";
 /**
  * Tuning values from the GDD. Those marked (initial) are starting values; keep
  * them centralized here and make them remotely configurable only when runtime
@@ -262,11 +262,24 @@ export interface BigHog {
   style: string;
 }
 
+/** A gate on a zone edge: standing on its tile and interacting travels to `to`,
+ *  arriving inside that zone's reciprocal gate (GDD "Zones"). */
+export interface ZoneExit {
+  dir: "north" | "south" | "east" | "west";
+  to: string;
+  x: number;
+  y: number;
+}
+
 export interface Zone {
   slug: string;
   name: string;
   width: number;
   height: number;
+  /** Colour/decoration family — the client picks palettes by it (BIOME_3D). */
+  biome: string;
+  /** Edge gates into neighbouring zones. */
+  exits: readonly ZoneExit[];
   tiles: readonly string[];
   boulders: readonly Coord[];
   hogs: readonly Coord[];
@@ -275,28 +288,51 @@ export interface Zone {
 }
 
 /**
- * Every zone in the world, keyed by slug. The current world has one shared zone;
- * later zones, starting areas, and gates are added here when they serve the game.
- *
- * `hog-town` is a procedurally carved 64×44 cave (GDD "Zones"): grown by
- * `generateCaveZone` from a fixed seed, so the client and the module derive the
- * identical tilemap — winding rock formations dressed with the cosmetic floor
- * variants, a guaranteed-open spawn plaza at the centre with the starter tools
- * racked beside it, and seeded boulders, roaming Hogs, and the two showpiece
- * giants scattered over the open floor. Change the seed (or dimensions) to
- * reroll the world; every guarantee the generator makes is covered by tests.
+ * The world map: a plus-shaped grid of eleven procedurally generated zones (GDD
+ * "Zones"), `hog-town` at the centre and ten biomes ringing it. Every zone is
+ * grown by `generateCaveZone` from a fixed per-zone seed — identical on client
+ * and module — and neighbouring cells open reciprocal edge gates into each other
+ * (interact on a gate travels). Names are working canon (docs/world.md leaves
+ * naming open); reroll any zone by touching its seed.
  */
-export const ZONES: Record<string, Zone> = {
-  "hog-town": generateCaveZone({
-    slug: "hog-town",
-    name: "Hog Town",
-    width: 64,
-    height: 44,
-    seed: 0x70660001,
-    boulders: 14,
-    hogs: 12,
+const WORLD_GRID: { slug: string; name: string; biome: BiomeId; gx: number; gy: number; seed?: number }[] = [
+  { slug: "hog-town", name: "Hog Town", biome: "cave", gx: 0, gy: 0, seed: 0x70660001 },
+  { slug: "glowvault", name: "Glowvault", biome: "glowvault", gx: 0, gy: -1 },
+  { slug: "starwell", name: "Starwell", biome: "starwell", gx: 0, gy: -2 },
+  { slug: "mossglen", name: "Mossglen", biome: "mossglen", gx: 0, gy: 1 },
+  { slug: "boneyard", name: "Boneyard", biome: "boneyard", gx: 0, gy: 2 },
+  { slug: "frosthollow", name: "Frosthollow", biome: "frosthollow", gx: -1, gy: 0 },
+  { slug: "shadowdeep", name: "Shadowdeep", biome: "shadowdeep", gx: -1, gy: -1 },
+  { slug: "floodways", name: "Floodways", biome: "floodways", gx: -1, gy: 1 },
+  { slug: "rustgallery", name: "Rust Gallery", biome: "rustgallery", gx: 1, gy: 0 },
+  { slug: "emberrift", name: "Emberrift", biome: "emberrift", gx: 1, gy: -1 },
+  { slug: "dustworks", name: "Dustworks", biome: "dustworks", gx: 1, gy: 1 },
+];
+
+export const ZONES: Record<string, Zone> = Object.fromEntries(
+  WORLD_GRID.map((cell) => {
+    const at = (gx: number, gy: number) => WORLD_GRID.find((c) => c.gx === gx && c.gy === gy)?.slug;
+    return [
+      cell.slug,
+      generateCaveZone({
+        slug: cell.slug,
+        name: cell.name,
+        width: 64,
+        height: 44,
+        seed: cell.seed ?? 0x70660000 + (cell.gx + 8) * 0x1000 + (cell.gy + 8) * 0x10 + 1,
+        boulders: 14,
+        hogs: 12,
+        biome: cell.biome,
+        exits: {
+          north: at(cell.gx, cell.gy - 1),
+          south: at(cell.gx, cell.gy + 1),
+          east: at(cell.gx + 1, cell.gy),
+          west: at(cell.gx - 1, cell.gy),
+        },
+      }),
+    ];
   }),
-};
+);
 
 /** Where a fresh trogg spawns, and the default room the client joins. */
 export const STARTING_ZONE_SLUG = "hog-town";
@@ -323,8 +359,8 @@ export function isWalkable(zone: Zone, tileX: number, tileY: number): boolean {
  * row length would silently break collision, so fail loudly instead. Called by a
  * unit test; cheap enough to also run at module load if ever needed.
  */
-export function assertZones(): void {
-  for (const zone of Object.values(ZONES)) {
+export function assertZones(zones: Record<string, Zone> = ZONES): void {
+  for (const zone of Object.values(zones)) {
     if (zone.tiles.length !== zone.height) {
       throw new Error(`zone ${zone.slug}: ${zone.tiles.length} rows, expected height ${zone.height}`);
     }
@@ -354,6 +390,19 @@ export function assertZones(): void {
       }
       if (!isWalkable(zone, item.x, item.y)) {
         throw new Error(`zone ${zone.slug}: ground item ${item.item} at (${item.x}, ${item.y}) is not on walkable floor`);
+      }
+    }
+    for (const exit of zone.exits) {
+      if (!isWalkable(zone, exit.x, exit.y)) {
+        throw new Error(`zone ${zone.slug}: ${exit.dir} gate at (${exit.x}, ${exit.y}) is not walkable`);
+      }
+      const target = zones[exit.to];
+      if (!target) {
+        throw new Error(`zone ${zone.slug}: ${exit.dir} gate leads to unknown zone ${JSON.stringify(exit.to)}`);
+      }
+      const opposite = { north: "south", south: "north", east: "west", west: "east" }[exit.dir];
+      if (!target.exits.some((back) => back.dir === opposite && back.to === zone.slug)) {
+        throw new Error(`zone ${zone.slug}: ${exit.dir} gate to ${exit.to} has no reciprocal gate back`);
       }
     }
     for (const h of zone.bigHogs) {

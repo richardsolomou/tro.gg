@@ -1,4 +1,4 @@
-import { STARTING_ZONE_SLUG } from "@trogg/shared";
+import { getZone, STARTING_ZONE_SLUG } from "@trogg/shared";
 import { accountSubject, authConfigured, completeSignIn, currentIdToken } from "./auth.js";
 import { captureEvent, identifyUser, initAnalytics, isFeatureEnabled, logError, logInfo } from "./analytics.js";
 import { clearStoredToken, clearPendingClaim, getPendingClaim } from "./identity.js";
@@ -38,9 +38,6 @@ async function main() {
 
     // Session lifecycle events are client-side; accepted gameplay actions emit from
     // SpacetimeDB procedure wrappers where server state is available (docs/analytics.md).
-    captureEvent("player_joined", { zone: STARTING_ZONE_SLUG, is_guest: !signedIn });
-    logInfo("Player joined world", { zone: STARTING_ZONE_SLUG, is_guest: !signedIn });
-
     if (signedIn) {
       // Complete a pending claim: we signed in to upgrade a guest, so redeem the nonce now
       // that we're connected as the account. This folds the guest trogg in and marks the
@@ -59,9 +56,19 @@ async function main() {
       if (subject) identifyUser(subject);
     }
 
+    // The world is multi-zone: boot into the zone the last travel recorded (the
+    // SpacetimeDB SDK supports one live subscription set, so the zone can't be
+    // asked for before subscribing). The world's own subscription includes the
+    // self row, so a stale or missing record self-corrects with one reload.
+    const stored = localStorage.getItem("trogg-zone");
+    const slug = stored && getZone(stored) ? stored : STARTING_ZONE_SLUG;
+
+    captureEvent("player_joined", { zone: slug, is_guest: !signedIn });
+    logInfo("Player joined world", { zone: slug, is_guest: !signedIn });
+
     // Three.js owns the canvas and the world render loop; StartGame boots the 3D
     // world with the live connection (game/main.ts, GDD "Camera and rendering").
-    StartGame("game", { conn });
+    StartGame("game", { conn, slug });
 
     // HUD chrome (help, appearance, account) is HTML overlaid on the canvas (hud.css);
     // chat is mounted by the scene since its speech bubbles live in the world.

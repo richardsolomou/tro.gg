@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { assertZones, isWalkable, WALL_TILE, type Zone } from "./index";
+import { assertZones, isWalkable, WALL_TILE, ZONES, type Zone } from "./index";
 import { generateCaveZone } from "./worldgen";
 
-const OPTS = { slug: "t", name: "t", width: 64, height: 44, seed: 0x70660001, boulders: 14, hogs: 12 };
+const OPTS = { slug: "t", name: "t", width: 64, height: 44, seed: 0x70660001, boulders: 14, hogs: 12, biome: "cave" as const };
 
 function reachableCount(zone: Zone, fromX: number, fromY: number): number {
   const seen = new Set<string>([`${fromX},${fromY}`]);
@@ -72,5 +72,21 @@ test("giants sit on clear 2×2 footprints and every seed is on open floor", () =
         assert.ok(isWalkable(zone, giant.x + dx, giant.y + dy), `giant footprint at ${giant.x},${giant.y} blocked`);
       }
     }
+  }
+});
+
+test("every world-grid gate is walkable, reachable from spawn, and reciprocal", () => {
+  assertZones();
+  for (const zone of Object.values(ZONES)) {
+    const cx = Math.floor(zone.width / 2);
+    const cy = Math.floor(zone.height / 2);
+    for (const exit of zone.exits) {
+      assert.ok(isWalkable(zone, exit.x, exit.y), `${zone.slug} ${exit.dir} gate blocked`);
+      // reachable: the connectivity fill ran before gates were carved, and the
+      // tunnel walks inward until it meets that reachable cave
+      const inward = exit.dir === "north" ? { x: exit.x, y: exit.y + 1 } : exit.dir === "south" ? { x: exit.x, y: exit.y - 1 } : exit.dir === "west" ? { x: exit.x + 1, y: exit.y } : { x: exit.x - 1, y: exit.y };
+      assert.ok(isWalkable(zone, inward.x, inward.y), `${zone.slug} ${exit.dir} gate tunnel blocked`);
+    }
+    assert.ok(reachableCount(zone, cx, cy) > 0);
   }
 });

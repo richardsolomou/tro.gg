@@ -24,6 +24,7 @@ import {
   type Coord,
   type Stamp,
   type ZoneBounds,
+  type Zone,
 } from "@trogg/shared";
 import type { DbConnection } from "../net/module_bindings";
 import type { Boulder, GroundItem, Hog, Player } from "../net/module_bindings/types";
@@ -37,7 +38,7 @@ import { interact, useEquipped } from "../net/procedures.js";
 import { isOlderPlayerMotion, playerMotionChanged, withPlayerMotion } from "../motion_sync.js";
 import { createEntities, disposeObject, type Entities, type HogView, type Tracked } from "./entities.js";
 import { buildTerrain, type Terrain3D } from "./terrain.js";
-import { CAVE_3D, UI_3D } from "./palette.js";
+import { biomePalette, UI_3D } from "./palette.js";
 
 /** Fraction of the viewport the zone fills, leaving a rim of cave around it. */
 const ZONE_FILL = 0.92;
@@ -55,6 +56,8 @@ function playerFacing(p: Pick<Player, "dirX" | "dirY" | "faceX" | "faceY">): { d
 
 export interface WorldData {
   conn: DbConnection;
+  /** The zone to render and subscribe to — the local trogg's current zone. */
+  slug: string;
 }
 
 /**
@@ -65,8 +68,8 @@ export interface WorldData {
  */
 export class World3D {
   private readonly conn: DbConnection;
-  private readonly slug = STARTING_ZONE_SLUG;
-  private readonly zone = getZone(STARTING_ZONE_SLUG)!;
+  private readonly slug: string;
+  private readonly zone: Zone;
   private myId?: string;
 
   private readonly renderer: THREE.WebGLRenderer;
@@ -83,6 +86,24 @@ export class World3D {
   private readonly boulders = new Map<string, { row: Boulder; group: THREE.Group }>();
   /** Cleared until the camera has snapped to the local trogg once (first snapshot). */
   private cameraSnapped = false;
+  /** Cleared once travel begins, so a burst of row updates reloads exactly once. */
+  private travelling = false;
+
+  /** The trogg stepped through a gate: the server moved it to another zone. Fade
+   *  to black and reload — the reconnect pattern: every table re-derives from
+   *  subscriptions on boot, so a clean reload swaps zone, terrain, and rows
+   *  without hand-rewiring any of them. */
+  private travel(to: string): void {
+    if (this.travelling) return;
+    this.travelling = true;
+    localStorage.setItem("trogg-zone", to);
+    logInfo("Traveling through a gate", { surface: "world", action: "zone_travel", zone: this.slug, to });
+    const canvas = this.renderer.domElement;
+    canvas.style.transition = "opacity 0.3s ease-in";
+    canvas.style.opacity = "0";
+    window.setTimeout(() => window.location.reload(), 320);
+  }
+
   /** Fade the world in — held black until the camera sits on the local trogg, so a
    *  slow first snapshot never shows the zone-centre framing at all. */
   private reveal(): void {
@@ -113,6 +134,8 @@ export class World3D {
 
   constructor(parent: HTMLElement, data: WorldData) {
     this.conn = data.conn;
+    this.slug = data.slug;
+    this.zone = getZone(data.slug) ?? getZone(STARTING_ZONE_SLUG)!;
     this.parent = parent;
     this.renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -145,8 +168,9 @@ export class World3D {
 
     // Torch-lit cave: dim warm ambient, one shadowing key light, dark fog closing in
     // past the zone. Glowmoss tiles add their own teal point lights (terrain3d).
-    this.scene.background = new THREE.Color(CAVE_3D.voidBase);
-    this.scene.fog = new THREE.Fog(CAVE_3D.voidBase, 26, 60);
+    const pal = biomePalette(this.zone.biome);
+    this.scene.background = new THREE.Color(pal.voidBase);
+    this.scene.fog = new THREE.Fog(pal.voidBase, 26, 60);
     this.scene.add(new THREE.HemisphereLight(0xffe0b0, 0x201409, 0.75));
     const key = new THREE.DirectionalLight(0xffd9a0, 1.6);
     key.position.set(this.zone.width / 2 + 6, 14, this.zone.height / 2 + 8);
@@ -271,6 +295,9 @@ export class World3D {
       `SELECT * FROM boulder WHERE zone_id = '${this.slug}'`,
     ];
     if (this.myId) queries.push(`SELECT * FROM inventory WHERE player_id = '${this.myId}'`);
+    // the self row rides along even from another zone, so a boot into the wrong
+    // zone (stale local record) sees the mismatch and travel-reloads to converge
+    if (this.myId) queries.push(`SELECT * FROM player WHERE identity = '${this.myId}'`);
     if (this.useHogs) queries.push(`SELECT * FROM hog WHERE zone_id = '${this.slug}'`);
     if (this.useGhost) queries.push(`SELECT * FROM ghost_haunt WHERE zone_id = '${this.slug}'`);
 
@@ -337,8 +364,11 @@ export class World3D {
       this.self.update(entry, motion, now);
       const attackAge = entry.equipmentActionBaseMs === undefined ? -1 : now - entry.equipmentActionBaseMs;
       this.entities.updateReach(this.self.aim.dirX, this.self.aim.dirY, attackAge >= 0 && attackAge < EQUIPMENT_ACTION_MS && entry.player.equipmentAction !== "");
-      // Exposed for the e2e harness: the local trogg's projected tile position.
-      (window as unknown as { __troggPos?: { x: number; y: number } }).__troggPos = { x: motion.x, y: motion.y };
+      // Exposed for the e2e harness: the local trogg's projected tile position and
+      // a click-to-move injection, so probes can route with the real pathfinding.
+      const hooks = window as unknown as { __troggPos?: { x: number; y: number }; __troggMoveTo?: (x: number, y: number) => void };
+      hooks.__troggPos = { x: motion.x, y: motion.y };
+      hooks.__troggMoveTo ??= (x: number, y: number) => this.self.onClick({ x, y });
     }
 
     // A held key steers relative to the camera: while the orbit turns, re-map the
@@ -472,6 +502,7 @@ export class World3D {
       if (!entry) return this.addPlayer(p);
 
       if (id === this.myId) {
+        if (p.zoneId !== this.slug) return this.travel(p.zoneId);
         this.observeLocalLifecycle(_old, p);
         this.self.reconcile(entry, p);
       } else {
