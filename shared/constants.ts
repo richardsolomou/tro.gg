@@ -113,6 +113,11 @@ export const HEALTH_REGEN_DELAY_MS = 30_000;
 export const HEALTH_REGEN_TICK_MS = 3_000;
 export const HEALTH_REGEN_FRACTION = 0.05;
 
+/** How long a dead NPC lies where it fell before the corpse is reaped (troggs
+ *  instead respawn after PLAYER_RESPAWN_MS). Corpses are scenery: not solid,
+ *  not targetable, not liftable. (initial) */
+export const NPC_CORPSE_MS = 30_000;
+
 /** Gathering-node health: a boulder or tree soaks a few tool swings (each rolls
  *  the tool's WEAPON_DAMAGE range) before it breaks and grants its resource —
  *  roughly three average hits each. (initial) */

@@ -139,6 +139,13 @@ function setDowned(model: CreatureModel, downed: boolean): void {
   }
 }
 
+/** Lay a creature flat on the ground — the dead stance. The pose holds because
+ *  dead creatures skip their per-frame drive (no steer, no gait). */
+function poseDead(model: CreatureModel, centre: number, lift: number): void {
+  model.root.rotation.x = -Math.PI / 2;
+  model.root.position.set(centre, lift, centre);
+}
+
 /** The hit flinch: recoil the body opposite its facing and flash it white. Shared
  *  with the art preview, so the flinch there is exactly the in-game one. */
 export function applyFlinch(view: { model: CreatureModel; facing: Facing; flinchBaseMs?: number; flashOn: boolean }, now: number, centre: number): void {
@@ -265,7 +272,10 @@ export function createEntities(scene: THREE.Scene) {
     marker.add(model.root);
     model.actions.idle.legs.play();
     model.actions.idle.arms.play();
-    if (dead) setDowned(model, true);
+    if (dead) {
+      setDowned(model, true);
+      poseDead(model, 0.5, 0.3);
+    }
 
     const overlays: Overlay[] = [];
     if (self) {
@@ -351,6 +361,22 @@ export function createEntities(scene: THREE.Scene) {
 
   /** Per-frame trogg driver: gait + attack + flinch + respawn countdown + mixer. */
   const animate = (entry: Tracked, now: number, dt: number, motion: ProjectedMotion) => {
+    if (entry.player.dead) {
+      // a corpse lies still (poseDead holds — no steer, no gait, no flinch);
+      // only the respawn countdown keeps ticking
+      if (entry.respawn && entry.player.respawnAt) {
+        const text = respawnCountdown(entry.player.respawnAt);
+        if (text !== entry.respawn.text) {
+          const next = makeStatusText(text);
+          next.sprite.position.copy(entry.respawn.overlay.sprite.position);
+          entry.marker.add(next.sprite);
+          entry.marker.remove(entry.respawn.overlay.sprite);
+          entry.respawn.overlay.dispose();
+          entry.respawn = { overlay: next, text, at: entry.player.respawnAt };
+        }
+      }
+      return;
+    }
     const moving = motion.dirX !== 0 || motion.dirY !== 0;
     const faceX = moving ? motion.dirX : entry.player.faceX;
     const faceY = moving ? motion.dirY : entry.player.faceY;
@@ -381,6 +407,7 @@ export function createEntities(scene: THREE.Scene) {
 
   const makeHog = (style: string, facing: Facing, health: number) => {
     const size = hogSize(style);
+    const dead = health <= 0;
     const marker = new THREE.Group();
     const model = buildHog(style);
     const c = size / 2;
@@ -390,10 +417,11 @@ export function createEntities(scene: THREE.Scene) {
     marker.add(model.root);
     model.actions.idle.legs.play();
     model.actions.idle.arms.play();
-    addHitbox(marker, hitRing(HOG_HIT_RADIUS * size, 0x6fdc9c), c);
+    if (dead) poseDead(model, c, 0.28 * size);
+    if (!dead) addHitbox(marker, hitRing(HOG_HIT_RADIUS * size, 0x6fdc9c), c);
     const overlays: Overlay[] = [];
     const max = hogMaxHealth(style);
-    const hp = Math.max(0, Math.min(max, health));
+    const hp = dead ? max : Math.max(0, Math.min(max, health));
     if (hp < max) {
       const bar = makeHealthBar(max <= 0 ? 0 : hp / max, false);
       bar.sprite.position.set(c, model.height * size + 0.24, c);

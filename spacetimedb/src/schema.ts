@@ -12,6 +12,7 @@ import {
   hogMaxHealth,
   HOG_TURN_CHANCE,
   HEALTH_REGEN_DELAY_MS,
+  NPC_CORPSE_MS,
   HEALTH_REGEN_FRACTION,
   footprintWalkable,
   BOULDER_MAX_HEALTH,
@@ -404,6 +405,7 @@ export const wanderHogs = spacetimedb.reducer({ timer: hogWander.rowType }, (ctx
   for (const h of hogList) {
     const zone = getZone(h.zoneId);
     if (!zone) continue;
+    if (h.health <= 0) continue; // corpses lie where they fell
     const size = hogSize(h.style);
     const blockers = blockersFor(h.zoneId);
     // Hogs keep to dry ground: water blocks them like a boulder does (GDD "Zones").
@@ -490,6 +492,11 @@ export const regenCreatures = spacetimedb.reducer({ timer: creatureRegen.rowType
       ctx.db.player.identity.update({ ...p, health: Math.min(PLAYER_MAX_HEALTH, p.health + heal) });
     }
     for (const h of ctx.db.hog.iter()) {
+      if (h.health <= 0) {
+        // a corpse never heals; it lies for NPC_CORPSE_MS, then the sweep reaps it
+        if (elapsedMs(h.lastDamagedAt, now) >= NPC_CORPSE_MS) ctx.db.hog.id.delete(h.id);
+        continue;
+      }
       const max = hogMaxHealth(h.style);
       if (h.health >= max || !rested(h.lastDamagedAt)) continue;
       ctx.db.hog.id.update({ ...h, health: Math.min(max, h.health + Math.ceil(max * HEALTH_REGEN_FRACTION)) });

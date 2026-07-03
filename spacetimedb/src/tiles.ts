@@ -87,6 +87,7 @@ export function addHogTiles(ctx: Ctx, zoneId: string, now: Stamp, set: Set<strin
   const obstacles = obstacleTiles(ctx, zoneId);
   const bounds = zoneBounds(zone, (x, y) => obstacles.has(tileKey(x, y)));
   for (const h of ctx.db.hog.zoneId.filter(zoneId)) {
+    if (h.health <= 0) continue; // a corpse is scenery, not an obstacle
     const size = hogSize(h.style);
     const pos = projectMotion({ ...h, size }, elapsedMs(h.movedAt, now), bounds);
     for (const tile of footprintTiles(Math.round(pos.x), Math.round(pos.y), size)) set.add(tileKey(tile.x, tile.y));
@@ -163,6 +164,7 @@ export function hogAt(ctx: Ctx, zoneId: string, x: number, y: number, now: Stamp
   const occupied = obstacleTiles(ctx, zoneId);
   const bounds = zoneBounds(zone, (tx, ty) => occupied.has(tileKey(tx, ty)) || !isDryFloor(zone, tx, ty));
   for (const h of ctx.db.hog.zoneId.filter(zoneId)) {
+    if (h.health <= 0) continue; // corpses can't be lifted, thrown at, or hit
     const size = hogSize(h.style);
     const pos = projectMotion({ ...h, size }, elapsedMs(h.movedAt, now), bounds);
     const ax = Math.round(pos.x);
@@ -231,6 +233,7 @@ export function meleeHogTarget(ctx: Ctx, zoneId: string, cx: number, cy: number,
   const bounds = zoneBounds(zone, (tx, ty) => occupied.has(tileKey(tx, ty)) || !isDryFloor(zone, tx, ty));
   let best: { target: NonNullable<ReturnType<typeof hogAt>>; dist: number } | undefined;
   for (const h of ctx.db.hog.zoneId.filter(zoneId)) {
+    if (h.health <= 0) continue; // corpses can't be lifted, thrown at, or hit
     const size = hogSize(h.style);
     const pos = projectMotion({ ...h, size }, elapsedMs(h.movedAt, now), bounds);
     const dist = meleeHit(cx, cy, aim.dirX, aim.dirY, { x: pos.x + size / 2, y: pos.y + size / 2, radius: HOG_HIT_RADIUS * size });

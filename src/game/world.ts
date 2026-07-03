@@ -440,6 +440,8 @@ export class World3D {
       const size = hogSize(view.style);
       const motion = projectMotionState({ ...view.row, size }, now - view.baseMs, this.hogBounds);
       this.entities.smoothPlace(view, motion.x, motion.y, dt);
+      // a corpse lies where it fell: no gait, no patter, and no collision
+      if (view.row.health <= 0) continue;
       // hidden creatures (budgeted out or out of range) skip their animation
       // mixers — position, collision, and sound still derive above
       if (view.marker.visible) this.entities.animateHog(view, now, dt, motion);
@@ -923,7 +925,8 @@ export class World3D {
         }
       }
       if (!this.sub.live) return;
-      const changedHeading = _old.dirX !== h.dirX || _old.dirY !== h.dirY;
+      // corpses don't snuffle (death zeroes the heading, which reads as a turn)
+      const changedHeading = h.health > 0 && (_old.dirX !== h.dirX || _old.dirY !== h.dirY);
       if (changedHeading && Math.random() < 0.35) audio.playHogAt(this.hearingDistance(h.x, h.y));
     });
     conn.db.hog.onDelete((_ctx, h) => this.removeHog(h));

@@ -28,6 +28,7 @@ import {
   HEALTH_REGEN_DELAY_MS,
   HEALTH_REGEN_FRACTION,
   hogMaxHealth,
+  NPC_CORPSE_MS,
 } from "@trogg/shared";
 import {
   chat,
@@ -706,14 +707,27 @@ test("useEquipped damages a big 2×2 Hog on any of its footprint tiles, not just
   assert.equal(ctx.db.hog.id.find(giant.id).health, HOG_MAX_HEALTH - WEAPON_DAMAGE.sword![0]);
 });
 
-test("sword damage removes a Hog at zero health", () => {
-  const { ctx, me } = withPlayer({ x: 69, y: 96, equippedMainHand: "sword" });
+test("a killed Hog becomes a settled corpse, untargetable, reaped after NPC_CORPSE_MS", () => {
+  const { ctx, me } = withPlayer({ x: 69, y: 96, equippedMainHand: "sword" }, { now: micros(1000) });
   const sword = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });
   ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedMainHandInventoryId: sword.id });
   hogAt_(ctx, 70, 96, WEAPON_DAMAGE.sword![0]);
 
   useEquipped(ctx, { dirX: 1, dirY: 0 });
 
+  const corpse = ctx.db.hog.rows()[0];
+  assert.deepEqual({ health: corpse.health, dirX: corpse.dirX, dirY: corpse.dirY }, { health: 0, dirX: 0, dirY: 0 });
+
+  // a second swing finds nothing — corpses are not targets
+  ctx.timestamp = { microsSinceUnixEpoch: micros(2000) };
+  useEquipped(ctx, { dirX: 1, dirY: 0 });
+  assert.equal(ctx.db.hog.rows()[0].health, 0);
+
+  // the regen sweep leaves a fresh corpse alone, then reaps it after NPC_CORPSE_MS
+  regenCreatures(ctx, {});
+  assert.equal(ctx.db.hog.rows().length, 1);
+  ctx.timestamp = { microsSinceUnixEpoch: micros(1000 + NPC_CORPSE_MS) };
+  regenCreatures(ctx, {});
   assert.equal(ctx.db.hog.rows().length, 0);
 });
 

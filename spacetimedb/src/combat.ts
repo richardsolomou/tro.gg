@@ -88,7 +88,11 @@ export function damageHog(ctx: Ctx, target: NonNullable<ReturnType<typeof hogAt>
     ctx.db.hog.id.update({ ...target, health, lastDamagedAt: ctx.timestamp });
     return { health, killed: false };
   }
-  ctx.db.hog.id.delete(target.id);
+  // The killing blow leaves a corpse where the Hog actually was (its stored
+  // origin can be a whole run behind under the gliding wander): settled, stopped,
+  // health 0. The regen sweep reaps it after NPC_CORPSE_MS.
+  const at = hogTile(ctx, target, ctx.timestamp);
+  ctx.db.hog.id.update({ ...target, x: at.x, y: at.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, health: 0, lastDamagedAt: ctx.timestamp });
   return { health: 0, killed: true };
 }
 
