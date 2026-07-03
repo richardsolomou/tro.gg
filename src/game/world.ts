@@ -801,7 +801,7 @@ export class World3D {
       }
       if (!this.sub.live) return;
       const changedHeading = _old.dirX !== h.dirX || _old.dirY !== h.dirY;
-      if (changedHeading && Math.random() < 0.35) audio.playHog();
+      if (changedHeading && Math.random() < 0.35) audio.playHogAt(this.hearingDistance(h.x, h.y));
     });
     conn.db.hog.onDelete((_ctx, h) => this.removeHog(h));
   }

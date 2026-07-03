@@ -121,8 +121,11 @@ class AudioCues {
     this.play("boulderSettle", { volume: 0.16, minGapMs: 120, rate: [0.86, 1.02] });
   }
 
-  playHog() {
-    this.play("hog", { volume: 0.08, minGapMs: 2200, rate: [0.92, 1.08] });
+  /** A Hog snuffling somewhere nearby — silent beyond earshot like every world sound. */
+  playHogAt(distance: number) {
+    const gain = AudioCues.falloff(distance);
+    if (gain <= 0.02) return;
+    this.play("hog", { volume: 0.08 * gain, minGapMs: 2200, rate: [0.92, 1.08] });
   }
 
   playChatSend() {
