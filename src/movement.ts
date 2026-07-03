@@ -192,7 +192,19 @@ export function createSelfController(deps: SelfControllerDeps) {
    *  row's cheat flags so a noclipped trogg never reads as pinned by geometry. */
   const canProgress = (entry: MotionEntry, x: number, y: number, intent: MoveIntent): boolean => {
     const probe = projectMotionState(
-      { x, y, dirX: intent.dirX, dirY: intent.dirY, running: intent.running, path: "", cheatSpeed: entry.player.cheatSpeed, cheatFly: entry.player.cheatFly, cheatNoclip: entry.player.cheatNoclip },
+      {
+        x,
+        y,
+        dirX: intent.dirX,
+        dirY: intent.dirY,
+        running: intent.running,
+        path: "",
+        cheatSpeed: entry.player.cheatSpeed,
+        cheatFly: entry.player.cheatFly,
+        cheatNoclip: entry.player.cheatNoclip,
+        z: entry.player.z,
+        dirZ: entry.player.dirZ,
+      },
       PROBE_MS,
       bounds,
     );

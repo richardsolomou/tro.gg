@@ -12,6 +12,12 @@ import {
   MAX_BOULDERS_PER_ZONE,
   MOVE_SPEED_TILES_PER_SEC,
   CHEAT_SPEED_MULTIPLIER,
+  FLY_VERTICAL_TILES_PER_SEC,
+  FLY_MAX_HEIGHT,
+  FLY_CLEAR_OBSTACLE,
+  DEEP_WATER_TILE,
+  tileGlyph,
+  projectMotionState,
   projectMotion,
   zoneBounds,
   MAX_GROUND_ITEMS_PER_ZONE,
@@ -51,6 +57,9 @@ import {
   resetBoulders,
   resetHogs,
   setCheats,
+  setLift,
+  healSelf,
+  rescue,
   respawnPlayers,
   regenCreatures,
   spawn,
@@ -1284,4 +1293,69 @@ test("an invulnerable trogg takes no damage from a swing", () => {
   const target = ctx.db.player.identity.find(other);
   assert.equal(target.health, PLAYER_MAX_HEALTH);
   assert.equal(target.dead, false);
+});
+
+test("setLift stores a sign-clamped vertical intent for a flyer only", () => {
+  const { ctx, me } = withPlayer({ x: 108, y: 105 });
+  setLift(ctx, { dirZ: 5 });
+  assert.equal(ctx.db.player.identity.find(me).dirZ, 0); // grounded: ignored
+  setCheats(ctx, { speed: 1, fly: true, noclip: false, invulnerable: false });
+  setLift(ctx, { dirZ: 5 });
+  assert.equal(ctx.db.player.identity.find(me).dirZ, 1);
+  setLift(ctx, { dirZ: -9 });
+  assert.equal(ctx.db.player.identity.find(me).dirZ, -1);
+});
+
+test("altitude derives linearly from the lift intent and clamps to the ceiling", () => {
+  const zone = getZone(ZONE)!;
+  const bounds = zoneBounds(zone);
+  const climb = projectMotionState({ x: 108, y: 105, dirX: 0, dirY: 0, cheatFly: true, z: 0, dirZ: 1 }, 1_000, bounds);
+  assert.ok(Math.abs(climb.z - FLY_VERTICAL_TILES_PER_SEC) < 1e-6, `z ${climb.z}`);
+  const capped = projectMotionState({ x: 108, y: 105, dirX: 0, dirY: 0, cheatFly: true, z: 0, dirZ: 1 }, 60_000, bounds);
+  assert.equal(capped.z, FLY_MAX_HEIGHT);
+  const grounded = projectMotionState({ x: 108, y: 105, dirX: 0, dirY: 0, cheatFly: true, z: 3, dirZ: -1 }, 60_000, bounds);
+  assert.equal(grounded.z, 0);
+});
+
+test("a flyer clears obstacles below its altitude and bumps into taller rock", () => {
+  const zone = getZone(ZONE)!;
+  // a dynamic obstacle (tree/boulder class): passable above FLY_CLEAR_OBSTACLE
+  const occupied = zoneBounds(zone, (x, y) => x === 110 && y === 105);
+  const low = projectMotion({ x: 108, y: 105, dirX: 1000, dirY: 0, cheatFly: true, z: 1, dirZ: 0 }, 3_000, occupied);
+  assert.ok(low.x < 110, `low flyer clamped at ${low.x}`);
+  const high = projectMotion({ x: 108, y: 105, dirX: 1000, dirY: 0, cheatFly: true, z: FLY_CLEAR_OBSTACLE + 1, dirZ: 0 }, 3_000, occupied);
+  assert.ok(high.x > 110, `high flyer passed to ${high.x}`);
+  // rock walls need summit height
+  let wall: { x: number; y: number } | undefined;
+  for (let y = 1; y < zone.height - 1 && !wall; y++) {
+    for (let x = 1; x < zone.width - 1 && !wall; x++) {
+      if (!isWalkable(zone, x, y) && tileGlyph(zone, x, y) !== DEEP_WATER_TILE && isWalkable(zone, x - 1, y)) wall = { x, y };
+    }
+  }
+  const bounds = zoneBounds(zone);
+  const mid = projectMotion({ x: wall!.x - 1, y: wall!.y, dirX: 1000, dirY: 0, cheatFly: true, z: 5, dirZ: 0 }, 1_000, bounds);
+  assert.ok(mid.x < wall!.x, `mid flyer clamped at ${mid.x} before wall ${wall!.x}`);
+  const summit = projectMotion({ x: wall!.x - 1, y: wall!.y, dirX: 1000, dirY: 0, cheatFly: true, z: 12, dirZ: 0 }, 1_000, bounds);
+  assert.ok(summit.x >= wall!.x, `summit flyer passed to ${summit.x}`);
+});
+
+test("healSelf restores a living trogg to full health", () => {
+  const { ctx, me } = withPlayer({ x: 108, y: 105, health: 7 });
+  healSelf(ctx);
+  assert.equal(ctx.db.player.identity.find(me).health, PLAYER_MAX_HEALTH);
+});
+
+test("rescue lands a stuck trogg on standable ground", () => {
+  const zone = getZone(ZONE)!;
+  let wall: { x: number; y: number } | undefined;
+  for (let y = 1; y < zone.height - 1 && !wall; y++) {
+    for (let x = 1; x < zone.width - 1 && !wall; x++) {
+      if (!isWalkable(zone, x, y) && isWalkable(zone, x + 1, y)) wall = { x, y };
+    }
+  }
+  const { ctx, me } = withPlayer({ x: wall!.x, y: wall!.y, cheatNoclip: true, z: 6, cheatFly: true });
+  rescue(ctx);
+  const p = ctx.db.player.identity.find(me);
+  assert.ok(isWalkable(zone, Math.round(p.x), Math.round(p.y)), `rescued to ${p.x},${p.y}`);
+  assert.equal(p.z, 0);
 });

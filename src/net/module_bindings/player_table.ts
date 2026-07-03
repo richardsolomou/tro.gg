@@ -44,4 +44,6 @@ export default __t.row({
   cheatFly: __t.bool().name("cheat_fly"),
   cheatInvulnerable: __t.bool().name("cheat_invulnerable"),
   cheatNoclip: __t.bool().name("cheat_noclip"),
+  z: __t.f64(),
+  dirZ: __t.i32().name("dir_z"),
 });

@@ -127,6 +127,8 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
     cheatFly: false,
     cheatInvulnerable: false,
     cheatNoclip: false,
+    z: 0,
+    dirZ: 0,
   });
 });
 
@@ -156,6 +158,6 @@ export const onDisconnect = spacetimedb.clientDisconnected((ctx) => {
       carryingStyle = "";
     }
   }
-  ctx.db.player.identity.update({ ...p, x: settled.x, y: settled.y, dirX: 0, dirY: 0, running: false, path: "", online: false, carrying, carryingStyle });
+  ctx.db.player.identity.update({ ...p, x: settled.x, y: settled.y, z: settled.z, dirZ: 0, dirX: 0, dirY: 0, running: false, path: "", online: false, carrying, carryingStyle });
 });
 

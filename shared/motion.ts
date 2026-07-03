@@ -1,5 +1,7 @@
 import {
-  isDryFloor, type Coord, isWalkable, MOVE_SPEED_TILES_PER_SEC, RUN_SPEED_TILES_PER_SEC, type Zone } from "./constants";
+  isDryFloor, type Coord, isWalkable, tileGlyph, DEEP_WATER_TILE,
+  FLY_CLEAR_OBSTACLE, FLY_CLEAR_ROCK, FLY_CLEAR_WATER, FLY_MAX_HEIGHT, FLY_VERTICAL_TILES_PER_SEC,
+  MOVE_SPEED_TILES_PER_SEC, RUN_SPEED_TILES_PER_SEC, type Zone } from "./constants";
 
 /**
  * Position-over-time derivation, shared by server and client so both agree
@@ -38,20 +40,29 @@ export interface Motion {
    *  intent like `running`, so every client derives the same faster position.
    *  Absent = 1. */
   cheatSpeed?: number;
-  /** Debug flight (GDD "Commands panel" cheats): airborne clears everything —
-   *  the projection ignores tile walkability like noclip (altitude is client
-   *  display state, so ground-level collision cannot be height-conditional). */
+  /** Debug flight (GDD "Debug cheats"): airborne. Horizontal collision clears
+   *  everything shorter than the flyer's altitude (`ZoneBounds.flyWalkable`),
+   *  judged at the motion's origin `z` — every input transition and per-tile
+   *  rebase refreshes it, so the threshold trails a climb by at most a tile. */
   cheatFly?: boolean;
-  /** Debug noclip (GDD "Commands panel" cheats): walk through anything — the
-   *  projection ignores tile walkability and clamps only to the zone
-   *  rectangle. On the row, so prediction, other clients, and the server all
-   *  derive the same motion. */
+  /** Debug noclip (GDD "Debug cheats"): walk through anything — the projection
+   *  ignores tile walkability and clamps only to the zone rectangle. On the
+   *  row, so prediction, other clients, and the server all derive the same
+   *  motion. */
   cheatNoclip?: boolean;
+  /** Altitude origin, tiles above ground (fly cheat). Like `x`/`y`, the origin
+   *  of a linear derivation — never per-frame synced. Absent = grounded. */
+  z?: number;
+  /** Vertical intent: -1 sinking, 0 holding, +1 climbing (fly cheat). Rides
+   *  the row like `dirX`/`dirY`; `projectMotionState` derives z over time. */
+  dirZ?: number;
 }
 
 export interface ProjectedMotion {
   x: number;
   y: number;
+  /** Altitude at `elapsedMs` (fly cheat) — 0 for grounded movers. */
+  z: number;
   dirX: number;
   dirY: number;
   arrived: boolean;
@@ -67,6 +78,11 @@ export interface ZoneBounds {
   width: number;
   height: number;
   isWalkable?(tileX: number, tileY: number): boolean;
+  /** Whether a flyer at altitude `z` clears this tile (GDD "Debug cheats"):
+   *  open floor always; deep water above `FLY_CLEAR_WATER`; dynamic obstacles
+   *  (trees, boulders, creatures) above `FLY_CLEAR_OBSTACLE`; rock above
+   *  `FLY_CLEAR_ROCK`. Absent (hand-built bounds) = grounded rules apply. */
+  flyWalkable?(tileX: number, tileY: number, z: number): boolean;
 }
 
 /**
@@ -81,6 +97,11 @@ export function zoneBounds(zone: Zone, occupied?: (tileX: number, tileY: number)
     width: zone.width,
     height: zone.height,
     isWalkable: (x, y) => isWalkable(zone, x, y) && !(occupied?.(x, y) ?? false),
+    flyWalkable: (x, y, z) => {
+      if (!isWalkable(zone, x, y)) return z > (tileGlyph(zone, x, y) === DEEP_WATER_TILE ? FLY_CLEAR_WATER : FLY_CLEAR_ROCK);
+      if (occupied?.(x, y)) return z > FLY_CLEAR_OBSTACLE;
+      return true;
+    },
   };
 }
 
@@ -356,26 +377,40 @@ function motionSpeed(motion: Motion): number {
   return (motion.running ? RUN_SPEED_TILES_PER_SEC : MOVE_SPEED_TILES_PER_SEC) * (motion.cheatSpeed || 1);
 }
 
-/** The collision context a mover actually projects against: a noclipped or
- *  airborne mover keeps only the zone rectangle (`isWalkable` omitted = open
- *  floor). */
+/** Altitude at `elapsedMs`: the linear derivation z gets, mirroring x/y. */
+export function projectAltitude(motion: Motion, elapsedMs: number): number {
+  const z = motion.cheatFly ? (motion.z ?? 0) + (motion.dirZ ?? 0) * FLY_VERTICAL_TILES_PER_SEC * (Math.max(elapsedMs, 0) / 1000) : 0;
+  return Math.min(FLY_MAX_HEIGHT, Math.max(0, z));
+}
+
+/** The collision context a mover actually projects against. Noclip keeps only
+ *  the zone rectangle (`isWalkable` omitted = open floor); a flyer clears
+ *  whatever sits below its origin altitude (`flyWalkable`). */
 function motionBounds(motion: Motion, zone: ZoneBounds): ZoneBounds {
-  return motion.cheatNoclip || motion.cheatFly ? { width: zone.width, height: zone.height } : zone;
+  if (motion.cheatNoclip) return { width: zone.width, height: zone.height };
+  if (motion.cheatFly) {
+    const fly = zone.flyWalkable;
+    if (!fly) return { width: zone.width, height: zone.height };
+    const z = motion.z ?? 0;
+    return { width: zone.width, height: zone.height, isWalkable: (x, y) => fly(x, y, z) };
+  }
+  return zone;
 }
 
 export function projectMotionState(motion: Motion, elapsedMs: number, zone: ZoneBounds): ProjectedMotion {
   const bounds = motionBounds(motion, zone);
+  const z = projectAltitude(motion, elapsedMs);
   const path = parsePath(motion.path);
-  if (path.length > 0) return projectPathMotion(motion, path, elapsedMs, bounds);
+  if (path.length > 0) return { ...projectPathMotion(motion, path, elapsedMs, bounds), z };
 
   const { dirX, dirY } = motion;
-  if (dirX === 0 && dirY === 0) return { x: motion.x, y: motion.y, dirX: 0, dirY: 0, arrived: true };
+  if (dirX === 0 && dirY === 0) return { x: motion.x, y: motion.y, z, dirX: 0, dirY: 0, arrived: motion.dirZ === undefined || motion.dirZ === 0 };
 
   const dist = (motionSpeed(motion) * Math.max(elapsedMs, 0)) / 1000;
   const size = motion.size ?? 1;
 
   const p = slideAdvance(motion.x, motion.y, dirX, dirY, dist, bounds, size);
-  return { x: p.x, y: p.y, dirX, dirY, arrived: false };
+  return { x: p.x, y: p.y, z, dirX, dirY, arrived: false };
 }
 
 /**
@@ -490,7 +525,7 @@ function boundaryDistance(p: number, step: number, size: number): number {
   return Math.max(next, EPS * 2);
 }
 
-function projectPathMotion(motion: Motion, path: readonly Coord[], elapsedMs: number, zone: ZoneBounds): ProjectedMotion {
+function projectPathMotion(motion: Motion, path: readonly Coord[], elapsedMs: number, zone: ZoneBounds): Omit<ProjectedMotion, "z"> {
   const size = motion.size ?? 1;
   let remaining = (motionSpeed(motion) * Math.max(elapsedMs, 0)) / 1000;
   let current = { x: motion.x, y: motion.y };

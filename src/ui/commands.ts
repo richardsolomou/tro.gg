@@ -42,8 +42,10 @@ export function mountCommands({ conn, zone }: CommandPanelContext): void {
   status.className = "command-status";
   status.textContent = "pre-alpha debug tools";
 
-  if (flags.cheats) body.appendChild(cheatsSection(conn, zone.slug, status));
-  if (flags.cheats) body.appendChild(worldSection(status));
+  if (flags.cheats) {
+    const toggle = cheatToggles(conn, zone.slug, status);
+    body.append(movementSection(toggle), survivalSection(conn, zone.slug, status, toggle), worldSection(status));
+  }
   if (flags.spawn) body.appendChild(spawnSection(conn, zone.slug, status));
   if (flags.resetBoulders || flags.resetHogs) body.appendChild(resetSection(conn, zone.slug, flags, status));
   if (flags.ghost) body.appendChild(ghostSection(conn, zone.slug, status));
@@ -225,35 +227,28 @@ function haunt(conn: DbConnection, zone: string, count: number): boolean {
   return true;
 }
 
-/** Debug cheats (GDD "Commands panel"): speed, flight, invulnerability. Each
- *  button toggles one field and sends the full triple to `setCheats`; pressed
- *  state paints from the live player row, so it survives reloads and stays
- *  honest if the server clamps a value. */
-function cheatsSection(conn: DbConnection, zone: string, status: HTMLElement): HTMLElement {
-  const section = commandSection("Cheats");
-  const grid = document.createElement("div");
-  grid.className = "command-grid";
-
+/** The cheat toggles' shared controller: each button flips one field and sends
+ *  the full state to `setCheats`; pressed state paints from the live player
+ *  row, so it survives reloads and stays honest if the server clamps a value. */
+function cheatToggles(conn: DbConnection, zone: string, status: HTMLElement) {
   const me = () => (conn.identity ? conn.db.player.identity.find(conn.identity) : undefined);
   const current = () => {
     const p = me();
     return { speed: (p?.cheatSpeed ?? 1) > 1, fly: p?.cheatFly ?? false, noclip: p?.cheatNoclip ?? false, invulnerable: p?.cheatInvulnerable ?? false };
   };
-
-  const buttons = {
-    speed: commandButton(`Speed ×${CHEAT_SPEED_MULTIPLIER}`),
-    fly: commandButton("Fly"),
-    noclip: commandButton("Noclip"),
-    invulnerable: commandButton("God mode"),
-  };
-  const KEYS = ["speed", "fly", "noclip", "invulnerable"] as const;
-  const paint = () => {
-    const state = current();
-    for (const key of KEYS) buttons[key].setAttribute("aria-pressed", String(state[key]));
-  };
-  const label = { speed: "speed", fly: "fly", noclip: "noclip", invulnerable: "god mode" } as const;
-  for (const key of KEYS) {
-    buttons[key].addEventListener("click", () => {
+  type CheatKey = keyof ReturnType<typeof current>;
+  const painters: (() => void)[] = [];
+  const paint = () => painters.forEach((fn) => fn());
+  conn.db.player.onUpdate((_ctx, _old, row) => {
+    if (conn.identity && row.identity.isEqual(conn.identity)) paint();
+  });
+  conn.db.player.onInsert((_ctx, row) => {
+    if (conn.identity && row.identity.isEqual(conn.identity)) paint();
+  });
+  return (key: CheatKey, text: string, label: string): HTMLButtonElement => {
+    const button = commandButton(text);
+    painters.push(() => button.setAttribute("aria-pressed", String(current()[key])));
+    button.addEventListener("click", () => {
       const next = { ...current(), [key]: !current()[key] };
       void conn.reducers
         .setCheats({ speed: next.speed ? CHEAT_SPEED_MULTIPLIER : 1, fly: next.fly, noclip: next.noclip, invulnerable: next.invulnerable })
@@ -264,22 +259,63 @@ function cheatsSection(conn: DbConnection, zone: string, status: HTMLElement): H
         });
       logInfo("Cheat toggled", { surface: "commands", action: "set_cheats", zone, cheat: key, on: next[key], source: "commands" });
       audio.playCommand();
-      status.textContent = `${label[key]} ${next[key] ? "on" : "off"}`;
+      status.textContent = `${label} ${next[key] ? "on" : "off"}`;
     });
-    grid.appendChild(buttons[key]);
-  }
-  conn.db.player.onUpdate((_ctx, _old, row) => {
-    if (conn.identity && row.identity.isEqual(conn.identity)) paint();
-  });
-  conn.db.player.onInsert((_ctx, row) => {
-    if (conn.identity && row.identity.isEqual(conn.identity)) paint();
-  });
-  paint();
+    button.setAttribute("aria-pressed", "false");
+    return button;
+  };
+}
 
+/** Movement cheats (GDD "Debug cheats"): speed, flight, noclip. */
+function movementSection(toggle: ReturnType<typeof cheatToggles>): HTMLElement {
+  const section = commandSection("Movement");
+  const grid = document.createElement("div");
+  grid.className = "command-grid";
+  grid.append(toggle("speed", `Speed ×${CHEAT_SPEED_MULTIPLIER}`, "speed"), toggle("fly", "Fly", "fly"), toggle("noclip", "Noclip", "noclip"));
   section.appendChild(grid);
   const hint = document.createElement("div");
   hint.className = "command-hint";
-  hint.textContent = "fly clears the world: Space climbs, C sinks · noclip walks through anything while grounded";
+  hint.textContent = "fly: Space climbs, C sinks — you pass whatever sits below you · noclip walks through anything";
+  section.appendChild(hint);
+  return section;
+}
+
+/** Survival tools (GDD "Debug cheats"): god mode, plus the alpha-tester escape
+ *  hatches — full heal, and Unstuck for any weird spot you lock yourself into. */
+function survivalSection(conn: DbConnection, zone: string, status: HTMLElement, toggle: ReturnType<typeof cheatToggles>): HTMLElement {
+  const section = commandSection("Survival");
+  const grid = document.createElement("div");
+  grid.className = "command-grid";
+
+  const heal = commandButton("Heal");
+  heal.addEventListener("click", () => {
+    void conn.reducers.healSelf({}).catch((err: unknown) => {
+      logError("Heal failed", { surface: "commands", action: "heal_self", zone, error: err });
+      audio.playError();
+      status.textContent = "couldn't heal";
+    });
+    logInfo("Heal requested", { surface: "commands", action: "heal_self", zone, source: "commands" });
+    audio.playCommand();
+    status.textContent = "healed to full";
+  });
+
+  const unstuck = commandButton("Unstuck");
+  unstuck.addEventListener("click", () => {
+    void conn.reducers.rescue({}).catch((err: unknown) => {
+      logError("Rescue failed", { surface: "commands", action: "rescue", zone, error: err });
+      audio.playError();
+      status.textContent = "couldn't rescue";
+    });
+    logInfo("Rescue requested", { surface: "commands", action: "rescue", zone, source: "commands" });
+    audio.playCommand();
+    status.textContent = "moved to safe ground";
+  });
+
+  grid.append(toggle("invulnerable", "God mode", "god mode"), heal, unstuck);
+  section.appendChild(grid);
+  const hint = document.createElement("div");
+  hint.className = "command-hint";
+  hint.textContent = "Unstuck lands you on the nearest safe tile (spawn as a last resort)";
   section.appendChild(hint);
   return section;
 }

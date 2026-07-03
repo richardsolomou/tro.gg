@@ -14,11 +14,13 @@ import {
   MAX_HOGS_PER_ZONE,
   MAX_TREES_PER_ZONE,
   CHEAT_SPEED_MULTIPLIER,
+  PLAYER_MAX_HEALTH,
   nearestSafeTile,
   spawnTile,
   tileKey,
 } from "../../../shared/index";
 import {
+  spawnAt,
   seedBoulders,
   seedHogs,
   captureProcedureEvents,
@@ -199,6 +201,10 @@ export const setCheats = spacetimedb.reducer({ speed: t.f64(), fly: t.bool(), no
     ...p,
     x: at.x,
     y: at.y,
+    // grounding: switching fly off drops the trogg; staying airborne keeps the
+    // settled altitude and stops the climb (a fresh Space press resumes it)
+    z: fly ? settled.z : 0,
+    dirZ: 0,
     dirX: 0,
     dirY: 0,
     path: "",
@@ -207,5 +213,67 @@ export const setCheats = spacetimedb.reducer({ speed: t.f64(), fly: t.bool(), no
     cheatFly: fly,
     cheatInvulnerable: invulnerable,
     cheatNoclip: noclip,
+  });
+});
+
+/**
+ * The fly cheat's vertical intent (GDD "Debug cheats"): -1 sinking, 0 holding,
+ * +1 climbing — written on Space/C input transitions, exactly the `move`
+ * pattern for the third axis. Settles first so elapsed climb at the old lift
+ * isn't lost or replayed; sign-clamped, never trusted (invariant 3). Ignored
+ * unless the flyer is airborne (cheatFly).
+ */
+export const setLift = spacetimedb.reducer({ dirZ: t.i32() }, (ctx, { dirZ }) => {
+  const p = ctx.db.player.identity.find(ctx.sender);
+  if (!p) return;
+  if (p.dead || !p.cheatFly) return;
+  const settled = settle(ctx, p, ctx.timestamp);
+  ctx.db.player.identity.update({
+    ...p,
+    x: settled.x,
+    y: settled.y,
+    z: settled.z,
+    dirZ: Math.sign(dirZ),
+    movedAt: ctx.timestamp,
+  });
+});
+
+/**
+ * Debug/alpha escape hatch (GDD "Debug cheats"): restore full health. A dead
+ * trogg stays dead — respawn already handles that; this is for walking away
+ * from a botched fight while testing.
+ */
+export const healSelf = spacetimedb.reducer((ctx) => {
+  const p = ctx.db.player.identity.find(ctx.sender);
+  if (!p) return;
+  if (p.dead) return;
+  ctx.db.player.identity.update({ ...p, health: PLAYER_MAX_HEALTH });
+});
+
+/**
+ * Debug/alpha escape hatch (GDD "Debug cheats"): unstuck. Settle, then step to
+ * the nearest standable tile — or all the way back to spawn when nothing nearby
+ * is safe — grounding and stopping the trogg. The way out of any weird spot a
+ * tester locks themselves into.
+ */
+export const rescue = spacetimedb.reducer((ctx) => {
+  const p = ctx.db.player.identity.find(ctx.sender);
+  if (!p) return;
+  if (p.dead) return;
+  const zone = getZone(p.zoneId);
+  if (!zone) return;
+  const settled = settle(ctx, p, ctx.timestamp);
+  const at = nearestSafeTile(zone, Math.round(settled.x), Math.round(settled.y)) ?? spawnAt(zone);
+  ctx.db.player.identity.update({
+    ...p,
+    x: at.x,
+    y: at.y,
+    z: 0,
+    dirZ: 0,
+    dirX: 0,
+    dirY: 0,
+    running: false,
+    path: "",
+    movedAt: ctx.timestamp,
   });
 });

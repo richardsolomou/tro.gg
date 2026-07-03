@@ -128,10 +128,10 @@ test("path motion follows serialized waypoints and idles on arrival", () => {
     { x: 3, y: 2 },
   ]);
   const halfway = projectMotionState({ x: 1, y: 1, dirX: 1, dirY: 0, path }, 250, open);
-  assert.deepEqual(halfway, { x: 2, y: 1, dirX: 1, dirY: 0, arrived: false });
+  assert.deepEqual(halfway, { x: 2, y: 1, z: 0, dirX: 1, dirY: 0, arrived: false });
 
   const arrived = projectMotionState({ x: 1, y: 1, dirX: 1, dirY: 0, path }, 10_000, open);
-  assert.deepEqual(arrived, { x: 3, y: 2, dirX: 0, dirY: 0, arrived: true });
+  assert.deepEqual(arrived, { x: 3, y: 2, z: 0, dirX: 0, dirY: 0, arrived: true });
   assert.deepEqual(projectMotion({ x: 1, y: 1, dirX: 1, dirY: 0, path }, 10_000, open), { x: 3, y: 2 });
 });
 
@@ -146,7 +146,7 @@ test("path motion stalls at the tile it's entering when that tile is blocked", (
     { x: 4, y: 1 },
   ]);
   const stalled = projectMotionState({ x: 1, y: 1, dirX: 1, dirY: 0, path }, 500, blocked);
-  assert.deepEqual(stalled, { x: 2, y: 1, dirX: 0, dirY: 0, arrived: false });
+  assert.deepEqual(stalled, { x: 2, y: 1, z: 0, dirX: 0, dirY: 0, arrived: false });
 });
 
 test("path motion never rewinds onto a blocked tile it has already crossed", () => {
@@ -161,7 +161,7 @@ test("path motion never rewinds onto a blocked tile it has already crossed", () 
     { x: 5, y: 1 },
   ]);
   const ahead = projectMotionState({ x: 1, y: 1, dirX: 1, dirY: 0, path }, 750, passedBlock);
-  assert.deepEqual(ahead, { x: 4, y: 1, dirX: 1, dirY: 0, arrived: false });
+  assert.deepEqual(ahead, { x: 4, y: 1, z: 0, dirX: 1, dirY: 0, arrived: false });
 });
 
 test("the same tile is walkable once nothing occupies it", () => {

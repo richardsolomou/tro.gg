@@ -240,13 +240,15 @@ Pre-alpha combat is deliberately small and tile-based. Troggs and roaming Hogs a
 
 ### Debug cheats (Commands drawer)
 
-Developer/experimentation tools in the Commands drawer, gated by the `cheat-commands` flag (on outside production, like `spawn-command`). They live on the player row (`cheatSpeed`/`cheatFly`/`cheatNoclip`/`cheatInvulnerable`) and are written only by the `setCheats` reducer, which **settles motion first** (a rules change must never replay elapsed motion history at new rules) and clamps every value (invariant 3): speed is only 1 or `CHEAT_SPEED_MULTIPLIER` (3 *(initial)*).
+Developer/alpha-tester tools in the Commands drawer (a lone top-right toggle opening a right-edge drawer; the toggle rides the drawer's edge so the same button closes it), gated by the `cheat-commands` flag. They exist both for debugging and so alpha testers can feel the game out and escape any weird spot they lock themselves into. Cheats live on the player row (`cheatSpeed`/`cheatFly`/`cheatNoclip`/`cheatInvulnerable`, plus the flight motion columns `z`/`dirZ`) and are written only by dedicated reducers that **settle motion first** (a rules change must never replay elapsed motion history at new rules) and clamp every value (invariant 3).
 
-- **Speed ×3:** multiplies the shared projection's tiles-per-second; rides the row like `running`, so every client derives the same faster motion.
-- **Fly:** airborne. The trogg hovers and the **flyer controls altitude client-side** — hold **Space** to climb, **C** to sink (display state only; the server's world stays planar, other clients show a fixed hover). Being airborne also clears the world on the movement plane: the shared projection ignores tile walkability, since ground collision cannot be height-conditional when altitude isn't synced.
-- **Noclip:** the grounded version of that clearance — walk through walls, water, trees, boulders, and creatures.
-- Switching fly or noclip **off** while inside geometry settles the trogg to the nearest standable tile, so nobody ends up stood in a wall.
+- **Speed ×3** (`CHEAT_SPEED_MULTIPLIER`, 3 *(initial)*): multiplies the shared projection's tiles-per-second; rides the row like `running`, so every client derives the same faster motion.
+- **Fly:** airborne, with real synced altitude. `z` is a linear derivation origin like `x`/`y` and `dirZ` the vertical intent, written on **Space/C input transitions** (`setLift` — the `move` pattern's third axis, invariant 2): Space climbs, C sinks, release holds, clamped to `FLY_MAX_HEIGHT` (14 *(initial)*) at `FLY_VERTICAL_TILES_PER_SEC` (5 *(initial)*). Horizontal collision is **height-aware**: a flyer clears whatever sits below it — deep water above `FLY_CLEAR_WATER` (0.2), trees/boulders/creatures above `FLY_CLEAR_OBSTACLE` (3), rock walls above `FLY_CLEAR_ROCK` (11) — judged at the motion's origin altitude, which every input transition and per-tile rebase refreshes. Every client renders a flyer at its true derived altitude.
+- **Noclip:** the grounded clearance — walk through anything; the projection keeps only the zone rectangle.
+- Switching fly or noclip **off** while inside geometry settles the trogg to the nearest standable tile; landing zeroes `z`/`dirZ`.
 - **God mode:** `damagePlayer` no-ops on the target; the attacker's swing still lands and animates.
+- **Heal** (`healSelf`): full health for a living trogg — respawn already handles the dead.
+- **Unstuck** (`rescue`): settle, ground, and step to the nearest standable tile (spawn as the last resort) — the universal escape hatch.
 - **Sky lock (World section):** a slider locks this client's day-night phase for inspection ("Live" resumes the shared wall clock). Client-side rendering only — the cycle is cosmetic and nothing authoritative reads it, so a locked sky never changes another player's view.
 
 ### Crafting

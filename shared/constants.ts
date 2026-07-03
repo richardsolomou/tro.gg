@@ -176,9 +176,20 @@ export const OFF_TOOL_NODE_FACTOR = 0.08;
  *  weakest option. Stored as the "fists" action impulse so clients animate it. */
 export const UNARMED_DAMAGE: readonly [number, number] = [5, 10];
 
-/** The Commands-panel speed cheat's multiplier (GDD "Commands panel"). Also the
+/** The Commands-drawer speed cheat's multiplier (GDD "Debug cheats"). Also the
  *  ceiling `setCheats` clamps to — a forged call can't buy more (invariant 3). */
 export const CHEAT_SPEED_MULTIPLIER = 3;
+
+/** Fly cheat (GDD "Debug cheats"): climb/sink rate, the altitude ceiling, and
+ *  the heights airborne movement must clear — deep water is flat, scattered
+ *  obstacles (trees, boulders, creatures) reach canopy height, and rock walls
+ *  rise to the terrain's summit cap. All shared: the projection is the one
+ *  authority on where a flyer passes (invariant 3). */
+export const FLY_VERTICAL_TILES_PER_SEC = 5;
+export const FLY_MAX_HEIGHT = 14;
+export const FLY_CLEAR_WATER = 0.2;
+export const FLY_CLEAR_OBSTACLE = 3;
+export const FLY_CLEAR_ROCK = 11;
 
 /** How long a visible equipment-use impulse lasts — the attack clip length. */
 export const EQUIPMENT_ACTION_MS = 300;

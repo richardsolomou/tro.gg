@@ -40,16 +40,19 @@ import DropItemReducer from "./drop_item_reducer";
 import EquipItemReducer from "./equip_item_reducer";
 import FaceReducer from "./face_reducer";
 import HauntGhostReducer from "./haunt_ghost_reducer";
+import HealSelfReducer from "./heal_self_reducer";
 import InteractReducer from "./interact_reducer";
 import MoveReducer from "./move_reducer";
 import MoveToReducer from "./move_to_reducer";
 import RecolorReducer from "./recolor_reducer";
 import RedeemClaimReducer from "./redeem_claim_reducer";
 import RenameReducer from "./rename_reducer";
+import RescueReducer from "./rescue_reducer";
 import ResetBouldersReducer from "./reset_boulders_reducer";
 import ResetHogsReducer from "./reset_hogs_reducer";
 import RestyleReducer from "./restyle_reducer";
 import SetCheatsReducer from "./set_cheats_reducer";
+import SetLiftReducer from "./set_lift_reducer";
 import SpawnReducer from "./spawn_reducer";
 import StartClaimReducer from "./start_claim_reducer";
 import UseEquippedReducer from "./use_equipped_reducer";
@@ -205,16 +208,19 @@ const reducersSchema = __reducers(
   __reducerSchema("equip_item", EquipItemReducer),
   __reducerSchema("face", FaceReducer),
   __reducerSchema("haunt_ghost", HauntGhostReducer),
+  __reducerSchema("heal_self", HealSelfReducer),
   __reducerSchema("interact", InteractReducer),
   __reducerSchema("move", MoveReducer),
   __reducerSchema("move_to", MoveToReducer),
   __reducerSchema("recolor", RecolorReducer),
   __reducerSchema("redeem_claim", RedeemClaimReducer),
   __reducerSchema("rename", RenameReducer),
+  __reducerSchema("rescue", RescueReducer),
   __reducerSchema("reset_boulders", ResetBouldersReducer),
   __reducerSchema("reset_hogs", ResetHogsReducer),
   __reducerSchema("restyle", RestyleReducer),
   __reducerSchema("set_cheats", SetCheatsReducer),
+  __reducerSchema("set_lift", SetLiftReducer),
   __reducerSchema("spawn", SpawnReducer),
   __reducerSchema("start_claim", StartClaimReducer),
   __reducerSchema("use_equipped", UseEquippedReducer),

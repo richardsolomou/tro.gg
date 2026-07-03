@@ -133,6 +133,12 @@ const player = table(
     cheatFly: t.bool().default(false),
     cheatInvulnerable: t.bool().default(false),
     cheatNoclip: t.bool().default(false),
+    // Flight altitude (GDD "Debug cheats"): like x/y, `z` is the origin of a
+    // linear derivation and `dirZ` (-1/0/+1) the vertical intent, written on
+    // input transitions (`setLift`) — position over time is derived, never
+    // ticked. Grounded rows stay 0/0.
+    z: t.f64().default(0),
+    dirZ: t.i32().default(0),
   },
 );
 

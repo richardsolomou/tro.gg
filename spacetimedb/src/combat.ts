@@ -55,6 +55,8 @@ export function respawnPlayer(ctx: Ctx, p: { identity: Ctx["sender"]; zoneId: st
     ...current,
     x: at.x,
     y: at.y,
+    z: 0,
+    dirZ: 0,
     dirX: 0,
     dirY: 0,
     running: false,
@@ -172,6 +174,8 @@ export function damagePlayer(ctx: Ctx, target: NonNullable<ReturnType<typeof pla
   ctx.db.player.identity.update({
     ...target,
     x: settled.x,
+    z: 0,
+    dirZ: 0,
     y: settled.y,
     dirX: 0,
     dirY: 0,

@@ -133,6 +133,12 @@ export function playerRow(identity: Id, over: Record<string, unknown> = {}) {
     isGuest: true,
     movedAt: { microsSinceUnixEpoch: 0n },
     lastChatAt: undefined,
+    cheatSpeed: 1,
+    cheatFly: false,
+    cheatInvulnerable: false,
+    cheatNoclip: false,
+    z: 0,
+    dirZ: 0,
     ...over,
   };
 }

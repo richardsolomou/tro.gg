@@ -126,6 +126,8 @@ export const Player = __t.object("Player", {
   cheatFly: __t.bool(),
   cheatInvulnerable: __t.bool(),
   cheatNoclip: __t.bool(),
+  z: __t.f64(),
+  dirZ: __t.i32(),
 });
 export type Player = __Infer<typeof Player>;
 

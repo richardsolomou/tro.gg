@@ -693,6 +693,11 @@
   right: 12px;
   pointer-events: auto;
   filter: drop-shadow(0 3px 0 rgba(0, 0, 0, 0.35));
+  transition: right 0.18s ease-out;
+}
+/* the toggle rides the drawer's edge, so the same button always closes it */
+#hud .command-drawer.is-open .command-toggle {
+  right: calc(min(340px, 86vw) + 12px);
 }
 #hud .command-drawer .command-body {
   position: fixed;
@@ -704,7 +709,6 @@
   width: min(340px, 86vw);
   margin: 0;
   padding: 14px;
-  padding-top: 64px; /* clear the toggle riding above the drawer */
   overflow-y: auto;
   filter: none;
   clip-path: none;

@@ -92,13 +92,7 @@ const TORCH_LIGHT_BUDGET = 4;
  *  are dropped whole (no projection, no render). */
 const FRAME_CAP_FPS = 60;
 
-/** Fly cheat (GDD "Commands panel"): climb/sink rate and ceiling. Altitude is
- *  local display state for the flyer — the server's world stays planar (x, y),
- *  so other clients show a flying trogg at a fixed hover instead. */
-const FLY_VERTICAL_TILES_PER_SEC = 5;
-const FLY_MAX_HEIGHT = 14;
-/** Where other clients draw someone else's flying trogg. */
-const FLY_HOVER_Y = 0.55;
+
 
 export class World3D {
   /** The local trogg's live projected position (the overworld map marker). */
@@ -269,11 +263,12 @@ export class World3D {
   private canRun = false;
   private useInteract = false;
 
-  /** The local flyer's altitude (tiles above ground) and held lift input:
-   *  Space climbs, C sinks, release holds. Decays to 0 when not flying. */
-  private flyAltitude = 0;
+  /** Held lift input (Space climbs, C sinks) and the last vertical intent sent —
+   *  lift is synced like any other input transition (`setLift`), so altitude is
+   *  derived identically on every client and the server. */
   private flySpaceHeld = false;
   private flySinkHeld = false;
+  private sentLift = 0;
 
   constructor(parent: HTMLElement, data: WorldData) {
     this.conn = data.conn;
@@ -445,21 +440,41 @@ export class World3D {
       const phase = (e as CustomEvent<number | null>).detail;
       this.dayPhaseOverride = typeof phase === "number" ? Math.min(1, Math.max(0, phase)) : undefined;
     }) as EventListener);
-    // Fly cheat lift: hold Space to climb, C to sink (only bites while the
-    // cheat is on — see the tick's self branch). keyup always clears, so a
-    // hold that ends over the chat input can't stick.
+    // Fly cheat lift: hold Space to climb, C to sink. Key transitions send a
+    // synced vertical intent (`setLift` — the move reducer's third axis), so
+    // every client derives the same altitude. keyup always clears, so a hold
+    // that ends over the chat input can't stick.
+    const sendLift = () => {
+      const lift = (this.flySpaceHeld ? 1 : 0) - (this.flySinkHeld ? 1 : 0);
+      if (lift === this.sentLift || !this.selfFlying()) return;
+      this.sentLift = lift;
+      void conn.reducers.setLift({ dirZ: lift }).catch((err) => {
+        logError("Lift intent failed", { surface: "world", action: "set_lift", zone: this.slug, error: err });
+      });
+    };
     window.addEventListener("keydown", (e) => {
       if (isTyping(e.target)) return;
       if (e.code === "Space") {
         if (this.selfFlying()) e.preventDefault();
-        this.flySpaceHeld = true;
+        if (!this.flySpaceHeld) {
+          this.flySpaceHeld = true;
+          sendLift();
+        }
       } else if (e.code === "KeyC") {
-        this.flySinkHeld = true;
+        if (!this.flySinkHeld) {
+          this.flySinkHeld = true;
+          sendLift();
+        }
       }
     });
     window.addEventListener("keyup", (e) => {
-      if (e.code === "Space") this.flySpaceHeld = false;
-      else if (e.code === "KeyC") this.flySinkHeld = false;
+      if (e.code === "Space") {
+        this.flySpaceHeld = false;
+        sendLift();
+      } else if (e.code === "KeyC") {
+        this.flySinkHeld = false;
+        sendLift();
+      }
     });
     this.layout();
 
@@ -531,16 +546,9 @@ export class World3D {
       const isSelf = entry.player.identity.toHexString() === this.myId;
       const motion = projectMotionState(entry.player, now - entry.baseMs, this.troggBounds);
       this.entities.smoothPlace(entry, motion.x, motion.y, dt);
-      // The fly cheat lifts the marker off the ground. The local flyer holds a
-      // live altitude (Space climbs, C sinks — display state only; the server's
-      // world stays planar); everyone else's flyer shows a fixed gentle hover.
-      if (isSelf) {
-        const lift = entry.player.cheatFly ? (this.flySpaceHeld ? 1 : 0) - (this.flySinkHeld ? 1 : 0) : -3;
-        this.flyAltitude = Math.min(FLY_MAX_HEIGHT, Math.max(0, this.flyAltitude + lift * FLY_VERTICAL_TILES_PER_SEC * dt));
-        entry.marker.position.y = this.flyAltitude;
-      } else {
-        entry.marker.position.y = entry.player.cheatFly ? FLY_HOVER_Y + Math.sin(now * 0.0025) * 0.07 : 0;
-      }
+      // Altitude is derived from the synced intent like x/y, so every client
+      // (and the flyer itself) renders the same height.
+      entry.marker.position.y = motion.z;
       if (entry.marker.visible) this.entities.animate(entry, now, dt, motion);
       else if (!entry.player.dead) this.crowd.add("trogg", motion.x, motion.y, Math.atan2(motion.dirX, motion.dirY), 1, entry.style, entry.baseColor);
 
@@ -559,7 +567,7 @@ export class World3D {
       // from there reads as a swoop across the map on load.
       if (this.orbit) {
         // the pivot rides the flyer's altitude, so the camera climbs with you
-        const pivot = new THREE.Vector3(motion.x + 0.5, 0.6 + this.flyAltitude, motion.y + 0.5);
+        const pivot = new THREE.Vector3(motion.x + 0.5, 0.6 + motion.z, motion.y + 0.5);
         const camDist = this.camera.position.distanceTo(this.orbit.target);
         // stream terrain around the camera focus (only once the camera sits on the
         // trogg — the pre-snap zone-fit distance would build the whole world)

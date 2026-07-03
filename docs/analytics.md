@@ -77,7 +77,7 @@ Code currently reads these flag keys:
 | `roaming-hogs` | Hog rendering and subscription | On |
 | `running` | Hold-shift-to-run input | On |
 | `spawn-command` | Commands drawer spawn controls | On outside production (local dev + preview builds, which ship no PostHog key); flag-governed in production |
-| `cheat-commands` | Commands drawer cheats (speed, fly, noclip, god mode, sky lock) | On outside production, like `spawn-command`; flag-governed in production. Gates the UI only — `setCheats` stays a plain reducer (created 2026-07-03) |
+| `cheat-commands` | Commands drawer cheats (speed, fly, noclip, god mode, heal, unstuck, sky lock) | On outside production, like `spawn-command`; flag-governed in production. Gates the UI only — `setCheats` stays a plain reducer (created 2026-07-03) |
 | `boulder-reset` | Commands panel boulder layout reset control | On |
 | `hog-reset` | Commands panel Hog population reset control | On |
 | `chat-enabled` | Chat panel and bubbles | On |

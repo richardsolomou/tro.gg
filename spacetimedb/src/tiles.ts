@@ -20,6 +20,7 @@ import {
   MAX_BOULDERS_PER_ZONE,
   MAX_HOGS_PER_ZONE,
   projectMotion,
+  projectMotionState,
   snapToTile,
   spawnTile,
   type Stamp,
@@ -34,8 +35,24 @@ export function spawnAt(zone: Zone): { x: number; y: number } {
   return zone.spawn ?? { x: Math.floor(zone.width / 2), y: Math.floor(zone.height / 2) };
 }
 
-/** The motion-bearing slice of a player row that `settle` derives position from. */
-type Settleable = { x: number; y: number; dirX: number; dirY: number; running: boolean; path?: string; zoneId: string; movedAt: Stamp };
+/** The motion-bearing slice of a player row that `settle` derives position from.
+ *  The cheat and altitude fields ride along so the projection applies the same
+ *  speed, clearance, and z derivation authority-side (GDD "Debug cheats"). */
+type Settleable = {
+  x: number;
+  y: number;
+  dirX: number;
+  dirY: number;
+  running: boolean;
+  path?: string;
+  zoneId: string;
+  movedAt: Stamp;
+  cheatSpeed?: number;
+  cheatFly?: boolean;
+  cheatNoclip?: boolean;
+  z?: number;
+  dirZ?: number;
+};
 
 /**
  * Derive the trogg's position at `now` from its stored motion intent, colliding
@@ -45,12 +62,13 @@ type Settleable = { x: number; y: number; dirX: number; dirY: number; running: b
  * trogg is, and a client can't gain distance by re-basing (invariant 3). Troggs do
  * *not* collide with each other (GDD "Hogs"), so other players are absent here.
  */
-export function settle(ctx: Ctx, p: Settleable, now: Stamp): { x: number; y: number } {
+export function settle(ctx: Ctx, p: Settleable, now: Stamp): { x: number; y: number; z: number } {
   const zone = getZone(p.zoneId);
-  if (!zone) return { x: p.x, y: p.y };
+  if (!zone) return { x: p.x, y: p.y, z: p.z ?? 0 };
   const blockers = troggBlockers(ctx, p.zoneId, now);
   const bounds = zoneBounds(zone, (x, y) => blockers.has(tileKey(x, y)));
-  return projectMotion(p, elapsedMs(p.movedAt, now), bounds);
+  const at = projectMotionState(p, elapsedMs(p.movedAt, now), bounds);
+  return { x: at.x, y: at.y, z: at.z };
 }
 
 /** Count rows in a table iterable without materializing an array. */
