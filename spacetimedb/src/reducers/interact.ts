@@ -4,6 +4,7 @@ import { ScheduleAt, Timestamp } from "spacetimedb";
 import {
   getZone,
   isItemId,
+  ITEM_PICKUP_RADIUS,
 } from "../../../shared/index";
 import {
   captureProcedureEvents,
@@ -14,6 +15,7 @@ import {
   solidTiles,
   addInventory,
   pickupTarget,
+  nearestGroundItem,
   effectiveHogStyle,
   placeCarried,
   cardinal,
@@ -53,14 +55,18 @@ function runInteract(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; dirY
     return [{ distinctId: distinctId(ctx), event: "object_dropped", properties }];
   }
 
-  const target = pickupTarget(ctx, p.zoneId, Math.round(pos.x), Math.round(pos.y), dir, ctx.timestamp);
-  if (target?.kind === "item") {
-    if (!isItemId(target.row.item)) return [];
-    const qty = target.row.qty ?? 1;
-    if (!addInventory(ctx, p.identity, target.row.item, qty)) return [];
-    ctx.db.groundItem.id.delete(target.row.id);
-    return [{ distinctId: distinctId(ctx), event: "inventory_item_acquired", properties: { ...props, item: target.row.item, qty } }];
+  // Ground items are lifted by radius, not facing — the nearest one within
+  // reach wins, so loot at your feet is always liftable (GDD "Interacting").
+  const item = nearestGroundItem(ctx, p.zoneId, pos.x + 0.5, pos.y + 0.5, ITEM_PICKUP_RADIUS);
+  if (item) {
+    if (!isItemId(item.item)) return [];
+    const qty = item.qty ?? 1;
+    if (!addInventory(ctx, p.identity, item.item, qty)) return [];
+    ctx.db.groundItem.id.delete(item.id);
+    return [{ distinctId: distinctId(ctx), event: "inventory_item_acquired", properties: { ...props, item: item.item, qty } }];
   }
+
+  const target = pickupTarget(ctx, p.zoneId, Math.round(pos.x), Math.round(pos.y), dir, ctx.timestamp);
   if (target?.kind === "hog") {
     const carryingStyle = effectiveHogStyle(target.row);
     ctx.db.hog.id.delete(target.row.id);

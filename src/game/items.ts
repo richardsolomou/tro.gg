@@ -145,6 +145,18 @@ function stone(): THREE.Group {
   return g;
 }
 
+function quill(): THREE.Group {
+  const g = new THREE.Group();
+  const spine = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.34, 5), mat(ITEM_3D.woodLt));
+  spine.position.y = 0.17;
+  spine.castShadow = true;
+  g.add(spine);
+  const tip = new THREE.Mesh(new THREE.ConeGeometry(0.02, 0.1, 5), mat(ITEM_3D.woodDk));
+  tip.position.y = 0.32;
+  g.add(tip);
+  return g;
+}
+
 function wood(): THREE.Group {
   const g = new THREE.Group();
   const log = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.1, 0.4, 6), mat(ITEM_3D.wood));
@@ -159,7 +171,7 @@ function wood(): THREE.Group {
   return g;
 }
 
-const BUILDERS: Record<string, () => THREE.Group> = { pickaxe, shovel, axe, sword, shield, torch, stone, wood };
+const BUILDERS: Record<string, () => THREE.Group> = { pickaxe, shovel, axe, sword, shield, torch, stone, wood, quill };
 
 export function hasItem3D(item: string): boolean {
   return BUILDERS[item] !== undefined;
@@ -176,6 +188,7 @@ const HELD_PITCH: Record<string, number> = {
   torch: 1.25, // cancels the raised-arm pitch so the flame stands vertical
   stone: Math.PI / 2,
   wood: Math.PI / 2,
+  quill: Math.PI / 2,
 };
 
 /**

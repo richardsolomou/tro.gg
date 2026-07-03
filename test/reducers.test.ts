@@ -29,6 +29,7 @@ import {
   HEALTH_REGEN_FRACTION,
   hogMaxHealth,
   NPC_CORPSE_MS,
+  hogLoot,
 } from "@trogg/shared";
 import {
   chat,
@@ -280,6 +281,17 @@ test("interact picks up a faced ground item into inventory", () => {
   assert.equal(ctx.db.inventory.rows()[0].item, "pickaxe");
 });
 
+test("pickup reaches by radius, not facing — the nearest item wins", () => {
+  const { ctx } = withPlayer({ x: 69, y: 96, carrying: "", faceX: 0, faceY: 1 });
+  // behind the trogg relative to its facing, still inside the radius
+  ctx.db.groundItem.insert({ id: 0n, zoneId: ZONE, item: "sword", x: 69, y: 95 });
+  // and one clearly out of reach
+  ctx.db.groundItem.insert({ id: 0n, zoneId: ZONE, item: "shield", x: 65, y: 90 });
+  interact(ctx, { dirX: 0, dirY: 1 }); // facing away from the sword
+  assert.equal(ctx.db.inventory.rows()[0]?.item, "sword");
+  assert.equal(ctx.db.groundItem.rows()[0]?.item, "shield"); // out of radius, untouched
+});
+
 test("non-stackable equippable pickups stay as separate inventory rows", () => {
   const { ctx, me } = withPlayer({ x: 69, y: 96, carrying: "" });
   ctx.db.groundItem.insert({ id: 0n, zoneId: ZONE, item: "sword", x: 70, y: 96 });
@@ -441,11 +453,15 @@ test("mining takes swings: each hit chips the boulder, the breaking hit grants s
     useEquipped(ctx, { dirX: 1, dirY: 0 });
     if (i < swings - 1) {
       assert.equal(ctx.db.boulder.id.find(b.id)?.health, BOULDER_MAX_HEALTH - perHit * (i + 1));
-      assert.equal(ctx.db.inventory.rows().some((r: any) => r.item === "stone"), false);
+      assert.equal(ctx.db.groundItem.rows().some((r: any) => r.item === "stone"), false);
     }
   }
   assert.equal(ctx.db.boulder.rows().length, 0);
-  assert.equal(ctx.db.inventory.rows().find((r: any) => r.item === "stone")?.qty, 1);
+  // the yield lands on the floor by the node — picking it up is a conscious E
+  const stone = ctx.db.groundItem.rows().find((r: any) => r.item === "stone");
+  assert.equal(stone?.qty, 1);
+  assert.ok(Math.abs(stone.x - 70) <= 1 && Math.abs(stone.y - 96) <= 1, "stone by the broken boulder");
+  assert.equal(ctx.db.inventory.rows().some((r: any) => r.item === "stone"), false);
   const p = ctx.db.player.identity.find(me);
   assert.equal(p.equipmentAction, "pickaxe");
   assert.deepEqual({ dirX: p.dirX, dirY: p.dirY, running: p.running, path: p.path }, { dirX: 1, dirY: 0, running: true, path: "" });
@@ -466,7 +482,8 @@ test("an axe chips a fresh tree, and the breaking blow on a worn one grants wood
   ctx.timestamp = { microsSinceUnixEpoch: micros(1000) }; // past the use cooldown
   useEquipped(ctx, { dirX: 1, dirY: 0 });
   assert.equal(ctx.db.tree.rows().length, 0);
-  assert.equal(ctx.db.inventory.rows().find((r: any) => r.item === "wood")?.qty, 1);
+  assert.equal(ctx.db.groundItem.rows().find((r: any) => r.item === "wood")?.qty, 1);
+  assert.equal(ctx.db.inventory.rows().some((r: any) => r.item === "wood"), false);
   assert.equal(ctx.db.player.identity.find(me).equipmentAction, "axe");
 });
 
@@ -481,18 +498,17 @@ test("an axe only scratches a boulder — the wrong tool works at a fraction", (
   assert.equal(ctx.db.inventory.rows().some((r: any) => r.item === "stone" || r.item === "wood"), false);
 });
 
-test("useEquipped does not mine a boulder when there is no slot for a new stone stack", () => {
+test("a full inventory can't block mining — the yield goes to the floor regardless", () => {
   const { ctx, me } = withPlayer({ x: 69, y: 96, equippedMainHand: "pickaxe" });
   const pickaxe = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "pickaxe", qty: 1 });
   ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedMainHandInventoryId: pickaxe.id });
   for (let i = 1; i < INVENTORY_SLOT_COUNT; i++) ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });
-  // worn to the last blow: this swing would break it, but there is nowhere to put the stone
-  const boulder = ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96, health: WEAPON_DAMAGE.pickaxe![0] });
+  ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96, health: WEAPON_DAMAGE.pickaxe![0] });
 
   useEquipped(ctx, { dirX: 1, dirY: 0 });
 
-  assert.equal(ctx.db.boulder.id.find(boulder.id)?.health, WEAPON_DAMAGE.pickaxe![0]); // still standing
-  assert.equal(ctx.db.inventory.rows().some((r: any) => r.item === "stone"), false);
+  assert.equal(ctx.db.boulder.rows().length, 0); // broken
+  assert.equal(ctx.db.groundItem.rows().some((r: any) => r.item === "stone"), true); // stone on the floor
 });
 
 test("bare fists swing: unarmed damage lands and the fists impulse animates", () => {
@@ -602,7 +618,7 @@ test("an off-tool weapon scratches a node — and only when no creature is in re
   assert.equal(ctx.db.tree.id.find(tr.id)?.health, TREE_MAX_HEALTH - chip); // untouched this swing
 });
 
-test("the breaking hit grants the resource whatever weapon dealt it", () => {
+test("the breaking hit drops the yield whatever weapon dealt it", () => {
   const { ctx, me } = withPlayer({ x: 69, y: 96, equippedMainHand: "sword" });
   const sword = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });
   ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedMainHandInventoryId: sword.id });
@@ -611,7 +627,7 @@ test("the breaking hit grants the resource whatever weapon dealt it", () => {
   useEquipped(ctx, { dirX: 1, dirY: 0 });
 
   assert.equal(ctx.db.tree.rows().length, 0);
-  assert.equal(ctx.db.inventory.rows().find((r: any) => r.item === "wood")?.qty, 1);
+  assert.equal(ctx.db.groundItem.rows().find((r: any) => r.item === "wood")?.qty, 1);
 });
 
 test("a tool takes its gathering node over a creature in the same swing", () => {
@@ -705,6 +721,45 @@ test("useEquipped damages a big 2×2 Hog on any of its footprint tiles, not just
   useEquipped(ctx, { dirX: 1, dirY: 0 });
 
   assert.equal(ctx.db.hog.id.find(giant.id).health, HOG_MAX_HEALTH - WEAPON_DAMAGE.sword![0]);
+});
+
+test("a slain Hog drops its loot on the nearest free tile by the corpse", () => {
+  const { ctx, me } = withPlayer({ x: 69, y: 96, equippedMainHand: "sword" }, { now: micros(1000) });
+  const sword = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });
+  ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedMainHandInventoryId: sword.id });
+  hogAt_(ctx, 70, 96, WEAPON_DAMAGE.sword![0]);
+
+  useEquipped(ctx, { dirX: 1, dirY: 0 });
+
+  const drops = ctx.db.groundItem.rows();
+  assert.equal(drops.length, 1);
+  // the mock RNG rolls the floor of the common Hog's quill range
+  assert.deepEqual({ item: drops[0].item, qty: drops[0].qty }, { item: "quill", qty: hogLoot("")[0]!.min });
+  const corpse = ctx.db.hog.rows()[0];
+  assert.ok(Math.abs(drops[0].x - corpse.x) <= 1 && Math.abs(drops[0].y - corpse.y) <= 1, "loot beside the corpse");
+});
+
+test("a slain giant sheds a giant's share of quills", () => {
+  const { ctx, me } = withPlayer({ x: 69, y: 96, equippedMainHand: "sword" }, { now: micros(1000) });
+  const sword = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });
+  ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedMainHandInventoryId: sword.id });
+  hogAt_(ctx, 70, 96, { style: "buff", health: WEAPON_DAMAGE.sword![0] });
+
+  useEquipped(ctx, { dirX: 1, dirY: 0 });
+
+  assert.equal(ctx.db.groundItem.rows()[0]?.qty, hogLoot("buff")[0]!.min);
+});
+
+test("loot respects the per-zone ground-item cap", () => {
+  const { ctx, me } = withPlayer({ x: 69, y: 96, equippedMainHand: "sword" }, { now: micros(1000) });
+  const sword = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });
+  ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedMainHandInventoryId: sword.id });
+  for (let i = 0; i < MAX_GROUND_ITEMS_PER_ZONE; i++) ctx.db.groundItem.insert({ id: 0n, zoneId: ZONE, item: "stone", x: 65, y: 89, qty: 1 });
+  hogAt_(ctx, 70, 96, WEAPON_DAMAGE.sword![0]);
+
+  useEquipped(ctx, { dirX: 1, dirY: 0 });
+
+  assert.equal(ctx.db.groundItem.rows().length, MAX_GROUND_ITEMS_PER_ZONE); // full zone drops nothing extra
 });
 
 test("a killed Hog becomes a settled corpse, untargetable, reaped after NPC_CORPSE_MS", () => {

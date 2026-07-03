@@ -83,7 +83,7 @@ export interface Coord {
 }
 
 /** Item ids are canonical across inventory rows, equipment slots, and UI labels. */
-export const ITEM_IDS = ["stone", "wood", "pickaxe", "shovel", "axe", "sword", "shield", "torch"] as const;
+export const ITEM_IDS = ["stone", "wood", "quill", "pickaxe", "shovel", "axe", "sword", "shield", "torch"] as const;
 export type ItemId = (typeof ITEM_IDS)[number];
 export const SPAWNABLE_ITEM_IDS = ["pickaxe", "shovel", "axe", "sword", "shield", "torch"] as const satisfies readonly ItemId[];
 export type SpawnableItemId = (typeof SPAWNABLE_ITEM_IDS)[number];
@@ -117,6 +117,28 @@ export const HEALTH_REGEN_FRACTION = 0.05;
  *  instead respawn after PLAYER_RESPAWN_MS). Corpses are scenery: not solid,
  *  not targetable, not liftable. (initial) */
 export const NPC_CORPSE_MS = 30_000;
+
+/** How far (tiles, centre to centre) `E` reaches for ground items — a radius,
+ *  not a facing, so a drop at your feet is always liftable. (initial) */
+export const ITEM_PICKUP_RADIUS = 1.75;
+
+/** One entry of a creature's loot table: an inclusive quantity range rolled
+ *  with the reducer's context RNG when the creature dies. */
+export interface LootRoll {
+  item: ItemId;
+  min: number;
+  max: number;
+}
+
+/**
+ * What a Hog leaves behind (GDD "Combat"): loot lands as ground items on the
+ * nearest free tiles around the corpse. A giant sheds proportionally more.
+ * Troggs need no table — their loot is whatever they carried and held, which
+ * death already drops. (initial)
+ */
+export function hogLoot(style: string): LootRoll[] {
+  return hogSize(style) > 1 ? [{ item: "quill", min: 4, max: 6 }] : [{ item: "quill", min: 1, max: 2 }];
+}
 
 /** Gathering-node health: a boulder or tree soaks a few tool swings (each rolls
  *  the tool's WEAPON_DAMAGE range) before it breaks and grants its resource —
@@ -197,6 +219,12 @@ export const ITEMS: Record<ItemId, ItemDef> = {
     name: "Wood",
     stackable: true,
     blurb: "A stout length of felled trunk.",
+  },
+  quill: {
+    id: "quill",
+    name: "Quill",
+    stackable: true,
+    blurb: "A stiff Hog spine, shed by the fallen.",
   },
   pickaxe: {
     id: "pickaxe",

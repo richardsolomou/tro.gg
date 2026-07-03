@@ -174,6 +174,9 @@ export function applyFlinch(view: { model: CreatureModel; facing: Facing; flinch
   }
 }
 
+/** Motes in the pickup sparkle every ground item carries. */
+const PICKUP_MOTES = 4;
+
 /** How long a floating damage number lives, rising and fading. */
 const DAMAGE_FLOAT_MS = 900;
 const DAMAGE_FLOAT_RISE = 0.9;
@@ -466,7 +469,34 @@ export function createEntities(scene: THREE.Scene) {
       glyph.position.set(0.5, 0, 0.5);
       marker.add(glyph);
     }
+    // The pickup sparkle: gold motes circling up over anything liftable — loot,
+    // gathered yields, player drops alike — the "you can E this" signal. One
+    // Points draw per item; animatePickupMotes drives it while visible.
+    const positions = new Float32Array(PICKUP_MOTES * 3);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    const material = new THREE.PointsMaterial({ color: UI_3D.gold, size: 0.07, transparent: true, opacity: 0.85, depthWrite: false, blending: THREE.AdditiveBlending });
+    const motes = new THREE.Points(geo, material);
+    motes.frustumCulled = false; // the buffer mutates per frame; the marker's visibility governs
+    motes.userData.phase = Math.random() * 10;
+    marker.add(motes);
+    marker.userData.motes = motes;
     return marker;
+  };
+
+  /** Drive a ground item's pickup motes; call per frame while the marker is visible. */
+  const animatePickupMotes = (marker: THREE.Group, now: number) => {
+    const motes = marker.userData.motes as THREE.Points | undefined;
+    if (!motes) return;
+    const attr = motes.geometry.getAttribute("position") as THREE.BufferAttribute;
+    const phase = motes.userData.phase as number;
+    for (let i = 0; i < PICKUP_MOTES; i++) {
+      const t = ((now / 1000) * 0.4 + phase + i / PICKUP_MOTES) % 1;
+      const angle = phase * 7 + i * 2.4 + t * 2.5;
+      attr.setXYZ(i, 0.5 + Math.cos(angle) * 0.17, 0.12 + t * 0.6, 0.5 + Math.sin(angle) * 0.17);
+    }
+    attr.needsUpdate = true;
+    (motes.material as THREE.PointsMaterial).opacity = 0.6 + 0.3 * Math.sin(now * 0.004 + phase);
   };
 
   /** Sync the carried overlay (boulder / curled hog) to the player row. */
@@ -648,7 +678,7 @@ export function createEntities(scene: THREE.Scene) {
     }
   };
 
-  return { place, smoothPlace, headTop, makeMarker, animate, makeHog, animateHog, makeBoulder, makeTree, makeGroundItem, applyCarry, applyEquipment, showBubble, showDamage, flashHit, destroy, hauntGhost, updateGhosts, setHitboxes, updateReach };
+  return { place, smoothPlace, headTop, makeMarker, animate, makeHog, animateHog, makeBoulder, makeTree, makeGroundItem, animatePickupMotes, applyCarry, applyEquipment, showBubble, showDamage, flashHit, destroy, hauntGhost, updateGhosts, setHitboxes, updateReach };
 }
 
 export type Entities = ReturnType<typeof createEntities>;

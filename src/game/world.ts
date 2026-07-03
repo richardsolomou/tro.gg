@@ -539,6 +539,10 @@ export class World3D {
       }
     }
 
+    // the pickup sparkle over every visible ground item
+    for (const view of this.groundItems.values()) {
+      if (view.group.visible) this.entities.animatePickupMotes(view.group, now);
+    }
     this.entities.updateGhosts(now);
     this.orbit?.update();
     this.renderer.render(this.scene, this.camera);

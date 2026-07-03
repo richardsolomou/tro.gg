@@ -2,8 +2,11 @@ import { ScheduleAt, Timestamp } from "spacetimedb";
 import {
   elapsedMs,
   getZone,
+  hogLoot,
+  type LootRoll,
   isWalkable,
   HOG_MAX_HEALTH,
+  MAX_GROUND_ITEMS_PER_ZONE,
   PLAYER_MAX_HEALTH,
   PLAYER_RESPAWN_MS,
   snapToTile,
@@ -19,6 +22,8 @@ import {
   spawnAt,
   settle,
   solidTiles,
+  addGroundItemTiles,
+  countRows,
   hogAt,
   hogTile,
   playerAt,
@@ -93,7 +98,29 @@ export function damageHog(ctx: Ctx, target: NonNullable<ReturnType<typeof hogAt>
   // health 0. The regen sweep reaps it after NPC_CORPSE_MS.
   const at = hogTile(ctx, target, ctx.timestamp);
   ctx.db.hog.id.update({ ...target, x: at.x, y: at.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, health: 0, lastDamagedAt: ctx.timestamp });
+  dropLoot(ctx, target.zoneId, hogLoot(target.style), at);
   return { health: 0, killed: true };
+}
+
+/** Lay loot down as ground items on the nearest free tiles around where its
+ *  source fell — a corpse, a broken boulder, a felled tree (none are solid once
+ *  gone, so the source tile itself counts) — honouring the per-zone ground-item
+ *  cap: a full zone just drops less. Nothing enters an inventory here; picking
+ *  loot up is a conscious `E` (GDD "Interacting"). */
+export function dropLoot(ctx: Ctx, zoneId: string, loot: readonly LootRoll[], at: { x: number; y: number }): void {
+  const zone = getZone(zoneId);
+  if (!zone) return;
+  const occupied = solidTiles(ctx, zoneId, ctx.timestamp);
+  addGroundItemTiles(ctx, zoneId, occupied);
+  for (const roll of loot) {
+    if (countRows(ctx.db.groundItem.zoneId.filter(zoneId)) >= MAX_GROUND_ITEMS_PER_ZONE) return;
+    const qty = ctx.random.integerInRange(roll.min, roll.max);
+    if (qty <= 0) continue;
+    const tile = spawnTile(zone, (tx, ty) => occupied.has(tileKey(tx, ty)), at.x, at.y, 0, 0);
+    if (!tile) return;
+    occupied.add(tileKey(tile.x, tile.y));
+    ctx.db.groundItem.insert({ id: 0n, zoneId, item: roll.item, x: tile.x, y: tile.y, qty });
+  }
 }
 
 export function dropInventory(ctx: Ctx, target: NonNullable<ReturnType<typeof playerAt>>, x: number, y: number): { rows: number; qty: number } {

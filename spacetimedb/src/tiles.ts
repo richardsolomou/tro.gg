@@ -149,6 +149,17 @@ export function groundItemAt(ctx: Ctx, zoneId: string, x: number, y: number) {
   return undefined;
 }
 
+/** The nearest ground item within `radius` tiles of (cx, cy), centre to centre —
+ *  `E` reaches loot by distance, not facing, so a drop at your feet always lifts. */
+export function nearestGroundItem(ctx: Ctx, zoneId: string, cx: number, cy: number, radius: number) {
+  let best: { row: NonNullable<ReturnType<typeof groundItemAt>>; dist: number } | undefined;
+  for (const item of ctx.db.groundItem.zoneId.filter(zoneId)) {
+    const dist = Math.hypot(item.x + 0.5 - cx, item.y + 0.5 - cy);
+    if (dist <= radius && (!best || dist < best.dist)) best = { row: item, dist };
+  }
+  return best?.row;
+}
+
 /**
  * The Hog whose footprint covers a tile in a zone, or undefined. Unlike a boulder a Hog
  * is in motion, so re-derive each Hog's position at `now` (against walls and boulders,
@@ -267,15 +278,13 @@ export function pickupDirs(dir: { dirX: number; dirY: number } | null): { dirX: 
   return [dir, ...CARDINALS.filter((d) => d.dirX !== dir.dirX || d.dirY !== dir.dirY)];
 }
 
-/** The adjacent target `interact` should pick up, preferring the faced direction.
- *  Boulders are not pickup targets: they're mining nodes, moved only by mining
- *  them away (a legacy carried boulder still puts down and throws fine). */
+/** The adjacent Hog `interact` should lift, preferring the faced direction.
+ *  Ground items are found by radius instead (`nearestGroundItem`); boulders are
+ *  not pickup targets at all — they're mining nodes. */
 export function pickupTarget(ctx: Ctx, zoneId: string, x: number, y: number, dir: { dirX: number; dirY: number } | null, now: Stamp) {
   for (const d of pickupDirs(dir)) {
     const tx = x + d.dirX;
     const ty = y + d.dirY;
-    const item = groundItemAt(ctx, zoneId, tx, ty);
-    if (item) return { kind: "item" as const, row: item };
     const h = hogAt(ctx, zoneId, tx, ty, now);
     // A big 2×2 Hog is a fixture, not liftable — the carry overlay is one tile, and a
     // giant on your head makes no sense — so only common Hogs are pickup targets.
