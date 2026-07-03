@@ -14,7 +14,17 @@ import {
 import type { DbConnection } from "./net/module_bindings";
 import type { Player } from "./net/module_bindings/types";
 import type { MoveIntent } from "./input.js";
-import type { Tracked } from "./game/entities.js";
+
+/**
+ * The slice of a tracked player this controller drives: the synced row, the local
+ * extrapolation base, and the display facing. Renderer-agnostic — any world layer's
+ * tracked entry (2D or 3D) satisfies it structurally.
+ */
+export interface MotionEntry {
+  player: Player;
+  baseMs: number;
+  facing: Facing;
+}
 
 /** How long a new direction must be held before the trogg walks rather than just
  *  turning in place — the tap-vs-hold window (GDD "Movement"). Tune for feel. */
@@ -101,7 +111,7 @@ export interface SelfControllerDeps {
   /** Whether the `boulder-pushing` flag is on. */
   pushEnabled: boolean;
   /** The local player's tracked entry, or undefined before it's been inserted. */
-  getSelf: () => Tracked | undefined;
+  getSelf: () => MotionEntry | undefined;
   /** Show (or clear, with undefined) the click-to-move destination marker. */
   showDestination: (tile: Coord | undefined) => void;
   /** Map a server `movedAt` onto the local monotonic clock (shared with the world). */
@@ -207,7 +217,7 @@ export function createSelfController(deps: SelfControllerDeps) {
     if (!isIdle(synced)) facing = synced;
   };
 
-  const sendMove = (entry: Tracked, intent: MoveIntent, x: number, y: number, now: number) => {
+  const sendMove = (entry: MotionEntry, intent: MoveIntent, x: number, y: number, now: number) => {
     const origin = snapToTile({ x, y });
     const motion: MotionSnapshot = { ...intent, x: origin.x, y: origin.y, path: "" };
     const wasIdle = isIdle(sent);
@@ -230,7 +240,7 @@ export function createSelfController(deps: SelfControllerDeps) {
     if (isIdle(intent) && isIdle(desired)) keyboardControlling = false;
   };
 
-  const sendFace = (entry: Tracked, intent: MoveIntent, x: number, y: number, now: number) => {
+  const sendFace = (entry: MotionEntry, intent: MoveIntent, x: number, y: number, now: number) => {
     if (isIdle(intent) || sameIntent(intent, facing)) return;
     const origin = snapToTile({ x, y });
     facing = intent;
@@ -276,7 +286,7 @@ export function createSelfController(deps: SelfControllerDeps) {
     pushBlocked = intoBoulder;
   };
 
-  const turn = (entry: Tracked, x: number, y: number, now: number) => {
+  const turn = (entry: MotionEntry, x: number, y: number, now: number) => {
     sendFace(entry, desired, x, y, now);
     walkAfter = now + TURN_TAP_MS;
   };
@@ -292,7 +302,7 @@ export function createSelfController(deps: SelfControllerDeps) {
     return ahead != null && hogTiles.has(tileKey(ahead.x, ahead.y));
   };
 
-  const driveSelf = (entry: Tracked, x: number, y: number, now: number) => {
+  const driveSelf = (entry: MotionEntry, x: number, y: number, now: number) => {
     const fresh = !sameIntent(desired, lastDesired);
     lastDesired = desired;
     const pathing = entry.player.path !== "";
@@ -373,7 +383,7 @@ export function createSelfController(deps: SelfControllerDeps) {
   // centred and routes at once; a moving one finishes its current step first. The
   // server then settles onto that whole tile (a no-op snap), so no sub-tile distance
   // is banked no matter how fast the clicks come.
-  const flushPendingMoveTo = (entry: Tracked, motion: ProjectedMotion, x: number, y: number, now: number) => {
+  const flushPendingMoveTo = (entry: MotionEntry, motion: ProjectedMotion, x: number, y: number, now: number) => {
     if (!pendingMoveTo || awaitingMoveTo) return;
     const dir = { dirX: motion.dirX, dirY: motion.dirY, running: entry.player.running };
     // Already gliding along a live route to this exact tile? Re-clicking it changes
@@ -420,7 +430,7 @@ export function createSelfController(deps: SelfControllerDeps) {
   };
 
   /** Per-frame update for the local trogg, given its freshly projected motion. */
-  const update = (entry: Tracked, motion: ProjectedMotion, now: number) => {
+  const update = (entry: MotionEntry, motion: ProjectedMotion, now: number) => {
     const { x, y } = motion;
     playFootstepAtCentre(x, y, { dirX: motion.dirX, dirY: motion.dirY, running: entry.player.running });
     // A click-to-move route stalls when a Hog (or a shoved boulder) lands on a tile
@@ -453,7 +463,7 @@ export function createSelfController(deps: SelfControllerDeps) {
 
   /** Apply a server row for the local trogg: consume the matching optimistic move, or
    *  snap to authority on a mismatch (invariant 3). Mutates `entry` in place. */
-  const reconcile = (entry: Tracked, p: Player) => {
+  const reconcile = (entry: MotionEntry, p: Player) => {
     // Any server row for us means a dispatched route (if one was in flight) has landed —
     // re-routing is allowed again.
     awaitingMoveTo = false;

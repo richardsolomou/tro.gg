@@ -7,7 +7,7 @@ The PostHog plan: every product gets a real job when it is useful. This document
 | Product | In-game job |
 | ------- | ----------- |
 | Autocapture + events | Core telemetry from day one |
-| Session replay | Watch new players get lost; review sessions after the fact; debugging; canvas recording enabled for the Phaser playfield |
+| Session replay | Watch new players get lost; review sessions after the fact; debugging; canvas recording enabled for the WebGL playfield |
 | Identify / person profiles | Guest → account upgrade, merged identities |
 | Funnels / retention | Onboarding funnel, XP progression, return cohorts |
 | Feature flags | Remote rollout, kill-switches, balance knobs, and experiments when they are worth the extra branch |
@@ -72,7 +72,6 @@ Code currently reads these flag keys:
 | Flag | Controls | Fallback |
 | ---- | -------- | -------- |
 | `auth-enabled` | Account sign-in / claim panel (the top-right claim/sign-out control) | On, but the UI still requires `VITE_SPACETIMEAUTH_CLIENT_ID` |
-| `avatar-sprites` | Trogg sprite avatars vs the placeholder colour marker | On |
 | `ghost-trogg` | Zone-synced cosmetic ghost easter egg (Commands panel ghost button) | On |
 | `boulder-pushing` | Client push input for boulders | On |
 | `interact` | Interact key (`E`) — pick up / put down tile-sized objects | On |
@@ -85,6 +84,8 @@ Code currently reads these flag keys:
 | `trogg-recolor` | Colour swatches in the Appearance panel | On |
 | `trogg-restyle` | Body-style buttons in the Appearance panel | On |
 
+Retired by the 3D renderer port: `avatar-sprites` (trogg sprite avatars vs the placeholder colour marker) is no longer read — the 3D client always renders models. The PostHog flag stays live while the 2D client is still the deployed production build; archive it in project 314596 when this port ships.
+
 PostHog project audit (2026-06-27): all code-read flags above are configured in PostHog project 314596 and active. They are intentionally still in use because they cover remote rollback, production-only debug command governance, or visible UI capabilities that should not advertise disabled controls. `interact` was created 2026-06-25 with the carry mechanic; `hog-reset` was created 2026-06-25 with the Hog reset tool; `trogg-restyle` was created 2026-06-27 with avatar body styles. No new flag is needed for the observability pass; planned future flags should be added here, and created in PostHog, when code starts reading them.
 
 ## Error tracking and logs
@@ -95,7 +96,7 @@ Structured browser logs go through explicit `logInfo()` / `logWarn()` / `logErro
 
 The SpacetimeDB module currently captures accepted gameplay events from procedures, not general backend logs. Procedure telemetry failures are swallowed so analytics cannot roll back a committed gameplay action. Do not log or capture raw player chat, arbitrary command text, credentials, OIDC tokens, or SpacetimeDB tokens.
 
-Session Replay records the Phaser canvas via `session_recording.captureCanvas.recordCanvas = true`. tro.gg sets `canvasFps = 15`; use lower values if replay payload size becomes a problem.
+Session Replay records the game's WebGL canvas via `session_recording.captureCanvas.recordCanvas = true`. tro.gg sets `canvasFps = 15`; use lower values if replay payload size becomes a problem.
 
 ## Rules
 

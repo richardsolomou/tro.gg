@@ -9,7 +9,7 @@ import { mountHelp } from "./ui/help.js";
 import { mountInventory } from "./ui/inventory.js";
 import { startReconnect } from "./net/reconnect.js";
 import { watchForUpdate } from "./version.js";
-import { StartGame } from "./game/main.js";
+import { StartGame } from "./game3d/main.js";
 
 async function main() {
   initAnalytics();
@@ -59,8 +59,8 @@ async function main() {
       if (subject) identifyUser(subject);
     }
 
-    // Phaser owns the canvas and the world render loop; StartGame boots the scene
-    // with the live connection (game/main.ts, GDD "Camera and rendering").
+    // Three.js owns the canvas and the world render loop; StartGame boots the 3D
+    // world with the live connection (game3d/main.ts, GDD "Camera and rendering").
     StartGame("game", { conn });
 
     // HUD chrome (help, appearance, account) is HTML overlaid on the canvas (hud.css);

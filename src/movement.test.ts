@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Coord, Facing, ProjectedMotion, ZoneBounds } from "@trogg/shared";
 import type { Player } from "./net/module_bindings/types";
-import type { Tracked } from "./game/entities.js";
+import type { MotionEntry } from "./movement.js";
 import type { MoveIntent } from "./input.js";
 import { createSelfController, type SelfControllerDeps } from "./movement.js";
 
@@ -41,7 +41,7 @@ function harness(over: Partial<SelfControllerDeps> = {}) {
     path: "",
     movedAt: { microsSinceUnixEpoch: 0n },
   } as unknown as Player;
-  const entry = { player, baseMs: 0, facing: "down" as Facing, frameKey: "", carriedKind: "" } as unknown as Tracked;
+  const entry = { player, baseMs: 0, facing: "down" as Facing } satisfies MotionEntry;
 
   const conn = {
     reducers: {

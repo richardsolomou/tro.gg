@@ -3,6 +3,12 @@
 How the creature and item pixel art is authored, generated, and rendered. Read this
 before touching any art; it keeps changes cheap and avoids editing generated files.
 
+> **Scope since the 3D port:** the game world renders code-built 3D models
+> (`src/game3d/`), not these sprites. This pipeline remains the source of the
+> inventory item icons (`ITEM_ART`), the committed reference sheets, and the
+> `/preview` page — and its palettes are restated in `src/game3d/palette.ts`,
+> so palette changes here should be mirrored there.
+
 ## Golden rules
 
 - **Never read or hand-edit the generated files** `shared/sprite_art.ts` and

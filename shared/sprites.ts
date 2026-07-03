@@ -54,6 +54,17 @@ export const KINDS: readonly Kind[] = ["trogg", "hog"] as const;
 export const FACINGS: readonly Facing[] = ["down", "up", "left", "right"] as const;
 export const FRAMES: readonly FrameName[] = ["idle", "walk_a", "walk_b", "run_a", "run_b", "attack_a", "attack_b"] as const;
 
+/**
+ * The facing a movement intent reads as. WASD/path motion sets `(dirX, dirY)`;
+ * the dominant axis wins so a diagonal still picks a cardinal. Idle (0, 0) keeps
+ * the last facing — a stopped trogg shouldn't snap to a default.
+ */
+export function facingFromDir(dirX: number, dirY: number, last: Facing): Facing {
+  if (dirX === 0 && dirY === 0) return last;
+  if (Math.abs(dirX) >= Math.abs(dirY)) return dirX < 0 ? "left" : "right";
+  return dirY < 0 ? "up" : "down";
+}
+
 /** Every (kind, style) row group in sheet order: a kind's styles, then the next
  *  kind's. Each group owns `FACINGS.length` rows. */
 export function styleGroups(): { kind: Kind; style: string }[] {

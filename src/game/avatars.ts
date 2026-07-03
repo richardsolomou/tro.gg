@@ -95,16 +95,7 @@ export function avatarFrameName(kind: Kind, style: string, facing: Facing, frame
   return frameName(kind, style, facing, frame);
 }
 
-/**
- * The facing a movement intent reads as. WASD/path motion sets `(dirX, dirY)`;
- * the dominant axis wins so a diagonal still picks a cardinal sprite. Idle
- * (0, 0) keeps the last facing — a stopped trogg shouldn't snap to a default.
- */
-export function facingFromDir(dirX: number, dirY: number, last: Facing): Facing {
-  if (dirX === 0 && dirY === 0) return last;
-  if (Math.abs(dirX) >= Math.abs(dirY)) return dirX < 0 ? "left" : "right";
-  return dirY < 0 ? "up" : "down";
-}
+export { facingFromDir } from "@trogg/shared";
 
 /** Milliseconds per step of the two-frame stride cycle — quicker when running. */
 const WALK_STEP_MS = 160;

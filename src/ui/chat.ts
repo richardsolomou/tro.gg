@@ -5,8 +5,13 @@ import { cssColor } from "../ui_text.js";
 import { hudRoot } from "./hud.js";
 import { logError } from "../analytics.js";
 import { audio } from "../audio.js";
-import type { Entities, Tracked } from "../game/entities.js";
 import { sendChat } from "../net/procedures.js";
+
+/** The world's speech-bubble surface: pops a bubble over a present player's head.
+ *  An id with no tracked player is a no-op (the sender left or isn't rendered). */
+export interface BubbleHost {
+  showBubble(senderId: string, text: string): void;
+}
 
 export interface ChatUI {
   /** Append a line to the side-panel history, the name tinted by `color` (0xRRGGBB). */
@@ -148,13 +153,12 @@ export function mountChat(send: (text: string) => void): ChatUI {
  * subscription replays recent lines on join), and once live, a new row also pops
  * a bubble over the speaker's head — so bubbles fire only for present players,
  * not the backlog. The `chatAction` procedure emits `chat_sent` without content
- * once the server accepts the line. The bubble half lives in Phaser, so this still takes the
- * scene's `entities`/`tracked`/`stage`; the history half is the HTML `ChatUI`.
+ * once the server accepts the line. The bubble half lives in the world renderer
+ * (`BubbleHost`); the history half is the HTML `ChatUI`.
  */
 export function setupChat(
   conn: DbConnection,
-  entities: Entities,
-  tracked: Map<string, Tracked>,
+  world: BubbleHost,
   zone: Zone,
   sub: { live: boolean },
   myId: string | undefined,
@@ -179,7 +183,7 @@ export function setupChat(
     if (!sub.live) return;
     const ageMs = Date.now() - timestampMs(message.createdAt);
     if (ageMs > CHAT_BUBBLE_MS) return;
-    showBubble(entities, tracked, senderId, message.text);
+    world.showBubble(senderId, message.text);
     if (senderId !== myId) audio.playChatReceive();
   });
 
@@ -195,24 +199,4 @@ export function setupChat(
   conn.db.player.onUpdate((_ctx, _old, p) => {
     if (_old.color !== p.color) chat.recolorSender(p.identity.toHexString(), troggColorFor(p.color, p.identity.toHexString()));
   });
-}
-
-/** Pop a speech bubble over a trogg's head, replacing any current one. */
-function showBubble(entities: Entities, tracked: Map<string, Tracked>, id: string, text: string) {
-  const entry = tracked.get(id);
-  if (!entry) return;
-
-  if (entry.bubbleTimer) clearTimeout(entry.bubbleTimer);
-  entry.bubble?.destroy();
-
-  const bubble = entities.makeBubble(text, entry.sprite ? entities.headTopY() : 0);
-  entry.marker.add(bubble);
-  entry.bubble = bubble;
-  entry.bubbleTimer = setTimeout(() => {
-    bubble.destroy();
-    if (entry.bubble === bubble) {
-      entry.bubble = undefined;
-      entry.bubbleTimer = undefined;
-    }
-  }, CHAT_BUBBLE_MS);
 }
