@@ -139,9 +139,14 @@
   word-break: break-word;
   display: flex;
   flex-direction: column;
-  justify-content: flex-end;
   align-items: flex-start;
   gap: 3px;
+}
+/* Pins a short history to the bottom while keeping the log scrollable — unlike
+   justify-content: flex-end, which puts overflow above the scroll origin where
+   no amount of scrolling can reach it. */
+#hud .chat-line:first-child {
+  margin-top: auto;
 }
 #hud .chat-line {
   white-space: pre-wrap;
