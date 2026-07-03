@@ -21,9 +21,9 @@
   --hud-bone: #e8dcc4;
   --hud-bone-dim: #a8977a;
   --hud-ink: #241708;
-  --hud-timber: rgba(46, 33, 19, 0.95);
-  --hud-well: #1c1309;
-  --hud-well-lite: #2b1e10;
+  --hud-timber: rgba(46, 33, 19, 0.78);
+  --hud-well: rgba(24, 16, 8, 0.72);
+  --hud-well-lite: rgba(43, 30, 16, 0.78);
   --hud-ember: #ff8c2e;
   --hud-moss: #6fdc9c;
   --hud-clay: #d94f1e;

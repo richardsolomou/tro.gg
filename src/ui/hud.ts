@@ -13,8 +13,19 @@ export function hudRoot(): HTMLDivElement {
     root = document.createElement("div");
     root.id = "hud";
     document.body.appendChild(root);
+    blockPinchZoom();
   }
   return root;
+}
+
+/** Keep a macOS trackpad pinch from browser-zooming the page: Chrome reports the
+ *  pinch as ctrl+wheel, Safari as gesture events. Camera zoom on the canvas is
+ *  untouched (OrbitControls consumes its own wheel events); cmd+/- still works. */
+function blockPinchZoom(): void {
+  window.addEventListener("wheel", (e) => e.ctrlKey && e.preventDefault(), { passive: false });
+  for (const type of ["gesturestart", "gesturechange", "gestureend"]) {
+    window.addEventListener(type, (e) => e.preventDefault());
+  }
 }
 
 /**
