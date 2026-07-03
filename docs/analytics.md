@@ -54,7 +54,7 @@ snake_case. Low-volume by design — anything that could fire more than ~once/se
 | `combat_hit` | `zone, weapon, target, damage, killed, source?` | An accepted server-side attack damages a trogg or Hog. `weapon` is the main-hand item id (`sword`, `axe`, `pickaxe`, `shovel`), `fists`, `thrown_boulder`, or `thrown_hog`; `target` is `trogg` or `hog` |
 | `player_died` | `zone, cause, dropped_item_rows, dropped_item_qty, respawn_ms, source?` | Server-side combat damage kills a trogg, drops its inventory, and schedules its respawn |
 | `player_respawned` | `zone, respawn_ms, source` | The local player's authoritative row transitions from dead to alive after the scheduled respawn timer |
-| `warren_emerged` | Client, on the local trogg's first step out of its birth cell | `zone` |
+| `warren_emerged` | Client, on a newborn's first crossing from Deephome into the daylight | `zone` |
 | `item_crafted` | `recipe, qty` | Item crafting succeeds |
 | `project_contributed` | `project, item, qty` | Player contributes to a communal project |
 | `project_completed` | `project` | Communal project completes |

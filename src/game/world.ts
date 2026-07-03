@@ -2,7 +2,7 @@ import * as THREE from "three";
 import type { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { CLICK_SLOP_PX, createOrbit } from "./controls.js";
 import {
-  birthCellContains,
+  WORLD_LAND_H,
   isDryFloor,
   EQUIPMENT_ACTION_MS,
   CHAT_BUBBLE_MS,
@@ -217,21 +217,33 @@ export class World3D {
   private readonly skyNight = new THREE.Color(0x0d1424);
   private readonly hazeDay = new THREE.Color(DAYLIGHT_3D.haze);
   private readonly hazeNight = new THREE.Color(0x101a2c);
+  /** Deephome's unsky: near-black, blue-less rock dark. */
+  private readonly caveSky = new THREE.Color(0x05060a);
 
   /** The shared sky lock (`world_state` row): a pinned day phase for every
    *  client — the sky is shared fiction, so a scrub changes everyone's sun. */
   private dayPhaseOverride?: number;
-  /** Set while the local trogg is still inside its birth cell; cleared (and the
-   *  first-dawn beat started) the first time it steps out (GDD "Onboarding"). */
-  private inBirthCell = false;
-  /** When the local trogg first emerged from its birth cell, for the dawn blend. */
+  /** Set while the local trogg has never left Deephome; cleared (and the
+   *  first-dawn beat started) the first time it crosses into the daylight
+   *  (GDD "Onboarding: the Warren"). */
+  private inDeephome = false;
+  /** When the local trogg first emerged into the daylight, for the dawn blend. */
   private emergedAtMs?: number;
+  /** 0 = surface daylight, 1 = Deephome cave-dark; eased so crossing the exit
+   *  passage reads as light breaking rather than a switch flip. */
+  private caveDark = 0;
 
   /** The shared day–night cycle: wall-clock phased (every player sees the same
    *  sun), the sun arcs east→west shifting the shadows with it, and night falls
    *  to a dim moonlit blue where the glowmoss carries the light. */
-  private updateDaylight(): void {
+  private updateDaylight(dt: number): void {
     if (!this.orbit) return;
+    // Deephome never sees the sun: while the camera focus is below the seam,
+    // ease the whole scene into cave-dark — glowmoss carries the light — and
+    // ease back out as the exit passage climbs into the day.
+    const target = this.orbit.target.z >= WORLD_LAND_H ? 1 : 0;
+    this.caveDark += (target - this.caveDark) * Math.min(1, dt * 1.4);
+    const dark = this.caveDark;
     let phase = this.dayPhaseOverride ?? (Date.now() % DAY_CYCLE_MS) / DAY_CYCLE_MS; // 0 = dawn (override: the shared world_state sky lock)
     // The first dawn: for a few breaths after a newborn emerges, its OWN sky
     // blends from morning gold into the shared phase — every trogg's first
@@ -250,23 +262,26 @@ export class World3D {
     // the sun arcs across the sky; at night it parks low so shadows fade with it
     this.keyLight.position.set(fx + Math.cos(sunAngle) * 30, 8 + Math.max(0.05, elevation) * 26, fz + Math.sin(sunAngle) * 14 + 8);
     this.keyLight.target.position.set(fx, 0, fz);
-    this.keyLight.intensity = 3.2 * daylight;
-    this.hemi.intensity = 0.3 + 1.2 * daylight;
+    this.keyLight.intensity = 3.2 * daylight * (1 - dark);
+    this.hemi.intensity = (0.3 + 1.2 * daylight) * (1 - dark) + 0.18 * dark;
     // The sun you can actually look up at, and the moon opposite it. Both ride
     // ON the horizon at their low points, never below it, and they dissolve
     // into the haze as they get there (atmospheric extinction): a low disc sits
     // where the far plane and chunk streaming leave nothing rendered behind it,
     // so without the fade it shines "through" what reads as distant terrain.
-    const sunGlow = THREE.MathUtils.smoothstep(elevation, 0.05, 0.35);
+    const sunGlow = THREE.MathUtils.smoothstep(elevation, 0.05, 0.35) * (1 - dark);
     this.sun.position.set(fx + Math.cos(sunAngle) * 85, 4 + Math.max(0, elevation) * 66, fz + Math.sin(sunAngle) * 40 + 8);
     (this.sun.material as THREE.SpriteMaterial).opacity = sunGlow;
     this.sun.visible = sunGlow > 0.01;
-    const moonGlow = THREE.MathUtils.smoothstep(-elevation, 0.05, 0.35);
+    const moonGlow = THREE.MathUtils.smoothstep(-elevation, 0.05, 0.35) * (1 - dark);
     this.moon.position.set(fx - Math.cos(sunAngle) * 85, 4 + Math.max(0, -elevation) * 66, fz - Math.sin(sunAngle) * 40 + 8);
     (this.moon.material as THREE.SpriteMaterial).opacity = moonGlow;
     this.moon.visible = moonGlow > 0.01;
-    (this.scene.background as THREE.Color).lerpColors(this.skyNight, this.skyDay, daylight);
-    (this.scene.fog as THREE.Fog).color.lerpColors(this.hazeNight, this.hazeDay, daylight);
+    (this.scene.background as THREE.Color).lerpColors(this.skyNight, this.skyDay, daylight).lerp(this.caveSky, dark);
+    const fog = this.scene.fog as THREE.Fog;
+    fog.color.lerpColors(this.hazeNight, this.hazeDay, daylight).lerp(this.caveSky, dark);
+    fog.near = 60 - 34 * dark;
+    fog.far = 150 - 80 * dark;
   }
   private selfPos?: { x: number; y: number };
   private hogBounds!: ZoneBounds;
@@ -583,13 +598,13 @@ export class World3D {
         entry.lastStepTile = stepKey;
         continue;
       }
-      // Emergence (GDD "Onboarding: the Warren"): born in a cell, now outside it —
-      // fire the funnel beat once and let the first dawn break.
-      if (this.inBirthCell && !this.zone.cells.some((cell) => birthCellContains(cell, motion.x, motion.y))) {
-        this.inBirthCell = false;
+      // Emergence (GDD "Onboarding: the Warren"): born in Deephome, now across
+      // the seam into the daylight — fire the funnel beat once, let dawn break.
+      if (this.inDeephome && motion.y < WORLD_LAND_H) {
+        this.inDeephome = false;
         this.emergedAtMs = now;
         captureEvent("warren_emerged", { zone: this.slug });
-        logInfo("Newborn emerged from the warren", { surface: "world", action: "warren_emerged", zone: this.slug });
+        logInfo("Newborn emerged from Deephome", { surface: "world", action: "warren_emerged", zone: this.slug });
       }
       // The camera rides the local trogg: the orbit pivot glides to its position, so
       // drag-to-rotate and wheel-zoom stay live while walking (dead or alive — you
@@ -604,7 +619,7 @@ export class World3D {
         // trogg — the pre-snap zone-fit distance would build the whole world)
         if (this.cameraSnapped) this.terrain.update(this.orbit.target.x, this.orbit.target.z, camDist);
         this.cullDistant(CULL_RANGE);
-        this.updateDaylight();
+        this.updateDaylight(dt);
         // backstop: never let the camera sink underground (drags handle the floor
         // — and the sky look-up — in controls.ts; this catches everything else)
         if (this.camera.position.y < 0.5) this.camera.position.y = 0.5;
@@ -859,7 +874,7 @@ export class World3D {
     if (this.tracked.has(id)) return;
     // the first sight of the local trogg tells us whether this is a birth
     if (id === this.myId) {
-      this.inBirthCell = this.zone.cells.some((cell) => birthCellContains(cell, p.x, p.y));
+      this.inDeephome = p.y >= WORLD_LAND_H;
     }
     const face = playerFacing(p);
     const facing = facingFromDir(face.dirX, face.dirY, "down");

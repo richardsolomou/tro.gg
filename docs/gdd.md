@@ -240,14 +240,17 @@ Pre-alpha combat is deliberately small and tile-based. Troggs and roaming Hogs a
 
 ### Onboarding: the Warren
 
-Every trogg is born in the dark. New players wake in a **birth cell** — a sealed, glowmoss-lit 3×3 room burrowed into the south-coast rock (`WORLD_CELLS`, carved by worldgen stage 10) — with a pickaxe on the floor and a rubble-plugged corridor as the only way out. The dig **is** the tutorial: pick up (`E`), equip (`I`), swing (`F`), walk — each mechanic forced once, in a room with nothing else to look at — and finishing it reveals the entire world at once. On a newborn's first step out of its cell the client fires `warren_emerged` and plays the **first dawn**: a ~12-second local-only blend from morning gold into the shared sky phase, so every trogg's first sight of the world is sunlit whatever the clock says (the shared sky lock outranks it).
+Every trogg is born in the dark. **Deephome** is the troggs' homeland: a massive, completely enclosed cavern appended beneath the continent (`CAVE_H` rows below `WORLD_LAND_H`; worldgen stage 10) — part of the same seamless map and subscription, but its own region, and the client renders it in permanent **cave-dark** (no sun or moon, close black fog, glowmoss the only light; the darkness eases in/out over a couple of seconds as the camera focus crosses the seam). The land↔cave seam is solid rock except one 3-wide **exit passage** at x≈112 — a walked climb, not a dig — which surfaces as a canyon onto the south coast.
+
+New players wake in a sealed, glowmoss-lit 3×3 **birth cell** along the cavern's far wall (`WORLD_CELLS`), with a pickaxe on the floor and a rubble-plugged corridor as the only way out. The arc is: dig out of your cell (the tutorial — pick up `E`, equip `I`, swing `F`), cross the great dark, climb the passage, and the world reveals at once. On a newborn's first crossing above the seam the client fires `warren_emerged` and plays the **first dawn**: a ~12-second local-only blend from morning gold into the shared sky, so every trogg's first sight of the world is sunlit whatever the clock says (the shared sky lock outranks it).
 
 - **Rubble is the boulder mechanic verbatim**: corridor plugs are `boulder` rows tagged `cellId = cell index + 1` (0 = world boulder), so mining, hit feedback, and the stone drop all just work. Rubble is excluded from `resetBoulders`, the registry seeder, and the spawn cap.
 - **Cells are static geometry, occupancy is a row**: `birth_cell` (id, `occupant`, `assignedAt`) tracks only who holds a cell; room/corridor/pickaxe positions live in the committed map. At the tile level every corridor is open floor, so the worldgen reachability guarantee holds — rubble rows do the sealing at runtime.
 - **Assignment is lazy and input-driven (invariant 1)**: each connect reseals vacated cells nobody is standing in (`healWarren`) and a newborn takes the first sealed free cell; when all are held, the stalest cell whose occupant has moved on (offline or outside it) is reclaimed, resealed, and handed over; the town spawn takes the overflow. A returning trogg whose cell was recycled wakes in a fresh cell instead.
-- Death respawn stays at the town spawn — birth cells are for births, never a spawn room.
-- Scaling knob: more cells is more warren — additional coast bands or a second warren; the current 24 cells bound only *simultaneous mid-dig newcomers*, not concurrent players.
-- Open threads: the emergence sightline (a landmark fire at town, the walk-to-town breadcrumbs, naming at the fire) and node respawn for depleted rubble stone.
+- Deephome is deliberately **barren** — no hogs, boulders, or trees — so emerging into the inhabited, sunlit world lands as the contrast it should be. Death respawn stays at the town spawn.
+- Newborn aim and camera follow the row facing, so the first swing digs forward into the corridor.
+- Scaling knob: more cells is more warren (38 today, bounding only *simultaneous mid-dig newcomers*); deeper cell rows or more of the far wall.
+- Open threads: the emergence sightline (a landmark fire at town, walk-to-town breadcrumbs, naming at the fire), rubble stone respawn, and whether the cavern crossing needs waypoints (glowmoss trails toward the exit).
 
 ### Debug cheats (Commands drawer)
 

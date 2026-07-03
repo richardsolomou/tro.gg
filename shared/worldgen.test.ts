@@ -96,6 +96,7 @@ test("the committed world map is valid, connected, and spawn-safe", () => {
 test("every region contributes open, seeded ground", () => {
   const world = ZONES["world"]!;
   for (const region of WORLD_REGIONS) {
+    if (region.slug === "deephome") continue; // the birth cave is deliberately barren
     const seeded = world.boulders.filter((b) => regionAt(b.x, b.y)?.slug === region.slug);
     assert.ok(seeded.length >= 8, `${region.slug} has only ${seeded.length} boulders`);
     const wooded = world.trees.filter((t) => regionAt(t.x, t.y)?.slug === region.slug);

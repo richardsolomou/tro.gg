@@ -278,7 +278,11 @@ export interface WorldRegion {
 }
 
 export const WORLD_W = 224;
-export const WORLD_H = 208;
+/** Height of the sunlit continent; the map continues below it into Deephome. */
+export const WORLD_LAND_H = 208;
+/** Rows of the enclosed birth cave appended beneath the continent. */
+export const CAVE_H = 96;
+export const WORLD_H = WORLD_LAND_H + CAVE_H;
 
 export const WORLD_REGIONS: readonly WorldRegion[] = [
   { slug: "hog-town", name: "Hog Town", biome: "cave", x: 112, y: 104 },
@@ -292,10 +296,14 @@ export const WORLD_REGIONS: readonly WorldRegion[] = [
   { slug: "rustgallery", name: "Rust Gallery", biome: "rustgallery", x: 184, y: 104 },
   { slug: "emberrift", name: "Emberrift", biome: "emberrift", x: 176, y: 56 },
   { slug: "dustworks", name: "Dustworks", biome: "dustworks", x: 66, y: 174 },
+  // Deephome is not a Voronoi region: it is the enclosed birth cave appended
+  // beneath the continent (every row below WORLD_LAND_H), where troggs are born
+  // and dig for the light. The client renders it in permanent cave-dark.
+  { slug: "deephome", name: "Deephome", biome: "shadowdeep", x: 112, y: 256 },
 ];
 
 /** Region index → the single character it packs to in the committed grid. */
-const REGION_CHARS = "abcdefghijk";
+const REGION_CHARS = "abcdefghijkl";
 
 let regionRows: readonly string[] | undefined;
 
@@ -343,7 +351,9 @@ export interface GeneratedWorld {
 
 export function generateWorld(): GeneratedWorld {
   const W = WORLD_W;
-  const H = WORLD_H;
+  // Every continent stage runs at the LAND height, so appending Deephome below
+  // leaves the sunlit surface byte-identical.
+  const H = WORLD_LAND_H;
   const idx = (x: number, y: number) => y * W + x;
   const spawn = { x: WORLD_REGIONS[0]!.x, y: WORLD_REGIONS[0]!.y };
 
@@ -620,56 +630,145 @@ export function generateWorld(): GeneratedWorld {
     }
   }
 
-  // 10. the birth warren (GDD "Onboarding: the Warren"): a row of sealed 3×3
-  // cells burrowed into the south-coast rock, each with a corridor of open
-  // floor tunnelling north to reachable ground. Newborn troggs wake in a cell
-  // and mine out — the corridor is plugged with rubble rows at assignment
-  // (server-side), so at the tile level every cell stays connected to the world
-  // and the reachability guarantee holds. Carving only turns rock into floor,
-  // so every other committed tile stays byte-identical.
+  // 10. Deephome (GDD "Onboarding: the Warren"): the troggs' homeland — a
+  // massive, completely enclosed cavern appended beneath the continent. Born in
+  // sealed cells along its far (southern) wall, a trogg digs out, crosses the
+  // dark, and climbs the one exit passage into the light. The cave is part of
+  // the same seamless map (one zone, one subscription), but its own region —
+  // the client renders Deephome in permanent cave-dark.
+  const deepRand = mulberry32(0x7066300a);
+  const bandIdx = (x: number, yl: number) => yl * W + x;
+  let band = new Uint8Array(W * CAVE_H);
+  for (let yl = 0; yl < CAVE_H; yl++) {
+    for (let x = 0; x < W; x++) {
+      // the far (southern) rim stays thick: the birth cells carve into it
+      const rim = x < 3 || x >= W - 3 || yl < 4 || yl >= CAVE_H - 12;
+      band[bandIdx(x, yl)] = rim || deepRand() < 0.42 ? 1 : 0;
+    }
+  }
+  for (let pass = 0; pass < SMOOTH_PASSES; pass++) {
+    const next = new Uint8Array(band);
+    for (let yl = 4; yl < CAVE_H - 12; yl++) {
+      for (let x = 3; x < W - 3; x++) {
+        let n = 0;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) n += band[bandIdx(x + dx, yl + dy)] ?? 1;
+        next[bandIdx(x, yl)] = n >= 5 ? 1 : 0;
+      }
+    }
+    band = next;
+  }
+
+  // The exit passage: from the surface's south coast straight down through the
+  // divider into the cavern — the one way out, walked (not dug), 3 tiles wide.
+  const EXIT_X = 112;
+  let surfaceMouth = -1;
+  for (let y = H - 2; y >= Math.floor(H * 0.6); y--) {
+    if (reachable[idx(EXIT_X, y)]) {
+      surfaceMouth = y;
+      break;
+    }
+  }
+  const tunnelTop = surfaceMouth + 1;
+  // carve the land-rows portion (a sunlit canyon up to the coast)…
+  for (let y = tunnelTop; y < H; y++) {
+    for (let x = EXIT_X - 1; x <= EXIT_X + 1; x++) glyphs[y]![x] = ".";
+  }
+  // …and the band portion until it opens into the cavern proper
+  for (let yl = 0; yl < CAVE_H - 8; yl++) {
+    let open = false;
+    for (let x = EXIT_X - 1; x <= EXIT_X + 1; x++) {
+      if (!band[bandIdx(x, yl + 1)]) open = true;
+      band[bandIdx(x, yl)] = 0;
+    }
+    if (open && yl >= 4) break;
+  }
+
+  // one cavern: everything the exit passage can't reach returns to rock
+  const bandReach = new Uint8Array(W * CAVE_H);
+  const bandQueue: number[] = [bandIdx(EXIT_X, 0)];
+  bandReach[bandIdx(EXIT_X, 0)] = 1;
+  while (bandQueue.length > 0) {
+    const at = bandQueue.pop()!;
+    const x = at % W;
+    const yl = (at - x) / W;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+      const nx = x + dx;
+      const nyl = yl + dy;
+      if (nx < 0 || nyl < 0 || nx >= W || nyl >= CAVE_H) continue;
+      const ni = bandIdx(nx, nyl);
+      if (band[ni] || bandReach[ni]) continue;
+      bandReach[ni] = 1;
+      bandQueue.push(ni);
+    }
+  }
+  for (let i = 0; i < band.length; i++) if (!band[i] && !bandReach[i]) band[i] = 1;
+
+  // dress the cavern: glowmoss is the only light down here, so it grows thick
+  const bandRows: string[][] = [];
+  for (let yl = 0; yl < CAVE_H; yl++) {
+    const row: string[] = [];
+    for (let x = 0; x < W; x++) {
+      if (band[bandIdx(x, yl)]) {
+        row.push(WALL_TILE);
+        continue;
+      }
+      let nearRock = 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) nearRock += band[bandIdx(x + dx, yl + dy)] ?? 1;
+      const roll = deepRand();
+      if (nearRock >= 3 && roll < 0.28) row.push(MOSS_TILE);
+      else if (nearRock >= 2 && roll < 0.5) row.push(GRAVEL_TILE);
+      else if (roll < 0.12) row.push(GLOWMOSS_TILE);
+      else row.push(".");
+    }
+    bandRows.push(row);
+  }
+
+  // birth cells along the cavern's far wall: sealed 3×3 rooms with a 4-tile
+  // corridor of open floor, plugged with rubble rows at assignment
   const CELL_STRIDE = 5;
   const CORRIDOR_LEN = 4;
   const cells: BirthCellSeed[] = [];
-  for (let c = 4; c <= W - 5; c += CELL_STRIDE) {
-    // The southernmost world floor in this column — the cell burrows beneath
-    // it. Columns whose coast sits north of the southern band are skipped, so
-    // the warren hugs the TRUE south coast rather than creeping up the sides
-    // of the continent at its east/west tips.
+  for (let c = 5; c <= W - 6; c += CELL_STRIDE) {
     let mouth = -1;
-    for (let y = H - 2; y >= Math.floor(H * 0.72); y--) {
-      if (reachable[idx(c, y)]) {
-        mouth = y;
+    for (let yl = CAVE_H - 4; yl >= Math.floor(CAVE_H * 0.4); yl--) {
+      if (!band[bandIdx(c, yl)] && bandReach[bandIdx(c, yl)]) {
+        mouth = yl;
         break;
       }
     }
     if (mouth < 0) continue;
     const cellTop = mouth + 1 + CORRIDOR_LEN;
-    if (cellTop + 2 > H - 2) continue;
-    // carve only into solid rock: corridor column, the 3×3 room, and require the
-    // room's surround untouched so neighbouring cells never share an opening
-    let solid = true;
-    for (let y = mouth + 1; y <= cellTop + 2 && solid; y++) {
-      for (let x = y < cellTop ? c : c - 1; x <= (y < cellTop ? c : c + 1) && solid; x++) {
-        if (glyphs[y]![x] !== WALL_TILE) solid = false;
+    if (cellTop + 2 > CAVE_H - 2) continue;
+    let solidOk = true;
+    for (let yl = mouth + 1; yl <= cellTop + 3 && solidOk; yl++) {
+      for (let x = c - 2; x <= c + 2 && solidOk; x++) {
+        const inCorridor = yl < cellTop && x === c;
+        const inRoom = yl >= cellTop && yl <= cellTop + 2 && x >= c - 1 && x <= c + 1;
+        if (inCorridor || inRoom) {
+          if (bandRows[yl]![x] !== WALL_TILE) solidOk = false;
+        } else if (yl >= cellTop - 1 && bandRows[yl]?.[x] !== undefined && bandRows[yl]![x] !== WALL_TILE) {
+          solidOk = false;
+        }
       }
     }
-    for (let y = cellTop - 1; y <= cellTop + 3 && solid; y++) {
-      for (const x of [c - 2, c + 2]) {
-        if (glyphs[y]?.[x] !== undefined && glyphs[y]![x] !== WALL_TILE && !(y === mouth)) solid = false;
-      }
-    }
-    if (!solid) continue;
-
+    if (!solidOk) continue;
     const corridor: Coord[] = [];
-    for (let y = mouth + 1; y <= mouth + CORRIDOR_LEN; y++) {
-      glyphs[y]![c] = ".";
-      corridor.push({ x: c, y });
+    for (let yl = mouth + 1; yl <= mouth + CORRIDOR_LEN; yl++) {
+      bandRows[yl]![c] = ".";
+      corridor.push({ x: c, y: H + yl });
     }
-    for (let y = cellTop; y <= cellTop + 2; y++) {
-      for (let x = c - 1; x <= c + 1; x++) glyphs[y]![x] = ".";
+    for (let yl = cellTop; yl <= cellTop + 2; yl++) {
+      for (let x = c - 1; x <= c + 1; x++) bandRows[yl]![x] = ".";
     }
-    glyphs[cellTop]![c + 1] = GLOWMOSS_TILE; // a dim light to wake to
-    cells.push({ x: c, y: cellTop + 1, corridor, pickaxe: { x: c - 1, y: cellTop + 1 } });
+    bandRows[cellTop]![c + 1] = GLOWMOSS_TILE; // a dim light to wake to
+    cells.push({ x: c, y: H + cellTop + 1, corridor, pickaxe: { x: c - 1, y: H + cellTop + 1 } });
+  }
+
+  // append the band to the world: tiles and an all-Deephome region stripe
+  const deepChar = REGION_CHARS[WORLD_REGIONS.findIndex((r) => r.slug === "deephome")]!;
+  for (const row of bandRows) {
+    glyphs.push(row);
+    regionGrid.push(Array.from({ length: W }, () => deepChar));
   }
 
   return { tiles: glyphs.map((row) => row.join("")), regions: regionGrid.map((row) => row.join("")), boulders, trees, hogs, items, bigHogs, cells, spawn };
