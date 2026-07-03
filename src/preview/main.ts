@@ -111,9 +111,12 @@ const CAMERA_DIR = new THREE.Vector3(0.28, 0.42, 1).normalize();
 const orbit = createOrbit(camera, renderer.domElement);
 orbit.maxPolarAngle = Math.PI * 0.72; // don't dive under the floor
 
-/** Frame the current subject: aim the orbit at its centre and pull the camera back
- *  until the model fits with headroom, so a 2× buff hog and a lone item both read
- *  well — then the mouse takes over from there. */
+/** Aim the orbit at the current subject. The first call frames it (camera pulled
+ *  back along the default direction until the model fits with headroom); after
+ *  that the user's rotation and zoom are theirs — swapping creatures, weapons, or
+ *  modes only re-centres the pivot, so a chosen viewing angle survives control
+ *  changes. */
+let framed = false;
 function frame(): void {
   if (!subject) return;
   const bounds = new THREE.Box3().setFromObject(subject);
@@ -121,11 +124,17 @@ function frame(): void {
   const size = bounds.getSize(new THREE.Vector3());
   const radius = Math.max(size.x, size.y, size.z) * 0.5 || 0.6;
   const distance = (radius / Math.tan((camera.fov * Math.PI) / 360)) * 1.25;
-  camera.position.copy(centre).addScaledVector(CAMERA_DIR, distance);
-  camera.lookAt(centre);
+  if (!framed) {
+    camera.position.copy(centre).addScaledVector(CAMERA_DIR, distance);
+    camera.lookAt(centre);
+    framed = true;
+  } else {
+    // carry the existing view over to the new pivot: same angle, same distance
+    camera.position.add(new THREE.Vector3().subVectors(centre, orbit.target));
+  }
   orbit.target.copy(centre);
-  orbit.minDistance = radius * 0.8;
-  orbit.maxDistance = distance * 4;
+  orbit.minDistance = radius * 0.5;
+  orbit.maxDistance = distance * 5;
   orbit.update();
 }
 

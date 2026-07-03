@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { forward, HOG_MAX_HEALTH, hogSize, PLAYER_MAX_HEALTH, timestampMs, type EquipSlot, type Facing, type ProjectedMotion, type Stamp } from "@trogg/shared";
+import { forward, HOG_MAX_HEALTH, hogSize, PLAYER_MAX_HEALTH, RUN_SPEED_TILES_PER_SEC, timestampMs, type EquipSlot, type Facing, type ProjectedMotion, type Stamp } from "@trogg/shared";
 import type { Player } from "../net/module_bindings/types";
 import { audio } from "../audio.js";
 import { buildGhost, buildHog, buildHogBall, buildTrogg } from "./creatures3d.js";
@@ -18,6 +18,10 @@ import { UI_3D } from "./palette.js";
 
 /** How long a visible equipment use impulse lasts — a quick strike plus recovery. */
 const EQUIPMENT_ACTION_MS = 300;
+/** How fast a render-position correction closes (per second): ~120 ms to glide out. */
+const CORRECTION_DECAY = 9;
+/** Corrections beyond this are genuine teleports (respawn, zone snap) — don't glide. */
+const CORRECTION_MAX = 2.5;
 /** How long a hit-flinch (recoil + flash) plays. */
 export const FLINCH_MS = 240;
 /** The flinch recoil distance, in tiles. */
@@ -43,6 +47,11 @@ export interface Tracked {
   gait: Gait;
   attacking: boolean;
   flashOn: boolean;
+  /** Render-position correction state (`smoothPlace`). */
+  shownX?: number;
+  shownY?: number;
+  corrX: number;
+  corrY: number;
   flinchBaseMs?: number;
   equipmentActionBaseMs?: number;
   equip: Partial<Record<EquipSlot, { kind: string }>>;
@@ -65,6 +74,11 @@ export interface HogView {
   style: string;
   gait: Gait;
   flashOn: boolean;
+  /** Render-position correction state (`smoothPlace`). */
+  shownX?: number;
+  shownY?: number;
+  corrX: number;
+  corrY: number;
   flinchBaseMs?: number;
   overlays: Overlay[];
 }
@@ -142,6 +156,35 @@ export function createEntities(scene: THREE.Scene) {
 
   const place = (obj: THREE.Object3D, x: number, y: number) => {
     obj.position.set(x, 0, y);
+  };
+
+  /** Place a creature with correction smoothing: projected positions can jump when
+   *  collision state changes under a live intent (a Hog claims the tile ahead and the
+   *  clamp rewinds the projection; an authority snap lands) — instead of popping, the
+   *  rendered marker absorbs the jump into an offset that glides out over ~120 ms.
+   *  Prediction and game logic keep using the raw projection; only the render eases. */
+  const smoothPlace = (view: { marker: THREE.Group; shownX?: number; shownY?: number; corrX: number; corrY: number; running?: boolean }, x: number, y: number, dt: number) => {
+    if (view.shownX === undefined || view.shownY === undefined) {
+      view.corrX = 0;
+      view.corrY = 0;
+    } else {
+      const jump = Math.hypot(view.shownX - x, view.shownY - y);
+      // Anything the entity couldn't have walked this frame is a correction to absorb.
+      const maxStep = RUN_SPEED_TILES_PER_SEC * dt + 0.06;
+      if (jump > CORRECTION_MAX) {
+        view.corrX = 0; // a real teleport — snap
+        view.corrY = 0;
+      } else if (jump > maxStep) {
+        view.corrX = view.shownX - x;
+        view.corrY = view.shownY - y;
+      }
+      const decay = Math.exp(-CORRECTION_DECAY * dt);
+      view.corrX *= decay;
+      view.corrY *= decay;
+    }
+    view.shownX = x + view.corrX;
+    view.shownY = y + view.corrY;
+    place(view.marker, view.shownX, view.shownY);
   };
 
   /** Top of a trogg's head in world units — where labels and bubbles hang. */
@@ -428,7 +471,7 @@ export function createEntities(scene: THREE.Scene) {
     }
   };
 
-  return { place, headTop, makeMarker, animate, makeHog, animateHog, makeBoulder, makeGroundItem, applyCarry, applyEquipment, showBubble, destroy, hauntGhost, updateGhosts };
+  return { place, smoothPlace, headTop, makeMarker, animate, makeHog, animateHog, makeBoulder, makeGroundItem, applyCarry, applyEquipment, showBubble, destroy, hauntGhost, updateGhosts };
 }
 
 export type Entities = ReturnType<typeof createEntities>;

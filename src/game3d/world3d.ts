@@ -278,7 +278,7 @@ export class World3D {
     for (const view of this.hogs.values()) {
       const size = hogSize(view.style);
       const motion = projectMotionState({ ...view.row, size }, now - view.baseMs, this.hogBounds);
-      this.entities.place(view.marker, motion.x, motion.y);
+      this.entities.smoothPlace(view, motion.x, motion.y, dt);
       this.entities.animateHog(view, now, dt, motion);
       const tile = snapToTile({ x: motion.x, y: motion.y });
       for (const t of footprintTiles(tile.x, tile.y, size)) this.hogTiles.add(tileKey(t.x, t.y));
@@ -286,7 +286,7 @@ export class World3D {
 
     for (const entry of this.tracked.values()) {
       const motion = projectMotionState(entry.player, now - entry.baseMs, this.troggBounds);
-      this.entities.place(entry.marker, motion.x, motion.y);
+      this.entities.smoothPlace(entry, motion.x, motion.y, dt);
       this.entities.animate(entry, now, dt, motion);
 
       if (entry.player.identity.toHexString() !== this.myId) continue;
@@ -497,6 +497,8 @@ export class World3D {
       gait: "idle",
       attacking: false,
       flashOn: false,
+      corrX: 0,
+      corrY: 0,
       carriedKind: "",
       carriedStyle: "",
       equip: {},
@@ -587,7 +589,7 @@ export class World3D {
     const style = h.style || hogStyleFor(id, h.style);
     const built = this.entities.makeHog(style, facing, h.health);
     const baseMs = timestampBaseMs(h.movedAt);
-    const view: HogView = { marker: built.marker, model: built.model, overlays: built.overlays, row: h, baseMs, facing, style, gait: "idle", flashOn: false };
+    const view: HogView = { marker: built.marker, model: built.model, overlays: built.overlays, row: h, baseMs, facing, style, gait: "idle", flashOn: false, corrX: 0, corrY: 0 };
     const { x, y } = projectMotion({ ...h, size: hogSize(style) }, performance.now() - baseMs, this.hogBounds);
     this.entities.place(view.marker, x, y);
     this.hogs.set(id, view);
