@@ -91,6 +91,7 @@ function buildSections(): Section[] {
     { key: "Click", desc: "Walk to a tile" },
     { key: "? / H", desc: "Open Help" },
     { key: "P", desc: "Open Appearance" },
+    { key: "O", desc: "Open Settings" },
     { key: "I", desc: "Open Inventory" },
     { key: "Esc", desc: "Close menu" },
   ];
@@ -101,7 +102,6 @@ function buildSections(): Section[] {
   controls.push({ key: "Carry + F", desc: "Throw held object" });
   if (pushEnabled) controls.push({ key: "Walk into a boulder", desc: "Push it" });
   if (commandPanelEnabled) controls.push({ key: "`", desc: "Open Commands" });
-  controls.push({ key: "V", desc: "First person / overhead camera" });
   controls.push({ key: "M", desc: "World map" });
   if (chatEnabled) controls.push({ key: "Enter", desc: "Open chat" });
 

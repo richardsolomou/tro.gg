@@ -1,3 +1,5 @@
+import { soundLevel, type SoundCategory } from "./sound-settings.js";
+
 type CueOptions = {
   volume?: number;
   minGapMs?: number;
@@ -50,13 +52,27 @@ const cues = {
   ],
 };
 
+/** Which Settings slider governs each cue — every cue belongs to exactly one. */
+const CUE_CATEGORY: Record<keyof typeof cues, SoundCategory> = {
+  footstepsWalk: "footsteps",
+  footstepsRun: "footsteps",
+  boulderPush: "world",
+  boulderSettle: "world",
+  hog: "world",
+  ghost: "world",
+  chatSend: "interface",
+  chatReceive: "interface",
+  command: "interface",
+  error: "interface",
+};
+
 class AudioCues {
   private lastPlayed = new Map<string, number>();
   private bases = new Map<string, HTMLAudioElement>();
 
   playFootstep(running: boolean) {
     this.play(running ? "footstepsRun" : "footstepsWalk", {
-      volume: running ? 0.022 : 0.017,
+      volume: running ? 0.0022 : 0.0017,
       minGapMs: running ? 95 : 140,
       rate: running ? [1.04, 1.14] : [0.94, 1.04],
     });
@@ -75,7 +91,7 @@ class AudioCues {
     const gain = AudioCues.falloff(distance);
     if (gain <= 0.02) return;
     this.play(running ? "footstepsRun" : "footstepsWalk", {
-      volume: (running ? 0.017 : 0.013) * gain,
+      volume: (running ? 0.0017 : 0.0013) * gain,
       minGapMs: 110,
       rate: running ? [1.04, 1.14] : [0.94, 1.04],
     });
@@ -86,8 +102,8 @@ class AudioCues {
   playHogStepAt(distance: number, size = 1) {
     const gain = AudioCues.falloff(distance);
     if (gain <= 0.02) return;
-    if (size > 1) this.play("footstepsWalk", { volume: 0.025 * gain, minGapMs: 260, rate: [0.55, 0.68] });
-    else this.play("footstepsWalk", { volume: 0.008 * gain, minGapMs: 150, rate: [1.7, 1.95] });
+    if (size > 1) this.play("footstepsWalk", { volume: 0.0025 * gain, minGapMs: 260, rate: [0.55, 0.68] });
+    else this.play("footstepsWalk", { volume: 0.0008 * gain, minGapMs: 150, rate: [1.7, 1.95] });
   }
 
   /** A boulder shoved or settling somewhere nearby. */
@@ -130,6 +146,8 @@ class AudioCues {
   }
 
   private play(name: keyof typeof cues, options: CueOptions = {}) {
+    const level = soundLevel(CUE_CATEGORY[name]);
+    if (level <= 0) return;
     const urls = cues[name];
     const now = performance.now();
     const minGapMs = options.minGapMs ?? 0;
@@ -139,7 +157,7 @@ class AudioCues {
     const url = urls[Math.floor(Math.random() * urls.length)]!;
     const base = this.base(url);
     const sound = base.cloneNode(true) as HTMLAudioElement;
-    sound.volume = options.volume ?? 0.2;
+    sound.volume = Math.min(1, (options.volume ?? 0.2) * level);
     sound.playbackRate = randomBetween(options.rate ?? [1, 1]);
     void sound.play().catch(() => {
       // Browsers can reject before the first user gesture; the next cue will retry.

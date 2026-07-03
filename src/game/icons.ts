@@ -168,15 +168,32 @@ function buildQuestion(): THREE.Group {
   return g;
 }
 
+/** A hand bell on its wooden mount (settings — the sound mix). */
+function buildBell(): THREE.Group {
+  const g = new THREE.Group();
+  const dome = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.28, 0.32, 7), propMat(ITEM_3D.gold));
+  dome.position.y = 0.42;
+  g.add(dome);
+  const lip = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.32, 0.08, 7), propMat(ITEM_3D.gold));
+  lip.position.y = 0.24;
+  g.add(lip);
+  propBox(g, 0.09, 0.12, 0.09, ITEM_3D.wood, 0, 0.63); // the handle
+  const clapper = new THREE.Mesh(new THREE.IcosahedronGeometry(0.08, 0), propMat(ITEM_3D.steel));
+  clapper.position.y = 0.14;
+  g.add(clapper);
+  return g;
+}
+
 const HUD_PROPS: Record<string, () => THREE.Object3D> = {
   inventory: buildSack,
   commands: buildLever,
   appearance: buildPaintPot,
   help: buildQuestion,
+  settings: buildBell,
 };
 
 /** A HUD panel-toggle icon canvas: the prop for that panel, same pipeline as items. */
-export function hudIcon(kind: "inventory" | "commands" | "appearance" | "help"): HTMLCanvasElement {
+export function hudIcon(kind: "inventory" | "commands" | "appearance" | "help" | "settings"): HTMLCanvasElement {
   return cached(`hud:${kind}`, () => {
     const model = HUD_PROPS[kind]!();
     model.rotation.y = 0.5;

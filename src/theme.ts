@@ -1,3 +1,5 @@
+import { onSoundLevel, soundLevel } from "./sound-settings.js";
+
 /**
  * The game theme, composed in code (nothing else in this project ships modelled
  * assets either): a slow generative ambient — two detuned pads breathing under
@@ -40,7 +42,13 @@ class GameTheme {
     // restarts the generative stream, and the slow swell makes that seamless
     master.gain.setValueAtTime(0.0001, ctx.currentTime);
     master.gain.exponentialRampToValueAtTime(0.085, ctx.currentTime + 3.5);
-    master.connect(ctx.destination);
+    // the Settings "Music" slider, applied live on top of the fade
+    const mix = ctx.createGain();
+    mix.gain.value = soundLevel("music");
+    onSoundLevel((category, level) => {
+      if (category === "music") mix.gain.setTargetAtTime(level, ctx.currentTime, 0.08);
+    });
+    master.connect(mix).connect(ctx.destination);
 
     // a soft echo bed for the plucks
     const delay = ctx.createDelay(1.5);

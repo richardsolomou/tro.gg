@@ -324,6 +324,27 @@
   white-space: nowrap;
 }
 
+/* ── Settings ────────────────────────────────────────────────────────────── */
+#hud .settings-rows {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 6px 10px;
+  align-items: center;
+}
+#hud .settings-rows input[type="range"] {
+  width: 150px;
+  accent-color: var(--hud-ember);
+}
+#hud .settings-label {
+  cursor: pointer;
+}
+#hud .settings-value {
+  color: var(--hud-bone-dim);
+  font-variant-numeric: tabular-nums;
+  min-width: 3.2em;
+  text-align: right;
+}
+
 /* ── Appearance ──────────────────────────────────────────────────────────── */
 #hud .appearance-body {
   width: min(248px, calc(100vw - 24px));

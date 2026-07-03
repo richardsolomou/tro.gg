@@ -7,6 +7,7 @@ import { connect } from "./net/net.js";
 import { mountAccount } from "./ui/account.js";
 import { mountAppearance } from "./ui/appearance.js";
 import { mountHelp } from "./ui/help.js";
+import { mountSettings } from "./ui/settings.js";
 import { mountWorldMap } from "./ui/worldmap.js";
 import { mountInventory } from "./ui/inventory.js";
 import { startReconnect } from "./net/reconnect.js";
@@ -73,6 +74,7 @@ async function main() {
     // HUD chrome (help, appearance, account) is HTML overlaid on the canvas (hud.css);
     // chat is mounted by the scene since its speech bubbles live in the world.
     mountHelp();
+    mountSettings();
     // Appearance (name/colour/style) is for every player, no auth needed; it sits in the
     // top-left stack beside Help.
     mountAppearance(conn);
