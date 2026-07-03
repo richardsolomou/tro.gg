@@ -548,6 +548,25 @@ export function createEntities(scene: THREE.Scene) {
     ghosts.push({ root, materials, bornMs: performance.now(), from, drift });
   };
 
+  /** The white hit pop for things without a rig (boulders, trees): every standard
+   *  material flashes white for a beat, then restores its own base colour. */
+  const flashHit = (group: THREE.Group) => {
+    const standards: THREE.MeshStandardMaterial[] = [];
+    group.traverse((child) => {
+      const m = (child as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
+      if (m?.isMeshStandardMaterial) standards.push(m);
+    });
+    for (const m of standards) {
+      m.userData.baseColor ??= m.color.getHex();
+      m.color.setHex(0xffffff);
+    }
+    setTimeout(() => {
+      for (const m of standards) {
+        if (m.userData.baseColor !== undefined) m.color.setHex(m.userData.baseColor);
+      }
+    }, 130);
+  };
+
   /** Pop a floating damage number above a hit creature (GDD "Combat"). The number
    *  anchors to the world, not the marker, so a killing blow's number survives the
    *  target's row (and marker) vanishing. */
@@ -597,7 +616,7 @@ export function createEntities(scene: THREE.Scene) {
     }
   };
 
-  return { place, smoothPlace, headTop, makeMarker, animate, makeHog, animateHog, makeBoulder, makeTree, makeGroundItem, applyCarry, applyEquipment, showBubble, showDamage, destroy, hauntGhost, updateGhosts, setHitboxes, updateReach };
+  return { place, smoothPlace, headTop, makeMarker, animate, makeHog, animateHog, makeBoulder, makeTree, makeGroundItem, applyCarry, applyEquipment, showBubble, showDamage, flashHit, destroy, hauntGhost, updateGhosts, setHitboxes, updateReach };
 }
 
 export type Entities = ReturnType<typeof createEntities>;

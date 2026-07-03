@@ -224,27 +224,41 @@ function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; d
   // Melee resolves by reach and swing arc around the exact aim vector (shared
   // meleeHit), not tile adjacency — free movement means the eye judges reach in
   // world units. The server re-derives every position; nearest hit wins.
-  // Tools take their gathering node first; any weapon with a damage number
-  // wounds the nearest creature when no node claims the swing.
+  // Tools take their gathering node first: each swing rolls the tool's damage
+  // into the node's health, and the breaking hit grants the resource (refused —
+  // node left barely standing — when no inventory slot can take it). Any weapon
+  // with a damage range wounds the nearest creature when no node claims the swing.
   const cx = pos.x + 0.5;
   const cy = pos.y + 0.5;
+  const range = weaponDamageRange(equipped.item);
   let gathered = false;
   if (equipped.item === "pickaxe") {
     const b = meleeBoulderTarget(ctx, p.zoneId, cx, cy, aim);
-    if (b && addInventory(ctx, p.identity, "stone", 1)) {
-      ctx.db.boulder.id.delete(b.target.id);
-      events.push({ distinctId: distinctId(ctx), event: "inventory_item_acquired", properties: { zone: p.zoneId, item: "stone", qty: 1, ...sourceProp(source) } });
-      gathered = true;
+    if (b) {
+      const damage = ctx.random.integerInRange(range![0], range![1]);
+      if (b.target.health > damage) {
+        ctx.db.boulder.id.update({ ...b.target, health: b.target.health - damage });
+        gathered = true;
+      } else if (addInventory(ctx, p.identity, "stone", 1)) {
+        ctx.db.boulder.id.delete(b.target.id);
+        events.push({ distinctId: distinctId(ctx), event: "inventory_item_acquired", properties: { zone: p.zoneId, item: "stone", qty: 1, ...sourceProp(source) } });
+        gathered = true;
+      }
     }
   } else if (equipped.item === "axe") {
     const tr = meleeTreeTarget(ctx, p.zoneId, cx, cy, aim);
-    if (tr && addInventory(ctx, p.identity, "wood", 1)) {
-      ctx.db.tree.id.delete(tr.target.id);
-      events.push({ distinctId: distinctId(ctx), event: "inventory_item_acquired", properties: { zone: p.zoneId, item: "wood", qty: 1, ...sourceProp(source) } });
-      gathered = true;
+    if (tr) {
+      const damage = ctx.random.integerInRange(range![0], range![1]);
+      if (tr.target.health > damage) {
+        ctx.db.tree.id.update({ ...tr.target, health: tr.target.health - damage });
+        gathered = true;
+      } else if (addInventory(ctx, p.identity, "wood", 1)) {
+        ctx.db.tree.id.delete(tr.target.id);
+        events.push({ distinctId: distinctId(ctx), event: "inventory_item_acquired", properties: { zone: p.zoneId, item: "wood", qty: 1, ...sourceProp(source) } });
+        gathered = true;
+      }
     }
   }
-  const range = weaponDamageRange(equipped.item);
   if (!gathered && range) {
     const damage = ctx.random.integerInRange(range[0], range[1]);
     const trogg = meleePlayerTarget(ctx, p.zoneId, cx, cy, aim, ctx.timestamp, p.identity);

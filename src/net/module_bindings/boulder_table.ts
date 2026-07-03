@@ -15,4 +15,5 @@ export default __t.row({
   zoneId: __t.string().name("zone_id"),
   x: __t.i32(),
   y: __t.i32(),
+  health: __t.i32(),
 });

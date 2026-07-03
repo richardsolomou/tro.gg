@@ -13,6 +13,8 @@ import {
   hogStyleFor,
   hogSize,
   HOG_MAX_HEALTH,
+  BOULDER_MAX_HEALTH,
+  TREE_MAX_HEALTH,
   MAX_BOULDERS_PER_ZONE,
   MAX_HOGS_PER_ZONE,
   projectMotion,
@@ -313,7 +315,7 @@ export function placeCarriedAt(ctx: Ctx, zone: Zone, kind: string, style: string
   // same outcome as a boxed-in drop — so nothing is lost.
   if (kind === "boulder") {
     if (countRows(ctx.db.boulder.zoneId.filter(zone.slug)) >= MAX_BOULDERS_PER_ZONE) return false;
-    ctx.db.boulder.insert({ id: 0n, zoneId: zone.slug, x: tile.x, y: tile.y });
+    ctx.db.boulder.insert({ id: 0n, zoneId: zone.slug, x: tile.x, y: tile.y, health: BOULDER_MAX_HEALTH });
   } else if (kind === "hog") {
     if (countRows(ctx.db.hog.zoneId.filter(zone.slug)) >= MAX_HOGS_PER_ZONE) return false;
     ctx.db.hog.insert({ id: 0n, zoneId: zone.slug, x: tile.x, y: tile.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, path: "", homeX: tile.x, homeY: tile.y, style, health: HOG_MAX_HEALTH });

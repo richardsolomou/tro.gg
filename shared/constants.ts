@@ -95,6 +95,12 @@ export const INVENTORY_SLOT_COUNT = 20;
 export const PLAYER_MAX_HEALTH = 100;
 export const HOG_MAX_HEALTH = 60;
 
+/** Gathering-node health: a boulder or tree soaks a few tool swings (each rolls
+ *  the tool's WEAPON_DAMAGE range) before it breaks and grants its resource —
+ *  roughly three average hits each. (initial) */
+export const BOULDER_MAX_HEALTH = 45;
+export const TREE_MAX_HEALTH = 54;
+
 /**
  * Per-weapon melee damage as an inclusive [floor, ceiling] — every accepted hit
  * rolls inside its weapon's range with the reducer's context RNG, so no two

@@ -20,6 +20,8 @@ import {
   PLAYER_RESPAWN_MS,
   SPACETIMEAUTH_ISSUER,
   WEAPON_DAMAGE,
+  BOULDER_MAX_HEALTH,
+  TREE_MAX_HEALTH,
   THROWN_OBJECT_DAMAGE,
 } from "@trogg/shared";
 import {
@@ -418,12 +420,23 @@ test("discardItem unequips the main hand when the discarded row was equipped", (
   assert.equal(p.equippedMainHandInventoryId, 0n);
 });
 
-test("useEquipped mines a faced boulder with a pickaxe without stopping movement", () => {
+test("mining takes swings: each hit chips the boulder, the breaking hit grants stone", () => {
   const { ctx, me } = withPlayer({ x: 69, y: 96, dirX: 1, dirY: 0, running: true, equippedMainHand: "pickaxe" });
   const pickaxe = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "pickaxe", qty: 1 });
   ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedMainHandInventoryId: pickaxe.id });
-  ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96 });
-  useEquipped(ctx, { dirX: 1, dirY: 0 });
+  const b = ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96, health: BOULDER_MAX_HEALTH });
+
+  // the mock RNG rolls the floor of the pickaxe's range every swing
+  const perHit = WEAPON_DAMAGE.pickaxe![0];
+  const swings = Math.ceil(BOULDER_MAX_HEALTH / perHit);
+  for (let i = 0; i < swings; i++) {
+    ctx.timestamp = { microsSinceUnixEpoch: micros(1000 * (i + 1)) }; // past the use cooldown
+    useEquipped(ctx, { dirX: 1, dirY: 0 });
+    if (i < swings - 1) {
+      assert.equal(ctx.db.boulder.id.find(b.id)?.health, BOULDER_MAX_HEALTH - perHit * (i + 1));
+      assert.equal(ctx.db.inventory.rows().some((r: any) => r.item === "stone"), false);
+    }
+  }
   assert.equal(ctx.db.boulder.rows().length, 0);
   assert.equal(ctx.db.inventory.rows().find((r: any) => r.item === "stone")?.qty, 1);
   const p = ctx.db.player.identity.find(me);
@@ -431,11 +444,19 @@ test("useEquipped mines a faced boulder with a pickaxe without stopping movement
   assert.deepEqual({ dirX: p.dirX, dirY: p.dirY, running: p.running, path: p.path }, { dirX: 1, dirY: 0, running: true, path: "" });
 });
 
-test("useEquipped fells a faced tree with an axe into one wood", () => {
+test("an axe chips a fresh tree, and the breaking blow on a worn one grants wood", () => {
   const { ctx, me } = withPlayer({ x: 69, y: 96, equippedMainHand: "axe" });
   const axe = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "axe", qty: 1 });
   ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedMainHandInventoryId: axe.id });
-  ctx.db.tree.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96 });
+  const perHit = WEAPON_DAMAGE.axe![0];
+  const tr = ctx.db.tree.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96, health: TREE_MAX_HEALTH });
+
+  useEquipped(ctx, { dirX: 1, dirY: 0 });
+  assert.equal(ctx.db.tree.id.find(tr.id)?.health, TREE_MAX_HEALTH - perHit); // chipped, still standing
+  assert.equal(ctx.db.inventory.rows().some((r: any) => r.item === "wood"), false);
+
+  ctx.db.tree.id.update({ ...ctx.db.tree.id.find(tr.id), health: perHit }); // worn to the last blow
+  ctx.timestamp = { microsSinceUnixEpoch: micros(1000) }; // past the use cooldown
   useEquipped(ctx, { dirX: 1, dirY: 0 });
   assert.equal(ctx.db.tree.rows().length, 0);
   assert.equal(ctx.db.inventory.rows().find((r: any) => r.item === "wood")?.qty, 1);
@@ -457,11 +478,12 @@ test("useEquipped does not mine a boulder when there is no slot for a new stone 
   const pickaxe = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "pickaxe", qty: 1 });
   ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedMainHandInventoryId: pickaxe.id });
   for (let i = 1; i < INVENTORY_SLOT_COUNT; i++) ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });
-  const boulder = ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96 });
+  // worn to the last blow: this swing would break it, but there is nowhere to put the stone
+  const boulder = ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96, health: WEAPON_DAMAGE.pickaxe![0] });
 
   useEquipped(ctx, { dirX: 1, dirY: 0 });
 
-  assert.equal(ctx.db.boulder.id.find(boulder.id)?.x, 70);
+  assert.equal(ctx.db.boulder.id.find(boulder.id)?.health, WEAPON_DAMAGE.pickaxe![0]); // still standing
   assert.equal(ctx.db.inventory.rows().some((r: any) => r.item === "stone"), false);
 });
 
@@ -510,13 +532,13 @@ test("a tool takes its gathering node over a creature in the same swing", () => 
   const { ctx, me } = withPlayer({ x: 69, y: 96, equippedMainHand: "pickaxe" });
   const pickaxe = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "pickaxe", qty: 1 });
   ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedMainHandInventoryId: pickaxe.id });
-  ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96 });
+  const b = ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96, health: BOULDER_MAX_HEALTH });
   const other = id("other");
   ctx.db.player.insert(playerRow(other, { x: 70, y: 97, health: PLAYER_MAX_HEALTH }));
 
   useEquipped(ctx, { dirX: 1, dirY: 0 });
 
-  assert.equal(ctx.db.boulder.rows().length, 0); // mined
+  assert.equal(ctx.db.boulder.id.find(b.id)?.health, BOULDER_MAX_HEALTH - WEAPON_DAMAGE.pickaxe![0]); // chipped
   assert.equal(ctx.db.player.identity.find(other).health, PLAYER_MAX_HEALTH); // spared
 });
 

@@ -7,6 +7,8 @@ import {
   isValidName,
   isWalkable,
   HOG_MAX_HEALTH,
+  BOULDER_MAX_HEALTH,
+  TREE_MAX_HEALTH,
   SPACETIMEAUTH_ISSUER,
   walkableCardinals,
   type Zone,
@@ -84,7 +86,7 @@ export function healStaleWorld(ctx: Ctx, zone: Zone): void {
 export function seedBoulders(ctx: Ctx, zone: Zone): void {
   if ([...ctx.db.boulder.zoneId.filter(zone.slug)].length > 0) return;
   for (const b of zone.boulders) {
-    ctx.db.boulder.insert({ id: 0n, zoneId: zone.slug, x: b.x, y: b.y });
+    ctx.db.boulder.insert({ id: 0n, zoneId: zone.slug, x: b.x, y: b.y, health: BOULDER_MAX_HEALTH });
   }
 }
 
@@ -92,7 +94,7 @@ export function seedBoulders(ctx: Ctx, zone: Zone): void {
 export function seedTrees(ctx: Ctx, zone: Zone): void {
   if ([...ctx.db.tree.zoneId.filter(zone.slug)].length > 0) return;
   for (const tr of zone.trees) {
-    ctx.db.tree.insert({ id: 0n, zoneId: zone.slug, x: tr.x, y: tr.y });
+    ctx.db.tree.insert({ id: 0n, zoneId: zone.slug, x: tr.x, y: tr.y, health: TREE_MAX_HEALTH });
   }
 }
 

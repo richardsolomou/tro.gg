@@ -6,6 +6,8 @@ import {
   isHogStyle,
   isSpawnableItemId,
   HOG_MAX_HEALTH,
+  BOULDER_MAX_HEALTH,
+  TREE_MAX_HEALTH,
   MAX_BOULDERS_PER_ZONE,
   MAX_GROUND_ITEMS_PER_ZONE,
   MAX_HOGS_PER_ZONE,
@@ -69,9 +71,9 @@ function runSpawn(ctx: Ctx, { kind, item = "", source = "" }: { kind: string; it
   if (!tile) return [];
 
   if (kind === "boulder") {
-    ctx.db.boulder.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y });
+    ctx.db.boulder.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y, health: BOULDER_MAX_HEALTH });
   } else if (kind === "tree") {
-    ctx.db.tree.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y });
+    ctx.db.tree.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y, health: TREE_MAX_HEALTH });
   } else if (kind === "hog") {
     // A spawned Hog starts at rest and joins the roamers — the next wander tick
     // gives it a heading like any other. `item` carries an explicit sprite style.

@@ -9,6 +9,8 @@ import {
   hogSize,
   STYLE_UNSET,
   HOG_MAX_HEALTH,
+  BOULDER_MAX_HEALTH,
+  TREE_MAX_HEALTH,
   PLAYER_MAX_HEALTH,
   projectMotion,
   tileKey,
@@ -184,6 +186,8 @@ const boulder = table(
     zoneId: t.string().index("btree"),
     x: t.i32(),
     y: t.i32(),
+    // Appended with a default (see the player table's migration note).
+    health: t.i32().default(BOULDER_MAX_HEALTH),
   },
 );
 
@@ -200,6 +204,8 @@ const tree = table(
     zoneId: t.string().index("btree"),
     x: t.i32(),
     y: t.i32(),
+    // Appended with a default (see the player table's migration note).
+    health: t.i32().default(TREE_MAX_HEALTH),
   },
 );
 

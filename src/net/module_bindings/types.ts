@@ -15,6 +15,7 @@ export const Boulder = __t.object("Boulder", {
   zoneId: __t.string(),
   x: __t.i32(),
   y: __t.i32(),
+  health: __t.i32(),
 });
 export type Boulder = __Infer<typeof Boulder>;
 
@@ -135,6 +136,7 @@ export const Tree = __t.object("Tree", {
   zoneId: __t.string(),
   x: __t.i32(),
   y: __t.i32(),
+  health: __t.i32(),
 });
 export type Tree = __Infer<typeof Tree>;
 

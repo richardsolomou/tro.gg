@@ -13,6 +13,8 @@ import {
   hogSize,
   hogStyleFor,
   PLAYER_RESPAWN_MS,
+  BOULDER_MAX_HEALTH,
+  TREE_MAX_HEALTH,
   projectMotion,
   projectMotionState,
   snapToTile,
@@ -776,7 +778,17 @@ export class World3D {
   private wireTrees(): void {
     const conn = this.conn;
     conn.db.tree.onInsert((_ctx, row) => this.upsertTree(row));
-    conn.db.tree.onDelete((_ctx, row) => this.removeTree(row));
+    conn.db.tree.onUpdate((_ctx, _old, row) => {
+      const view = this.trees.get(row.id.toString());
+      if (view && row.health < _old.health) this.nodeHit(view.group, _old.health - row.health, 1.9);
+      this.upsertTree(row);
+    });
+    conn.db.tree.onDelete((_ctx, row) => {
+      // a full-health delete is a reset/heal wipe, not the felling blow
+      const view = this.trees.get(row.id.toString());
+      if (view && row.health < TREE_MAX_HEALTH) this.nodeHit(view.group, row.health, 1.9);
+      this.removeTree(row);
+    });
   }
 
   private upsertBoulder(b: Boulder): void {
@@ -800,14 +812,31 @@ export class World3D {
     this.syncBoulderTiles();
   }
 
+  /** A tool swing landed on a gathering node: white pop + a floating damage
+   *  number, exactly the feedback a creature hit gives (GDD "Boulders and trees").
+   *  The breaking hit arrives as a delete; the row's remaining health is the
+   *  damage that swing effectively dealt. */
+  private nodeHit(group: THREE.Group, amount: number, headY: number): void {
+    if (!this.sub.live) return;
+    this.entities.flashHit(group);
+    this.entities.showDamage(group, amount, headY);
+  }
+
   private wireBoulders(): void {
     const conn = this.conn;
     conn.db.boulder.onInsert((_ctx, b) => this.upsertBoulder(b));
     conn.db.boulder.onUpdate((_ctx, _old, b) => {
       if (this.sub.live && (_old.x !== b.x || _old.y !== b.y)) audio.playBoulderSettleAt(this.hearingDistance(b.x + 0.5, b.y + 0.5));
+      const view = this.boulders.get(b.id.toString());
+      if (view && b.health < _old.health) this.nodeHit(view.group, _old.health - b.health, 0.85);
       this.upsertBoulder(b);
     });
-    conn.db.boulder.onDelete((_ctx, b) => this.removeBoulder(b));
+    conn.db.boulder.onDelete((_ctx, b) => {
+      // a full-health delete is a reset/heal wipe, not a mining blow
+      const view = this.boulders.get(b.id.toString());
+      if (view && b.health < BOULDER_MAX_HEALTH) this.nodeHit(view.group, b.health, 0.85);
+      this.removeBoulder(b);
+    });
   }
 
   private upsertGroundItem(row: GroundItem): void {
