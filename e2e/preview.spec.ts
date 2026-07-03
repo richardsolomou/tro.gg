@@ -11,7 +11,7 @@ import { expect, test, type Page } from "@playwright/test";
 const BG = { r: 0x0a, g: 0x08, b: 0x06 };
 
 /** Wait for the first painted frame, then count canvas pixels that differ from the background.
- *  `preserveDrawingBuffer` (set on the preview's Phaser game) lets a 2D context read them back. */
+ *  `preserveDrawingBuffer` (set on the preview's renderer) lets a 2D context read them back. */
 async function nonBackgroundPixels(page: Page): Promise<number> {
   await page.waitForFunction(() => (window as unknown as { __previewReady?: boolean }).__previewReady === true);
   return page.evaluate((bg) => {

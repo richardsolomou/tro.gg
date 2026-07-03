@@ -1,7 +1,6 @@
 import * as THREE from "three";
 import { forward, HOG_MAX_HEALTH, hogSize, PLAYER_MAX_HEALTH, timestampMs, type EquipSlot, type Facing, type ProjectedMotion, type Stamp } from "@trogg/shared";
 import type { Player } from "../net/module_bindings/types";
-import { FLINCH_MS } from "../game/equipment.js";
 import { audio } from "../audio.js";
 import { buildGhost, buildHog, buildHogBall, buildTrogg } from "./creatures3d.js";
 import { buildBoulder, buildGroundItem, buildHeldItem } from "./items3d.js";
@@ -17,8 +16,10 @@ import { UI_3D } from "./palette.js";
  * anchor, and each creature group centres its own footprint.
  */
 
-/** How long a visible equipment use impulse lasts (matches the 2D client). */
+/** How long a visible equipment use impulse lasts — a quick strike plus recovery. */
 const EQUIPMENT_ACTION_MS = 300;
+/** How long a hit-flinch (recoil + flash) plays. */
+export const FLINCH_MS = 240;
 /** The flinch recoil distance, in tiles. */
 const FLINCH_SHOVE = 0.1;
 const GHOST_FADE_IN_MS = 900;
@@ -107,6 +108,31 @@ function setDowned(model: CreatureModel, downed: boolean): void {
   for (const m of model.materials) {
     m.transparent = downed;
     m.opacity = downed ? 0.45 : 1;
+  }
+}
+
+/** The hit flinch: recoil the body opposite its facing and flash it white. Shared
+ *  with the art preview, so the flinch there is exactly the in-game one. */
+export function applyFlinch(view: { model: CreatureModel; facing: Facing; flinchBaseMs?: number; flashOn: boolean }, now: number, centre: number): void {
+  const root = view.model.root;
+  if (view.flinchBaseMs === undefined) return;
+  const t = (now - view.flinchBaseMs) / FLINCH_MS;
+  if (t >= 1) {
+    view.flinchBaseMs = undefined;
+    root.position.set(centre, 0, centre);
+    if (view.flashOn) {
+      view.model.flash(false);
+      view.flashOn = false;
+    }
+    return;
+  }
+  const f = forward(view.facing);
+  const k = FLINCH_SHOVE * Math.sin(Math.max(0, t) * Math.PI);
+  root.position.set(centre - f.x * k, 0, centre - f.y * k);
+  const flash = t < 0.35;
+  if (flash !== view.flashOn) {
+    view.model.flash(flash);
+    view.flashOn = flash;
   }
 }
 
@@ -202,30 +228,6 @@ export function createEntities(scene: THREE.Scene) {
       entry.attacking = false;
       entry.model.actions.attack.fadeOut(0.1);
       entry.model.actions[entry.gait].reset().fadeIn(0.1).play();
-    }
-  };
-
-  /** The hit flinch: recoil the body opposite its facing and flash it white. */
-  const applyFlinch = (view: { model: CreatureModel; facing: Facing; flinchBaseMs?: number; flashOn: boolean }, now: number, centre: number) => {
-    const root = view.model.root;
-    if (view.flinchBaseMs === undefined) return;
-    const t = (now - view.flinchBaseMs) / FLINCH_MS;
-    if (t >= 1) {
-      view.flinchBaseMs = undefined;
-      root.position.set(centre, 0, centre);
-      if (view.flashOn) {
-        view.model.flash(false);
-        view.flashOn = false;
-      }
-      return;
-    }
-    const f = forward(view.facing);
-    const k = FLINCH_SHOVE * Math.sin(Math.max(0, t) * Math.PI);
-    root.position.set(centre - f.x * k, 0, centre - f.y * k);
-    const flash = t < 0.35;
-    if (flash !== view.flashOn) {
-      view.model.flash(flash);
-      view.flashOn = flash;
     }
   };
 

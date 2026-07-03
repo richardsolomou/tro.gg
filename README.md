@@ -19,7 +19,7 @@ You're a trogg in a shared world. Gather, craft better gear, and push into harde
 
 ## Status
 
-Playable shared-world foundation: SpacetimeDB module + client wired, one zone with presence, grid movement, boulders, roaming Hogs, account claiming, avatar sprites, recolouring, and zone chat. State lives in durable SpacetimeDB tables, so players and chat resume across reconnects and restarts.
+Playable shared-world foundation: SpacetimeDB module + client wired, one zone with presence, grid movement, boulders, roaming Hogs, account claiming, 3D avatars, recolouring, and zone chat. State lives in durable SpacetimeDB tables, so players and chat resume across reconnects and restarts.
 
 ## Development
 
@@ -27,7 +27,7 @@ The repo follows SpacetimeDB's layout:
 
 | Path | What it is | Runs on |
 | ---- | ---------- | ------- |
-| `src/` | Three.js + Vite game client (`spacetimedb` SDK, `posthog-js`), grouped into `game3d/` (the 3D world renderer), `game/` (the 2D pixel pipeline kept for the art preview + inventory icons), `ui/` (HTML/CSS HUD), and `net/` (connection + the generated `module_bindings/`, produced from the module schema) | Cloudflare Workers |
+| `src/` | Three.js + Vite game client (`spacetimedb` SDK, `posthog-js`), grouped into `game3d/` (the 3D world: renderer, creature/item models, rig, HUD icons), `preview/` (the dev model preview page), `ui/` (HTML/CSS HUD), and `net/` (connection + the generated `module_bindings/`, produced from the module schema) | Cloudflare Workers |
 | `spacetimedb/` | SpacetimeDB TypeScript module — the tables, reducers, and telemetry procedure wrappers that are the whole backend (matches SpacetimeDB's template layout; intentionally not a pnpm workspace package, so it resolves the SDK from the root `node_modules`) | Self-hosted SpacetimeDB (Hetzner VPS) |
 | `shared/` | Pure game logic (motion, constants, avatar colours), imported by both the client and the module | — |
 

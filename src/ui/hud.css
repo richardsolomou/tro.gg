@@ -1,9 +1,9 @@
 /*
- * HUD chrome — HTML/CSS overlays above the Phaser canvas (chat, account, help,
+ * HUD chrome — HTML/CSS overlays above the game canvas (chat, account, help,
  * appearance, inventory, commands).
  * GSC-inspired pixel HUD: solid ink panels, high-contrast cream text, amber
  * active states, and bevels built from crisp 1px/2px shadows rather than soft UI
- * chrome. The world (troggs, bubbles, terrain) is drawn by Phaser; everything
+ * chrome. The world (troggs, bubbles, terrain) is drawn by the 3D renderer; everything
  * here is DOM, so the browser owns layout, text input, focus, and resize.
  */
 

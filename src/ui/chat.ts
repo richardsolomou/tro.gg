@@ -39,7 +39,7 @@ function isTyping(): boolean {
 /**
  * The chat history and input as an HTML overlay (`hud.css`). A real `<input>` owns
  * typing — so mobile keyboards, paste, IME, and editing are the browser's job — and
- * the log scrolls natively. Speech bubbles over troggs stay in Phaser (`setupChat`).
+ * the log scrolls natively. Speech bubbles over troggs stay in the world renderer (`setupChat`).
  */
 export function mountChat(send: (text: string) => void): ChatUI {
   const root = document.createElement("div");

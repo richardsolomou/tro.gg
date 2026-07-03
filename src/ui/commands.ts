@@ -1,5 +1,5 @@
-import avatarUrl from "../../assets/sprites/troggs-and-hogs.png";
-import { FRAME_H, FRAME_W, frameRect, HOG_STYLES, ITEMS, SHEET_H, SHEET_W, SPAWNABLE_ITEM_IDS, type HogStyle, type SpawnableItemId, type Zone } from "@trogg/shared";
+import { HOG_STYLES, ITEMS, SPAWNABLE_ITEM_IDS, type HogStyle, type SpawnableItemId, type Zone } from "@trogg/shared";
+import { hogIcon as hogModelIcon } from "../game3d/icons3d.js";
 import type { DbConnection } from "../net/module_bindings";
 import { logError, logInfo } from "../analytics.js";
 import { audio } from "../audio.js";
@@ -235,16 +235,9 @@ function spawnButton(label: string, icon: HTMLElement | SVGSVGElement, onClick: 
   return button;
 }
 
-function hogIcon(style: HogStyle): HTMLSpanElement {
-  const frame = frameRect("hog", style, "down", "idle");
-  const scale = 1;
-  const icon = document.createElement("span");
-  icon.className = "command-avatar-icon";
-  icon.style.width = `${FRAME_W * scale}px`;
-  icon.style.height = `${FRAME_H * scale}px`;
-  icon.style.backgroundImage = `url("${avatarUrl}")`;
-  icon.style.backgroundSize = `${SHEET_W * scale}px ${SHEET_H * scale}px`;
-  icon.style.backgroundPosition = `-${frame.x * scale}px -${frame.y * scale}px`;
+function hogIcon(style: HogStyle): HTMLElement {
+  const icon = hogModelIcon(style);
+  icon.classList.add("command-avatar-icon");
   return icon;
 }
 
