@@ -114,6 +114,14 @@ export const INVENTORY_SLOT_COUNT = 10;
 export const PLAYER_MAX_HEALTH = 100;
 export const HOG_MAX_HEALTH = 60;
 export const SWORD_DAMAGE = 25;
+
+/** How long a visible equipment-use impulse lasts — the attack clip length. */
+export const EQUIPMENT_ACTION_MS = 300;
+
+/** Server-enforced floor between equipment uses: chaining at the swing cadence is
+ *  fine, spamming faster than the animation is not. Slightly under
+ *  EQUIPMENT_ACTION_MS so a hold-to-attack client never races the clock. */
+export const EQUIPMENT_USE_COOLDOWN_MS = 250;
 export const THROWN_OBJECT_DAMAGE = 40;
 export const THROWN_OBJECT_RANGE = 4;
 export const PLAYER_RESPAWN_MS = 5000;

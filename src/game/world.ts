@@ -417,6 +417,7 @@ export class World3D {
     entry.respawn = built.respawn;
     entry.gait = "idle";
     entry.attacking = undefined;
+    entry.attackingBaseMs = undefined;
     entry.flashOn = false;
     entry.bubble = undefined;
     entry.bubbleTimer = undefined;

@@ -2,6 +2,8 @@ import spacetimedb, { type Ctx, type AnalyticsEvent } from "../schema";
 import { t } from "spacetimedb/server";
 import { ScheduleAt, Timestamp } from "spacetimedb";
 import {
+  elapsedMs,
+  EQUIPMENT_USE_COOLDOWN_MS,
   equipSlotOf,
   getZone,
   isEquippableItem,
@@ -211,6 +213,8 @@ function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; d
 
   const equipped = equippedInventoryRow(ctx, p);
   if (!equipped) return [];
+  // a fresh use inside the previous swing's cooldown is dropped (invariant 3)
+  if (p.equipmentAction !== "" && elapsedMs(p.equipmentActionAt, ctx.timestamp) < EQUIPMENT_USE_COOLDOWN_MS) return [];
 
   if (equipped.item === "pickaxe") {
     const ax = Math.round(pos.x) + dir.dirX;

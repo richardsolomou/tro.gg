@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { forward, HOG_MAX_HEALTH, hogSize, PLAYER_MAX_HEALTH, RUN_SPEED_TILES_PER_SEC, timestampMs, wieldOf, type EquipSlot, type Facing, type ProjectedMotion, type Stamp } from "@trogg/shared";
+import { EQUIPMENT_ACTION_MS, forward, HOG_MAX_HEALTH, hogSize, PLAYER_MAX_HEALTH, RUN_SPEED_TILES_PER_SEC, timestampMs, wieldOf, type EquipSlot, type Facing, type ProjectedMotion, type Stamp } from "@trogg/shared";
 import type { Player } from "../net/module_bindings/types";
 import { audio } from "../audio.js";
 import { buildGhost, buildHog, buildHogBall, buildTrogg } from "./creatures.js";
@@ -16,8 +16,6 @@ import { UI_3D } from "./palette.js";
  * anchor, and each creature group centres its own footprint.
  */
 
-/** How long a visible equipment use impulse lasts — a quick strike plus recovery. */
-const EQUIPMENT_ACTION_MS = 300;
 /** How fast a render-position correction closes (per second): ~120 ms to glide out. */
 const CORRECTION_DECAY = 9;
 /** Corrections beyond this are genuine teleports (respawn, zone snap) — don't glide. */
@@ -47,6 +45,9 @@ export interface Tracked {
   gait: Gait;
   /** The in-flight attack action, so the same one fades out when the impulse ends. */
   attacking?: THREE.AnimationAction;
+  /** The impulse the in-flight attack was started for — a fresh stamp mid-swing
+   *  (chained attacks) restarts the strike. */
+  attackingBaseMs?: number;
   flashOn: boolean;
   /** Render-position correction state (`smoothPlace`). */
   shownX?: number;
@@ -273,13 +274,16 @@ export function createEntities(scene: THREE.Scene) {
    *  the bare-fisted swing. */
   const driveAttack = (entry: Tracked, now: number) => {
     const phase = attackPhase(entry, now);
-    if (phase !== undefined && !entry.attacking) {
+    if (phase !== undefined && entry.attackingBaseMs !== entry.equipmentActionBaseMs) {
+      if (!entry.attacking) entry.model.actions[entry.gait].arms.fadeOut(0.05);
+      entry.attacking?.stop();
       entry.attacking = entry.model.actions.attacks[wieldOf(entry.player.equippedMainHand)];
-      entry.model.actions[entry.gait].arms.fadeOut(0.05);
+      entry.attackingBaseMs = entry.equipmentActionBaseMs;
       entry.attacking.reset().setDuration(ATTACK_PERIOD).fadeIn(0.05).play();
     } else if (phase === undefined && entry.attacking) {
       entry.attacking.fadeOut(0.1);
       entry.attacking = undefined;
+      entry.attackingBaseMs = undefined;
       entry.model.actions[entry.gait].arms.reset().fadeIn(0.1).play();
     }
   };

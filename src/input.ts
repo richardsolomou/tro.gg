@@ -1,3 +1,5 @@
+import { EQUIPMENT_ACTION_MS } from "@trogg/shared";
+
 /** A movement direction: each axis −1/0/1, diagonals allowed; (0, 0) = stop. */
 interface Dir {
   dirX: number;
@@ -35,8 +37,9 @@ const KEY_VECTORS: Record<string, Dir> = {
  * where it is. Reports only on transitions (invariant 2: input-driven, never per-frame).
  * `onInteract` fires on the interact key (`E`) — a discrete press (auto-repeat ignored),
  * the generic action key the world layer uses to pick up / put down (GDD "Interacting").
- * `onUseEquipped` fires on `F`, a discrete use of the currently equipped main-hand
- * item (GDD "Avatars and equipment").
+ * `onUseEquipped` fires on `F` and repeats at the swing cadence while `F` stays
+ * held, so chained attacks are a hold, not a tap-per-swing (GDD "Avatars and
+ * equipment"). The server's use cooldown stays the authority on rate.
  * Returns a teardown that detaches the listeners.
  */
 export function attachKeyboard(
@@ -47,6 +50,7 @@ export function attachKeyboard(
 ): () => void {
   const held = new Set<string>();
   let shiftHeld = false;
+  let useRepeat: number | undefined;
   let current: MoveIntent = { dirX: 0, dirY: 0, running: false };
 
   // Free 8-directional movement: the axes combine, so holding W+D walks the
@@ -85,6 +89,7 @@ export function attachKeyboard(
       if (e.repeat) return;
       e.preventDefault();
       onUseEquipped();
+      useRepeat ??= window.setInterval(onUseEquipped, EQUIPMENT_ACTION_MS);
       return;
     }
     if (SHIFT_CODES.has(e.code)) {
@@ -101,6 +106,11 @@ export function attachKeyboard(
   };
 
   const onKeyUp = (e: KeyboardEvent) => {
+    if (e.code === "KeyF") {
+      window.clearInterval(useRepeat);
+      useRepeat = undefined;
+      return;
+    }
     if (SHIFT_CODES.has(e.code)) {
       if (!shiftHeld) return;
       shiftHeld = false;
@@ -113,6 +123,8 @@ export function attachKeyboard(
 
   // A lost focus (tab switch, alt-tab) strands held keys; release them and stop now.
   const onBlur = () => {
+    window.clearInterval(useRepeat);
+    useRepeat = undefined;
     if (held.size === 0 && !shiftHeld) return;
     held.clear();
     shiftHeld = false;
@@ -124,6 +136,7 @@ export function attachKeyboard(
   window.addEventListener("blur", onBlur);
 
   return () => {
+    window.clearInterval(useRepeat);
     window.removeEventListener("keydown", onKeyDown);
     window.removeEventListener("keyup", onKeyUp);
     window.removeEventListener("blur", onBlur);
