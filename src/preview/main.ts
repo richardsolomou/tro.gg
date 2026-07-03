@@ -158,14 +158,15 @@ const flinchView = { facing: "down" as const, flashOn: false, flinchBaseMs: unde
 let boneDots: THREE.Group | undefined;
 let hitCycleAt = 0;
 
-function currentClip(): { action: THREE.AnimationAction; duration: number } | undefined {
+/** The actions the current mode plays: a gait's legs+arms layers together, or the
+ *  attack clip for the selected item's wield over the idle legs. */
+function currentClip(): { actions: THREE.AnimationAction[]; duration: number } | undefined {
   if (!model) return undefined;
-  // attack mode shows the wield class of the selected main-hand item
-  const action =
+  const actions =
     state.mode === "attack"
-      ? model.actions.attacks[wieldOf(state.item)]
-      : model.actions[state.mode === "walk" ? "walk" : state.mode === "run" ? "run" : "idle"];
-  return { action, duration: action.getClip().duration };
+      ? [model.actions.attacks[wieldOf(state.item)], model.actions.idle.legs]
+      : (({ legs, arms }) => [legs, arms])(model.actions[state.mode === "walk" ? "walk" : state.mode === "run" ? "run" : "idle"]);
+  return { actions, duration: actions[0]!.getClip().duration };
 }
 
 function rebuild(): void {
@@ -215,9 +216,9 @@ function rebuild(): void {
   }
 
   const clip = currentClip();
-  if (clip) {
-    if (state.mode === "attack") clip.action.setLoop(THREE.LoopRepeat, Infinity);
-    clip.action.reset().play();
+  for (const action of clip?.actions ?? []) {
+    action.setLoop(THREE.LoopRepeat, Infinity);
+    action.reset().play();
   }
 
   // gold joint dots — the bones overlay, for checking joint placement
@@ -341,7 +342,8 @@ function tick(): void {
   } else if (model) {
     if (state.mode === "hit") {
       // the in-game flinch, replayed on a loop (or held at `scrub` while paused)
-      model.actions.idle.play();
+      model.actions.idle.legs.play();
+      model.actions.idle.arms.play();
       if (state.paused) {
         flinchView.flinchBaseMs = now - state.scrub * (FLINCH_MS - 1);
       } else if (now >= hitCycleAt) {
@@ -353,8 +355,10 @@ function tick(): void {
     } else if (state.mode !== "ball") {
       const clip = currentClip();
       if (clip && state.paused) {
-        clip.action.paused = false;
-        clip.action.time = state.scrub * clip.duration;
+        for (const action of clip.actions) {
+          action.paused = false;
+          action.time = state.scrub * action.getClip().duration;
+        }
         model.mixer.update(0);
       } else {
         model.mixer.update(dt);

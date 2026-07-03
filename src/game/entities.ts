@@ -111,10 +111,16 @@ function steer(obj: THREE.Object3D, targetYaw: number, dt: number): void {
   obj.rotation.y += delta * Math.min(1, dt * 14);
 }
 
-function setGait(model: CreatureModel, state: { gait: Gait }, next: Gait): void {
+/** Crossfade to a gait. While an attack holds the upper body, only the legs layer
+ *  follows the gait change — the arms layer rejoins when the attack releases it. */
+function setGait(model: CreatureModel, state: { gait: Gait }, next: Gait, armsHeld = false): void {
   if (next === state.gait) return;
-  model.actions[state.gait].fadeOut(0.12);
-  model.actions[next].reset().fadeIn(0.12).play();
+  const from = model.actions[state.gait];
+  const to = model.actions[next];
+  from.legs.fadeOut(0.12);
+  to.legs.reset().fadeIn(0.12).play();
+  from.arms.fadeOut(armsHeld ? 0.05 : 0.12);
+  if (!armsHeld) to.arms.reset().fadeIn(0.12).play();
   state.gait = next;
 }
 
@@ -197,7 +203,8 @@ export function createEntities(scene: THREE.Scene) {
     model.root.position.set(0.5, 0, 0.5);
     model.root.rotation.y = facingYaw(facing);
     marker.add(model.root);
-    model.actions.idle.play();
+    model.actions.idle.legs.play();
+    model.actions.idle.arms.play();
     if (dead) setDowned(model, true);
 
     const overlays: Overlay[] = [];
@@ -258,7 +265,7 @@ export function createEntities(scene: THREE.Scene) {
     } else {
       steer(model.root, facingYaw(state.facing), dt);
     }
-    if (!attack) setGait(model, state, moving ? (running ? "run" : "walk") : "idle");
+    setGait(model, state, moving ? (running ? "run" : "walk") : "idle", attack);
   };
 
   /** Start (or continue) the one-shot attack action alongside the gait. The clip
@@ -268,12 +275,12 @@ export function createEntities(scene: THREE.Scene) {
     const phase = attackPhase(entry, now);
     if (phase !== undefined && !entry.attacking) {
       entry.attacking = entry.model.actions.attacks[wieldOf(entry.player.equippedMainHand)];
-      entry.model.actions[entry.gait].fadeOut(0.05);
+      entry.model.actions[entry.gait].arms.fadeOut(0.05);
       entry.attacking.reset().setDuration(ATTACK_PERIOD).fadeIn(0.05).play();
     } else if (phase === undefined && entry.attacking) {
       entry.attacking.fadeOut(0.1);
       entry.attacking = undefined;
-      entry.model.actions[entry.gait].reset().fadeIn(0.1).play();
+      entry.model.actions[entry.gait].arms.reset().fadeIn(0.1).play();
     }
   };
 
@@ -308,7 +315,8 @@ export function createEntities(scene: THREE.Scene) {
     model.root.scale.setScalar(size);
     model.root.rotation.y = facingYaw(facing);
     marker.add(model.root);
-    model.actions.idle.play();
+    model.actions.idle.legs.play();
+    model.actions.idle.arms.play();
     const overlays: Overlay[] = [];
     const hp = Math.max(0, Math.min(HOG_MAX_HEALTH, health));
     if (hp < HOG_MAX_HEALTH) {
