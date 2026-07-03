@@ -448,9 +448,7 @@ export class World3D {
       const lift = (this.flySpaceHeld ? 1 : 0) - (this.flySinkHeld ? 1 : 0);
       if (lift === this.sentLift || !this.selfFlying()) return;
       this.sentLift = lift;
-      void conn.reducers.setLift({ dirZ: lift }).catch((err) => {
-        logError("Lift intent failed", { surface: "world", action: "set_lift", zone: this.slug, error: err });
-      });
+      this.self.onLift(lift);
     };
     window.addEventListener("keydown", (e) => {
       if (isTyping(e.target)) return;
@@ -604,7 +602,7 @@ export class World3D {
         __troggMoveTo?: (x: number, y: number) => void;
         __renderInfo?: () => { calls: number; triangles: number };
       };
-      hooks.__troggPos = this.selfPos;
+      hooks.__troggPos = { ...this.selfPos, z: motion.z };
       hooks.__troggMoveTo ??= (x: number, y: number) => this.self.onClick({ x, y });
       hooks.__renderInfo ??= () => {
         let troggMeshes = 0;

@@ -38,6 +38,8 @@ function harness(over: Partial<SelfControllerDeps> = {}) {
     faceY: 1,
     running: false,
     path: "",
+    z: 0,
+    dirZ: 0,
     movedAt: { microsSinceUnixEpoch: 0n },
   } as unknown as Player;
   const entry = { player, baseMs: 0, facing: "down" as Facing } satisfies MotionEntry;
@@ -65,7 +67,7 @@ function harness(over: Partial<SelfControllerDeps> = {}) {
     ...over,
   });
 
-  const motion = (x: number, y: number, dirX: number, dirY: number, arrived = false): ProjectedMotion => ({ x, y, dirX, dirY, arrived });
+  const motion = (x: number, y: number, dirX: number, dirY: number, arrived = false): ProjectedMotion => ({ x, y, z: 0, dirX, dirY, arrived });
   return { self, entry, player, moves, faces, moveTos, hogTiles, boulderTiles, destinations, motion };
 }
 
@@ -154,7 +156,7 @@ test("a server settle near the optimistic origin acks it — clock drift is not 
   const predictedBaseMs = h.entry.baseMs;
   // The server derived the same trajectory on its own clock: same heading, slightly
   // different fractional origin (latency × speed).
-  const server = { x: 0.42, y: 0, dirX: 1, dirY: 0, faceX: 1, faceY: 0, running: false, path: "", movedAt: { microsSinceUnixEpoch: 5n } } as unknown as Player;
+  const server = { x: 0.42, y: 0, dirX: 1, dirY: 0, faceX: 1, faceY: 0, running: false, z: 0, dirZ: 0, path: "", movedAt: { microsSinceUnixEpoch: 5n } } as unknown as Player;
   h.self.reconcile(h.entry, server);
   assert.equal(h.entry.player.x, 0); // local prediction kept
   assert.equal(h.entry.baseMs, predictedBaseMs); // no animation restart
@@ -163,7 +165,7 @@ test("a server settle near the optimistic origin acks it — clock drift is not 
 test("a server motion far from the optimistic origin still snaps to authority", () => {
   const h = harness();
   h.self.onIntent(right, true);
-  const server = { x: 7, y: 3, dirX: 1, dirY: 0, faceX: 1, faceY: 0, running: false, path: "", movedAt: { microsSinceUnixEpoch: 5n } } as unknown as Player;
+  const server = { x: 7, y: 3, dirX: 1, dirY: 0, faceX: 1, faceY: 0, running: false, z: 0, dirZ: 0, path: "", movedAt: { microsSinceUnixEpoch: 5n } } as unknown as Player;
   h.self.reconcile(h.entry, server);
   assert.equal(h.entry.player.x, 7); // genuine disagreement → server truth
   assert.equal(h.entry.baseMs, 1000); // re-based to the server stamp
@@ -172,7 +174,7 @@ test("a server motion far from the optimistic origin still snaps to authority", 
 test("a server row that matches a pending move is an ack, not a snap", () => {
   const h = harness();
   h.self.onIntent(right, true); // optimistic move(right) from (0,0)
-  const server = { x: 0, y: 0, dirX: 1, dirY: 0, faceX: 1, faceY: 0, running: false, path: "", movedAt: { microsSinceUnixEpoch: 5n } } as unknown as Player;
+  const server = { x: 0, y: 0, dirX: 1, dirY: 0, faceX: 1, faceY: 0, running: false, z: 0, dirZ: 0, path: "", movedAt: { microsSinceUnixEpoch: 5n } } as unknown as Player;
   h.self.reconcile(h.entry, server);
   // Predicted motion is kept (intent stays right); baseMs is NOT reset to the server stamp.
   assert.equal(h.entry.player.dirX, 1);
@@ -192,6 +194,8 @@ test("a stale non-motion self row does not snap over pending local movement", ()
     faceY: 1,
     running: false,
     path: "",
+    z: 0,
+    dirZ: 0,
     movedAt: { microsSinceUnixEpoch: 0n },
     equipmentAction: "sword",
     equipmentActionAt: { microsSinceUnixEpoch: 9n },
@@ -206,7 +210,7 @@ test("a stale non-motion self row does not snap over pending local movement", ()
 
 test("a server row that matches nothing snaps to authority", () => {
   const h = harness();
-  const server = { x: 7, y: 3, dirX: 0, dirY: 0, faceX: 0, faceY: -1, running: false, path: "", movedAt: { microsSinceUnixEpoch: 9n } } as unknown as Player;
+  const server = { x: 7, y: 3, dirX: 0, dirY: 0, faceX: 0, faceY: -1, running: false, z: 0, dirZ: 0, path: "", movedAt: { microsSinceUnixEpoch: 9n } } as unknown as Player;
   h.self.reconcile(h.entry, server);
   assert.equal(h.entry.player.x, 7);
   assert.equal(h.entry.player.y, 3);
@@ -216,7 +220,7 @@ test("a server row that matches nothing snaps to authority", () => {
 
 test("an idle duplicate tab observing WASD movement does not send a stop", () => {
   const h = harness();
-  const server = { x: 0, y: 0, dirX: 1, dirY: 0, faceX: 1, faceY: 0, running: false, path: "", movedAt: { microsSinceUnixEpoch: 9n } } as unknown as Player;
+  const server = { x: 0, y: 0, dirX: 1, dirY: 0, faceX: 1, faceY: 0, running: false, z: 0, dirZ: 0, path: "", movedAt: { microsSinceUnixEpoch: 9n } } as unknown as Player;
   h.self.reconcile(h.entry, server); // another tab started walking this shared trogg
   h.self.update(h.entry, h.motion(1, 0, 1, 0), 1000); // observer reaches a tile centre
   assert.equal(h.moves.length, 0);
@@ -224,7 +228,7 @@ test("an idle duplicate tab observing WASD movement does not send a stop", () =>
 
 test("a duplicate tab observes silently, then takes over on local keyboard input", () => {
   const h = harness();
-  const server = { x: 0, y: 0, dirX: 1, dirY: 0, faceX: 1, faceY: 0, running: false, path: "", movedAt: { microsSinceUnixEpoch: 9n } } as unknown as Player;
+  const server = { x: 0, y: 0, dirX: 1, dirY: 0, faceX: 1, faceY: 0, running: false, z: 0, dirZ: 0, path: "", movedAt: { microsSinceUnixEpoch: 9n } } as unknown as Player;
   h.self.reconcile(h.entry, server);
   h.self.update(h.entry, h.motion(1, 0, 1, 0), 500); // observing another tab's motion
   assert.equal(h.moves.length, 0);
@@ -284,7 +288,7 @@ test("clicking a tile we're already on clears the marker instead of retrying for
   h.self.onClick({ x: 0, y: 0 }); // our own tile
   h.self.update(h.entry, h.motion(0, 0, 0, 0, true), 0); // flushes the (no-op) moveTo
   // Server answers with an empty path (findPath returns [] for the current tile).
-  const server = { x: 0, y: 0, dirX: 0, dirY: 0, faceX: 0, faceY: 1, running: false, path: "", movedAt: { microsSinceUnixEpoch: 1n } } as unknown as Player;
+  const server = { x: 0, y: 0, dirX: 0, dirY: 0, faceX: 0, faceY: 1, running: false, z: 0, dirZ: 0, path: "", movedAt: { microsSinceUnixEpoch: 1n } } as unknown as Player;
   h.self.reconcile(h.entry, server);
   const before = h.moveTos.length;
   h.self.update(h.entry, h.motion(0, 0, 0, 0, true), 1000); // well past the retry throttle

@@ -228,12 +228,15 @@ export const setLift = spacetimedb.reducer({ dirZ: t.i32() }, (ctx, { dirZ }) =>
   if (!p) return;
   if (p.dead || !p.cheatFly) return;
   const settled = settle(ctx, p, ctx.timestamp);
+  // a click-route's stored waypoints aren't trimmed by the settle; re-basing the
+  // origin under the full path would glide the trogg backward, so the route ends
   ctx.db.player.identity.update({
     ...p,
     x: settled.x,
     y: settled.y,
     z: settled.z,
     dirZ: Math.sign(dirZ),
+    path: "",
     movedAt: ctx.timestamp,
   });
 });

@@ -1,6 +1,7 @@
 import {
   candidateTargets,
   parsePath,
+  projectAltitude,
   projectMotion,
   projectMotionState,
   snapToTile,
@@ -52,33 +53,44 @@ const isIdle = (i: MoveIntent) => i.dirX === 0 && i.dirY === 0;
 const dominantCardinal = (i: MoveIntent): MoveIntent =>
   Math.abs(i.dirX) >= Math.abs(i.dirY) ? { dirX: Math.sign(i.dirX), dirY: 0, running: false } : { dirX: 0, dirY: Math.sign(i.dirY), running: false };
 
-/** A self-prediction snapshot: an origin plus the intent that left it. */
+/** A self-prediction snapshot: an origin plus the intent that left it. The
+ *  vertical axis (fly cheat) rides along so an ack keeps origin and clock a
+ *  matched pair — an altitude origin from the server paired with a local
+ *  prediction base would jump the derived height. */
 interface MotionSnapshot extends MoveIntent {
   x: number;
   y: number;
   path: string;
+  z: number;
+  dirZ: number;
 }
 
 function playerIntent(p: Pick<Player, "dirX" | "dirY" | "running">): MoveIntent {
   return { dirX: p.dirX, dirY: p.dirY, running: p.running };
 }
 
-function playerMotion(p: Pick<Player, "x" | "y" | "dirX" | "dirY" | "running" | "path">): MotionSnapshot {
-  return { x: p.x, y: p.y, dirX: p.dirX, dirY: p.dirY, running: p.running, path: p.path };
+function playerMotion(p: Pick<Player, "x" | "y" | "dirX" | "dirY" | "running" | "path" | "z" | "dirZ">): MotionSnapshot {
+  return { x: p.x, y: p.y, dirX: p.dirX, dirY: p.dirY, running: p.running, path: p.path, z: p.z, dirZ: p.dirZ };
 }
 
 function sameMotion(a: MotionSnapshot, b: MotionSnapshot): boolean {
-  return Math.abs(a.x - b.x) < motionTol && Math.abs(a.y - b.y) < motionTol && sameMoveIntent(a, b) && a.path === b.path;
+  return Math.abs(a.x - b.x) < motionTol && Math.abs(a.y - b.y) < motionTol && Math.abs(a.z - b.z) < motionTol && a.dirZ === b.dirZ && sameMoveIntent(a, b) && a.path === b.path;
 }
 
 /** Does a server motion acknowledge an optimistic one? Exact on intent and path,
  *  positional within `ACK_POSITION_TOL` (see its comment). */
 function acksMotion(server: MotionSnapshot, local: MotionSnapshot): boolean {
-  return sameMoveIntent(server, local) && server.path === local.path && Math.hypot(server.x - local.x, server.y - local.y) <= ACK_POSITION_TOL;
+  return (
+    sameMoveIntent(server, local) &&
+    server.dirZ === local.dirZ &&
+    server.path === local.path &&
+    Math.hypot(server.x - local.x, server.y - local.y) <= ACK_POSITION_TOL &&
+    Math.abs(server.z - local.z) <= ACK_POSITION_TOL
+  );
 }
 
 function withMotion(p: Player, motion: MotionSnapshot): Player {
-  return { ...p, x: motion.x, y: motion.y, dirX: motion.dirX, dirY: motion.dirY, running: motion.running, path: motion.path };
+  return { ...p, x: motion.x, y: motion.y, z: motion.z, dirZ: motion.dirZ, dirX: motion.dirX, dirY: motion.dirY, running: motion.running, path: motion.path };
 }
 
 function withFacing(p: Player, intent: MoveIntent): Player {
@@ -212,7 +224,7 @@ export function createSelfController(deps: SelfControllerDeps) {
   };
 
   const sendMove = (entry: MotionEntry, intent: MoveIntent, x: number, y: number, now: number) => {
-    const motion: MotionSnapshot = { ...intent, x, y, path: "" };
+    const motion: MotionSnapshot = { ...intent, x, y, path: "", z: projectAltitude(entry.player, now - entry.baseMs), dirZ: entry.player.dirZ };
     const wasIdle = isIdle(sent);
     sent = intent;
     acknowledgedMotion ??= playerMotion(entry.player);
@@ -233,7 +245,7 @@ export function createSelfController(deps: SelfControllerDeps) {
   const sendFace = (entry: MotionEntry, intent: MoveIntent, x: number, y: number, now: number) => {
     const cardinal = dominantCardinal(intent);
     if (isIdle(cardinal) || sameIntent(cardinal, facing)) return;
-    entry.player = withMotion(entry.player, { x, y, dirX: 0, dirY: 0, running: false, path: "" });
+    entry.player = withMotion(entry.player, { x, y, dirX: 0, dirY: 0, running: false, path: "", z: projectAltitude(entry.player, now - entry.baseMs), dirZ: entry.player.dirZ });
     entry.baseMs = now;
     sent = { dirX: 0, dirY: 0, running: false };
     setFacing(entry, intent);
@@ -358,6 +370,32 @@ export function createSelfController(deps: SelfControllerDeps) {
     }
   };
 
+  /** The fly cheat's vertical intent (Space/C transitions): applied optimistically
+   *  like a move — settle locally, adopt the lift, push the snapshot for the server
+   *  row to ack — so the local altitude derivation never mixes a fresh server origin
+   *  with a stale prediction clock (that mismatch reads as a jump). */
+  const onLift = (lift: number) => {
+    const entry = getSelf();
+    if (!entry || !entry.player.cheatFly) return;
+    const now = performance.now();
+    const at = projectMotionState(entry.player, now - entry.baseMs, bounds);
+    const motion: MotionSnapshot = {
+      dirX: entry.player.dirX,
+      dirY: entry.player.dirY,
+      running: entry.player.running,
+      x: at.x,
+      y: at.y,
+      path: "",
+      z: at.z,
+      dirZ: Math.sign(lift),
+    };
+    acknowledgedMotion ??= playerMotion(entry.player);
+    pendingSelfMoves.push(motion);
+    entry.player = withMotion(entry.player, motion);
+    entry.baseMs = now;
+    conn.reducers.setLift({ dirZ: motion.dirZ });
+  };
+
   /** Apply a server row for the local trogg: consume the matching optimistic move, or
    *  snap to authority on a mismatch (invariant 3). Mutates `entry` in place. */
   const reconcile = (entry: MotionEntry, p: Player) => {
@@ -425,6 +463,7 @@ export function createSelfController(deps: SelfControllerDeps) {
     reconcile,
     onIntent,
     onClick,
+    onLift,
     /** The exact heading last steered — what the use key swings along. */
     get aim(): { dirX: number; dirY: number } {
       return aim;
