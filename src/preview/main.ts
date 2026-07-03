@@ -1,3 +1,4 @@
+import "./preview.css";
 import * as THREE from "three";
 import { createOrbit } from "../game/controls.js";
 import { COMMON_HOG_STYLES, HOG_STYLES, hogSize, TROGG_STYLES, wieldOf, type Kind } from "@trogg/shared";

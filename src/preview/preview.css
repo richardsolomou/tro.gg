@@ -1,0 +1,181 @@
+/*
+ * Dev art-preview chrome, in the HUD's design language (src/ui/hud.css): a
+ * timber slab bar, soot wells with chamfered facet corners, bone text, ember
+ * hover, moss for the active state, Baloo 2 throughout.
+ */
+
+@font-face {
+  font-family: "Baloo 2";
+  src: url("../ui/fonts/baloo2-latin.woff2") format("woff2");
+  font-weight: 400 800;
+  font-display: swap;
+}
+
+:root {
+  --bone: #e8dcc4;
+  --bone-dim: #a8977a;
+  --ink: #241708;
+  --timber: rgba(46, 33, 19, 0.9);
+  --well: rgba(24, 16, 8, 0.72);
+  --well-lite: rgba(43, 30, 16, 0.78);
+  --ember: #ff8c2e;
+  --moss: #6fdc9c;
+  --cut: 7px;
+  --facet: polygon(
+    var(--cut) 0,
+    calc(100% - var(--cut)) 0,
+    100% var(--cut),
+    100% calc(100% - var(--cut)),
+    calc(100% - var(--cut)) 100%,
+    var(--cut) 100%,
+    0 calc(100% - var(--cut)),
+    0 var(--cut)
+  );
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: #0a0806;
+  color: var(--bone);
+  font-family: "Baloo 2", "Trebuchet MS", system-ui, sans-serif;
+  font-weight: 500;
+  overflow: hidden;
+}
+
+#preview {
+  position: absolute;
+  inset: 0;
+}
+
+#preview canvas {
+  display: block;
+}
+
+#controls {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 14px;
+  background: var(--timber);
+  /* a slab bar: only the bottom corners are cut — the top edge is the viewport's */
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 9px), calc(100% - 9px) 100%, 9px 100%, 0 calc(100% - 9px));
+  filter: drop-shadow(0 4px 0 rgba(0, 0, 0, 0.35));
+  font-size: 14px;
+}
+
+#controls .group {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+#controls .group > .lbl {
+  color: var(--bone-dim);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  margin-right: 6px;
+  text-transform: uppercase;
+}
+
+#controls button {
+  font-family: inherit;
+  font-weight: 500;
+  font-size: 13px;
+  cursor: pointer;
+  background: var(--well);
+  color: var(--bone);
+  border: 0;
+  clip-path: var(--facet);
+  --cut: 5px;
+  padding: 4px 12px;
+}
+
+#controls button:hover {
+  background: var(--well-lite);
+  color: var(--ember);
+}
+
+#controls button.on {
+  background: var(--moss);
+  color: var(--ink);
+  font-weight: 700;
+}
+
+#controls input[type="range"] {
+  width: 160px;
+  accent-color: var(--ember);
+}
+
+/* item palette — the in-game inventory slots: a frame octagon around a clipped
+   face octagon, so hover/selected frames follow the chamfer (see hud.css) */
+#controls .palette {
+  display: flex;
+  gap: 6px;
+}
+
+#controls .slot {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  padding: 2px;
+  display: grid;
+  place-items: center;
+  --face: var(--well);
+  --frame: var(--well);
+  background: var(--frame);
+  clip-path: var(--facet);
+  cursor: pointer;
+  color: var(--bone-dim);
+}
+
+#controls .slot::before {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  background: var(--face);
+  clip-path: var(--facet);
+  --cut: 5px;
+}
+
+#controls .slot > * {
+  position: relative;
+  z-index: 1;
+}
+
+#controls .slot:hover {
+  --frame: var(--ember);
+  --face: var(--well-lite);
+}
+
+#controls .slot.selected {
+  --frame: var(--moss);
+  --face: var(--well-lite);
+}
+
+#controls .slot canvas {
+  width: 32px;
+  height: 32px;
+}
+
+#controls .slot-none {
+  font-size: 18px;
+}
+
+/* creature slots are taller — the models render portrait */
+#controls .slot.cslot {
+  height: 54px;
+}
+
+#controls .slot.cslot canvas {
+  width: auto;
+  height: 48px;
+}
