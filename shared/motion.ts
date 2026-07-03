@@ -1,7 +1,8 @@
 import {
   isDryFloor, type Coord, isWalkable, tileGlyph, DEEP_WATER_TILE,
-  FLY_CLEAR_OBSTACLE, FLY_CLEAR_ROCK, FLY_CLEAR_WATER, FLY_MAX_HEIGHT, FLY_VERTICAL_TILES_PER_SEC,
+  FLY_CLEAR_OBSTACLE, FLY_CLEAR_WATER, FLY_MAX_HEIGHT, FLY_VERTICAL_TILES_PER_SEC,
   MOVE_SPEED_TILES_PER_SEC, RUN_SPEED_TILES_PER_SEC, type Zone } from "./constants";
+import { rockHeightAt } from "./heights";
 
 /**
  * Position-over-time derivation, shared by server and client so both agree
@@ -98,7 +99,8 @@ export function zoneBounds(zone: Zone, occupied?: (tileX: number, tileY: number)
     height: zone.height,
     isWalkable: (x, y) => isWalkable(zone, x, y) && !(occupied?.(x, y) ?? false),
     flyWalkable: (x, y, z) => {
-      if (!isWalkable(zone, x, y)) return z > (tileGlyph(zone, x, y) === DEEP_WATER_TILE ? FLY_CLEAR_WATER : FLY_CLEAR_ROCK);
+      // rock clears at its rendered height, so the eye and the projection agree
+      if (!isWalkable(zone, x, y)) return z > (tileGlyph(zone, x, y) === DEEP_WATER_TILE ? FLY_CLEAR_WATER : rockHeightAt(zone, x, y));
       if (occupied?.(x, y)) return z > FLY_CLEAR_OBSTACLE;
       return true;
     },

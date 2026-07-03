@@ -16,6 +16,7 @@ import {
   FLY_MAX_HEIGHT,
   FLY_CLEAR_OBSTACLE,
   DEEP_WATER_TILE,
+  rockHeightAt,
   tileGlyph,
   projectMotionState,
   projectMotion,
@@ -1325,7 +1326,7 @@ test("a flyer clears obstacles below its altitude and bumps into taller rock", (
   assert.ok(low.x < 110, `low flyer clamped at ${low.x}`);
   const high = projectMotion({ x: 108, y: 105, dirX: 1000, dirY: 0, cheatFly: true, z: FLY_CLEAR_OBSTACLE + 1, dirZ: 0 }, 3_000, occupied);
   assert.ok(high.x > 110, `high flyer passed to ${high.x}`);
-  // rock walls need summit height
+  // rock clears at its rendered per-tile height — just below bumps, just above passes
   let wall: { x: number; y: number } | undefined;
   for (let y = 1; y < zone.height - 1 && !wall; y++) {
     for (let x = 1; x < zone.width - 1 && !wall; x++) {
@@ -1333,10 +1334,11 @@ test("a flyer clears obstacles below its altitude and bumps into taller rock", (
     }
   }
   const bounds = zoneBounds(zone);
-  const mid = projectMotion({ x: wall!.x - 1, y: wall!.y, dirX: 1000, dirY: 0, cheatFly: true, z: 5, dirZ: 0 }, 1_000, bounds);
-  assert.ok(mid.x < wall!.x, `mid flyer clamped at ${mid.x} before wall ${wall!.x}`);
-  const summit = projectMotion({ x: wall!.x - 1, y: wall!.y, dirX: 1000, dirY: 0, cheatFly: true, z: 12, dirZ: 0 }, 1_000, bounds);
-  assert.ok(summit.x >= wall!.x, `summit flyer passed to ${summit.x}`);
+  const summit = rockHeightAt(zone, wall!.x, wall!.y);
+  const below = projectMotion({ x: wall!.x - 1, y: wall!.y, dirX: 1000, dirY: 0, cheatFly: true, z: summit - 0.05, dirZ: 0 }, 1_000, bounds);
+  assert.ok(below.x < wall!.x, `flyer under the rock top clamped at ${below.x} before wall ${wall!.x}`);
+  const above = projectMotion({ x: wall!.x - 1, y: wall!.y, dirX: 1000, dirY: 0, cheatFly: true, z: summit + 0.05, dirZ: 0 }, 1_000, bounds);
+  assert.ok(above.x >= wall!.x, `flyer over the rock top passed to ${above.x}`);
 });
 
 test("healSelf restores a living trogg to full health", () => {

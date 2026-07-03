@@ -181,15 +181,15 @@ export const UNARMED_DAMAGE: readonly [number, number] = [5, 10];
 export const CHEAT_SPEED_MULTIPLIER = 3;
 
 /** Fly cheat (GDD "Debug cheats"): climb/sink rate, the altitude ceiling, and
- *  the heights airborne movement must clear — deep water is flat, scattered
- *  obstacles (trees, boulders, creatures) reach canopy height, and rock walls
- *  rise to the terrain's summit cap. All shared: the projection is the one
- *  authority on where a flyer passes (invariant 3). */
+ *  the heights airborne movement must clear — deep water is flat and scattered
+ *  obstacles (trees, boulders, creatures) reach canopy height; rock walls use
+ *  their actual rendered per-tile height (`rockHeightAt`, shared/heights.ts),
+ *  so "just above the rock you can see" is exactly what clears. All shared:
+ *  the projection is the one authority on where a flyer passes (invariant 3). */
 export const FLY_VERTICAL_TILES_PER_SEC = 5;
 export const FLY_MAX_HEIGHT = 14;
 export const FLY_CLEAR_WATER = 0.2;
-export const FLY_CLEAR_OBSTACLE = 3;
-export const FLY_CLEAR_ROCK = 11;
+export const FLY_CLEAR_OBSTACLE = 2;
 
 /** How long a visible equipment-use impulse lasts — the attack clip length. */
 export const EQUIPMENT_ACTION_MS = 300;
