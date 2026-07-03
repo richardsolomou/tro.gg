@@ -43,6 +43,7 @@ export function mountCommands({ conn, zone }: CommandPanelContext): void {
   if (flags.spawn) body.appendChild(spawnSection(conn, zone.slug, status));
   if (flags.resetBoulders || flags.resetHogs) body.appendChild(resetSection(conn, zone.slug, flags, status));
   if (flags.ghost) body.appendChild(ghostSection(conn, zone.slug, status));
+  body.appendChild(debugSection(status));
   body.appendChild(status);
 
   const setOpen = (open: boolean) => {
@@ -180,6 +181,29 @@ function haunt(conn: DbConnection, zone: string, count: number): boolean {
   logInfo("Command ghost requested", { surface: "commands", action: "haunt_ghost", zone, count, source: "commands" });
   audio.playCommand();
   return true;
+}
+
+/** Client-side debug overlays: combat hit circles plus the local melee reach cone. */
+function debugSection(status: HTMLElement): HTMLElement {
+  const section = commandSection("Debug");
+  const grid = document.createElement("div");
+  grid.className = "command-grid";
+
+  const button = commandButton("Hitboxes (B)");
+  button.setAttribute("aria-pressed", "false");
+  let on = false;
+  const toggle = () => {
+    on = !on;
+    button.setAttribute("aria-pressed", String(on));
+    window.dispatchEvent(new CustomEvent("trogg-debug-hitboxes", { detail: on }));
+    status.textContent = on ? "hitboxes shown" : "hitboxes hidden";
+  };
+  button.addEventListener("click", toggle);
+  registerKeybind({ id: "debug-hitboxes", matches: (event) => event.code === "KeyB", handler: toggle });
+
+  grid.appendChild(button);
+  section.appendChild(grid);
+  return section;
 }
 
 function commandSection(title: string): HTMLElement {

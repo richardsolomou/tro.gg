@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { EQUIPMENT_ACTION_MS, forward, HOG_MAX_HEALTH, hogSize, PLAYER_MAX_HEALTH, RUN_SPEED_TILES_PER_SEC, timestampMs, wieldOf, type EquipSlot, type Facing, type ProjectedMotion, type Stamp } from "@trogg/shared";
+import { BOULDER_HIT_RADIUS, EQUIPMENT_ACTION_MS, forward, HOG_HIT_RADIUS, HOG_MAX_HEALTH, hogSize, MELEE_ARC_RAD, MELEE_RANGE_TILES, PLAYER_HIT_RADIUS, PLAYER_MAX_HEALTH, RUN_SPEED_TILES_PER_SEC, timestampMs, wieldOf, type EquipSlot, type Facing, type ProjectedMotion, type Stamp } from "@trogg/shared";
 import type { Player } from "../net/module_bindings/types";
 import { audio } from "../audio.js";
 import { buildGhost, buildHog, buildHogBall, buildTrogg } from "./creatures.js";
@@ -198,6 +198,53 @@ export function createEntities(scene: THREE.Scene) {
   /** Top of a trogg's head in world units — where labels and bubbles hang. */
   const headTop = () => 1.75;
 
+  // ── debug hitboxes (Commands panel toggle) ────────────────────────────────────
+  // Every creature and boulder carries a hidden ground ring at its combat hit
+  // radius; the local trogg also carries its melee reach — range ring plus the
+  // swing cone, yawed to the live aim and brightened while a use is in flight.
+  const hitboxes: THREE.Object3D[] = [];
+  let hitboxesOn = false;
+  let selfReach: { group: THREE.Group; wedge: THREE.Mesh } | undefined;
+
+  const hitRing = (radius: number, colour: number): THREE.Object3D => {
+    const points: THREE.Vector3[] = [];
+    for (let i = 0; i < 48; i++) {
+      const a = (i / 48) * Math.PI * 2;
+      points.push(new THREE.Vector3(Math.cos(a) * radius, 0, Math.sin(a) * radius));
+    }
+    return new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(points), new THREE.LineBasicMaterial({ color: colour }));
+  };
+
+  const addHitbox = (marker: THREE.Group, obj: THREE.Object3D, c: number) => {
+    obj.position.set(c, 0.035, c);
+    obj.visible = hitboxesOn;
+    marker.add(obj);
+    hitboxes.push(obj);
+  };
+
+  const addReach = (marker: THREE.Group) => {
+    const group = new THREE.Group();
+    group.add(hitRing(MELEE_RANGE_TILES, 0xff8c2e));
+    const cone = new THREE.CircleGeometry(MELEE_RANGE_TILES, 32, -MELEE_ARC_RAD, MELEE_ARC_RAD * 2);
+    cone.rotateX(-Math.PI / 2);
+    const wedge = new THREE.Mesh(cone, new THREE.MeshBasicMaterial({ color: 0xff8c2e, transparent: true, opacity: 0.12, side: THREE.DoubleSide, depthWrite: false }));
+    group.add(wedge);
+    addHitbox(marker, group, 0.5);
+    selfReach = { group, wedge };
+  };
+
+  const setHitboxes = (on: boolean) => {
+    hitboxesOn = on;
+    for (const obj of hitboxes) obj.visible = on;
+  };
+
+  /** Point the reach cone along the live aim; a use in flight glows brighter. */
+  const updateReach = (dirX: number, dirY: number, attacking: boolean) => {
+    if (!selfReach) return;
+    if (dirX !== 0 || dirY !== 0) selfReach.wedge.rotation.y = Math.atan2(-dirY, dirX);
+    (selfReach.wedge.material as THREE.MeshBasicMaterial).opacity = attacking ? 0.35 : 0.12;
+  };
+
   const makeMarker = (name: string, color: number, style: string, self: boolean, facing: Facing, health: number, dead: boolean, respawnAt?: Stamp) => {
     const marker = new THREE.Group();
     const model = buildTrogg(style, color);
@@ -216,6 +263,8 @@ export function createEntities(scene: THREE.Scene) {
       ring.position.set(0.5, 0.015, 0.5);
       marker.add(ring);
     }
+    addHitbox(marker, hitRing(PLAYER_HIT_RADIUS, 0x6fdc9c), 0.5);
+    if (self) addReach(marker);
     const label = makeLabel(name, dead ? UI_3D.deadName : UI_3D.parchment);
     label.sprite.position.set(0.5, model.height + 0.5, 0.5);
     marker.add(label.sprite);
@@ -321,6 +370,7 @@ export function createEntities(scene: THREE.Scene) {
     marker.add(model.root);
     model.actions.idle.legs.play();
     model.actions.idle.arms.play();
+    addHitbox(marker, hitRing(HOG_HIT_RADIUS * size, 0x6fdc9c), c);
     const overlays: Overlay[] = [];
     const hp = Math.max(0, Math.min(HOG_MAX_HEALTH, health));
     if (hp < HOG_MAX_HEALTH) {
@@ -344,6 +394,7 @@ export function createEntities(scene: THREE.Scene) {
     const rock = buildBoulder();
     rock.position.set(0.5, 0, 0.5);
     marker.add(rock);
+    addHitbox(marker, hitRing(BOULDER_HIT_RADIUS, 0x6fdc9c), 0.5);
     return marker;
   };
 
@@ -487,7 +538,7 @@ export function createEntities(scene: THREE.Scene) {
     }
   };
 
-  return { place, smoothPlace, headTop, makeMarker, animate, makeHog, animateHog, makeBoulder, makeGroundItem, applyCarry, applyEquipment, showBubble, destroy, hauntGhost, updateGhosts };
+  return { place, smoothPlace, headTop, makeMarker, animate, makeHog, animateHog, makeBoulder, makeGroundItem, applyCarry, applyEquipment, showBubble, destroy, hauntGhost, updateGhosts, setHitboxes, updateReach };
 }
 
 export type Entities = ReturnType<typeof createEntities>;

@@ -2,6 +2,7 @@ import * as THREE from "three";
 import type { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { CLICK_SLOP_PX, createOrbit } from "./controls.js";
 import {
+  EQUIPMENT_ACTION_MS,
   CHAT_BUBBLE_MS,
   DIR_SCALE,
   facingFromDir,
@@ -240,6 +241,10 @@ export class World3D {
     });
 
     window.addEventListener("resize", this.layout);
+    // Commands-panel debug: show combat hit circles and the local melee reach.
+    window.addEventListener("trogg-debug-hitboxes", ((e: Event) => {
+      this.entities.setHitboxes((e as CustomEvent<boolean>).detail === true);
+    }) as EventListener);
     this.layout();
 
     if (isFeatureEnabled("chat-enabled")) {
@@ -307,6 +312,8 @@ export class World3D {
       }
       if (entry.player.dead) continue;
       this.self.update(entry, motion, now);
+      const attackAge = entry.equipmentActionBaseMs === undefined ? -1 : now - entry.equipmentActionBaseMs;
+      this.entities.updateReach(this.self.aim.dirX, this.self.aim.dirY, attackAge >= 0 && attackAge < EQUIPMENT_ACTION_MS && entry.player.equipmentAction !== "");
       // Exposed for the e2e harness: the local trogg's projected tile position.
       (window as unknown as { __troggPos?: { x: number; y: number } }).__troggPos = { x: motion.x, y: motion.y };
     }

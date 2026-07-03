@@ -356,7 +356,7 @@
 /* ── Inventory ───────────────────────────────────────────────────────────── */
 #hud .inventory-body {
   filter: drop-shadow(0 4px 0 rgba(0, 0, 0, 0.35));
-  width: 252px;
+  width: max-content;
   padding: 12px;
   background: var(--hud-timber);
   clip-path: var(--facet);
