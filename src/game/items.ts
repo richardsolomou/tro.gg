@@ -58,6 +58,71 @@ function sword(): THREE.Group {
   return g;
 }
 
+const FLAME_HOT = 0xffe08a;
+const FLAME_MID = 0xff8c2e;
+const FLAME_DEEP = 0xd94f1e;
+/** Cels in the held torch's flame loop (hard-swapped, `steps(1)` style). */
+export const TORCH_FLAME_CELS = 6;
+/** How long each flame cel holds before the next swaps in. */
+export const TORCH_FLAME_CEL_MS = 110;
+
+function flameRng(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** The stylised fire silhouette: a lathed wide-bulge-to-sharp-point profile —
+ *  the landing page's flame, at held-item scale. Unlit, so it glows in the dark. */
+function flameBody(colour: number, r: number, h: number): THREE.Mesh {
+  const profile = [
+    [0.001, 0], [0.72, 0.05], [1.0, 0.2], [0.8, 0.44], [0.45, 0.68], [0.16, 0.86], [0.001, 1],
+  ].map(([px, py]) => new THREE.Vector2(px! * r, py! * h));
+  return new THREE.Mesh(new THREE.LatheGeometry(profile, 6), new THREE.MeshBasicMaterial({ color: colour, transparent: true, opacity: 0.94 }));
+}
+
+/** One flame cel: the pointed body holds its shape (height jitter, wandering
+ *  lean) while a tongue lands somewhere new each frame. */
+function flameCel(rand: () => number): THREE.Group {
+  const f = new THREE.Group();
+  const h = 0.26 + rand() * 0.07;
+  const lean = (rand() - 0.5) * 0.3;
+  const body = flameBody(FLAME_MID, 0.085, h);
+  body.position.y = 0.42;
+  body.rotation.z = lean;
+  f.add(body);
+  const core = flameBody(FLAME_HOT, 0.05, h * 0.62);
+  core.position.y = 0.43;
+  core.rotation.z = lean * 0.7;
+  f.add(core);
+  const side = rand() < 0.5 ? -1 : 1;
+  const tongue = new THREE.Mesh(new THREE.ConeGeometry(0.02 + rand() * 0.01, 0.08 + rand() * 0.05, 4), new THREE.MeshBasicMaterial({ color: rand() < 0.4 ? FLAME_DEEP : FLAME_MID, transparent: true, opacity: 0.94 }));
+  tongue.position.set(side * (0.05 + rand() * 0.03), 0.52 + rand() * 0.08, 0);
+  tongue.rotation.z = -side * (0.25 + rand() * 0.3);
+  f.add(tongue);
+  return f;
+}
+
+function torch(): THREE.Group {
+  const g = new THREE.Group();
+  box(g, 0.07, 0.46, 0.07, ITEM_3D.wood, 0, 0.1); // haft
+  box(g, 0.12, 0.1, 0.12, ITEM_3D.woodDk, 0, 0.36); // pitch-soaked wrap
+  const rand = flameRng(0xf1a3);
+  const cels = Array.from({ length: TORCH_FLAME_CELS }, () => flameCel(rand));
+  for (const cel of cels) {
+    cel.visible = false;
+    g.add(cel);
+  }
+  cels[0]!.visible = true;
+  // the animate loop hard-swaps these like the landing page's torches
+  g.userData.flameCels = cels;
+  return g;
+}
+
 function shield(): THREE.Group {
   const g = new THREE.Group();
   const face = box(g, 0.4, 0.52, 0.07, ITEM_3D.wood, 0, 0.14, 0.06);
@@ -94,7 +159,7 @@ function wood(): THREE.Group {
   return g;
 }
 
-const BUILDERS: Record<string, () => THREE.Group> = { pickaxe, shovel, axe, sword, shield, stone, wood };
+const BUILDERS: Record<string, () => THREE.Group> = { pickaxe, shovel, axe, sword, shield, torch, stone, wood };
 
 export function hasItem3D(item: string): boolean {
   return BUILDERS[item] !== undefined;
@@ -108,6 +173,7 @@ const HELD_PITCH: Record<string, number> = {
   pickaxe: Math.PI / 2 - 0.35, // hafted forward, head riding high
   axe: Math.PI / 2 - 0.35, // hafted like the pick, bit leading
   shovel: Math.PI / 2 + 0.25, // blade low, ready to dig
+  torch: 1.25, // cancels the raised-arm pitch so the flame stands vertical
   stone: Math.PI / 2,
   wood: Math.PI / 2,
 };

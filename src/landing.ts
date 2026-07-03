@@ -1,9 +1,20 @@
 import { initAnalytics } from "./analytics.js";
+import { mountBackdrop } from "./landing3d.js";
+import { theme } from "./theme.js";
 
 // Landing page boots PostHog so autocapture and session replay cover the
 // funnel — landing pageview → play click → `player_joined` once the game
-// connects on /play. No game bundle loads here.
+// connects on /play. The hero is an ambient low-poly cave backdrop
+// (landing3d.ts) — the Three.js chunk it pulls is shared with /play, so it's
+// warm in cache by the time the player steps in. No netcode loads here.
 initAnalytics();
+
+// The game theme starts here and swells in — walking into the world doesn't
+// audibly restart it (the stream is generative; the fade is the continuity).
+theme.start();
+
+const backdrop = document.getElementById("diorama");
+if (backdrop instanceof HTMLCanvasElement) mountBackdrop(backdrop);
 
 const TWITCH_CHANNEL = "richardsolomou";
 

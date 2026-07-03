@@ -19,7 +19,7 @@ import {
   PLAYER_MAX_HEALTH,
   PLAYER_RESPAWN_MS,
   SPACETIMEAUTH_ISSUER,
-  SWORD_DAMAGE,
+  WEAPON_DAMAGE,
   THROWN_OBJECT_DAMAGE,
 } from "@trogg/shared";
 import {
@@ -475,9 +475,37 @@ test("useEquipped damages a faced adjacent trogg with a sword", () => {
   useEquipped(ctx, { dirX: 1, dirY: 0 });
 
   const target = ctx.db.player.identity.find(other);
-  assert.equal(target.health, PLAYER_MAX_HEALTH - SWORD_DAMAGE);
+  assert.equal(target.health, PLAYER_MAX_HEALTH - WEAPON_DAMAGE.sword!);
   assert.equal(target.dead, false);
   assert.equal(ctx.db.player.identity.find(me).equipmentAction, "sword");
+});
+
+test("every damaging weapon wounds a creature for its own damage number", () => {
+  for (const weapon of ["axe", "pickaxe", "shovel"] as const) {
+    const { ctx, me } = withPlayer({ x: 69, y: 96, equippedMainHand: weapon });
+    const row = ctx.db.inventory.insert({ id: 0n, playerId: me, item: weapon, qty: 1 });
+    ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedMainHandInventoryId: row.id });
+    const other = id("other");
+    ctx.db.player.insert(playerRow(other, { x: 70, y: 96, health: PLAYER_MAX_HEALTH }));
+
+    useEquipped(ctx, { dirX: 1, dirY: 0 });
+
+    assert.equal(ctx.db.player.identity.find(other).health, PLAYER_MAX_HEALTH - WEAPON_DAMAGE[weapon]!, weapon);
+  }
+});
+
+test("a tool takes its gathering node over a creature in the same swing", () => {
+  const { ctx, me } = withPlayer({ x: 69, y: 96, equippedMainHand: "pickaxe" });
+  const pickaxe = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "pickaxe", qty: 1 });
+  ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedMainHandInventoryId: pickaxe.id });
+  ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96 });
+  const other = id("other");
+  ctx.db.player.insert(playerRow(other, { x: 70, y: 97, health: PLAYER_MAX_HEALTH }));
+
+  useEquipped(ctx, { dirX: 1, dirY: 0 });
+
+  assert.equal(ctx.db.boulder.rows().length, 0); // mined
+  assert.equal(ctx.db.player.identity.find(other).health, PLAYER_MAX_HEALTH); // spared
 });
 
 test("a sword hit at zero health kills, drops inventory, and respawns after the timer", () => {
@@ -486,7 +514,7 @@ test("a sword hit at zero health kills, drops inventory, and respawns after the 
   const sword = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });
   ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedMainHandInventoryId: sword.id });
   const other = id("other");
-  ctx.db.player.insert(playerRow(other, { name: "SameName", color: 1, style: 2, x: 112, y: 104, dirX: 1, dirY: 0, running: true, movedAt: { microsSinceUnixEpoch: micros(1000) }, health: SWORD_DAMAGE, equippedMainHand: "pickaxe", equippedMainHandInventoryId: 10n }));
+  ctx.db.player.insert(playerRow(other, { name: "SameName", color: 1, style: 2, x: 112, y: 104, dirX: 1, dirY: 0, running: true, movedAt: { microsSinceUnixEpoch: micros(1000) }, health: WEAPON_DAMAGE.sword!, equippedMainHand: "pickaxe", equippedMainHandInventoryId: 10n }));
   ctx.db.inventory.insert({ id: 0n, playerId: other, item: "pickaxe", qty: 1 });
   ctx.db.inventory.insert({ id: 0n, playerId: other, item: "stone", qty: 3 });
 
@@ -543,7 +571,7 @@ test("useEquipped damages a faced adjacent Hog with a sword", () => {
 
   useEquipped(ctx, { dirX: 1, dirY: 0 });
 
-  assert.equal(ctx.db.hog.id.find(h.id).health, HOG_MAX_HEALTH - SWORD_DAMAGE);
+  assert.equal(ctx.db.hog.id.find(h.id).health, HOG_MAX_HEALTH - WEAPON_DAMAGE.sword!);
 });
 
 test("useEquipped damages a big 2×2 Hog on any of its footprint tiles, not just its anchor", () => {
@@ -556,14 +584,14 @@ test("useEquipped damages a big 2×2 Hog on any of its footprint tiles, not just
 
   useEquipped(ctx, { dirX: 1, dirY: 0 });
 
-  assert.equal(ctx.db.hog.id.find(giant.id).health, HOG_MAX_HEALTH - SWORD_DAMAGE);
+  assert.equal(ctx.db.hog.id.find(giant.id).health, HOG_MAX_HEALTH - WEAPON_DAMAGE.sword!);
 });
 
 test("sword damage removes a Hog at zero health", () => {
   const { ctx, me } = withPlayer({ x: 69, y: 96, equippedMainHand: "sword" });
   const sword = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });
   ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedMainHandInventoryId: sword.id });
-  hogAt_(ctx, 70, 96, SWORD_DAMAGE);
+  hogAt_(ctx, 70, 96, WEAPON_DAMAGE.sword!);
 
   useEquipped(ctx, { dirX: 1, dirY: 0 });
 

@@ -77,6 +77,9 @@ const CULL_RANGE = 72;
  *  CULL_RANGE. A rig is ~20 draw calls, so an unbounded crowd is a slideshow. */
 const CREATURE_BUDGET = 16;
 
+/** How many equipped torches shed real light at once (nearest first). */
+const TORCH_LIGHT_BUDGET = 4;
+
 export class World3D {
   /** The local trogg's live projected position (the overworld map marker). */
   selfPosition(): { x: number; y: number } | undefined {
@@ -134,6 +137,16 @@ export class World3D {
     };
     budget([...this.tracked.entries()].map(([id, entry]) => ({ marker: entry.marker, keep: id === this.myId })));
     budget([...this.hogs.values()].map((view) => ({ marker: view.marker })));
+    // Torch firelight has its own, tighter budget: point lights cost every
+    // fragment in a forward renderer (the glowmoss budget's reasoning), so only
+    // the nearest few visible torch-bearers actually shed light — the rest still
+    // show a glowing flame.
+    const torches = [...this.tracked.values()]
+      .filter((entry) => entry.torchLight && entry.marker.visible)
+      .sort((a, b) => dist(a.marker) - dist(b.marker));
+    torches.forEach((entry, i) => {
+      entry.torchLight!.visible = i < TORCH_LIGHT_BUDGET;
+    });
     for (const view of this.boulders.values()) view.group.visible = inRange(view.group);
     for (const view of this.trees.values()) view.group.visible = inRange(view.group);
     for (const view of this.groundItems.values()) view.group.visible = inRange(view.group);
@@ -657,7 +670,10 @@ export class World3D {
       if (_old.equipmentActionAt.microsSinceUnixEpoch !== p.equipmentActionAt.microsSinceUnixEpoch) {
         entry.equipmentActionBaseMs = performance.now();
       }
-      if (!p.dead && p.health < _old.health) entry.flinchBaseMs = performance.now();
+      if (p.health < _old.health) {
+        if (!p.dead) entry.flinchBaseMs = performance.now();
+        this.entities.showDamage(entry.marker, _old.health - p.health, this.entities.headTop());
+      }
 
       // The nameplate, tint, body style, and health bar are baked into the marker;
       // those changes rebuild it. Bare carrying/equipment changes retarget overlays.
@@ -872,7 +888,10 @@ export class World3D {
       this.updateHog(h);
       if (damaged) {
         const view = this.hogs.get(h.id.toString());
-        if (view) view.flinchBaseMs = performance.now();
+        if (view) {
+          view.flinchBaseMs = performance.now();
+          this.entities.showDamage(view.marker, _old.health - h.health, view.model.height * hogSize(view.style));
+        }
       }
       if (!this.sub.live) return;
       const changedHeading = _old.dirX !== h.dirX || _old.dirY !== h.dirY;

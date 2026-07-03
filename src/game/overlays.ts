@@ -135,6 +135,28 @@ export function makeBubble(fullText: string): Overlay {
   return spriteFor(canvas, (canvas.height / (lineH + pad * 2)) * worldH);
 }
 
+/** A floating damage number: bold ember digits with a dark halo. */
+export function makeDamageText(amount: number): Overlay {
+  const text = `-${amount}`;
+  const worldH = 0.34;
+  const px = Math.round(worldH * CRISP);
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d")!;
+  ctx.font = `800 ${px * 0.8}px ${FONT}`;
+  canvas.width = Math.max(2, Math.ceil(ctx.measureText(text).width) + 10);
+  canvas.height = px;
+  const c2 = canvas.getContext("2d")!;
+  c2.font = `800 ${px * 0.8}px ${FONT}`;
+  c2.textAlign = "center";
+  c2.textBaseline = "middle";
+  c2.lineWidth = px * 0.14;
+  c2.strokeStyle = "rgba(10, 8, 6, 0.9)";
+  c2.strokeText(text, canvas.width / 2, canvas.height / 2 + 1);
+  c2.fillStyle = "#ff8c2e";
+  c2.fillText(text, canvas.width / 2, canvas.height / 2 + 1);
+  return spriteFor(canvas, worldH);
+}
+
 /** Small gold status text (the respawn countdown). */
 export function makeStatusText(text: string): Overlay {
   const worldH = 0.24;

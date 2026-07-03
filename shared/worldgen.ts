@@ -223,7 +223,7 @@ export function generateCaveZone(opts: CaveOptions): Zone {
   for (let i = 0; i < opts.hogs; i++) hogs.push(openTile(SPAWN_CLEARING + 3));
 
   // starter tools ring the spawn plaza, like the old cave's rack by the centre
-  const items: GroundItemSeed[] = (["pickaxe", "shovel", "axe", "sword", "shield"] as const).map((item, i) => {
+  const items: GroundItemSeed[] = (["pickaxe", "shovel", "axe", "sword", "shield", "torch"] as const).map((item, i) => {
     const tile = { x: cx - 2 + i, y: cy - 2 };
     taken.add(`${tile.x},${tile.y}`);
     return { item, ...tile };
@@ -583,7 +583,7 @@ export function generateWorld(): GeneratedWorld {
       if (tile) hogs.push(tile);
     }
   }
-  const items: GroundItemSeed[] = (["pickaxe", "shovel", "axe", "sword", "shield"] as const).map((item, i) => {
+  const items: GroundItemSeed[] = (["pickaxe", "shovel", "axe", "sword", "shield", "torch"] as const).map((item, i) => {
     const tile = { x: spawn.x - 2 + i, y: spawn.y - 2 };
     taken.add(`${tile.x},${tile.y}`);
     return { item, ...tile };

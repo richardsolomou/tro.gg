@@ -83,9 +83,9 @@ export interface Coord {
 }
 
 /** Item ids are canonical across inventory rows, equipment slots, and UI labels. */
-export const ITEM_IDS = ["stone", "wood", "pickaxe", "shovel", "axe", "sword", "shield"] as const;
+export const ITEM_IDS = ["stone", "wood", "pickaxe", "shovel", "axe", "sword", "shield", "torch"] as const;
 export type ItemId = (typeof ITEM_IDS)[number];
-export const SPAWNABLE_ITEM_IDS = ["pickaxe", "shovel", "axe", "sword", "shield"] as const satisfies readonly ItemId[];
+export const SPAWNABLE_ITEM_IDS = ["pickaxe", "shovel", "axe", "sword", "shield", "torch"] as const satisfies readonly ItemId[];
 export type SpawnableItemId = (typeof SPAWNABLE_ITEM_IDS)[number];
 
 /** Inventory capacity (GDD "Inventory"): each row occupies one visible carry slot. (initial) */
@@ -94,7 +94,25 @@ export const INVENTORY_SLOT_COUNT = 20;
 /** Trogg/Hog combat health, damage, and respawn timing. (initial) */
 export const PLAYER_MAX_HEALTH = 100;
 export const HOG_MAX_HEALTH = 60;
-export const SWORD_DAMAGE = 25;
+
+/**
+ * Per-weapon melee damage (GDD "Combat"): every equippable main-hand item can
+ * hurt a trogg or Hog, the sword just does it best. Tools resolve their
+ * gathering target first (pickaxe → boulder, axe → tree) and only wound
+ * creatures when no node is in reach. Unlisted items, off-hand items, and
+ * bare fists deal nothing. (initial)
+ */
+export const WEAPON_DAMAGE: Partial<Record<ItemId, number>> = {
+  sword: 25,
+  axe: 18,
+  pickaxe: 15,
+  shovel: 12,
+};
+
+/** The melee damage an equipped item deals to creatures; 0 when it can't. */
+export function weaponDamage(item: string): number {
+  return (isItemId(item) ? WEAPON_DAMAGE[item] : undefined) ?? 0;
+}
 
 /** How long a visible equipment-use impulse lasts — the attack clip length. */
 export const EQUIPMENT_ACTION_MS = 300;
@@ -177,6 +195,13 @@ export const ITEMS: Record<ItemId, ItemDef> = {
     name: "Shield",
     stackable: false,
     blurb: "Equipped in the off hand.",
+    slot: "offHand",
+  },
+  torch: {
+    id: "torch",
+    name: "Torch",
+    stackable: false,
+    blurb: "Equipped in the off hand. Carries a pool of firelight into the dark.",
     slot: "offHand",
   },
 };

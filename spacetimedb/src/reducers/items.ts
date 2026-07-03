@@ -9,7 +9,7 @@ import {
   isEquippableItem,
   MAX_GROUND_ITEMS_PER_ZONE,
   spawnTile,
-  SWORD_DAMAGE,
+  weaponDamage,
   tileKey,
 } from "../../../shared/index";
 import {
@@ -224,34 +224,37 @@ function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; d
   // Melee resolves by reach and swing arc around the exact aim vector (shared
   // meleeHit), not tile adjacency — free movement means the eye judges reach in
   // world units. The server re-derives every position; nearest hit wins.
+  // Tools take their gathering node first; any weapon with a damage number
+  // wounds the nearest creature when no node claims the swing.
   const cx = pos.x + 0.5;
   const cy = pos.y + 0.5;
+  let gathered = false;
   if (equipped.item === "pickaxe") {
     const b = meleeBoulderTarget(ctx, p.zoneId, cx, cy, aim);
-    if (b) {
-      if (addInventory(ctx, p.identity, "stone", 1)) {
-        ctx.db.boulder.id.delete(b.target.id);
-        events.push({ distinctId: distinctId(ctx), event: "inventory_item_acquired", properties: { zone: p.zoneId, item: "stone", qty: 1, ...sourceProp(source) } });
-      }
+    if (b && addInventory(ctx, p.identity, "stone", 1)) {
+      ctx.db.boulder.id.delete(b.target.id);
+      events.push({ distinctId: distinctId(ctx), event: "inventory_item_acquired", properties: { zone: p.zoneId, item: "stone", qty: 1, ...sourceProp(source) } });
+      gathered = true;
     }
   } else if (equipped.item === "axe") {
     const tr = meleeTreeTarget(ctx, p.zoneId, cx, cy, aim);
-    if (tr) {
-      if (addInventory(ctx, p.identity, "wood", 1)) {
-        ctx.db.tree.id.delete(tr.target.id);
-        events.push({ distinctId: distinctId(ctx), event: "inventory_item_acquired", properties: { zone: p.zoneId, item: "wood", qty: 1, ...sourceProp(source) } });
-      }
+    if (tr && addInventory(ctx, p.identity, "wood", 1)) {
+      ctx.db.tree.id.delete(tr.target.id);
+      events.push({ distinctId: distinctId(ctx), event: "inventory_item_acquired", properties: { zone: p.zoneId, item: "wood", qty: 1, ...sourceProp(source) } });
+      gathered = true;
     }
-  } else if (equipped.item === "sword") {
+  }
+  const damage = weaponDamage(equipped.item);
+  if (!gathered && damage > 0) {
     const trogg = meleePlayerTarget(ctx, p.zoneId, cx, cy, aim, ctx.timestamp, p.identity);
     const hog = meleeHogTarget(ctx, p.zoneId, cx, cy, aim, ctx.timestamp);
     if (trogg && (!hog || trogg.dist <= hog.dist)) {
-      const result = damagePlayer(ctx, trogg.target, SWORD_DAMAGE);
-      events.push({ distinctId: distinctId(ctx), event: "combat_hit", properties: { ...props, weapon: "sword", target: "trogg", damage: SWORD_DAMAGE, killed: result.killed } });
-      if (result.killed) events.push(playerDiedEvent(trogg.target.identity.toHexString(), props, "sword", result));
+      const result = damagePlayer(ctx, trogg.target, damage);
+      events.push({ distinctId: distinctId(ctx), event: "combat_hit", properties: { ...props, weapon: equipped.item, target: "trogg", damage, killed: result.killed } });
+      if (result.killed) events.push(playerDiedEvent(trogg.target.identity.toHexString(), props, equipped.item, result));
     } else if (hog) {
-      const result = damageHog(ctx, hog.target, SWORD_DAMAGE);
-      events.push({ distinctId: distinctId(ctx), event: "combat_hit", properties: { ...props, weapon: "sword", target: "hog", damage: SWORD_DAMAGE, killed: result.killed } });
+      const result = damageHog(ctx, hog.target, damage);
+      events.push({ distinctId: distinctId(ctx), event: "combat_hit", properties: { ...props, weapon: equipped.item, target: "hog", damage, killed: result.killed } });
     }
   }
 

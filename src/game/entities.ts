@@ -3,8 +3,8 @@ import { BOULDER_HIT_RADIUS, TREE_HIT_RADIUS, EQUIPMENT_ACTION_MS, forward, HOG_
 import type { Player } from "../net/module_bindings/types";
 import { audio } from "../audio.js";
 import { buildGhost, buildHog, buildHogBall, buildTrogg } from "./creatures.js";
-import { buildBoulder, buildGroundItem, buildHeldItem, buildTree } from "./items.js";
-import { makeBubble, makeHealthBar, makeLabel, makeStatusText, type Overlay } from "./overlays.js";
+import { buildBoulder, buildGroundItem, buildHeldItem, buildTree, TORCH_FLAME_CEL_MS } from "./items.js";
+import { makeBubble, makeDamageText, makeHealthBar, makeLabel, makeStatusText, type Overlay } from "./overlays.js";
 import { ATTACK_PERIOD, type CreatureModel } from "./rig.js";
 import { UI_3D } from "./palette.js";
 
@@ -59,6 +59,12 @@ export interface Tracked {
   flinchBaseMs?: number;
   equipmentActionBaseMs?: number;
   equip: Partial<Record<EquipSlot, { kind: string }>>;
+  /** The equipped torch's firelight, when one is held (world budgets which are lit). */
+  torchLight?: THREE.PointLight;
+  /** The off-hand arm joint while a torch is held — posed aloft after each mixer update. */
+  torchArm?: THREE.Object3D;
+  /** The held torch's flame cels, hard-swapped on a timer (the landing page's flicker). */
+  torchCels?: THREE.Group[];
   carried?: THREE.Group;
   carriedKind: string;
   carriedStyle: string;
@@ -162,9 +168,15 @@ export function applyFlinch(view: { model: CreatureModel; facing: Facing; flinch
   }
 }
 
+/** How long a floating damage number lives, rising and fading. */
+const DAMAGE_FLOAT_MS = 900;
+const DAMAGE_FLOAT_RISE = 0.9;
+
 export function createEntities(scene: THREE.Scene) {
   /** Live ghost apparitions, advanced by `updateGhosts` each frame. */
   const ghosts: { root: THREE.Group; materials: THREE.Material[]; bornMs: number; from: THREE.Vector3; drift: THREE.Vector3 }[] = [];
+  /** Live damage numbers. Scene-anchored (not parented) so one outlives its target. */
+  const damageFloats: { overlay: Overlay; bornMs: number; from: THREE.Vector3 }[] = [];
 
   const place = (obj: THREE.Object3D, x: number, y: number) => {
     obj.position.set(x, 0, y);
@@ -360,7 +372,21 @@ export function createEntities(scene: THREE.Scene) {
         entry.respawn = { overlay: next, text, at: entry.player.respawnAt };
       }
     }
+    if (entry.torchLight?.visible) {
+      // two offset sines make the flame breathe without a repeating beat
+      entry.torchLight.intensity = 8.6 + Math.sin(now * 0.011) * 1.2 + Math.sin(now * 0.027 + 1.7) * 0.8;
+    }
+    if (entry.torchCels) {
+      // hard-swap the sculpted flame cels, steps(1)-style, like the landing torches
+      const cel = Math.floor(now / TORCH_FLAME_CEL_MS) % entry.torchCels.length;
+      entry.torchCels.forEach((frame, i) => {
+        frame.visible = i === cel;
+      });
+    }
     entry.model.mixer.update(dt);
+    // A torch is carried aloft: after the mixer has posed the gait, pitch the
+    // off-hand arm up so the flame rides high instead of swinging at the hip.
+    if (entry.torchArm) entry.torchArm.rotation.x = -1.25;
   };
 
   const makeHog = (style: string, facing: Facing, health: number) => {
@@ -465,11 +491,29 @@ export function createEntities(scene: THREE.Scene) {
       if (item === (cur?.kind ?? "")) continue;
       for (const child of [...hand.children]) disposeObject(child);
       delete entry.equip[slot];
+      if (cur?.kind === "torch") {
+        entry.torchLight = undefined;
+        entry.torchArm = undefined;
+        entry.torchCels = undefined;
+      }
       if (!item) continue;
       const model = buildHeldItem(item);
       if (!model) continue;
       model.scale.setScalar(entry.model.fit);
       hand.add(model);
+      if (item === "torch") {
+        // A pool of warm firelight at the flame — the landing page's torch light.
+        // Every light is a cost on every fragment in a forward renderer, so it
+        // spawns dark; the world lights only the nearest few (the torch
+        // counterpart of the glowmoss budget).
+        const light = new THREE.PointLight(0xff8c2e, 9, 14, 1.6);
+        light.position.set(0, 0.5, 0);
+        light.visible = false;
+        model.add(light);
+        entry.torchLight = light;
+        entry.torchArm = entry.model.root.getObjectByName("ArmL") ?? undefined;
+        entry.torchCels = (model.userData.flameCels as THREE.Group[] | undefined) ?? undefined;
+      }
       entry.equip[slot] = { kind: item };
     }
   };
@@ -527,8 +571,33 @@ export function createEntities(scene: THREE.Scene) {
     ghosts.push({ root, materials, bornMs: performance.now(), from, drift });
   };
 
-  /** Advance ghost timelines; call once per frame. */
+  /** Pop a floating damage number above a hit creature (GDD "Combat"). The number
+   *  anchors to the world, not the marker, so a killing blow's number survives the
+   *  target's row (and marker) vanishing. */
+  const showDamage = (marker: THREE.Group, amount: number, headY: number) => {
+    if (amount <= 0) return;
+    const overlay = makeDamageText(amount);
+    const jitter = (Math.random() - 0.5) * 0.5;
+    overlay.sprite.position.set(marker.position.x + 0.5 + jitter, headY + 0.45, marker.position.z + 0.5);
+    scene.add(overlay.sprite);
+    damageFloats.push({ overlay, bornMs: performance.now(), from: overlay.sprite.position.clone() });
+  };
+
+  /** Advance ghost and damage-number timelines; call once per frame. */
   const updateGhosts = (now: number) => {
+    for (let i = damageFloats.length - 1; i >= 0; i--) {
+      const f = damageFloats[i]!;
+      const t = (now - f.bornMs) / DAMAGE_FLOAT_MS;
+      if (t >= 1) {
+        scene.remove(f.overlay.sprite);
+        f.overlay.dispose();
+        damageFloats.splice(i, 1);
+        continue;
+      }
+      const rise = 1 - (1 - t) * (1 - t); // ease-out: fast pop, slowing drift
+      f.overlay.sprite.position.y = f.from.y + rise * DAMAGE_FLOAT_RISE;
+      (f.overlay.sprite.material as THREE.SpriteMaterial).opacity = t < 0.45 ? 1 : 1 - (t - 0.45) / 0.55;
+    }
     for (let i = ghosts.length - 1; i >= 0; i--) {
       const g = ghosts[i]!;
       const age = now - g.bornMs;
@@ -551,7 +620,7 @@ export function createEntities(scene: THREE.Scene) {
     }
   };
 
-  return { place, smoothPlace, headTop, makeMarker, animate, makeHog, animateHog, makeBoulder, makeTree, makeGroundItem, applyCarry, applyEquipment, showBubble, destroy, hauntGhost, updateGhosts, setHitboxes, updateReach };
+  return { place, smoothPlace, headTop, makeMarker, animate, makeHog, animateHog, makeBoulder, makeTree, makeGroundItem, applyCarry, applyEquipment, showBubble, showDamage, destroy, hauntGhost, updateGhosts, setHitboxes, updateReach };
 }
 
 export type Entities = ReturnType<typeof createEntities>;
