@@ -106,7 +106,7 @@ export type FakeCtx = ReturnType<typeof makeCtx>;
 export function playerRow(identity: Id, over: Record<string, unknown> = {}) {
   return {
     identity,
-    zoneId: "hog-town",
+    zoneId: "world",
     name: "trogg-0000",
     color: -1,
     x: 5,

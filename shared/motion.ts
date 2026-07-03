@@ -166,8 +166,14 @@ export function parsePath(path: string | undefined): Coord[] {
  * the nearest reachable cardinal neighbour instead, so obstacle clicks still get
  * the trogg as close as possible.
  */
+/** The farthest click-to-move routes (manhattan tiles): far destinations are
+ *  reached by clicking again as you go, and the A* search stays bounded on the
+ *  seamless world grid. */
+export const MOVETO_MAX_TILES = 72;
+
 export function findPath(zone: ZoneBounds, start: Coord, target: Coord): Coord[] {
   if (!inBounds(zone, target.x, target.y)) return [];
+  if (Math.abs(target.x - Math.round(start.x)) + Math.abs(target.y - Math.round(start.y)) > MOVETO_MAX_TILES) return [];
 
   const sx = Math.round(start.x);
   const sy = Math.round(start.y);

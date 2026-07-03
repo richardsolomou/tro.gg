@@ -23,9 +23,9 @@ import {
 } from "../../shared/index";
 import type { Ctx } from "./schema";
 
-/** A fresh trogg's spawn tile: the zone centre (a walkable interior tile). */
+/** A fresh trogg's spawn tile: the zone's spawn point (the zone centre when unset). */
 export function spawnAt(zone: Zone): { x: number; y: number } {
-  return { x: Math.floor(zone.width / 2), y: Math.floor(zone.height / 2) };
+  return zone.spawn ?? { x: Math.floor(zone.width / 2), y: Math.floor(zone.height / 2) };
 }
 
 /** The motion-bearing slice of a player row that `settle` derives position from. */

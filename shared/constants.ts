@@ -1,6 +1,7 @@
 export * from "./glyphs";
 import { TILE_GLYPHS, WALL_TILE } from "./glyphs";
-import { generateCaveZone, type BiomeId } from "./worldgen";
+import { WORLD_W, WORLD_H } from "./worldgen";
+import { WORLD_BIG_HOGS, WORLD_BOULDERS, WORLD_HOGS, WORLD_ITEMS, WORLD_SPAWN, WORLD_TILES } from "./world-map";
 /**
  * Tuning values from the GDD. Those marked (initial) are starting values; keep
  * them centralized here and make them remotely configurable only when runtime
@@ -44,9 +45,9 @@ export const HOG_IDLE_CHANCE = 0.25;
  * Enforced server-side (invariant 3); the client feature flags only gate the UI, not the
  * reducer. Far above the registry seeds (2 boulders, 6 Hogs) — purely a DoS ceiling. (initial)
  */
-export const MAX_HOGS_PER_ZONE = 64;
-export const MAX_BOULDERS_PER_ZONE = 64;
-export const MAX_GROUND_ITEMS_PER_ZONE = 128;
+export const MAX_HOGS_PER_ZONE = 192;
+export const MAX_BOULDERS_PER_ZONE = 224;
+export const MAX_GROUND_ITEMS_PER_ZONE = 384;
 
 /** Chat. (initial) */
 export const CHAT_MAX_CHARS = 200;
@@ -280,6 +281,8 @@ export interface Zone {
   biome: string;
   /** Edge gates into neighbouring zones. */
   exits: readonly ZoneExit[];
+  /** Where fresh troggs appear; defaults to the zone centre when absent. */
+  spawn?: Coord;
   tiles: readonly string[];
   boulders: readonly Coord[];
   hogs: readonly Coord[];
@@ -288,54 +291,33 @@ export interface Zone {
 }
 
 /**
- * The world map: a plus-shaped grid of eleven procedurally generated zones (GDD
- * "Zones"), `hog-town` at the centre and ten biomes ringing it. Every zone is
- * grown by `generateCaveZone` from a fixed per-zone seed — identical on client
- * and module — and neighbouring cells open reciprocal edge gates into each other
- * (interact on a gate travels). Names are working canon (docs/world.md leaves
- * naming open); reroll any zone by touching its seed.
+ * The world (GDD "Zones"): ONE seamless zone, read from the committed map
+ * (`shared/world-map.ts` — generated once by `bin/generate-world`, then owned by
+ * hand). It is a plus-shaped layout of eleven biome regions (`WORLD_REGIONS` in
+ * worldgen.ts) stitched into a single 192×220 coordinate space with natural
+ * carved passages between them — regions are colour/decoration character and a
+ * name for a part of the map, not instances; you walk across. The client streams
+ * terrain in proximity chunks; the whole world is one subscription space.
  */
-const WORLD_GRID: { slug: string; name: string; biome: BiomeId; gx: number; gy: number; seed?: number }[] = [
-  { slug: "hog-town", name: "Hog Town", biome: "cave", gx: 0, gy: 0, seed: 0x70660001 },
-  { slug: "glowvault", name: "Glowvault", biome: "glowvault", gx: 0, gy: -1 },
-  { slug: "starwell", name: "Starwell", biome: "starwell", gx: 0, gy: -2 },
-  { slug: "mossglen", name: "Mossglen", biome: "mossglen", gx: 0, gy: 1 },
-  { slug: "boneyard", name: "Boneyard", biome: "boneyard", gx: 0, gy: 2 },
-  { slug: "frosthollow", name: "Frosthollow", biome: "frosthollow", gx: -1, gy: 0 },
-  { slug: "shadowdeep", name: "Shadowdeep", biome: "shadowdeep", gx: -1, gy: -1 },
-  { slug: "floodways", name: "Floodways", biome: "floodways", gx: -1, gy: 1 },
-  { slug: "rustgallery", name: "Rust Gallery", biome: "rustgallery", gx: 1, gy: 0 },
-  { slug: "emberrift", name: "Emberrift", biome: "emberrift", gx: 1, gy: -1 },
-  { slug: "dustworks", name: "Dustworks", biome: "dustworks", gx: 1, gy: 1 },
-];
-
-export const ZONES: Record<string, Zone> = Object.fromEntries(
-  WORLD_GRID.map((cell) => {
-    const at = (gx: number, gy: number) => WORLD_GRID.find((c) => c.gx === gx && c.gy === gy)?.slug;
-    return [
-      cell.slug,
-      generateCaveZone({
-        slug: cell.slug,
-        name: cell.name,
-        width: 64,
-        height: 44,
-        seed: cell.seed ?? 0x70660000 + (cell.gx + 8) * 0x1000 + (cell.gy + 8) * 0x10 + 1,
-        boulders: 14,
-        hogs: 12,
-        biome: cell.biome,
-        exits: {
-          north: at(cell.gx, cell.gy - 1),
-          south: at(cell.gx, cell.gy + 1),
-          east: at(cell.gx + 1, cell.gy),
-          west: at(cell.gx - 1, cell.gy),
-        },
-      }),
-    ];
-  }),
-);
+export const ZONES: Record<string, Zone> = {
+  world: {
+    slug: "world",
+    name: "The Caves",
+    width: WORLD_W,
+    height: WORLD_H,
+    biome: "cave",
+    exits: [],
+    spawn: WORLD_SPAWN,
+    tiles: WORLD_TILES,
+    boulders: WORLD_BOULDERS,
+    hogs: WORLD_HOGS,
+    items: WORLD_ITEMS,
+    bigHogs: WORLD_BIG_HOGS,
+  },
+};
 
 /** Where a fresh trogg spawns, and the default room the client joins. */
-export const STARTING_ZONE_SLUG = "hog-town";
+export const STARTING_ZONE_SLUG = "world";
 
 /** Look up a zone definition, or undefined if the slug is unknown. */
 export function getZone(slug: string): Zone | undefined {

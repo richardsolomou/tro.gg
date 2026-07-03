@@ -83,7 +83,7 @@ test("assertZones rejects an unknown tile glyph", () => {
 test("the zone rim is walled and the interior is floor", () => {
   const zone = getZone(STARTING_ZONE_SLUG)!;
   assert.equal(isWalkable(zone, 0, 0), false); // corner rim
-  assert.equal(isWalkable(zone, 12, 8), true); // spawn (zone centre)
+  assert.equal(isWalkable(zone, zone.spawn!.x, zone.spawn!.y), true); // the spawn plaza
   assert.equal(isWalkable(zone, -1, 5), false); // out of bounds is unwalkable
   assert.equal(isWalkable(zone, zone.width, 5), false);
 });
@@ -91,7 +91,7 @@ test("the zone rim is walled and the interior is floor", () => {
 test("the starting zone seeds boulders on floor, clear of the spawn", () => {
   const zone = getZone(STARTING_ZONE_SLUG)!;
   assert.ok(zone.boulders.length > 0);
-  const spawn = { x: Math.floor(zone.width / 2), y: Math.floor(zone.height / 2) };
+  const spawn = zone.spawn ?? { x: Math.floor(zone.width / 2), y: Math.floor(zone.height / 2) };
   for (const b of zone.boulders) {
     assert.equal(isWalkable(zone, b.x, b.y), true);
     assert.ok(b.x !== spawn.x || b.y !== spawn.y, "boulder must not sit on the spawn tile");

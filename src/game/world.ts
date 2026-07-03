@@ -86,22 +86,17 @@ export class World3D {
   private readonly boulders = new Map<string, { row: Boulder; group: THREE.Group }>();
   /** Cleared until the camera has snapped to the local trogg once (first snapshot). */
   private cameraSnapped = false;
-  /** Cleared once travel begins, so a burst of row updates reloads exactly once. */
-  private travelling = false;
-
-  /** The trogg stepped through a gate: the server moved it to another zone. Fade
-   *  to black and reload — the reconnect pattern: every table re-derives from
-   *  subscriptions on boot, so a clean reload swaps zone, terrain, and rows
-   *  without hand-rewiring any of them. */
-  private travel(to: string): void {
-    if (this.travelling) return;
-    this.travelling = true;
-    localStorage.setItem("trogg-zone", to);
-    logInfo("Traveling through a gate", { surface: "world", action: "zone_travel", zone: this.slug, to });
-    const canvas = this.renderer.domElement;
-    canvas.style.transition = "opacity 0.3s ease-in";
-    canvas.style.opacity = "0";
-    window.setTimeout(() => window.location.reload(), 320);
+  /** Hide world objects beyond what the fog reveals: the seamless world renders
+   *  only what is around you (the row data still syncs; this is draw-cost only). */
+  private cullDistant(range: number): void {
+    if (!this.orbit) return;
+    const fx = this.orbit.target.x;
+    const fy = this.orbit.target.z;
+    const inRange = (obj: THREE.Object3D) => Math.hypot(obj.position.x - fx, obj.position.z - fy) < range;
+    for (const entry of this.tracked.values()) entry.marker.visible = inRange(entry.marker);
+    for (const view of this.hogs.values()) view.marker.visible = inRange(view.marker);
+    for (const view of this.boulders.values()) view.group.visible = inRange(view.group);
+    for (const view of this.groundItems.values()) view.group.visible = inRange(view.group);
   }
 
   /** Fade the world in — held black until the camera sits on the local trogg, so a
@@ -116,6 +111,7 @@ export class World3D {
 
   private readonly boulderTiles = new Set<string>();
   private readonly hogTiles = new Set<string>();
+  private keyLight!: THREE.DirectionalLight;
   private hogBounds!: ZoneBounds;
   private troggBounds!: ZoneBounds;
 
@@ -172,16 +168,17 @@ export class World3D {
     this.scene.background = new THREE.Color(pal.voidBase);
     this.scene.fog = new THREE.Fog(pal.voidBase, 26, 60);
     this.scene.add(new THREE.HemisphereLight(0xffe0b0, 0x201409, 0.75));
+    // The key light rides the camera focus with a tight shadow box — a static
+    // light can't shadow a 192×220 world at any usable resolution.
     const key = new THREE.DirectionalLight(0xffd9a0, 1.6);
-    key.position.set(this.zone.width / 2 + 6, 14, this.zone.height / 2 + 8);
-    key.target.position.set(this.zone.width / 2, 0, this.zone.height / 2);
     key.castShadow = true;
     key.shadow.mapSize.set(2048, 2048);
-    key.shadow.camera.left = -this.zone.width;
-    key.shadow.camera.right = this.zone.width;
-    key.shadow.camera.top = this.zone.height;
-    key.shadow.camera.bottom = -this.zone.height;
+    key.shadow.camera.left = -56;
+    key.shadow.camera.right = 56;
+    key.shadow.camera.top = 56;
+    key.shadow.camera.bottom = -56;
     this.scene.add(key, key.target);
+    this.keyLight = key;
 
     this.terrain = buildTerrain(this.zone);
     this.scene.add(this.terrain.group);
@@ -295,9 +292,6 @@ export class World3D {
       `SELECT * FROM boulder WHERE zone_id = '${this.slug}'`,
     ];
     if (this.myId) queries.push(`SELECT * FROM inventory WHERE player_id = '${this.myId}'`);
-    // the self row rides along even from another zone, so a boot into the wrong
-    // zone (stale local record) sees the mismatch and travel-reloads to converge
-    if (this.myId) queries.push(`SELECT * FROM player WHERE identity = '${this.myId}'`);
     if (this.useHogs) queries.push(`SELECT * FROM hog WHERE zone_id = '${this.slug}'`);
     if (this.useGhost) queries.push(`SELECT * FROM ghost_haunt WHERE zone_id = '${this.slug}'`);
 
@@ -347,6 +341,15 @@ export class World3D {
       // from there reads as a swoop across the map on load.
       if (this.orbit) {
         const pivot = new THREE.Vector3(motion.x + 0.5, 0.6, motion.y + 0.5);
+        const camDist = this.camera.position.distanceTo(this.orbit.target);
+        // stream terrain around the camera focus; fog opens up as the zoom pulls out
+        this.terrain.update(this.orbit.target.x, this.orbit.target.z, camDist);
+        const fog = this.scene.fog as THREE.Fog;
+        fog.near = camDist + 14;
+        fog.far = camDist * 2.6 + 42;
+        this.cullDistant(fog.far + 6);
+        this.keyLight.position.set(this.orbit.target.x + 6, 14, this.orbit.target.z + 8);
+        this.keyLight.target.position.set(this.orbit.target.x, 0, this.orbit.target.z);
         const ease = this.cameraSnapped ? Math.min(1, dt * 8) : 1;
         const shift = pivot.sub(this.orbit.target).multiplyScalar(ease);
         this.orbit.target.add(shift);
@@ -502,7 +505,6 @@ export class World3D {
       if (!entry) return this.addPlayer(p);
 
       if (id === this.myId) {
-        if (p.zoneId !== this.slug) return this.travel(p.zoneId);
         this.observeLocalLifecycle(_old, p);
         this.self.reconcile(entry, p);
       } else {

@@ -1,4 +1,4 @@
-import { getZone, STARTING_ZONE_SLUG } from "@trogg/shared";
+import { STARTING_ZONE_SLUG } from "@trogg/shared";
 import { accountSubject, authConfigured, completeSignIn, currentIdToken } from "./auth.js";
 import { captureEvent, identifyUser, initAnalytics, isFeatureEnabled, logError, logInfo } from "./analytics.js";
 import { clearStoredToken, clearPendingClaim, getPendingClaim } from "./identity.js";
@@ -56,12 +56,8 @@ async function main() {
       if (subject) identifyUser(subject);
     }
 
-    // The world is multi-zone: boot into the zone the last travel recorded (the
-    // SpacetimeDB SDK supports one live subscription set, so the zone can't be
-    // asked for before subscribing). The world's own subscription includes the
-    // self row, so a stale or missing record self-corrects with one reload.
-    const stored = localStorage.getItem("trogg-zone");
-    const slug = stored && getZone(stored) ? stored : STARTING_ZONE_SLUG;
+    // One seamless world: a single zone holds every region (GDD "Zones").
+    const slug = STARTING_ZONE_SLUG;
 
     captureEvent("player_joined", { zone: slug, is_guest: !signedIn });
     logInfo("Player joined world", { zone: slug, is_guest: !signedIn });

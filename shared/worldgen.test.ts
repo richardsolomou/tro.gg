@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { assertZones, isWalkable, WALL_TILE, ZONES, type Zone } from "./index";
+import { assertZones, isWalkable, REGION_H, REGION_W, WALL_TILE, WORLD_REGIONS, ZONES, type Zone } from "./index";
 import { generateCaveZone } from "./worldgen";
 
 const OPTS = { slug: "t", name: "t", width: 64, height: 44, seed: 0x70660001, boulders: 14, hogs: 12, biome: "cave" as const };
@@ -75,18 +75,26 @@ test("giants sit on clear 2×2 footprints and every seed is on open floor", () =
   }
 });
 
-test("every world-grid gate is walkable, reachable from spawn, and reciprocal", () => {
+test("the committed world map is valid, connected, and spawn-safe", () => {
+  // Guards hand-edits to shared/world-map.ts: every walkable tile must stay
+  // reachable from spawn, and every seed must sit on open floor.
   assertZones();
-  for (const zone of Object.values(ZONES)) {
-    const cx = Math.floor(zone.width / 2);
-    const cy = Math.floor(zone.height / 2);
-    for (const exit of zone.exits) {
-      assert.ok(isWalkable(zone, exit.x, exit.y), `${zone.slug} ${exit.dir} gate blocked`);
-      // reachable: the connectivity fill ran before gates were carved, and the
-      // tunnel walks inward until it meets that reachable cave
-      const inward = exit.dir === "north" ? { x: exit.x, y: exit.y + 1 } : exit.dir === "south" ? { x: exit.x, y: exit.y - 1 } : exit.dir === "west" ? { x: exit.x + 1, y: exit.y } : { x: exit.x - 1, y: exit.y };
-      assert.ok(isWalkable(zone, inward.x, inward.y), `${zone.slug} ${exit.dir} gate tunnel blocked`);
-    }
-    assert.ok(reachableCount(zone, cx, cy) > 0);
+  const world = ZONES["world"]!;
+  const spawn = world.spawn!;
+  assert.ok(isWalkable(world, spawn.x, spawn.y));
+  let walkable = 0;
+  for (let y = 0; y < world.height; y++) for (let x = 0; x < world.width; x++) if (isWalkable(world, x, y)) walkable++;
+  assert.equal(reachableCount(world, spawn.x, spawn.y), walkable);
+  // eleven regions' worth of cave: a healthy share of the plus is open floor
+  assert.ok(walkable > 11 * 64 * 44 * 0.3, `only ${walkable} open tiles`);
+});
+
+test("every region contributes open, seeded ground", () => {
+  const world = ZONES["world"]!;
+  for (const region of WORLD_REGIONS) {
+    const ox = region.gx * REGION_W;
+    const oy = region.gy * REGION_H;
+    const openInRegion = world.boulders.filter((b) => b.x >= ox && b.x < ox + REGION_W && b.y >= oy && b.y < oy + REGION_H);
+    assert.ok(openInRegion.length >= 10, `${region.slug} has only ${openInRegion.length} boulders`);
   }
 });

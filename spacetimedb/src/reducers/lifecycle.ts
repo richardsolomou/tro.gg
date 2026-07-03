@@ -45,7 +45,14 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
   const hadLiveConnection = playerConnectionCount(ctx, ctx.sender) > 0;
   rememberPlayerConnection(ctx);
 
-  const existing = ctx.db.player.identity.find(ctx.sender);
+  let existing = ctx.db.player.identity.find(ctx.sender);
+  // Rows from the retired zone-instanced world carry old slugs; fold them into
+  // the seamless world at spawn.
+  if (existing && !getZone(existing.zoneId)) {
+    const at = spawnAt(startingZone);
+    existing = { ...existing, zoneId: STARTING_ZONE_SLUG, x: at.x, y: at.y, dirX: 0, dirY: 0, running: false, path: "" };
+    ctx.db.player.identity.update(existing);
+  }
   if (existing) {
     // The same account can have several live sockets (two tabs, or two devices).
     // They all control and observe one trogg row. Only the first live connection

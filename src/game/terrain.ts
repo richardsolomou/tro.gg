@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { GLOWMOSS_TILE, GRAVEL_TILE, isWalkable, MOSS_TILE, WATER_TILE, type Zone } from "@trogg/shared";
+import { GLOWMOSS_TILE, GRAVEL_TILE, MOSS_TILE, regionAt, WALL_TILE, WATER_TILE, type Zone } from "@trogg/shared";
 import { biomePalette } from "./palette.js";
 
 /**
@@ -21,134 +21,204 @@ const WALL_HEIGHT = 0.85;
 
 export interface Terrain3D {
   group: THREE.Group;
+  /** Stream chunks around the camera focus; call once per frame. */
+  update(focusX: number, focusY: number, camDistance: number): void;
   dispose(): void;
 }
 
+/** Tiles per streamed chunk (a region is 64×44, so seams stay region-aligned on x). */
+const CHUNK = 32;
+
 export function buildTerrain(zone: Zone): Terrain3D {
-  const pal = biomePalette(zone.biome);
   const group = new THREE.Group();
-  const disposables: { dispose(): void }[] = [];
+  const globalDisposables: { dispose(): void }[] = [];
 
-  const patchTexture = (canvas: HTMLCanvasElement, repeatX: number, repeatY: number): THREE.CanvasTexture => {
-    const tex = new THREE.CanvasTexture(canvas);
-    tex.colorSpace = THREE.SRGBColorSpace;
-    tex.magFilter = THREE.NearestFilter;
-    tex.minFilter = THREE.NearestFilter;
-    tex.wrapS = THREE.RepeatWrapping;
-    tex.wrapT = THREE.RepeatWrapping;
-    tex.repeat.set(repeatX, repeatY);
-    disposables.push(tex);
-    return tex;
+  // Painter caches: each biome paints its patch canvases once; every chunk of
+  // that biome blits from the shared canvases.
+  const patchCache = new Map<string, Record<string, HTMLCanvasElement>>();
+  const patchesFor = (biome: string): Record<string, HTMLCanvasElement> => {
+    let entry = patchCache.get(biome);
+    if (!entry) {
+      const pal = biomePalette(biome);
+      entry = {
+        floor: floorPatch(pal),
+        [GRAVEL_TILE]: gravelPatch(pal),
+        [MOSS_TILE]: mossPatch(pal),
+        [WATER_TILE]: waterPatch(pal),
+        [GLOWMOSS_TILE]: glowmossPatch(pal),
+      };
+      patchCache.set(biome, entry);
+    }
+    return entry;
   };
+  const tileBiome = (x: number, y: number): string => regionAt(x, y)?.biome ?? "cave";
 
-  // Zone floor, centred so tile (x, y) spans [x, x+1) on world x/z.
-  const floorTex = patchTexture(floorPatch(pal), zone.width / PATCH, zone.height / PATCH);
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(zone.width, zone.height), new THREE.MeshStandardMaterial({ map: floorTex, roughness: 1 }));
-  floor.rotation.x = -Math.PI / 2;
-  floor.position.set(zone.width / 2, 0, zone.height / 2);
-  floor.receiveShadow = true;
-  group.add(floor);
-
-  // The void beyond the zone: a big dim rock plane just below the floor.
-  const voidTex = patchTexture(floorlessPatch(pal), 200 / PATCH, 200 / PATCH);
-  const voidPlane = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.MeshStandardMaterial({ map: voidTex, roughness: 1 }));
+  // The void beyond and beneath the world: one dim rock plane.
+  const cavePal = biomePalette("cave");
+  const voidTex = new THREE.CanvasTexture(floorlessPatch(cavePal));
+  voidTex.colorSpace = THREE.SRGBColorSpace;
+  voidTex.magFilter = THREE.NearestFilter;
+  voidTex.minFilter = THREE.NearestFilter;
+  voidTex.wrapS = THREE.RepeatWrapping;
+  voidTex.wrapT = THREE.RepeatWrapping;
+  voidTex.repeat.set(600 / PATCH, 600 / PATCH);
+  globalDisposables.push(voidTex);
+  const voidPlane = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), new THREE.MeshStandardMaterial({ map: voidTex, roughness: 1 }));
   voidPlane.rotation.x = -Math.PI / 2;
   voidPlane.position.set(zone.width / 2, -0.02, zone.height / 2);
   voidPlane.receiveShadow = true;
   group.add(voidPlane);
 
-  // Walls: one instanced beveled block per unwalkable tile — lit top, dark-edged
-  // faces — in a single draw call however large the cave grows.
-  const face = new THREE.MeshStandardMaterial({ color: pal.wall.face, roughness: 1 });
-  const top = new THREE.MeshStandardMaterial({ color: pal.wall.top, roughness: 1 });
-  const wallMats = [face, face, top, face, face, face];
+  // Walls tint per tile through instance colours, so biome borders stay
+  // tile-exact even when a chunk straddles two regions.
+  const wallMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1 });
   const wallGeo = new THREE.BoxGeometry(1, WALL_HEIGHT, 1);
-  disposables.push(face, top, wallGeo);
-  const wallTiles: { x: number; y: number }[] = [];
-  for (let ty = 0; ty < zone.height; ty++) {
-    for (let tx = 0; tx < zone.width; tx++) {
-      if (!isWalkable(zone, tx, ty)) wallTiles.push({ x: tx, y: ty });
-    }
-  }
-  const walls = new THREE.InstancedMesh(wallGeo, wallMats, wallTiles.length);
-  const place = new THREE.Matrix4();
-  wallTiles.forEach((tile, i) => {
-    place.makeTranslation(tile.x + 0.5, WALL_HEIGHT / 2, tile.y + 0.5);
-    walls.setMatrixAt(i, place);
-  });
-  walls.castShadow = true;
-  walls.receiveShadow = true;
-  group.add(walls);
+  globalDisposables.push(wallMat, wallGeo);
 
-  // Floor variants: every decorated tile is blitted from its patch's matching
-  // sub-cell into one zone-sized overlay canvas — a single transparent plane
-  // instead of a quad and material per tile.
-  const decalCanvases: Record<string, HTMLCanvasElement> = {
-    [GRAVEL_TILE]: gravelPatch(pal),
-    [MOSS_TILE]: mossPatch(pal),
-    [WATER_TILE]: waterPatch(pal),
-    [GLOWMOSS_TILE]: glowmossPatch(pal),
+  interface BuiltChunk {
+    group: THREE.Group;
+    disposables: { dispose(): void }[];
+  }
+  const chunks = new Map<string, BuiltChunk>();
+  const wallColour = new THREE.Color();
+
+  const buildChunk = (cx: number, cy: number): BuiltChunk | undefined => {
+    const x0 = cx * CHUNK;
+    const y0 = cy * CHUNK;
+    const w = Math.min(CHUNK, zone.width - x0);
+    const h = Math.min(CHUNK, zone.height - y0);
+    if (w <= 0 || h <= 0) return undefined;
+
+    const chunkGroup = new THREE.Group();
+    const disposables: { dispose(): void }[] = [];
+
+    // Floor: one canvas per chunk, each tile blitted from its biome's patch at
+    // the world-aligned sub-cell so seams between chunks and regions vanish.
+    const canvas = document.createElement("canvas");
+    canvas.width = w * ART;
+    canvas.height = h * ART;
+    const ctx = canvas.getContext("2d")!;
+    const wallTiles: { x: number; y: number; biome: string }[] = [];
+    const glowTiles: { x: number; y: number; biome: string }[] = [];
+    for (let y = 0; y < h; y++) {
+      const row = zone.tiles[y0 + y]!;
+      for (let x = 0; x < w; x++) {
+        const wx = x0 + x;
+        const wy = y0 + y;
+        const glyph = row[wx]!;
+        const biome = tileBiome(wx, wy);
+        const patches = patchesFor(biome);
+        const sx = (wx % PATCH) * ART;
+        const sy = (wy % PATCH) * ART;
+        ctx.drawImage(patches.floor!, sx, sy, ART, ART, x * ART, y * ART, ART, ART);
+        if (glyph === WALL_TILE) {
+          wallTiles.push({ x: wx, y: wy, biome });
+          continue;
+        }
+        const decal = patches[glyph];
+        if (decal) ctx.drawImage(decal, sx, sy, ART, ART, x * ART, y * ART, ART, ART);
+        if (glyph === GLOWMOSS_TILE) glowTiles.push({ x: wx, y: wy, biome });
+      }
+    }
+    const floorTex = new THREE.CanvasTexture(canvas);
+    floorTex.colorSpace = THREE.SRGBColorSpace;
+    floorTex.magFilter = THREE.NearestFilter;
+    floorTex.minFilter = THREE.NearestFilter;
+    disposables.push(floorTex);
+    const floorMat = new THREE.MeshStandardMaterial({ map: floorTex, roughness: 1 });
+    disposables.push(floorMat);
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(w, h), floorMat);
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.set(x0 + w / 2, 0, y0 + h / 2);
+    floor.receiveShadow = true;
+    chunkGroup.add(floor);
+
+    if (wallTiles.length > 0) {
+      const walls = new THREE.InstancedMesh(wallGeo, wallMat, wallTiles.length);
+      const place = new THREE.Matrix4();
+      wallTiles.forEach((tile, i) => {
+        place.makeTranslation(tile.x + 0.5, WALL_HEIGHT / 2, tile.y + 0.5);
+        walls.setMatrixAt(i, place);
+        walls.setColorAt(i, wallColour.setHex(biomePalette(tile.biome).wall.face));
+      });
+      walls.castShadow = true;
+      walls.receiveShadow = true;
+      chunkGroup.add(walls);
+      disposables.push(walls);
+    }
+
+    // Glowmoss: one light per moss patch, at most two per chunk.
+    const clusters: { x: number; y: number; count: number; biome: string }[] = [];
+    for (const tile of glowTiles) {
+      const near = clusters.find((c) => Math.abs(c.x - tile.x) + Math.abs(c.y - tile.y) <= 5);
+      if (near) near.count++;
+      else clusters.push({ ...tile, count: 1 });
+    }
+    for (const cluster of clusters.slice(0, 2)) {
+      const glow = new THREE.PointLight(biomePalette(cluster.biome).glowmoss.mid, 1.2 + Math.min(cluster.count, 3) * 0.3, 5);
+      glow.position.set(cluster.x + 0.5, 0.5, cluster.y + 0.5);
+      chunkGroup.add(glow);
+    }
+
+    group.add(chunkGroup);
+    return { group: chunkGroup, disposables };
   };
-  const overlay = document.createElement("canvas");
-  overlay.width = zone.width * ART;
-  overlay.height = zone.height * ART;
-  const octx = overlay.getContext("2d")!;
-  const glowTiles: { x: number; y: number }[] = [];
-  for (let ty = 0; ty < zone.height; ty++) {
-    const row = zone.tiles[ty]!;
-    for (let tx = 0; tx < row.length; tx++) {
-      const glyph = row[tx]!;
-      const canvas = decalCanvases[glyph];
-      if (!canvas) continue;
-      octx.drawImage(canvas, (tx % PATCH) * ART, (ty % PATCH) * ART, ART, ART, tx * ART, ty * ART, ART, ART);
-      if (glyph === GLOWMOSS_TILE) glowTiles.push({ x: tx, y: ty });
-    }
-  }
-  const overlayTex = patchTexture(overlay, 1, 1);
-  overlayTex.repeat.set(1, 1);
-  const overlayMat = new THREE.MeshStandardMaterial({ map: overlayTex, transparent: true, roughness: 1 });
-  disposables.push(overlayMat);
-  const overlayQuad = new THREE.Mesh(new THREE.PlaneGeometry(zone.width, zone.height), overlayMat);
-  overlayQuad.rotation.x = -Math.PI / 2;
-  overlayQuad.position.set(zone.width / 2, 0.01, zone.height / 2);
-  overlayQuad.receiveShadow = true;
-  group.add(overlayQuad);
 
-  // Glowmoss lights: one per patch of moss, not per tile — greedy-clustered by
-  // proximity and capped, so the light count stays renderer-friendly.
-  const clusters: { x: number; y: number; count: number }[] = [];
-  for (const tile of glowTiles) {
-    const near = clusters.find((c) => Math.abs(c.x - tile.x) + Math.abs(c.y - tile.y) <= 5);
-    if (near) near.count++;
-    else clusters.push({ x: tile.x, y: tile.y, count: 1 });
-  }
-  for (const cluster of clusters.slice(0, 12)) {
-    const glow = new THREE.PointLight(pal.glowmoss.mid, 1.2 + Math.min(cluster.count, 3) * 0.3, 5);
-    glow.position.set(cluster.x + 0.5, 0.5, cluster.y + 0.5);
-    group.add(glow);
-  }
+  const dropChunk = (key: string) => {
+    const chunk = chunks.get(key);
+    if (!chunk) return;
+    chunks.delete(key);
+    group.remove(chunk.group);
+    for (const d of chunk.disposables) d.dispose();
+  };
 
-  // Edge gates: a pair of carved pillars and a lantern glow mark each exit, so a
-  // passage reads as a place you can travel from (interact to use — GDD "Zones").
-  const pillarGeo = new THREE.BoxGeometry(0.3, 1.7, 0.3);
-  disposables.push(pillarGeo);
-  for (const exit of zone.exits) {
-    const across = exit.dir === "north" || exit.dir === "south" ? { x: 1, y: 0 } : { x: 0, y: 1 };
-    for (const side of [-1, 1]) {
-      const pillar = new THREE.Mesh(pillarGeo, wallMats);
-      pillar.position.set(exit.x + 0.5 + across.x * side, 0.85, exit.y + 0.5 + across.y * side);
-      pillar.castShadow = true;
-      group.add(pillar);
+  const update = (focusX: number, focusY: number, camDistance: number) => {
+    // The streamed radius follows the zoom, Google-Maps style: close in you get
+    // the neighbourhood, zoomed out the chunks fan out to what the fog reveals.
+    const radius = Math.min(320, Math.max(48, camDistance * 2.6 + 40));
+    const c0x = Math.floor((focusX - radius) / CHUNK);
+    const c1x = Math.floor((focusX + radius) / CHUNK);
+    const c0y = Math.floor((focusY - radius) / CHUNK);
+    const c1y = Math.floor((focusY + radius) / CHUNK);
+    const maxCx = Math.ceil(zone.width / CHUNK) - 1;
+    const maxCy = Math.ceil(zone.height / CHUNK) - 1;
+    const wanted: { cx: number; cy: number; dist: number }[] = [];
+    for (let cy = Math.max(0, c0y); cy <= Math.min(maxCy, c1y); cy++) {
+      for (let cx = Math.max(0, c0x); cx <= Math.min(maxCx, c1x); cx++) {
+        const centreX = cx * CHUNK + CHUNK / 2;
+        const centreY = cy * CHUNK + CHUNK / 2;
+        const dist = Math.hypot(centreX - focusX, centreY - focusY);
+        if (dist <= radius + CHUNK) wanted.push({ cx, cy, dist });
+      }
     }
-    const lantern = new THREE.PointLight(0xffb454, 1.6, 6);
-    lantern.position.set(exit.x + 0.5, 1.4, exit.y + 0.5);
-    group.add(lantern);
-  }
+    // build nearest-first, at most two per frame so streaming never hitches
+    wanted.sort((a, b) => a.dist - b.dist);
+    let built = 0;
+    const keep = new Set<string>();
+    for (const want of wanted) {
+      const key = `${want.cx},${want.cy}`;
+      keep.add(key);
+      if (!chunks.has(key) && built < 2) {
+        const chunk = buildChunk(want.cx, want.cy);
+        if (chunk) chunks.set(key, chunk);
+        built++;
+      }
+    }
+    // drop chunks that fell out of range (with hysteresis so edges don't thrash)
+    for (const key of [...chunks.keys()]) {
+      if (keep.has(key)) continue;
+      const [cx, cy] = key.split(",").map(Number);
+      const dist = Math.hypot(cx! * CHUNK + CHUNK / 2 - focusX, cy! * CHUNK + CHUNK / 2 - focusY);
+      if (dist > radius + CHUNK * 2) dropChunk(key);
+    }
+  };
 
   return {
     group,
+    update,
     dispose() {
-      for (const d of disposables) d.dispose();
+      for (const key of [...chunks.keys()]) dropChunk(key);
+      for (const d of globalDisposables) d.dispose();
     },
   };
 }
