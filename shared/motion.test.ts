@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { MOVE_SPEED_TILES_PER_SEC, RUN_SPEED_TILES_PER_SEC, type Zone } from "./constants";
-import { candidateTargets, facingTile, findPath, footprintTiles, footprintWalkable, parsePath, projectMotion, projectMotionState, serializePath, snapToTile, spawnTile, spawnTiles, walkableCardinals, zoneBounds } from "./motion";
+import { candidateTargets, facingTile, findPath, footprintTiles, footprintWalkable, lineWalkable, parsePath, projectMotion, projectMotionState, serializePath, smoothPath, snapToTile, spawnTile, spawnTiles, walkableCardinals, zoneBounds } from "./motion";
 
 // No isWalkable → open floor, clamped only to the rectangular bounds.
 const open = { width: 24, height: 16 };
@@ -213,6 +213,30 @@ test("a diagonal into a wall slides along it instead of stopping dead", () => {
   const both = projectMotion({ x: 1, y: 1, dirX: 1, dirY: 1 }, 10_000, zoneBounds(wide));
   assert.equal(both.y, 2);
   assert.equal(both.x, 4);
+});
+
+test("lineWalkable sees along clear floor and is blocked by walls", () => {
+  const wide: Zone = { slug: "w", name: "W", width: 8, height: 5, tiles: ["########", "#......#", "#..#...#", "#......#", "########"] };
+  const bounds = zoneBounds(wide);
+  assert.ok(lineWalkable(bounds, { x: 1, y: 1 }, { x: 6, y: 1 })); // straight along the top row
+  assert.ok(!lineWalkable(bounds, { x: 1, y: 2 }, { x: 6, y: 2 })); // pillar at (3,2) blocks
+  assert.ok(lineWalkable(bounds, { x: 1, y: 1 }, { x: 2, y: 3 })); // diagonal through open floor
+});
+
+test("smoothPath collapses an open-floor route to one straight hop, keeping corners", () => {
+  const wide: Zone = { slug: "w", name: "W", width: 8, height: 5, tiles: ["########", "#......#", "#..#...#", "#......#", "########"] };
+  const bounds = zoneBounds(wide);
+  // Open floor: the cardinal staircase route becomes a single direct glide.
+  const open = smoothPath(bounds, { x: 1, y: 1 }, findPath(bounds, { x: 1, y: 1 }, { x: 6, y: 1 }));
+  assert.deepEqual(open, [{ x: 6, y: 1 }]);
+  // Around the pillar: at most one bend survives, and every hop is line-walkable.
+  const bent = smoothPath(bounds, { x: 1, y: 2 }, findPath(bounds, { x: 1, y: 2 }, { x: 6, y: 2 }));
+  assert.ok(bent.length <= 3 && bent.at(-1)!.x === 6 && bent.at(-1)!.y === 2);
+  let from = { x: 1, y: 2 };
+  for (const hop of bent) {
+    assert.ok(lineWalkable(bounds, from, hop), `hop to ${hop.x},${hop.y} not clear`);
+    from = hop;
+  }
 });
 
 test("a fractional origin glides onto a route's first waypoint", () => {

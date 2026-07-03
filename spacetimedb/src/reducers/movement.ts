@@ -9,6 +9,7 @@ import {
   isWalkable,
   projectMotion,
   serializePath,
+  smoothPath,
   snapToTile,
   tileKey,
   zoneBounds,
@@ -99,7 +100,9 @@ export const moveTo = spacetimedb.reducer({ x: t.i32(), y: t.i32(), running: t.b
   const blockers = troggBlockers(ctx, p.zoneId, ctx.timestamp);
   const bounds = zoneBounds(zone, (x, y) => blockers.has(tileKey(x, y)));
   const start = settle(ctx, p, ctx.timestamp);
-  const path = findPath(bounds, start, { x: target.x, y: target.y });
+  // A* finds the route; string-pulling collapses it to the fewest straight hops, so
+  // open floor is one direct glide and only genuine corners keep bends (free movement).
+  const path = smoothPath(bounds, start, findPath(bounds, start, { x: target.x, y: target.y }));
   const first = path[0];
 
   // The stored origin stays fractional; the route's first hop is the glide from it

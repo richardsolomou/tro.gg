@@ -309,20 +309,65 @@ export function projectMotionState(motion: Motion, elapsedMs: number, zone: Zone
   const dist = (speed * Math.max(elapsedMs, 0)) / 1000;
   const size = motion.size ?? 1;
 
-  // Cardinal fast path: exactly one axis moves. Clamp to bounds (the footprint
-  // stays inside), then to the first wall the footprint meets.
+  const p = slideAdvance(motion.x, motion.y, dirX, dirY, dist, zone, size);
+  return { x: p.x, y: p.y, dirX, dirY, arrived: false };
+}
+
+/**
+ * Advance a `size` footprint from (x, y) along the heading (dirX, dirY) for `dist`
+ * tiles of travel, clamping against walls with slide — the one collision walker
+ * every mover shares (WASD projection, path hops, line-of-sight tests). Cardinal
+ * headings take exact single-axis clamps; anything else goes through the angled
+ * segment walker.
+ */
+function slideAdvance(x: number, y: number, dirX: number, dirY: number, dist: number, zone: ZoneBounds, size: number): { x: number; y: number } {
   if (dirY === 0) {
     const step = Math.sign(dirX);
-    const target = clamp(motion.x + step * dist, 0, zone.width - size);
-    return { x: zone.isWalkable ? wallX(zone, motion.x, motion.y, target, step, size) : target, y: motion.y, dirX, dirY, arrived: false };
+    const target = clamp(x + step * dist, 0, zone.width - size);
+    return { x: zone.isWalkable ? wallX(zone, x, y, target, step, size) : target, y };
   }
   if (dirX === 0) {
     const step = Math.sign(dirY);
-    const target = clamp(motion.y + step * dist, 0, zone.height - size);
-    return { x: motion.x, y: zone.isWalkable ? wallY(zone, motion.x, motion.y, target, step, size) : target, dirX, dirY, arrived: false };
+    const target = clamp(y + step * dist, 0, zone.height - size);
+    return { x, y: zone.isWalkable ? wallY(zone, x, y, target, step, size) : target };
   }
-  const p = projectAngled(motion.x, motion.y, dirX, dirY, dist, zone, size);
-  return { x: p.x, y: p.y, dirX, dirY, arrived: false };
+  return projectAngled(x, y, dirX, dirY, dist, zone, size);
+}
+
+/**
+ * Is the straight segment `from` → `to` fully walkable for a `size` footprint?
+ * Answered by walking it with the shared collision walker: the line is clear
+ * exactly when the walk arrives (any clamp or slide en route deviates from `to`),
+ * so line-of-sight agrees byte-for-byte with how movement will actually execute.
+ */
+export function lineWalkable(zone: ZoneBounds, from: { x: number; y: number }, to: { x: number; y: number }, size = 1): boolean {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const hop = Math.hypot(dx, dy);
+  if (hop < EPS) return true;
+  const end = slideAdvance(from.x, from.y, dx, dy, hop, zone, size);
+  return Math.hypot(end.x - to.x, end.y - to.y) < 1e-4;
+}
+
+/**
+ * String-pull a cardinal A* route into the fewest straight hops (GDD "Movement"):
+ * from the (fractional) start, greedily take the furthest waypoint reachable in a
+ * straight line, then repeat from there. Open floor collapses to a single direct
+ * glide; only genuine corners keep bends. The `path` wire format is unchanged —
+ * waypoints just stop being adjacent.
+ */
+export function smoothPath(zone: ZoneBounds, start: { x: number; y: number }, path: readonly Coord[], size = 1): Coord[] {
+  const out: Coord[] = [];
+  let from = { x: start.x, y: start.y };
+  let i = 0;
+  while (i < path.length) {
+    let j = path.length - 1;
+    for (; j > i; j--) if (lineWalkable(zone, from, path[j]!, size)) break;
+    out.push(path[j]!);
+    from = path[j]!;
+    i = j + 1;
+  }
+  return out;
 }
 
 /**
@@ -382,40 +427,28 @@ function boundaryDistance(p: number, step: number, size: number): number {
 
 function projectPathMotion(motion: Motion, path: readonly Coord[], elapsedMs: number, zone: ZoneBounds): ProjectedMotion {
   const speed = motion.running ? RUN_SPEED_TILES_PER_SEC : MOVE_SPEED_TILES_PER_SEC;
+  const size = motion.size ?? 1;
   let remaining = (speed * Math.max(elapsedMs, 0)) / 1000;
   let current = { x: motion.x, y: motion.y };
-  let first = true;
 
   for (const next of path) {
     const dx = next.x - current.x;
     const dy = next.y - current.y;
     const hop = Math.hypot(dx, dy);
-    // With free movement the origin is fractional, so the route's first hop is a
-    // straight glide from wherever the trogg stands onto the first waypoint (up to
-    // ~1.5 tiles for a worst-case rounding); later hops are the usual whole-tile
-    // cardinal steps. A malformed or stale hop ends the route where it stands.
-    const legal = first ? hop <= 1.6 && hop > 0 : Math.abs(dx) + Math.abs(dy) === 1;
-    if (!legal) {
-      if (first && hop === 0) {
-        first = false;
-        continue; // already standing exactly on the first waypoint
-      }
-      return { ...current, dirX: 0, dirY: 0, arrived: true };
-    }
-    first = false;
-    const dirX = Math.sign(Math.abs(dx) >= Math.abs(dy) ? dx : 0);
-    const dirY = Math.sign(Math.abs(dx) >= Math.abs(dy) ? 0 : dy);
+    if (hop < EPS) continue; // already standing on this waypoint
+
     if (remaining <= hop) {
-      // Stepping into `next`: block only on the tile we're entering. Tiles already
-      // traversed (consumed in the branch below) are behind us, so an obstacle that
-      // lands on one never rewinds us — it can only stop us going further. This is
-      // what keeps a Hog wandering onto a tile you've already crossed from snapping
-      // you back to it (forward-only projection; re-route handled by the client).
-      if (!tileWalkable(zone, next.x, next.y)) {
-        return { ...current, dirX: 0, dirY: 0, arrived: false };
-      }
-      const u = remaining / hop;
-      return { x: current.x + dx * u, y: current.y + dy * u, dirX, dirY, arrived: false };
+      // Mid-hop: glide along the segment through the live collision walker, so an
+      // obstacle that arrived after routing (a Hog, a shoved boulder) clamps the
+      // glide instead of being passed through. A clamp or slide means the hop is
+      // no longer clean — report no heading, which is the stall signal the client
+      // re-routes on. Hops already consumed are behind us: forward-only projection,
+      // so a Hog landing on ground already covered never rewinds the trogg.
+      const end = slideAdvance(current.x, current.y, dx, dy, remaining, zone, size);
+      const expectedX = current.x + (dx / hop) * remaining;
+      const expectedY = current.y + (dy / hop) * remaining;
+      const clean = Math.hypot(end.x - expectedX, end.y - expectedY) < 1e-4;
+      return { x: end.x, y: end.y, dirX: clean ? dx / hop : 0, dirY: clean ? dy / hop : 0, arrived: false };
     }
     remaining -= hop;
     current = { x: next.x, y: next.y };
