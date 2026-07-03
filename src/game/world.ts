@@ -73,6 +73,10 @@ const DAY_CYCLE_MS = 12 * 60 * 1000;
 /** World objects beyond this many tiles from the camera focus stop rendering. */
 const CULL_RANGE = 72;
 
+/** How many troggs (and, separately, Hogs) render at once: the nearest N within
+ *  CULL_RANGE. A rig is ~20 draw calls, so an unbounded crowd is a slideshow. */
+const CREATURE_BUDGET = 16;
+
 export class World3D {
   /** The local trogg's live projected position (the overworld map marker). */
   selfPosition(): { x: number; y: number } | undefined {
@@ -106,16 +110,30 @@ export class World3D {
   }
 
   /** Hide world objects beyond what the fog reveals: the seamless world renders
-   *  only what is around you (the row data still syncs; this is draw-cost only). */
+   *  only what is around you (the row data still syncs; this is draw-cost only).
+   *
+   *  Creatures also carry a **visibility budget** (the glowmoss light budget's
+   *  pattern): a jointed rig is ~20 draw calls plus overlay sprites and a shadow
+   *  pass, so a hundred players inside the radius would mean thousands of draws.
+   *  Only the nearest `CREATURE_BUDGET` of each kind render; the rest hide until
+   *  the crowd thins. Hidden creatures still project, collide, and make sound —
+   *  this is draw cost only. */
   private cullDistant(range: number): void {
     if (!this.orbit) return;
     const fx = this.orbit.target.x;
     const fy = this.orbit.target.z;
-    const inRange = (obj: THREE.Object3D) => Math.hypot(obj.position.x - fx, obj.position.z - fy) < range;
-    for (const entry of this.tracked.values()) {
-      entry.marker.visible = inRange(entry.marker);
-    }
-    for (const view of this.hogs.values()) view.marker.visible = inRange(view.marker);
+    const dist = (obj: THREE.Object3D) => Math.hypot(obj.position.x - fx, obj.position.z - fy);
+    const inRange = (obj: THREE.Object3D) => dist(obj) < range;
+    const budget = (markers: { marker: THREE.Group; keep?: boolean }[]) => {
+      const ranked = markers
+        .map((m) => ({ ...m, d: m.keep ? -1 : dist(m.marker) }))
+        .sort((a, b) => a.d - b.d);
+      ranked.forEach((m, i) => {
+        m.marker.visible = m.d < range && i < CREATURE_BUDGET;
+      });
+    };
+    budget([...this.tracked.entries()].map(([id, entry]) => ({ marker: entry.marker, keep: id === this.myId })));
+    budget([...this.hogs.values()].map((view) => ({ marker: view.marker })));
     for (const view of this.boulders.values()) view.group.visible = inRange(view.group);
     for (const view of this.trees.values()) view.group.visible = inRange(view.group);
     for (const view of this.groundItems.values()) view.group.visible = inRange(view.group);
@@ -407,7 +425,9 @@ export class World3D {
       const size = hogSize(view.style);
       const motion = projectMotionState({ ...view.row, size }, now - view.baseMs, this.hogBounds);
       this.entities.smoothPlace(view, motion.x, motion.y, dt);
-      this.entities.animateHog(view, now, dt, motion);
+      // hidden creatures (budgeted out or out of range) skip their animation
+      // mixers — position, collision, and sound still derive above
+      if (view.marker.visible) this.entities.animateHog(view, now, dt, motion);
       const tile = snapToTile({ x: motion.x, y: motion.y });
       const stepKey = tileKey(tile.x, tile.y);
       if (view.lastStepTile !== undefined && view.lastStepTile !== stepKey) {
@@ -420,7 +440,7 @@ export class World3D {
     for (const entry of this.tracked.values()) {
       const motion = projectMotionState(entry.player, now - entry.baseMs, this.troggBounds);
       this.entities.smoothPlace(entry, motion.x, motion.y, dt);
-      this.entities.animate(entry, now, dt, motion);
+      if (entry.marker.visible) this.entities.animate(entry, now, dt, motion);
 
       if (entry.player.identity.toHexString() !== this.myId) {
         const stepKey = tileKey(Math.round(motion.x), Math.round(motion.y));
@@ -468,9 +488,27 @@ export class World3D {
       // Exposed for the e2e harness: the local trogg's projected tile position and
       // a click-to-move injection, so probes can route with the real pathfinding.
       this.selfPos = { x: motion.x, y: motion.y };
-      const hooks = window as unknown as { __troggPos?: { x: number; y: number }; __troggMoveTo?: (x: number, y: number) => void };
+      const hooks = window as unknown as {
+        __troggPos?: { x: number; y: number };
+        __troggMoveTo?: (x: number, y: number) => void;
+        __renderInfo?: () => { calls: number; triangles: number };
+      };
       hooks.__troggPos = this.selfPos;
       hooks.__troggMoveTo ??= (x: number, y: number) => this.self.onClick({ x, y });
+      hooks.__renderInfo ??= () => {
+        let troggMeshes = 0;
+        let visibleTroggs = 0;
+        for (const t of this.tracked.values()) {
+          if (!t.marker.visible) continue;
+          visibleTroggs++;
+          t.marker.traverse(() => troggMeshes++);
+        }
+        let sceneObjects = 0;
+        this.scene.traverse((o) => {
+          if (o.visible) sceneObjects++;
+        });
+        return { calls: this.renderer.info.render.calls, triangles: this.renderer.info.render.triangles, visibleTroggs, troggMeshes, sceneObjects };
+      };
     }
 
     // A held key steers relative to the camera: while the orbit turns, re-map the
