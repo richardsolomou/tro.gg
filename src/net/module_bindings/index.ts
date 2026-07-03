@@ -38,6 +38,7 @@ import ChatReducer from "./chat_reducer";
 import DiscardItemReducer from "./discard_item_reducer";
 import DropItemReducer from "./drop_item_reducer";
 import EmergeReducer from "./emerge_reducer";
+import EnterCaveReducer from "./enter_cave_reducer";
 import EquipItemReducer from "./equip_item_reducer";
 import FaceReducer from "./face_reducer";
 import HauntGhostReducer from "./haunt_ghost_reducer";
@@ -220,6 +221,7 @@ const reducersSchema = __reducers(
   __reducerSchema("discard_item", DiscardItemReducer),
   __reducerSchema("drop_item", DropItemReducer),
   __reducerSchema("emerge", EmergeReducer),
+  __reducerSchema("enter_cave", EnterCaveReducer),
   __reducerSchema("equip_item", EquipItemReducer),
   __reducerSchema("face", FaceReducer),
   __reducerSchema("haunt_ghost", HauntGhostReducer),

@@ -2,6 +2,7 @@ import * as THREE from "three";
 import type { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { CLICK_SLOP_PX, createOrbit } from "./controls.js";
 import {
+  CAVE_DOOR,
   isBirthZone,
   isDryFloor,
   EQUIPMENT_ACTION_MS,
@@ -124,8 +125,12 @@ export class World3D {
   private boulderField!: NodeField;
   /** Creatures beyond the full-rig budget render as moving silhouettes, not nothing. */
   private crowd!: FarCrowd;
-  /** The birth cave's exit beacon (sparkle + warm light), when this is one. */
-  private exitGlow?: THREE.Group;
+  /** The windowed outside terrain a birth cave shows beyond its mouth. */
+  private outside?: Terrain3D;
+  private outsideOffset = { x: 0, y: 0 };
+  private outsideChildCount = -1;
+  /** A threshold transfer is in flight; don't re-fire while the row updates. */
+  private transferPending = false;
   /** Cleared until the camera has snapped to the local trogg once (first snapshot). */
   private cameraSnapped = false;
   /** Whether the local trogg currently has the fly cheat on. */
@@ -406,21 +411,43 @@ export class World3D {
     // sparkle (the established "you can E this" language), and let the first
     // dawn break if this boot IS the arrival from one.
     if (isBirthZone(this.slug) && this.zone.exit) {
-      const exitGlow = this.entities.makeGroundItem("exit-light");
-      this.entities.place(exitGlow, this.zone.exit.x, this.zone.exit.y);
-      const light = new THREE.PointLight(0xffd27a, 7, 12, 1.4);
-      light.position.set(0.5, 1.6, 0.5);
-      exitGlow.add(light);
-      this.exitGlow = exitGlow;
-      this.scene.add(exitGlow);
-      // the birth cell's own ember: a warm hearth glow so the newborn can see
-      // the room it wakes sealed inside
+      // The mouth shows the actual outside: a windowed copy of the world's
+      // terrain around the coast alcove, aligned so the cave's exit continues
+      // into the very ground you land on. It carries its own daylight (a
+      // separate light layer, no fog), so from the dark you see a sunlit
+      // opening — an entrance, not a dead end, and no props or sparkle.
+      const exit = this.zone.exit;
+      const worldZone = getZone(STARTING_ZONE_SLUG)!;
+      this.outsideOffset = { x: CAVE_DOOR.x - exit.x, y: CAVE_DOOR.y - exit.y };
+      this.outside = buildTerrain(worldZone, { minTileY: CAVE_DOOR.y - 14, maxTileY: CAVE_DOOR.y - 4 });
+      this.outside.group.position.set(-this.outsideOffset.x, 0, -this.outsideOffset.y);
+      this.scene.add(this.outside.group);
+      const daylight = new THREE.HemisphereLight(0xdcebff, DAYLIGHT_3D.bounce, 1.4);
+      daylight.layers.set(1);
+      const sun = new THREE.DirectionalLight(DAYLIGHT_3D.sun, 2.6);
+      sun.position.set(exit.x - 20, 30, -30);
+      sun.target.position.set(exit.x, 0, -8);
+      sun.layers.set(1);
+      this.scene.add(daylight, sun, sun.target);
+      this.camera.layers.enable(1);
+      // the wake-up ember: a warm hearth glow over the newborn's spot
       const cell = this.zone.cells[0];
       if (cell) {
         const ember = new THREE.PointLight(0xffa658, 4.5, 9, 1.2);
         ember.position.set(cell.x + 0.5, 1.5, cell.y + 0.5);
         this.scene.add(ember);
       }
+    }
+    if (!isBirthZone(this.slug)) {
+      // the way back down: the alcove's deep end is a dark tunnel mouth — the
+      // black of the underworld, no props, no sparkle
+      const mouth = new THREE.Mesh(
+        new THREE.PlaneGeometry(2.4, 1.9),
+        new THREE.MeshBasicMaterial({ color: 0x050307 }),
+      );
+      mouth.position.set(CAVE_DOOR.x + 0.5, 0.95, CAVE_DOOR.y + 0.98);
+      mouth.rotation.y = Math.PI; // faces the approach from the coast
+      this.scene.add(mouth);
     }
     if (!isBirthZone(this.slug) && sessionStorage.getItem("trogg-emerged") === "1") {
       sessionStorage.removeItem("trogg-emerged");
@@ -445,15 +472,6 @@ export class World3D {
       },
       () => {
         if (!this.useInteract) return;
-        // In a birth cave, E beside the light is the way out (GDD "Onboarding"):
-        // the server verifies proximity, wipes the instance, and transfers us.
-        const exit = this.zone.exit;
-        if (isBirthZone(this.slug) && exit && this.selfPos && Math.hypot(this.selfPos.x - exit.x, this.selfPos.y - exit.y) < 2.5) {
-          void conn.reducers.emerge({}).catch((err) => {
-            logError("Emerge failed", { surface: "world", action: "emerge", zone: this.slug, error: err });
-          });
-          return;
-        }
         void interact(conn, this.self.facing.dirX, this.self.facing.dirY).catch((err) => {
           logError("Interact action failed", { surface: "world", action: "interact", zone: this.slug, error: err });
         });
@@ -646,6 +664,24 @@ export class World3D {
         // stream terrain around the camera focus (only once the camera sits on the
         // trogg — the pre-snap zone-fit distance would build the whole world)
         if (this.cameraSnapped) this.terrain.update(this.orbit.target.x, this.orbit.target.z, camDist);
+        if (this.cameraSnapped && this.outside) {
+          this.outside.update(this.orbit.target.x + this.outsideOffset.x, this.orbit.target.z + this.outsideOffset.y, camDist);
+          // fresh chunks join the daylight layer and shrug off the cave fog
+          if (this.outside.group.children.length !== this.outsideChildCount) {
+            this.outsideChildCount = this.outside.group.children.length;
+            this.outside.group.traverse((obj) => {
+              obj.layers.set(1);
+              const mesh = obj as THREE.Mesh;
+              const mats = (Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : []) as THREE.MeshStandardMaterial[];
+              for (const m of mats) {
+                if (m.fog !== false) {
+                  m.fog = false;
+                  m.needsUpdate = true;
+                }
+              }
+            });
+          }
+        }
         this.cullDistant(CULL_RANGE);
         this.updateDaylight(dt);
         // backstop: never let the camera sink underground (drags handle the floor
@@ -686,6 +722,25 @@ export class World3D {
       // Exposed for the e2e harness: the local trogg's projected tile position and
       // a click-to-move injection, so probes can route with the real pathfinding.
       this.selfPos = { x: motion.x, y: motion.y };
+      // Threshold transfers (GDD "Onboarding: the Warren"): walking onto the
+      // cave's exit landing emerges into the world; pushing into the alcove's
+      // deep end descends into your own cave. The walk is the door — the
+      // server re-verifies position either way (invariant 3).
+      if (!this.transferPending) {
+        const exit = this.zone.exit;
+        if (isBirthZone(this.slug) && exit && Math.hypot(motion.x - exit.x, motion.y - exit.y) < 1.6) {
+          this.transferPending = true;
+          sessionStorage.setItem("trogg-emerged", "1");
+          void this.conn.reducers.emerge({}).catch((err: unknown) => {
+            logError("Emerge failed", { surface: "world", action: "emerge", zone: this.slug, error: err });
+          });
+        } else if (!isBirthZone(this.slug) && Math.hypot(motion.x - CAVE_DOOR.x, motion.y - CAVE_DOOR.y) < 0.9) {
+          this.transferPending = true;
+          void this.conn.reducers.enterCave({}).catch((err: unknown) => {
+            logError("Descent failed", { surface: "world", action: "enter_cave", zone: this.slug, error: err });
+          });
+        }
+      }
       const hooks = window as unknown as {
         __troggPos?: { x: number; y: number; z: number };
         __troggMoveTo?: (x: number, y: number) => void;
@@ -743,7 +798,6 @@ export class World3D {
     for (const view of this.groundItems.values()) {
       this.entities.animatePickupMotes(view.group, now);
     }
-    if (this.exitGlow) this.entities.animatePickupMotes(this.exitGlow, now);
     this.crowd.commit();
     this.entities.updateGhosts(now);
     this.orbit?.update();

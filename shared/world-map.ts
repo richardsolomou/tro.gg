@@ -445,5 +445,8 @@ export const WORLD_CELLS: readonly BirthCellSeed[] = [
 
 ];
 
-/** Where an emerging newborn lands: the coast's cave-mouth alcove. */
-export const WORLD_ARRIVAL: Coord = {"x":112,"y":175};
+/** Where an emerging trogg lands: the coast's cave-mouth alcove. */
+export const WORLD_ARRIVAL: Coord = {"x":112,"y":174};
+
+/** The alcove's deep end — walk into it to descend into your own cave. */
+export const WORLD_CAVE_DOOR: Coord = {"x":112,"y":176};

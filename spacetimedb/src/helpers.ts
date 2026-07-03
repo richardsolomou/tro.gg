@@ -143,13 +143,6 @@ export function seedBirthInstance(ctx: Ctx, zoneId: string): void {
   ctx.db.groundItem.insert({ id: 0n, zoneId, item: "pickaxe", x: cell.pickaxe.x, y: cell.pickaxe.y, qty: 1 });
 }
 
-/** Erase a departed newborn's private cave rows — the instance simply ceases. */
-export function wipeBirthInstance(ctx: Ctx, zoneId: string): void {
-  for (const b of [...ctx.db.boulder.zoneId.filter(zoneId)]) ctx.db.boulder.id.delete(b.id);
-  for (const g of [...ctx.db.groundItem.zoneId.filter(zoneId)]) ctx.db.groundItem.id.delete(g.id);
-  for (const h of [...ctx.db.hog.zoneId.filter(zoneId)]) ctx.db.hog.id.delete(h.id);
-}
-
 /** Whether any player is currently online — the Hogs only roam while someone is
  *  watching (invariant 1: an empty zone does no work). */
 export function anyPlayerOnline(ctx: Ctx): boolean {

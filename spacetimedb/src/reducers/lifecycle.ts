@@ -1,6 +1,7 @@
 import spacetimedb from "../schema";
 import { Timestamp } from "spacetimedb";
 import {
+  CAVE_DOOR,
   EMERGE_ARRIVAL,
   nearestSafeTile,
   COLOR_UNSET,
@@ -18,7 +19,6 @@ import {
   seedHogs,
   seedGroundItems,
   seedBirthInstance,
-  wipeBirthInstance,
   playerConnectionCount,
   rememberPlayerConnection,
   forgetPlayerConnection,
@@ -76,9 +76,7 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
     const zone = getZone(existing.zoneId);
     // A map regen can strand a returning trogg inside new rock or a river: relocate
     // to the nearest safe tile beside where it logged out, spawn as the last resort.
-    // (A trogg mid-birth resumes inside its own private cave untouched; the
-    // instance rows are re-seeded if anything wiped them.)
-    if (zone && existing.zoneId.startsWith("birth:")) seedBirthInstance(ctx, existing.zoneId);
+    // (A trogg mid-birth resumes inside its own private cave, untouched.)
     const stuck = zone && !isWalkable(zone, Math.round(existing.x), Math.round(existing.y));
     const pos = stuck ? (nearestSafeTile(zone, existing.x, existing.y) ?? spawnAt(zone)) : { x: existing.x, y: existing.y };
     ctx.db.player.identity.update({ ...existing, x: pos.x, y: pos.y, dirX: 0, dirY: 0, running: false, path: "", online: true, movedAt: ctx.timestamp });
@@ -174,11 +172,11 @@ export const onDisconnect = spacetimedb.clientDisconnected((ctx) => {
 
 
 /**
- * Step out of the birth cave (GDD "Onboarding: the Warren"): `E` beside the
- * exit light. The server re-derives the trogg's position and only emerges a
- * caller actually at the exit (invariant 3); the private instance's rows are
- * wiped — it simply ceases — and the trogg lands inside the world's coast
- * cave-mouth alcove, facing the daylight.
+ * Step out of the birth cave (GDD "Onboarding: the Warren"): fired by the
+ * client as the trogg walks onto the exit landing — no keypress; the walk IS
+ * the door. The server re-derives the position and only emerges a caller
+ * actually at the exit (invariant 3). The instance's rows persist: it is the
+ * trogg's own cave, kept exactly as it left it, and `enterCave` leads back.
  */
 export const emerge = spacetimedb.reducer((ctx) => {
   const p = ctx.db.player.identity.find(ctx.sender);
@@ -189,7 +187,6 @@ export const emerge = spacetimedb.reducer((ctx) => {
   if (!cave || !exit) return;
   const settled = settle(ctx, p, ctx.timestamp);
   if (Math.hypot(settled.x - exit.x, settled.y - exit.y) > 2.5) return;
-  wipeBirthInstance(ctx, p.zoneId);
   ctx.db.player.identity.update({
     ...p,
     zoneId: STARTING_ZONE_SLUG,
@@ -203,6 +200,42 @@ export const emerge = spacetimedb.reducer((ctx) => {
     path: "",
     faceX: 0,
     faceY: -1, // facing out of the cave mouth, toward the world
+    movedAt: ctx.timestamp,
+  });
+});
+
+/**
+ * Walk back down into your own cave (GDD "Onboarding: the Warren"): fired by
+ * the client as the trogg pushes into the alcove's deep end. Position is
+ * re-derived and verified (invariant 3); the destination is always the
+ * caller's own `birth:<identity>` instance — nobody else's cave is reachable —
+ * landing on the exit ledge facing the cavern.
+ */
+export const enterCave = spacetimedb.reducer((ctx) => {
+  const p = ctx.db.player.identity.find(ctx.sender);
+  if (!p || p.dead) return;
+  if (p.zoneId !== STARTING_ZONE_SLUG) return;
+  const settled = settle(ctx, p, ctx.timestamp);
+  if (Math.hypot(settled.x - CAVE_DOOR.x, settled.y - CAVE_DOOR.y) > 2) return;
+  const birthZone = `birth:${ctx.sender.toHexString()}`;
+  const cave = getZone(birthZone);
+  const exit = cave?.exit;
+  if (!cave || !exit) return;
+  ctx.db.player.identity.update({
+    ...p,
+    zoneId: birthZone,
+    x: exit.x,
+    // land below the neck, clear of the emerge threshold — arriving in the
+    // cave must not immediately walk you back out
+    y: exit.y + 3,
+    z: 0,
+    dirZ: 0,
+    dirX: 0,
+    dirY: 0,
+    running: false,
+    path: "",
+    faceX: 0,
+    faceY: 1, // facing down into the cavern
     movedAt: ctx.timestamp,
   });
 });

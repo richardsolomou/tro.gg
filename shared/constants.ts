@@ -1,7 +1,7 @@
 export * from "./glyphs";
 import { SOLID_GLYPHS, TILE_GLYPHS, WATER_TILE } from "./glyphs";
 import { generateBirthCave, setRegionRows, WORLD_H, WORLD_W } from "./worldgen";
-import { WORLD_ARRIVAL, WORLD_BIG_HOGS, WORLD_BOULDERS, WORLD_CELLS, WORLD_HOGS, WORLD_ITEMS, WORLD_REGION_ROWS, WORLD_SPAWN, WORLD_TILES, WORLD_TREES } from "./world-map";
+import { WORLD_ARRIVAL, WORLD_CAVE_DOOR, WORLD_BIG_HOGS, WORLD_BOULDERS, WORLD_CELLS, WORLD_HOGS, WORLD_ITEMS, WORLD_REGION_ROWS, WORLD_SPAWN, WORLD_TILES, WORLD_TREES } from "./world-map";
 
 // regionAt() reads the committed grid on both client and module
 setRegionRows(WORLD_REGION_ROWS);
@@ -481,8 +481,12 @@ export function isBirthZone(slug: string): boolean {
   return slug.startsWith(BIRTH_ZONE_PREFIX);
 }
 
-/** Where an emerging newborn lands: the coast's cave-mouth alcove. */
+/** Where an emerging trogg lands: the coast's cave-mouth alcove. */
 export const EMERGE_ARRIVAL = WORLD_ARRIVAL;
+
+/** The alcove's deep end: walking into it descends into your own birth cave —
+ *  every trogg keeps its cave, and nobody else's cave is ever reachable. */
+export const CAVE_DOOR = WORLD_CAVE_DOOR;
 
 /** Where a fresh trogg spawns, and the default room the client joins. */
 export const STARTING_ZONE_SLUG = "world";

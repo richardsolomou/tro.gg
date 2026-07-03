@@ -296,8 +296,10 @@ export function generateBirthCave(): Zone {
     rock = next;
   }
   const cx = Math.floor(W / 2);
-  // the exit landing above the band, and the rubble neck through it
-  for (let y = 2; y <= 3; y++) for (let x = cx - 1; x <= cx + 1; x++) rock[idx(x, y)] = 0;
+  // The exit landing above the band, and the rubble neck through it. The rim
+  // above the landing opens too: the mouth frames a real view of the outside
+  // (the client renders a window of the world map beyond it).
+  for (let y = 0; y <= 3; y++) for (let x = cx - 1; x <= cx + 1; x++) rock[idx(x, y)] = 0;
   const corridor: Coord[] = [
     { x: cx, y: 4 },
     { x: cx, y: 5 },
@@ -462,8 +464,10 @@ export interface GeneratedWorld {
   items: GroundItemSeed[];
   bigHogs: BigHog[];
   cells: BirthCellSeed[];
-  /** Where an emerging newborn lands: inside the coast's cave-mouth alcove. */
+  /** Where an emerging trogg lands: inside the coast's cave-mouth alcove. */
   arrival: Coord;
+  /** The alcove's deep end — walk into it to descend into your own cave. */
+  caveDoor: Coord;
   spawn: Coord;
 }
 
@@ -764,8 +768,11 @@ export function generateWorld(): GeneratedWorld {
       if (glyphs[y]![x] === WALL_TILE) glyphs[y]![x] = ".";
     }
   }
-  const arrival: Coord = { x: MOUTH_X, y: Math.min(mouthY + ARRIVAL_DEPTH - 1, H - 2) };
+  // arrive mid-alcove facing the daylight; the way back down is the deep end,
+  // two tiles further in, so arriving never immediately re-enters
+  const arrival: Coord = { x: MOUTH_X, y: Math.min(mouthY + 3, H - 3) };
+  const caveDoor: Coord = { x: MOUTH_X, y: Math.min(mouthY + ARRIVAL_DEPTH, H - 2) };
   const cells: BirthCellSeed[] = [];
 
-  return { tiles: glyphs.map((row) => row.join("")), regions: regionGrid.map((row) => row.join("")), boulders, trees, hogs, items, bigHogs, cells, arrival, spawn };
+  return { tiles: glyphs.map((row) => row.join("")), regions: regionGrid.map((row) => row.join("")), boulders, trees, hogs, items, bigHogs, cells, arrival, caveDoor, spawn };
 }

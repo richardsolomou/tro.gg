@@ -33,7 +33,15 @@ export interface Terrain3D {
 /** Tiles per streamed chunk (a region is 64×44, so seams stay region-aligned on x). */
 const CHUNK = 32;
 
-export function buildTerrain(zone: Zone): Terrain3D {
+export interface TerrainWindow {
+  /** Render only tiles with worldY inside [minTileY, maxTileY] — the slice of
+   *  the outside a birth cave shows beyond its mouth (GDD "Onboarding"). A
+   *  windowed terrain also skips the void underlay (the host scene has one). */
+  minTileY: number;
+  maxTileY: number;
+}
+
+export function buildTerrain(zone: Zone, window?: TerrainWindow): Terrain3D {
   const group = new THREE.Group();
   const globalDisposables: { dispose(): void }[] = [];
 
@@ -69,13 +77,15 @@ export function buildTerrain(zone: Zone): Terrain3D {
   voidTex.wrapT = THREE.RepeatWrapping;
   voidTex.repeat.set(600 / PATCH, 600 / PATCH);
   globalDisposables.push(voidTex);
-  const voidPlane = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), new THREE.MeshStandardMaterial({ map: voidTex, roughness: 1 }));
-  voidPlane.rotation.x = -Math.PI / 2;
-  // well below the sunken river channels (whose tops sit at -0.18): anything cut
-  // out of the floor must reveal what's carved beneath it, not this underlay
-  voidPlane.position.set(zone.width / 2, -0.62, zone.height / 2);
-  voidPlane.receiveShadow = true;
-  group.add(voidPlane);
+  if (!window) {
+    const voidPlane = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), new THREE.MeshStandardMaterial({ map: voidTex, roughness: 1 }));
+    voidPlane.rotation.x = -Math.PI / 2;
+    // well below the sunken river channels (whose tops sit at -0.18): anything cut
+    // out of the floor must reveal what's carved beneath it, not this underlay
+    voidPlane.position.set(zone.width / 2, -0.62, zone.height / 2);
+    voidPlane.receiveShadow = true;
+    group.add(voidPlane);
+  }
 
   // Walls tint per tile through instance colours, so biome borders stay
   // tile-exact even when a chunk straddles two regions.
@@ -131,6 +141,10 @@ export function buildTerrain(zone: Zone): Terrain3D {
       for (let x = 0; x < w; x++) {
         const wx = x0 + x;
         const wy = y0 + y;
+        if (window && (wy < window.minTileY || wy > window.maxTileY)) {
+          ctx.clearRect(x * ART, y * ART, ART, ART);
+          continue;
+        }
         const glyph = row[wx]!;
         const biome = tileBiome(wx, wy);
         const patches = patchesFor(biome);

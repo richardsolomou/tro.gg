@@ -12,6 +12,7 @@ import {
   MAX_BOULDERS_PER_ZONE,
   MOVE_SPEED_TILES_PER_SEC,
   EMERGE_ARRIVAL,
+  CAVE_DOOR,
   birthZoneFor,
   isBirthZone,
   CHEAT_SPEED_MULTIPLIER,
@@ -54,6 +55,7 @@ import {
   moveTo,
   onConnect,
   emerge,
+  enterCave,
   onDisconnect,
   recolor,
   redeemClaim,
@@ -1414,20 +1416,45 @@ test("two newborns never share a cave", () => {
   assert.equal(ctx.db.boulder.zoneId.filter(pb.zoneId).length, getZone(pb.zoneId)!.cells[0]!.corridor.length);
 });
 
-test("emerge beside the exit light transfers to the world and wipes the instance", () => {
+test("walking onto the exit landing emerges into the world; the cave persists", () => {
   const me = id("emerging");
   const ctx = makeCtx({ sender: me });
   onConnect(ctx);
   const birthZone = birthZoneFor(me.toHexString());
   const cave = getZone(birthZone)!;
+  const rubble = ctx.db.boulder.zoneId.filter(birthZone).length;
   ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), x: cave.exit!.x, y: cave.exit!.y + 1 });
   emerge(ctx);
   const p = ctx.db.player.identity.find(me);
   assert.equal(p.zoneId, ZONE);
   assert.equal(p.x, EMERGE_ARRIVAL.x);
   assert.equal(p.y, EMERGE_ARRIVAL.y);
-  assert.equal(ctx.db.boulder.zoneId.filter(birthZone).length, 0);
-  assert.equal(ctx.db.groundItem.zoneId.filter(birthZone).length, 0);
+  // your cave stays exactly as you left it — enterCave leads back
+  assert.equal(ctx.db.boulder.zoneId.filter(birthZone).length, rubble);
+});
+
+test("pushing into the alcove's deep end descends into your own cave", () => {
+  const me = id("returning");
+  const ctx = makeCtx({ sender: me });
+  onConnect(ctx);
+  const birthZone = birthZoneFor(me.toHexString());
+  const cave = getZone(birthZone)!;
+  ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), x: cave.exit!.x, y: cave.exit!.y + 1 });
+  emerge(ctx);
+  ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), x: CAVE_DOOR.x, y: CAVE_DOOR.y });
+  enterCave(ctx);
+  const p = ctx.db.player.identity.find(me);
+  assert.equal(p.zoneId, birthZone);
+  assert.equal(p.x, cave.exit!.x);
+  assert.equal(p.y, cave.exit!.y + 3); // below the neck, clear of the emerge threshold
+});
+
+test("enterCave is refused away from the alcove's deep end", () => {
+  const me = id("wanderer");
+  const ctx = makeCtx({ sender: me });
+  ctx.db.player.insert(playerRow(me, { x: 112, y: 104, zoneId: ZONE }));
+  enterCave(ctx);
+  assert.equal(ctx.db.player.identity.find(me).zoneId, ZONE);
 });
 
 test("emerge is refused away from the exit — the dig cannot be skipped", () => {
@@ -1439,16 +1466,19 @@ test("emerge is refused away from the exit — the dig cannot be skipped", () =>
   assert.ok(isBirthZone(p.zoneId));
 });
 
-test("a returning mid-dig trogg resumes its own cave, reseeded if wiped", () => {
+test("a returning mid-dig trogg resumes its own cave exactly as it left it", () => {
   const me = id("sleeper");
   const ctx = makeCtx({ sender: me });
   onConnect(ctx);
   const birthZone = birthZoneFor(me.toHexString());
-  for (const b of [...ctx.db.boulder.zoneId.filter(birthZone)]) ctx.db.boulder.id.delete(b.id);
+  // mined one rock, then logged off
+  const first = ctx.db.boulder.zoneId.filter(birthZone)[0];
+  ctx.db.boulder.id.delete(first.id);
+  const remaining = ctx.db.boulder.zoneId.filter(birthZone).length;
   ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), online: false });
   ctx.db.playerConnection.connectionId.delete(ctx.connectionId);
   onConnect(ctx);
   const p = ctx.db.player.identity.find(me);
   assert.equal(p.zoneId, birthZone);
-  assert.ok(ctx.db.boulder.zoneId.filter(birthZone).length > 0);
+  assert.equal(ctx.db.boulder.zoneId.filter(birthZone).length, remaining);
 });
