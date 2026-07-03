@@ -83,6 +83,13 @@ export class World3D {
   private readonly boulders = new Map<string, { row: Boulder; group: THREE.Group }>();
   /** Cleared until the camera has snapped to the local trogg once (first snapshot). */
   private cameraSnapped = false;
+  /** Fade the world in — held black until the camera sits on the local trogg, so a
+   *  slow first snapshot never shows the zone-centre framing at all. */
+  private reveal(): void {
+    const canvas = this.renderer.domElement;
+    canvas.style.transition = "opacity 0.35s ease-out";
+    canvas.style.opacity = "1";
+  }
   private readonly groundItems = new Map<string, { row: GroundItem; group: THREE.Group }>();
   private readonly hogs = new Map<string, HogView>();
 
@@ -243,6 +250,9 @@ export class World3D {
     });
 
     window.addEventListener("resize", this.layout);
+    this.renderer.domElement.style.opacity = "0";
+    // if the snapshot stalls (or this session never gets a trogg), show the zone
+    window.setTimeout(() => this.reveal(), 4000);
     // Commands-panel debug: show combat hit circles and the local melee reach.
     window.addEventListener("trogg-debug-hitboxes", ((e: Event) => {
       this.entities.setHitboxes((e as CustomEvent<boolean>).detail === true);
@@ -311,10 +321,13 @@ export class World3D {
       if (this.orbit) {
         const pivot = new THREE.Vector3(motion.x + 0.5, 0.6, motion.y + 0.5);
         const ease = this.cameraSnapped ? Math.min(1, dt * 8) : 1;
-        this.cameraSnapped = true;
         const shift = pivot.sub(this.orbit.target).multiplyScalar(ease);
         this.orbit.target.add(shift);
         this.camera.position.add(shift); // carry the camera with the pivot so following doesn't re-aim the view
+        if (!this.cameraSnapped) {
+          this.cameraSnapped = true;
+          this.reveal();
+        }
       }
       if (entry.player.dead) continue;
       this.self.update(entry, motion, now);
