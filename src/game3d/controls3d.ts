@@ -20,6 +20,8 @@ export function createOrbit(camera: THREE.Camera, dom: HTMLElement): OrbitContro
   );
   const controls = new OrbitControls(camera, dom);
   controls.enablePan = false;
-  controls.enableDamping = true;
+  // No inertia: the camera tracks the mouse 1:1 and stops the instant the drag
+  // does, so where it lands is always exactly where you left it.
+  controls.enableDamping = false;
   return controls;
 }
