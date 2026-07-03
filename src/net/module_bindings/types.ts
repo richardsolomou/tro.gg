@@ -36,6 +36,12 @@ export const ClaimCode = __t.object("ClaimCode", {
 });
 export type ClaimCode = __Infer<typeof ClaimCode>;
 
+export const CreatureRegen = __t.object("CreatureRegen", {
+  scheduledId: __t.u64(),
+  scheduledAt: __t.scheduleAt(),
+});
+export type CreatureRegen = __Infer<typeof CreatureRegen>;
+
 export const GhostHaunt = __t.object("GhostHaunt", {
   id: __t.u64(),
   zoneId: __t.string(),
@@ -68,6 +74,7 @@ export const Hog = __t.object("Hog", {
   homeY: __t.i32(),
   style: __t.string(),
   health: __t.i32(),
+  lastDamagedAt: __t.timestamp(),
 });
 export type Hog = __Infer<typeof Hog>;
 
@@ -114,6 +121,7 @@ export const Player = __t.object("Player", {
   respawnAt: __t.option(__t.timestamp()),
   equippedOffHand: __t.string(),
   equippedOffHandInventoryId: __t.u64(),
+  lastDamagedAt: __t.timestamp(),
 });
 export type Player = __Infer<typeof Player>;
 

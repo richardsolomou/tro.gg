@@ -39,4 +39,5 @@ export default __t.row({
   respawnAt: __t.option(__t.timestamp()).name("respawn_at"),
   equippedOffHand: __t.string().name("equipped_off_hand"),
   equippedOffHandInventoryId: __t.u64().name("equipped_off_hand_inventory_id"),
+  lastDamagedAt: __t.timestamp().name("last_damaged_at"),
 });

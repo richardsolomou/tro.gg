@@ -1,16 +1,18 @@
-import { ScheduleAt } from "spacetimedb";
+import { ScheduleAt, Timestamp } from "spacetimedb";
 import {
   GHOST_HAUNT_HISTORY_MAX,
   HOG_IDLE_CHANCE,
   HOG_STEP_INTERVAL_MS,
   HOG_TURN_CHANCE,
+  HEALTH_REGEN_TICK_MS,
   isValidName,
   isWalkable,
   HOG_MAX_HEALTH,
+  hogMaxHealth,
   BOULDER_MAX_HEALTH,
   TREE_MAX_HEALTH,
   SPACETIMEAUTH_ISSUER,
-  walkableCardinals,
+  walkableSteps,
   type Zone,
   type ZoneBounds,
 } from "../../shared/index";
@@ -104,10 +106,10 @@ export function seedTrees(ctx: Ctx, zone: Zone): void {
 export function seedHogs(ctx: Ctx, zone: Zone): void {
   if ([...ctx.db.hog.zoneId.filter(zone.slug)].length > 0) return;
   for (const h of zone.hogs) {
-    ctx.db.hog.insert({ id: 0n, zoneId: zone.slug, x: h.x, y: h.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, path: "", homeX: h.x, homeY: h.y, style: "", health: HOG_MAX_HEALTH });
+    ctx.db.hog.insert({ id: 0n, zoneId: zone.slug, x: h.x, y: h.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, path: "", homeX: h.x, homeY: h.y, style: "", health: HOG_MAX_HEALTH, lastDamagedAt: Timestamp.UNIX_EPOCH });
   }
   for (const h of zone.bigHogs) {
-    ctx.db.hog.insert({ id: 0n, zoneId: zone.slug, x: h.x, y: h.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, path: "", homeX: h.x, homeY: h.y, style: h.style, health: HOG_MAX_HEALTH });
+    ctx.db.hog.insert({ id: 0n, zoneId: zone.slug, x: h.x, y: h.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, path: "", homeX: h.x, homeY: h.y, style: h.style, health: hogMaxHealth(h.style), lastDamagedAt: Timestamp.UNIX_EPOCH });
   }
 }
 
@@ -171,26 +173,29 @@ export function armWander(ctx: Ctx): void {
 }
 
 /**
- * A Hog's heading for the next tile (GDD "Hogs"). A Hog ambling in a direction keeps
- * going so long as that tile is open and a `HOG_TURN_CHANCE` roll doesn't turn it — so
- * it walks in gentle runs rather than jittering every tile. Otherwise (blocked ahead,
- * or it turned, or it was idle) it picks fresh: idle with `HOG_IDLE_CHANCE` so it
- * pauses, else a random walkable cardinal. `bounds` already treats walls, boulders,
- * troggs, and other Hogs as unwalkable, so a picked tile is always clear.
+ * A fresh wander heading (GDD "Hogs"), picked when a run ends — blocked ahead,
+ * a turn roll, or waking from idle. Idle with `HOG_IDLE_CHANCE` so Hogs pause,
+ * else a random open step from all 8 directions (`walkableSteps` keeps
+ * diagonals from squeezing wall corners). `bounds` already treats walls,
+ * boulders, trees, troggs, and other Hogs as unwalkable.
  */
 export function pickWanderDir(
   ctx: Ctx,
   bounds: ZoneBounds,
-  hog: { dirX: number; dirY: number },
   pos: { x: number; y: number },
   size: number,
 ): { dirX: number; dirY: number } {
-  const options = walkableCardinals(bounds, pos.x, pos.y, size);
-  const ahead = options.find((d) => d.dirX === hog.dirX && d.dirY === hog.dirY);
-  if (ahead && ctx.random() > HOG_TURN_CHANCE) return ahead;
   if (ctx.random() < HOG_IDLE_CHANCE) return { dirX: 0, dirY: 0 };
+  const options = walkableSteps(bounds, pos.x, pos.y, size);
   if (options.length === 0) return { dirX: 0, dirY: 0 };
   return options[ctx.random.integerInRange(0, options.length - 1)]!;
+}
+
+/** Arm the out-of-combat regen sweep, unless one is already pending (GDD "Combat"). */
+export function armRegen(ctx: Ctx): void {
+  if (ctx.db.creatureRegen.count() > 0n) return;
+  const at = ctx.timestamp.microsSinceUnixEpoch + BigInt(HEALTH_REGEN_TICK_MS) * 1000n;
+  ctx.db.creatureRegen.insert({ scheduledId: 0n, scheduledAt: ScheduleAt.time(at) });
 }
 
 /** Whether the caller authenticated with a SpacetimeAuth OIDC token (an account, not a guest). */

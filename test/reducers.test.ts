@@ -24,6 +24,10 @@ import {
   OFF_TOOL_NODE_FACTOR,
   TREE_MAX_HEALTH,
   THROWN_OBJECT_DAMAGE,
+  UNARMED_DAMAGE,
+  HEALTH_REGEN_DELAY_MS,
+  HEALTH_REGEN_FRACTION,
+  hogMaxHealth,
 } from "@trogg/shared";
 import {
   chat,
@@ -44,6 +48,7 @@ import {
   resetBoulders,
   resetHogs,
   respawnPlayers,
+  regenCreatures,
   spawn,
   startClaim,
   useEquipped,
@@ -487,6 +492,54 @@ test("useEquipped does not mine a boulder when there is no slot for a new stone 
 
   assert.equal(ctx.db.boulder.id.find(boulder.id)?.health, WEAPON_DAMAGE.pickaxe![0]); // still standing
   assert.equal(ctx.db.inventory.rows().some((r: any) => r.item === "stone"), false);
+});
+
+test("bare fists swing: unarmed damage lands and the fists impulse animates", () => {
+  const { ctx, me } = withPlayer({ x: 69, y: 96 });
+  const other = id("other");
+  ctx.db.player.insert(playerRow(other, { x: 70, y: 96, health: PLAYER_MAX_HEALTH }));
+
+  useEquipped(ctx, { dirX: 1, dirY: 0 });
+
+  assert.equal(ctx.db.player.identity.find(other).health, PLAYER_MAX_HEALTH - UNARMED_DAMAGE[0]);
+  const p = ctx.db.player.identity.find(me);
+  assert.equal(p.equipmentAction, "fists");
+  assert.equal(p.equippedMainHand, "");
+});
+
+test("out-of-combat regen: heals after the delay, never before, never the dead", () => {
+  const me = id("watcher");
+  const ctx = makeCtx({ sender: me, now: micros(HEALTH_REGEN_DELAY_MS + 1000) });
+  ctx.db.player.insert(playerRow(me, { online: true, health: 50, lastDamagedAt: { microsSinceUnixEpoch: micros(1000) } }));
+  const fresh = id("fresh");
+  ctx.db.player.insert(playerRow(fresh, { online: true, health: 50, lastDamagedAt: { microsSinceUnixEpoch: micros(HEALTH_REGEN_DELAY_MS) } }));
+  const dead = id("dead");
+  ctx.db.player.insert(playerRow(dead, { online: true, health: 0, dead: true, lastDamagedAt: { microsSinceUnixEpoch: micros(1000) } }));
+  ctx.db.hog.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96, dirX: 0, dirY: 0, movedAt: { microsSinceUnixEpoch: 0n }, path: "", homeX: 0, homeY: 0, style: "", health: 10, lastDamagedAt: { microsSinceUnixEpoch: micros(1000) } });
+
+  regenCreatures(ctx, {});
+
+  const heal = Math.ceil(PLAYER_MAX_HEALTH * HEALTH_REGEN_FRACTION);
+  assert.equal(ctx.db.player.identity.find(me).health, 50 + heal); // rested → heals
+  assert.equal(ctx.db.player.identity.find(fresh).health, 50); // hit 1s ago → waits
+  assert.equal(ctx.db.player.identity.find(dead).health, 0); // dead → respawn's job
+  assert.equal(ctx.db.hog.rows()[0].health, 10 + Math.ceil(HOG_MAX_HEALTH * HEALTH_REGEN_FRACTION));
+  assert.equal(ctx.db.creatureRegen.rows().length, 1); // re-armed while someone is online
+});
+
+test("regen never overshoots max health", () => {
+  const me = id("watcher");
+  const ctx = makeCtx({ sender: me, now: micros(HEALTH_REGEN_DELAY_MS + 1000) });
+  ctx.db.player.insert(playerRow(me, { online: true, health: PLAYER_MAX_HEALTH - 1, lastDamagedAt: { microsSinceUnixEpoch: 0n } }));
+  regenCreatures(ctx, {});
+  assert.equal(ctx.db.player.identity.find(me).health, PLAYER_MAX_HEALTH);
+});
+
+test("a giant Hog carries four commons' worth of health", () => {
+  assert.equal(hogMaxHealth("buff"), HOG_MAX_HEALTH * 4);
+  const { ctx } = withPlayer({ x: 69, y: 96 });
+  spawn(ctx, { kind: "hog", item: "dino" });
+  assert.equal(ctx.db.hog.rows()[0].health, HOG_MAX_HEALTH * 4);
 });
 
 test("useEquipped damages a faced adjacent trogg with a sword", () => {

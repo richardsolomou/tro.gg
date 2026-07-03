@@ -51,7 +51,7 @@ snake_case. Low-volume by design — anything that could fire more than ~once/se
 | `object_picked_up` | `zone, kind, source?, style?` | Player picks up a tile-sized object — `kind` is `hog` (boulders stopped being carryable; old events also carry `boulder`); `style` is present for Hogs |
 | `object_dropped` | `zone, kind, source?, style?` | Player puts down what they were carrying; `style` is present for Hogs |
 | `object_thrown` | `zone, kind, range, source?, hit_target?` | Player throws what they carry (a Hog; legacy carried boulders still count); `hit_target` is `trogg` or `hog` when the throw damages a character |
-| `combat_hit` | `zone, weapon, target, damage, killed, source?` | An accepted server-side attack damages a trogg or Hog. `weapon` is the main-hand item id (`sword`, `axe`, `pickaxe`, `shovel`), `thrown_boulder`, or `thrown_hog`; `target` is `trogg` or `hog` |
+| `combat_hit` | `zone, weapon, target, damage, killed, source?` | An accepted server-side attack damages a trogg or Hog. `weapon` is the main-hand item id (`sword`, `axe`, `pickaxe`, `shovel`), `fists`, `thrown_boulder`, or `thrown_hog`; `target` is `trogg` or `hog` |
 | `player_died` | `zone, cause, dropped_item_rows, dropped_item_qty, respawn_ms, source?` | Server-side combat damage kills a trogg, drops its inventory, and schedules its respawn |
 | `player_respawned` | `zone, respawn_ms, source` | The local player's authoritative row transitions from dead to alive after the scheduled respawn timer |
 | `item_crafted` | `recipe, qty` | Item crafting succeeds |

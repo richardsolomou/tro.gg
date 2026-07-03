@@ -11,7 +11,7 @@ setRegionRows(WORLD_REGION_ROWS);
  * tuning or experiments are useful. See docs/gdd.md.
  */
 
-import { BIG_HOG_STYLES } from "./creatures";
+import { BIG_HOG_STYLES, hogSize } from "./creatures";
 
 /** Movement speed shared by click-to-move and WASD. (initial) */
 export const MOVE_SPEED_TILES_PER_SEC = 4;
@@ -95,6 +95,24 @@ export const INVENTORY_SLOT_COUNT = 20;
 export const PLAYER_MAX_HEALTH = 100;
 export const HOG_MAX_HEALTH = 60;
 
+/** A Hog's max health scales with the area of its footprint: a 2×2 giant is
+ *  four commons' worth of hedgehog. (initial) */
+export function hogMaxHealth(style: string): number {
+  const size = hogSize(style);
+  return HOG_MAX_HEALTH * size * size;
+}
+
+/**
+ * Out-of-combat regeneration (GDD "Combat"): a creature untouched for
+ * `HEALTH_REGEN_DELAY_MS` heals `HEALTH_REGEN_FRACTION` of its max (rounded up)
+ * every `HEALTH_REGEN_TICK_MS`, driven by the scheduled `regenCreatures` sweep
+ * (the sanctioned timer exception, like `wanderHogs`). Dead troggs never regen.
+ * (initial)
+ */
+export const HEALTH_REGEN_DELAY_MS = 30_000;
+export const HEALTH_REGEN_TICK_MS = 3_000;
+export const HEALTH_REGEN_FRACTION = 0.05;
+
 /** Gathering-node health: a boulder or tree soaks a few tool swings (each rolls
  *  the tool's WEAPON_DAMAGE range) before it breaks and grants its resource —
  *  roughly three average hits each. (initial) */
@@ -126,6 +144,10 @@ export function weaponDamageRange(item: string): readonly [number, number] | und
  *  a sword CAN whittle a tree down, it's just a terrible saw. Applied to the
  *  roll, never below a 1-point scratch. (initial) */
 export const OFF_TOOL_NODE_FACTOR = 0.08;
+
+/** Bare fists: the empty-handed swing's damage range — always available, the
+ *  weakest option. Stored as the "fists" action impulse so clients animate it. */
+export const UNARMED_DAMAGE: readonly [number, number] = [5, 10];
 
 /** How long a visible equipment-use impulse lasts — the attack clip length. */
 export const EQUIPMENT_ACTION_MS = 300;

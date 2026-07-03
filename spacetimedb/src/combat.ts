@@ -85,7 +85,7 @@ export function hogHealth(h: { health?: number }): number {
 export function damageHog(ctx: Ctx, target: NonNullable<ReturnType<typeof hogAt>>, amount: number): DamageResult {
   const health = Math.max(0, hogHealth(target) - amount);
   if (health > 0) {
-    ctx.db.hog.id.update({ ...target, health });
+    ctx.db.hog.id.update({ ...target, health, lastDamagedAt: ctx.timestamp });
     return { health, killed: false };
   }
   ctx.db.hog.id.delete(target.id);
@@ -116,7 +116,7 @@ export function dropInventory(ctx: Ctx, target: NonNullable<ReturnType<typeof pl
 export function damagePlayer(ctx: Ctx, target: NonNullable<ReturnType<typeof playerAt>>, amount: number): PlayerDamageResult {
   const health = Math.max(0, target.health - amount);
   if (health > 0) {
-    ctx.db.player.identity.update({ ...target, health });
+    ctx.db.player.identity.update({ ...target, health, lastDamagedAt: ctx.timestamp });
     return { health, killed: false, droppedItemRows: 0, droppedItemQty: 0, respawnMs: 0 };
   }
 

@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { BOULDER_HIT_RADIUS, TREE_HIT_RADIUS, EQUIPMENT_ACTION_MS, forward, HOG_HIT_RADIUS, HOG_MAX_HEALTH, hogSize, MELEE_ARC_RAD, MELEE_RANGE_TILES, PLAYER_HIT_RADIUS, PLAYER_MAX_HEALTH, RUN_SPEED_TILES_PER_SEC, timestampMs, wieldOf, type EquipSlot, type Facing, type ProjectedMotion, type Stamp } from "@trogg/shared";
+import { BOULDER_HIT_RADIUS, TREE_HIT_RADIUS, EQUIPMENT_ACTION_MS, forward, HOG_HIT_RADIUS, hogMaxHealth, hogSize, MELEE_ARC_RAD, MELEE_RANGE_TILES, PLAYER_HIT_RADIUS, PLAYER_MAX_HEALTH, RUN_SPEED_TILES_PER_SEC, timestampMs, wieldOf, type EquipSlot, type Facing, type ProjectedMotion, type Stamp } from "@trogg/shared";
 import type { Player } from "../net/module_bindings/types";
 import { audio } from "../audio.js";
 import { buildGhost, buildHog, buildHogBall, buildTrogg } from "./creatures.js";
@@ -392,9 +392,10 @@ export function createEntities(scene: THREE.Scene) {
     model.actions.idle.arms.play();
     addHitbox(marker, hitRing(HOG_HIT_RADIUS * size, 0x6fdc9c), c);
     const overlays: Overlay[] = [];
-    const hp = Math.max(0, Math.min(HOG_MAX_HEALTH, health));
-    if (hp < HOG_MAX_HEALTH) {
-      const bar = makeHealthBar(HOG_MAX_HEALTH <= 0 ? 0 : hp / HOG_MAX_HEALTH, false);
+    const max = hogMaxHealth(style);
+    const hp = Math.max(0, Math.min(max, health));
+    if (hp < max) {
+      const bar = makeHealthBar(max <= 0 ? 0 : hp / max, false);
       bar.sprite.position.set(c, model.height * size + 0.24, c);
       marker.add(bar.sprite);
       overlays.push(bar);

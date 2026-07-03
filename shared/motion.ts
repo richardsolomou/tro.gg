@@ -121,6 +121,23 @@ export function walkableCardinals(zone: ZoneBounds, x: number, y: number, size =
   return CARDINALS.filter(({ dirX, dirY }) => footprintWalkable(zone, x + dirX, y + dirY, size));
 }
 
+/** All 8 step directions open to a `size`-footprint at (x, y): the cardinals,
+ *  plus each diagonal whose destination AND both flanking cardinals are open —
+ *  no squeezing through a wall corner. */
+export function walkableSteps(zone: ZoneBounds, x: number, y: number, size = 1): { dirX: number; dirY: number }[] {
+  const steps = walkableCardinals(zone, x, y, size);
+  for (const [dirX, dirY] of [[1, 1], [1, -1], [-1, 1], [-1, -1]] as const) {
+    if (
+      footprintWalkable(zone, x + dirX, y + dirY, size) &&
+      footprintWalkable(zone, x + dirX, y, size) &&
+      footprintWalkable(zone, x, y + dirY, size)
+    ) {
+      steps.push({ dirX, dirY });
+    }
+  }
+  return steps;
+}
+
 /** Whether the whole `size`-tile footprint anchored at top-left (x, y) is inside the
  *  zone and on walkable floor. (x, y, size) are tile units. */
 export function footprintWalkable(zone: ZoneBounds, x: number, y: number, size = 1): boolean {

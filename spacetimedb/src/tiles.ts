@@ -1,3 +1,4 @@
+import { Timestamp } from "spacetimedb";
 import {
   isDryFloor,
   BOULDER_HIT_RADIUS,
@@ -12,6 +13,7 @@ import {
   getZone,
   hogStyleFor,
   hogSize,
+  hogMaxHealth,
   HOG_MAX_HEALTH,
   BOULDER_MAX_HEALTH,
   TREE_MAX_HEALTH,
@@ -318,7 +320,7 @@ export function placeCarriedAt(ctx: Ctx, zone: Zone, kind: string, style: string
     ctx.db.boulder.insert({ id: 0n, zoneId: zone.slug, x: tile.x, y: tile.y, health: BOULDER_MAX_HEALTH });
   } else if (kind === "hog") {
     if (countRows(ctx.db.hog.zoneId.filter(zone.slug)) >= MAX_HOGS_PER_ZONE) return false;
-    ctx.db.hog.insert({ id: 0n, zoneId: zone.slug, x: tile.x, y: tile.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, path: "", homeX: tile.x, homeY: tile.y, style, health: HOG_MAX_HEALTH });
+    ctx.db.hog.insert({ id: 0n, zoneId: zone.slug, x: tile.x, y: tile.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, path: "", homeX: tile.x, homeY: tile.y, style, health: hogMaxHealth(style), lastDamagedAt: Timestamp.UNIX_EPOCH });
   } else {
     return false;
   }

@@ -20,6 +20,7 @@ import {
   rememberPlayerConnection,
   forgetPlayerConnection,
   armWander,
+  armRegen,
   isSpacetimeAuthCaller,
   claimProviderName,
   settle,
@@ -46,6 +47,7 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
   seedGroundItems(ctx, startingZone);
   // A player is here, so make sure the Hogs are roaming (no-op if already armed).
   armWander(ctx);
+  armRegen(ctx);
 
   const hadLiveConnection = playerConnectionCount(ctx, ctx.sender) > 0;
   rememberPlayerConnection(ctx);
@@ -120,6 +122,7 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
     health: PLAYER_MAX_HEALTH,
     dead: false,
     respawnAt: undefined,
+    lastDamagedAt: Timestamp.UNIX_EPOCH,
   });
 });
 

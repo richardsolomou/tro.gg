@@ -11,6 +11,7 @@ import {
   spawnTile,
   weaponDamageRange,
   OFF_TOOL_NODE_FACTOR,
+  UNARMED_DAMAGE,
   tileKey,
 } from "../../../shared/index";
 import {
@@ -217,8 +218,10 @@ function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; d
     return events;
   }
 
+  // Empty-handed, `F` still swings: bare fists, the weakest weapon, stored as
+  // the "fists" action impulse so every client animates the bare swing.
   const equipped = equippedInventoryRow(ctx, p);
-  if (!equipped) return [];
+  const item = equipped?.item ?? "fists";
   // a fresh use inside the previous swing's cooldown is dropped (invariant 3)
   if (p.equipmentAction !== "" && elapsedMs(p.equipmentActionAt, ctx.timestamp) < EQUIPMENT_USE_COOLDOWN_MS) return [];
 
@@ -234,7 +237,7 @@ function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; d
   // (refused — node left barely standing — when no inventory slot can take it).
   const cx = pos.x + 0.5;
   const cy = pos.y + 0.5;
-  const range = weaponDamageRange(equipped.item);
+  const range = equipped ? weaponDamageRange(item) : UNARMED_DAMAGE;
 
   const strikeBoulder = (b: NonNullable<ReturnType<typeof meleeBoulderTarget>>["target"], damage: number): boolean => {
     if (b.health > damage) {
@@ -260,10 +263,10 @@ function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; d
   let landed = false;
   if (range) {
     const roll = () => ctx.random.integerInRange(range[0], range[1]);
-    if (equipped.item === "pickaxe") {
+    if (item === "pickaxe") {
       const b = meleeBoulderTarget(ctx, p.zoneId, cx, cy, aim);
       if (b) landed = strikeBoulder(b.target, roll());
-    } else if (equipped.item === "axe") {
+    } else if (item === "axe") {
       const tr = meleeTreeTarget(ctx, p.zoneId, cx, cy, aim);
       if (tr) landed = strikeTree(tr.target, roll());
     }
@@ -273,19 +276,19 @@ function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; d
       const hog = meleeHogTarget(ctx, p.zoneId, cx, cy, aim, ctx.timestamp);
       if (trogg && (!hog || trogg.dist <= hog.dist)) {
         const result = damagePlayer(ctx, trogg.target, damage);
-        events.push({ distinctId: distinctId(ctx), event: "combat_hit", properties: { ...props, weapon: equipped.item, target: "trogg", damage, killed: result.killed } });
-        if (result.killed) events.push(playerDiedEvent(trogg.target.identity.toHexString(), props, equipped.item, result));
+        events.push({ distinctId: distinctId(ctx), event: "combat_hit", properties: { ...props, weapon: item, target: "trogg", damage, killed: result.killed } });
+        if (result.killed) events.push(playerDiedEvent(trogg.target.identity.toHexString(), props, item, result));
         landed = true;
       } else if (hog) {
         const result = damageHog(ctx, hog.target, damage);
-        events.push({ distinctId: distinctId(ctx), event: "combat_hit", properties: { ...props, weapon: equipped.item, target: "hog", damage, killed: result.killed } });
+        events.push({ distinctId: distinctId(ctx), event: "combat_hit", properties: { ...props, weapon: item, target: "hog", damage, killed: result.killed } });
         landed = true;
       }
     }
     if (!landed) {
       // no creature and no matching node in the swing: any node takes a scratch
-      const b = equipped.item === "pickaxe" ? undefined : meleeBoulderTarget(ctx, p.zoneId, cx, cy, aim);
-      const tr = equipped.item === "axe" ? undefined : meleeTreeTarget(ctx, p.zoneId, cx, cy, aim);
+      const b = item === "pickaxe" ? undefined : meleeBoulderTarget(ctx, p.zoneId, cx, cy, aim);
+      const tr = item === "axe" ? undefined : meleeTreeTarget(ctx, p.zoneId, cx, cy, aim);
       const chip = Math.max(1, Math.round(roll() * OFF_TOOL_NODE_FACTOR));
       if (b && (!tr || b.dist <= tr.dist)) strikeBoulder(b.target, chip);
       else if (tr) strikeTree(tr.target, chip);
@@ -294,12 +297,12 @@ function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; d
 
   ctx.db.player.identity.update({
     ...p,
-    equippedMainHand: equipped.item,
-    equippedMainHandInventoryId: equipped.id,
-    equipmentAction: equipped.item,
+    equippedMainHand: equipped?.item ?? "",
+    equippedMainHandInventoryId: equipped?.id ?? 0n,
+    equipmentAction: item,
     equipmentActionAt: ctx.timestamp,
   });
-  events.unshift({ distinctId: distinctId(ctx), event: "equipped_item_used", properties: { zone: p.zoneId, item: equipped.item, ...sourceProp(source) } });
+  events.unshift({ distinctId: distinctId(ctx), event: "equipped_item_used", properties: { zone: p.zoneId, item, ...sourceProp(source) } });
   return events;
 }
 

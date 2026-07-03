@@ -23,4 +23,5 @@ export default __t.row({
   homeY: __t.i32().name("home_y"),
   style: __t.string(),
   health: __t.i32(),
+  lastDamagedAt: __t.timestamp().name("last_damaged_at"),
 });
