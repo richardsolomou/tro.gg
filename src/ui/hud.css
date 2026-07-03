@@ -605,3 +605,48 @@
   color: var(--hud-bone-dim);
   font-size: 13px;
 }
+
+/* ── World map (M) ───────────────────────────────────────────────────────────── */
+#hud .worldmap {
+  inset: 0;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 10px;
+  background: rgba(6, 4, 2, 0.55);
+  cursor: pointer;
+}
+#hud .worldmap[hidden] {
+  display: none;
+}
+#hud .worldmap-frame {
+  position: relative;
+  padding: 14px;
+  background: var(--hud-timber);
+  clip-path: var(--facet);
+  box-shadow: var(--slab-light);
+  filter: drop-shadow(0 5px 0 rgba(0, 0, 0, 0.4));
+}
+#hud .worldmap-canvas {
+  display: block;
+  max-width: min(80vw, 620px);
+  max-height: 74vh;
+  image-rendering: pixelated;
+}
+#hud .worldmap-marker {
+  position: absolute;
+  /* the frame's padding offsets the canvas; the marker positions within it */
+  width: 10px;
+  height: 10px;
+  margin: 9px 0 0 9px;
+  border-radius: 50%;
+  background: #ffe08a;
+  box-shadow: 0 0 8px #ff8c2e, 0 0 0 2px rgba(10, 8, 6, 0.7);
+  animation: worldmap-pulse 1.2s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes worldmap-pulse {
+  50% {
+    transform: scale(1.35);
+  }
+}

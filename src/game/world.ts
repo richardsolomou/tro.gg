@@ -67,6 +67,11 @@ export interface WorldData {
  * frame (invariant 2); all authority stays server-side (invariant 3).
  */
 export class World3D {
+  /** The local trogg's live projected position (the overworld map marker). */
+  selfPosition(): { x: number; y: number } | undefined {
+    return this.selfPos;
+  }
+
   private readonly conn: DbConnection;
   private readonly slug: string;
   private readonly zone: Zone;
@@ -112,6 +117,7 @@ export class World3D {
   private readonly boulderTiles = new Set<string>();
   private readonly hogTiles = new Set<string>();
   private keyLight!: THREE.DirectionalLight;
+  private selfPos?: { x: number; y: number };
   private hogBounds!: ZoneBounds;
   private troggBounds!: ZoneBounds;
 
@@ -369,8 +375,9 @@ export class World3D {
       this.entities.updateReach(this.self.aim.dirX, this.self.aim.dirY, attackAge >= 0 && attackAge < EQUIPMENT_ACTION_MS && entry.player.equipmentAction !== "");
       // Exposed for the e2e harness: the local trogg's projected tile position and
       // a click-to-move injection, so probes can route with the real pathfinding.
+      this.selfPos = { x: motion.x, y: motion.y };
       const hooks = window as unknown as { __troggPos?: { x: number; y: number }; __troggMoveTo?: (x: number, y: number) => void };
-      hooks.__troggPos = { x: motion.x, y: motion.y };
+      hooks.__troggPos = this.selfPos;
       hooks.__troggMoveTo ??= (x: number, y: number) => this.self.onClick({ x, y });
     }
 
