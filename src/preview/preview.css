@@ -179,3 +179,8 @@ body {
   width: auto;
   height: 48px;
 }
+
+/* Contextual controls (main.ts showWhen). Last so it wins the display ties above. */
+#controls [hidden] {
+  display: none;
+}

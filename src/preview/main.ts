@@ -243,6 +243,12 @@ function rebuild(): void {
 
 const controls = document.getElementById("controls")!;
 const repaints: (() => void)[] = [];
+// Contextual controls: each entry hides an element on the views it means nothing to.
+const reveals: (() => void)[] = [];
+
+function showWhen(el: HTMLElement, when: () => boolean): void {
+  reveals.push(() => (el.hidden = !when()));
+}
 
 function group(label: string, ...children: HTMLElement[]): HTMLElement {
   const g = document.createElement("div");
@@ -287,6 +293,7 @@ function slot(icon: HTMLElement | string, isOn: () => boolean, onClick: () => vo
 function refresh(): void {
   rebuild();
   for (const p of repaints) p();
+  for (const r of reveals) r();
 }
 
 function mountControls(): void {
@@ -295,6 +302,8 @@ function mountControls(): void {
   for (const c of CREATURES) {
     const pick = () => {
       state.creature = c;
+      // troggs have no ball form
+      if (c.kind === "trogg" && state.mode === "ball") state.mode = "idle";
     };
     creatures.appendChild(slot(c.kind === "trogg" ? troggIcon(c.style) : hogIcon(c.style), () => state.creature.kind === c.kind && state.creature.style === c.style, pick, true));
   }
@@ -309,6 +318,7 @@ function mountControls(): void {
   }
 
   const modes = MODES.map((m) => button(m, () => state.mode === m, () => (state.mode = m)));
+  const ballBtn = modes[MODES.indexOf("ball")]!;
   const viewBtn = button("item view", () => state.view === "item", () => (state.view = state.view === "item" ? "holder" : "item"));
   const pauseBtn = button("pause", () => state.paused, () => (state.paused = !state.paused));
   const bonesBtn = button("bones", () => state.bones, () => (state.bones = !state.bones));
@@ -326,8 +336,29 @@ function mountControls(): void {
     for (const p of repaints) p();
   });
 
-  controls.append(group("creature", creatures), group("main", items), group("off", offs), group("anim", ...modes), group("", viewBtn, pauseBtn, bonesBtn), group("scrub", scrubInput));
+  const creatureG = group("creature", creatures);
+  const mainG = group("main", items);
+  const offG = group("off", offs);
+  const animG = group("anim", ...modes);
+  const scrubG = group("scrub", scrubInput);
+  controls.append(creatureG, mainG, offG, animG, group("", viewBtn, pauseBtn, bonesBtn), scrubG);
+
+  // Hide what a view can't use: the lone-item shelf has no creature, off hand, or
+  // rig; the ball is one static pose (hogs only); the hit flinch runs on its own
+  // cycle, so pause/scrub only apply to the clip modes.
+  const holder = () => state.view !== "item";
+  const clipMode = () => holder() && state.mode !== "ball" && state.mode !== "hit";
+  showWhen(creatureG, holder);
+  showWhen(offG, () => holder() && state.mode !== "ball");
+  showWhen(mainG, () => state.view === "item" || state.mode !== "ball");
+  showWhen(animG, holder);
+  showWhen(ballBtn, () => state.creature.kind === "hog");
+  showWhen(pauseBtn, clipMode);
+  showWhen(bonesBtn, () => holder() && state.mode !== "ball");
+  showWhen(scrubG, clipMode);
+
   for (const p of repaints) p();
+  for (const r of reveals) r();
 }
 
 // ── loop ─────────────────────────────────────────────────────────────────────────
