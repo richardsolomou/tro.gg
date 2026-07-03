@@ -30,6 +30,7 @@ import {
 import type { DbConnection } from "../net/module_bindings";
 import type { Boulder, GroundItem, Hog, Player } from "../net/module_bindings/types";
 import { attachKeyboard, type MoveIntent } from "../input.js";
+import { registerKeybind } from "../ui/keybinds.js";
 import { setupChat } from "../ui/chat.js";
 import { mountCommands } from "../ui/commands.js";
 import { createSelfController, type SelfController } from "../movement.js";
@@ -67,6 +68,9 @@ export interface WorldData {
  * table syncs origin/direction/start-time and every client extrapolates locally each
  * frame (invariant 2); all authority stays server-side (invariant 3).
  */
+/** One full in-game day, dawn to dawn. */
+const DAY_CYCLE_MS = 12 * 60 * 1000;
+
 /** World objects beyond this many tiles from the camera focus stop rendering. */
 const CULL_RANGE = 72;
 
@@ -108,7 +112,10 @@ export class World3D {
     const fx = this.orbit.target.x;
     const fy = this.orbit.target.z;
     const inRange = (obj: THREE.Object3D) => Math.hypot(obj.position.x - fx, obj.position.z - fy) < range;
-    for (const entry of this.tracked.values()) entry.marker.visible = inRange(entry.marker);
+    for (const [id, entry] of this.tracked) {
+      // your own trogg leaves the frame in first person — you are the camera
+      entry.marker.visible = (!this.firstPerson || id !== this.myId) && inRange(entry.marker);
+    }
     for (const view of this.hogs.values()) view.marker.visible = inRange(view.marker);
     for (const view of this.boulders.values()) view.group.visible = inRange(view.group);
     for (const view of this.groundItems.values()) view.group.visible = inRange(view.group);
@@ -126,7 +133,80 @@ export class World3D {
 
   private readonly boulderTiles = new Set<string>();
   private readonly hogTiles = new Set<string>();
+  // ── first person (GDD "Camera and rendering") ─────────────────────────────
+  /** First person is the default view: the world reads at its own scale and the
+   *  sky (and the sun's travel) is visible. `V` swaps to the orbit camera. */
+  private firstPerson = true;
+  private fpYaw = 0;
+  private fpPitch = -0.15;
+  private fpLocked = false;
+
+  private mountFirstPerson(): void {
+    const canvas = this.renderer.domElement;
+    canvas.addEventListener("click", () => {
+      if (this.firstPerson && !this.fpLocked) {
+        (canvas.requestPointerLock() as unknown as Promise<void> | undefined)?.catch?.(() => {});
+      }
+    });
+    document.addEventListener("pointerlockchange", () => {
+      this.fpLocked = document.pointerLockElement === canvas;
+    });
+    canvas.addEventListener("mousemove", (e) => {
+      if (!this.firstPerson || !this.fpLocked) return;
+      this.fpYaw -= e.movementX * 0.0024;
+      this.fpPitch = Math.max(-1.25, Math.min(1.35, this.fpPitch - e.movementY * 0.0022));
+    });
+    registerKeybind({ id: "camera-mode", matches: (event) => event.code === "KeyV", handler: () => this.toggleCamera() });
+  }
+
+  private toggleCamera(): void {
+    this.firstPerson = !this.firstPerson;
+    if (this.orbit) this.orbit.enabled = !this.firstPerson;
+    if (!this.firstPerson && document.pointerLockElement === this.renderer.domElement) document.exitPointerLock();
+    if (!this.firstPerson && this.orbit) {
+      // hand back a sane over-the-shoulder orbit framed on the trogg
+      const target = this.orbit.target;
+      this.camera.position.set(target.x - Math.sin(this.fpYaw) * 10, 9, target.z - Math.cos(this.fpYaw) * 10);
+      this.camera.lookAt(target);
+    }
+  }
+
+  /** Drive the first-person camera from the trogg's eyes; the orbit target keeps
+   *  following underneath so streaming, culling, and the sun stay focused. */
+  private updateFirstPerson(): void {
+    if (!this.firstPerson || !this.selfPos) return;
+    this.camera.position.set(this.selfPos.x + 0.5, 1.5, this.selfPos.y + 0.5);
+    this.camera.rotation.set(0, 0, 0);
+    this.camera.rotateY(this.fpYaw);
+    this.camera.rotateX(this.fpPitch);
+  }
+
   private keyLight!: THREE.DirectionalLight;
+  private hemi!: THREE.HemisphereLight;
+  private readonly skyDay = new THREE.Color(DAYLIGHT_3D.sky);
+  private readonly skyNight = new THREE.Color(0x0d1424);
+  private readonly hazeDay = new THREE.Color(DAYLIGHT_3D.haze);
+  private readonly hazeNight = new THREE.Color(0x101a2c);
+
+  /** The shared day–night cycle: wall-clock phased (every player sees the same
+   *  sun), the sun arcs east→west shifting the shadows with it, and night falls
+   *  to a dim moonlit blue where the glowmoss carries the light. */
+  private updateDaylight(): void {
+    if (!this.orbit) return;
+    const phase = (Date.now() % DAY_CYCLE_MS) / DAY_CYCLE_MS; // 0 = dawn
+    const sunAngle = phase * Math.PI * 2 - Math.PI / 2;
+    const elevation = Math.sin(sunAngle + Math.PI / 2); // 1 noon, -1 midnight
+    const daylight = Math.max(0, Math.min(1, (elevation + 0.12) * 2.4));
+    const fx = this.orbit.target.x;
+    const fz = this.orbit.target.z;
+    // the sun arcs across the sky; at night it parks low so shadows fade with it
+    this.keyLight.position.set(fx + Math.cos(sunAngle) * 30, 8 + Math.max(0.05, elevation) * 26, fz + Math.sin(sunAngle) * 14 + 8);
+    this.keyLight.target.position.set(fx, 0, fz);
+    this.keyLight.intensity = 3.2 * daylight;
+    this.hemi.intensity = 0.3 + 1.2 * daylight;
+    (this.scene.background as THREE.Color).lerpColors(this.skyNight, this.skyDay, daylight);
+    (this.scene.fog as THREE.Fog).color.lerpColors(this.hazeNight, this.hazeDay, daylight);
+  }
   private selfPos?: { x: number; y: number };
   private hogBounds!: ZoneBounds;
   private troggBounds!: ZoneBounds;
@@ -183,10 +263,13 @@ export class World3D {
     // past the zone. Glowmoss tiles add their own teal point lights (terrain3d).
     // Daylight: the continent lives under a sun (GDD "Camera and rendering") —
     // sky backdrop, aerial haze, bright warm sunlight with a cool sky bounce.
+    // The sun travels a shared day–night cycle (updateDaylight, wall-clock based
+    // so every player sees the same time of day).
     this.scene.background = new THREE.Color(DAYLIGHT_3D.sky);
     // a faint depth haze only — the zoom is capped, so there is no fog of war
     this.scene.fog = new THREE.Fog(DAYLIGHT_3D.haze, 60, 150);
-    this.scene.add(new THREE.HemisphereLight(0xdcebff, DAYLIGHT_3D.bounce, 1.5));
+    this.hemi = new THREE.HemisphereLight(0xdcebff, DAYLIGHT_3D.bounce, 1.5);
+    this.scene.add(this.hemi);
     // The sun rides the camera focus with a tight shadow box — a static light
     // can't shadow a 224×208 world at any usable resolution.
     const key = new THREE.DirectionalLight(DAYLIGHT_3D.sun, 3.2);
@@ -290,6 +373,7 @@ export class World3D {
     });
 
     window.addEventListener("resize", this.layout);
+    this.mountFirstPerson();
     this.renderer.domElement.style.opacity = "0";
     // if the snapshot stalls (or this session never gets a trogg), show the zone
     window.setTimeout(() => this.reveal(), 4000);
@@ -346,7 +430,7 @@ export class World3D {
       const tile = snapToTile({ x: motion.x, y: motion.y });
       const stepKey = tileKey(tile.x, tile.y);
       if (view.lastStepTile !== undefined && view.lastStepTile !== stepKey) {
-        audio.playHogStepAt(this.hearingDistance(motion.x, motion.y));
+        audio.playHogStepAt(this.hearingDistance(motion.x, motion.y), size);
       }
       view.lastStepTile = stepKey;
       for (const t of footprintTiles(tile.x, tile.y, size)) this.hogTiles.add(tileKey(t.x, t.y));
@@ -377,8 +461,8 @@ export class World3D {
         // trogg — the pre-snap zone-fit distance would build the whole world)
         if (this.cameraSnapped) this.terrain.update(this.orbit.target.x, this.orbit.target.z, camDist);
         this.cullDistant(CULL_RANGE);
-        this.keyLight.position.set(this.orbit.target.x + 16, 30, this.orbit.target.z + 10);
-        this.keyLight.target.position.set(this.orbit.target.x, 0, this.orbit.target.z);
+        this.updateDaylight();
+        this.updateFirstPerson();
         const ease = this.cameraSnapped ? Math.min(1, dt * 8) : 1;
         const shift = pivot.sub(this.orbit.target).multiplyScalar(ease);
         this.orbit.target.add(shift);
@@ -473,6 +557,7 @@ export class World3D {
     this.orbit.maxDistance = 34; // zoom is capped; the M map is the wide view
     this.orbit.minPolarAngle = 0.25; // not dead top-down…
     this.orbit.maxPolarAngle = 1.35; // …and never under the floor
+    this.orbit.enabled = !this.firstPerson;
     this.orbit.update();
   };
 

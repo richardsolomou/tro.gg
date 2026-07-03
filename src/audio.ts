@@ -56,7 +56,7 @@ class AudioCues {
 
   playFootstep(running: boolean) {
     this.play(running ? "footstepsRun" : "footstepsWalk", {
-      volume: running ? 0.16 : 0.13,
+      volume: running ? 0.09 : 0.07,
       minGapMs: running ? 95 : 140,
       rate: running ? [1.04, 1.14] : [0.94, 1.04],
     });
@@ -75,18 +75,19 @@ class AudioCues {
     const gain = AudioCues.falloff(distance);
     if (gain <= 0.02) return;
     this.play(running ? "footstepsRun" : "footstepsWalk", {
-      volume: (running ? 0.13 : 0.1) * gain,
+      volume: (running ? 0.07 : 0.055) * gain,
       minGapMs: 110,
       rate: running ? [1.04, 1.14] : [0.94, 1.04],
     });
   }
 
-  /** A Hog pattering nearby: the same steps, small and quick — a different gait
-   *  by pitch, not a different asset. */
-  playHogStepAt(distance: number) {
+  /** A Hog stepping nearby: the little ones patter (small and quick), the 2×2
+   *  giants thud (slow and deep) — the same strides, a different gait by pitch. */
+  playHogStepAt(distance: number, size = 1) {
     const gain = AudioCues.falloff(distance);
     if (gain <= 0.02) return;
-    this.play("footstepsWalk", { volume: 0.05 * gain, minGapMs: 150, rate: [1.7, 1.95] });
+    if (size > 1) this.play("footstepsWalk", { volume: 0.08 * gain, minGapMs: 260, rate: [0.55, 0.68] });
+    else this.play("footstepsWalk", { volume: 0.028 * gain, minGapMs: 150, rate: [1.7, 1.95] });
   }
 
   /** A boulder shoved or settling somewhere nearby. */
@@ -195,7 +196,7 @@ class GameTheme {
 
   private compose(ctx: AudioContext): void {
     const master = ctx.createGain();
-    master.gain.value = 0.05;
+    master.gain.value = 0.085;
     master.connect(ctx.destination);
 
     // a soft echo bed for the plucks
