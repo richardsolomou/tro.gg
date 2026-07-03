@@ -34,7 +34,6 @@ import {
   moveTo,
   onConnect,
   onDisconnect,
-  push,
   recolor,
   redeemClaim,
   rename,
@@ -197,25 +196,6 @@ test("redeemClaim consumes a stale nonce but does not fold a TTL-expired claim",
   assert.ok(ctx.db.player.identity.find(guest)); // but the guest is left intact (not folded)
 });
 
-// --- Pushing (server re-validates the shove) ---
-
-test("push shoves a boulder onto clear floor and re-bases the trogg flush", () => {
-  const { ctx } = withPlayer({ x: 69, y: 96, dirX: 1, dirY: 0 });
-  ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96 });
-  push(ctx);
-  const b = ctx.db.boulder.rows()[0];
-  assert.deepEqual({ x: b.x, y: b.y }, { x: 71, y: 96 });
-});
-
-test("push refuses when a Hog stands beyond the boulder", () => {
-  const { ctx } = withPlayer({ x: 69, y: 96, dirX: 1, dirY: 0 });
-  ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96 });
-  ctx.db.hog.insert({ id: 0n, zoneId: ZONE, x: 71, y: 96, dirX: 0, dirY: 0, movedAt: { microsSinceUnixEpoch: 0n }, path: "", homeX: 7, homeY: 8, style: "" });
-  push(ctx);
-  const b = ctx.db.boulder.rows()[0];
-  assert.deepEqual({ x: b.x, y: b.y }, { x: 70, y: 96 }); // unmoved
-});
-
 // --- Movement authority ---
 
 test("move accepts a diagonal intent, facing its dominant axis (free movement)", () => {
@@ -273,12 +253,12 @@ test("face rejects a diagonal standing turn", () => {
 
 // --- Interacting ---
 
-test("interact picks up the boulder on the faced tile", () => {
+test("interact does not pick up a boulder — boulders are mining nodes", () => {
   const { ctx, me } = withPlayer({ x: 69, y: 96, carrying: "" });
   ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96 });
   interact(ctx, { dirX: 1, dirY: 0 });
-  assert.equal(ctx.db.boulder.rows().length, 0); // removed from the world
-  assert.equal(ctx.db.player.identity.find(me).carrying, "boulder"); // now carried
+  assert.equal(ctx.db.boulder.rows().length, 1); // still in the world
+  assert.equal(ctx.db.player.identity.find(me).carrying, "");
 });
 
 test("interact picks up a faced ground item into inventory", () => {
@@ -449,6 +429,27 @@ test("useEquipped mines a faced boulder with a pickaxe without stopping movement
   const p = ctx.db.player.identity.find(me);
   assert.equal(p.equipmentAction, "pickaxe");
   assert.deepEqual({ dirX: p.dirX, dirY: p.dirY, running: p.running, path: p.path }, { dirX: 1, dirY: 0, running: true, path: "" });
+});
+
+test("useEquipped fells a faced tree with an axe into one wood", () => {
+  const { ctx, me } = withPlayer({ x: 69, y: 96, equippedMainHand: "axe" });
+  const axe = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "axe", qty: 1 });
+  ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedMainHandInventoryId: axe.id });
+  ctx.db.tree.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96 });
+  useEquipped(ctx, { dirX: 1, dirY: 0 });
+  assert.equal(ctx.db.tree.rows().length, 0);
+  assert.equal(ctx.db.inventory.rows().find((r: any) => r.item === "wood")?.qty, 1);
+  assert.equal(ctx.db.player.identity.find(me).equipmentAction, "axe");
+});
+
+test("an axe does not mine boulders and a pickaxe does not fell trees", () => {
+  const { ctx, me } = withPlayer({ x: 69, y: 96, equippedMainHand: "axe" });
+  const axe = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "axe", qty: 1 });
+  ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedMainHandInventoryId: axe.id });
+  ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96 });
+  useEquipped(ctx, { dirX: 1, dirY: 0 });
+  assert.equal(ctx.db.boulder.rows().length, 1);
+  assert.equal(ctx.db.inventory.rows().some((r: any) => r.item === "stone" || r.item === "wood"), false);
 });
 
 test("useEquipped does not mine a boulder when there is no slot for a new stone stack", () => {

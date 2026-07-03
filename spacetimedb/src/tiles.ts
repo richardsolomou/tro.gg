@@ -1,6 +1,7 @@
 import {
   isDryFloor,
   BOULDER_HIT_RADIUS,
+  TREE_HIT_RADIUS,
   CARDINALS,
   DIR_SCALE,
   elapsedMs,
@@ -55,10 +56,12 @@ export function countRows(rows: Iterable<unknown>): number {
   return n;
 }
 
-/** The set of tiles occupied by boulders in a zone, keyed by `tileKey`. */
-export function boulderTiles(ctx: Ctx, zoneId: string): Set<string> {
+/** The set of tiles occupied by static obstacles — boulders and trees — in a
+ *  zone, keyed by `tileKey`. The base layer every blocker set builds on. */
+export function obstacleTiles(ctx: Ctx, zoneId: string): Set<string> {
   const tiles = new Set<string>();
   for (const b of ctx.db.boulder.zoneId.filter(zoneId)) tiles.add(tileKey(b.x, b.y));
+  for (const tr of ctx.db.tree.zoneId.filter(zoneId)) tiles.add(tileKey(tr.x, tr.y));
   return tiles;
 }
 
@@ -67,7 +70,7 @@ export function boulderTiles(ctx: Ctx, zoneId: string): Set<string> {
  *  intent is at most one tile old; projecting against walls + boulders puts each Hog
  *  within a tile of its real spot, enough to block a trogg flush. */
 export function troggBlockers(ctx: Ctx, zoneId: string, now: Stamp): Set<string> {
-  const tiles = boulderTiles(ctx, zoneId);
+  const tiles = obstacleTiles(ctx, zoneId);
   addHogTiles(ctx, zoneId, now, tiles);
   return tiles;
 }
@@ -77,8 +80,8 @@ export function troggBlockers(ctx: Ctx, zoneId: string, now: Stamp): Set<string>
 export function addHogTiles(ctx: Ctx, zoneId: string, now: Stamp, set: Set<string>): void {
   const zone = getZone(zoneId);
   if (!zone) return;
-  const boulders = boulderTiles(ctx, zoneId);
-  const bounds = zoneBounds(zone, (x, y) => boulders.has(tileKey(x, y)));
+  const obstacles = obstacleTiles(ctx, zoneId);
+  const bounds = zoneBounds(zone, (x, y) => obstacles.has(tileKey(x, y)));
   for (const h of ctx.db.hog.zoneId.filter(zoneId)) {
     const size = hogSize(h.style);
     const pos = projectMotion({ ...h, size }, elapsedMs(h.movedAt, now), bounds);
@@ -106,7 +109,7 @@ export function addPlayerTiles(ctx: Ctx, zoneId: string, now: Stamp, set: Set<st
  *  troggs — so a spawn or drop never lands on top of something. `exclude` skips the
  *  acting trogg's own tile, leaving it as a last-resort fallback when boxed in. */
 export function solidTiles(ctx: Ctx, zoneId: string, now: Stamp, exclude?: Ctx["sender"]): Set<string> {
-  const tiles = boulderTiles(ctx, zoneId);
+  const tiles = obstacleTiles(ctx, zoneId);
   addHogTiles(ctx, zoneId, now, tiles);
   addPlayerTiles(ctx, zoneId, now, tiles, exclude);
   return tiles;
@@ -121,6 +124,14 @@ export function addGroundItemTiles(ctx: Ctx, zoneId: string, set: Set<string>): 
 export function boulderAt(ctx: Ctx, zoneId: string, x: number, y: number) {
   for (const b of ctx.db.boulder.zoneId.filter(zoneId)) {
     if (b.x === x && b.y === y) return b;
+  }
+  return undefined;
+}
+
+/** The tree at a tile in a zone, or undefined. */
+export function treeAt(ctx: Ctx, zoneId: string, x: number, y: number) {
+  for (const tr of ctx.db.tree.zoneId.filter(zoneId)) {
+    if (tr.x === x && tr.y === y) return tr;
   }
   return undefined;
 }
@@ -145,7 +156,7 @@ export function groundItemAt(ctx: Ctx, zoneId: string, x: number, y: number) {
 export function hogAt(ctx: Ctx, zoneId: string, x: number, y: number, now: Stamp) {
   const zone = getZone(zoneId);
   if (!zone) return undefined;
-  const occupied = boulderTiles(ctx, zoneId);
+  const occupied = obstacleTiles(ctx, zoneId);
   const bounds = zoneBounds(zone, (tx, ty) => occupied.has(tileKey(tx, ty)) || !isDryFloor(zone, tx, ty));
   for (const h of ctx.db.hog.zoneId.filter(zoneId)) {
     const size = hogSize(h.style);
@@ -160,7 +171,7 @@ export function hogAt(ctx: Ctx, zoneId: string, x: number, y: number, now: Stamp
 export function hogTile(ctx: Ctx, h: NonNullable<ReturnType<typeof hogAt>>, now: Stamp): { x: number; y: number } {
   const zone = getZone(h.zoneId);
   if (!zone) return { x: h.x, y: h.y };
-  const occupied = boulderTiles(ctx, h.zoneId);
+  const occupied = obstacleTiles(ctx, h.zoneId);
   const bounds = zoneBounds(zone, (tx, ty) => occupied.has(tileKey(tx, ty)) || !isDryFloor(zone, tx, ty));
   const pos = projectMotion(h, elapsedMs(h.movedAt, now), bounds);
   return { x: Math.round(pos.x), y: Math.round(pos.y) };
@@ -212,7 +223,7 @@ export function meleePlayerTarget(ctx: Ctx, zoneId: string, cx: number, cy: numb
 export function meleeHogTarget(ctx: Ctx, zoneId: string, cx: number, cy: number, aim: { dirX: number; dirY: number }, now: Stamp) {
   const zone = getZone(zoneId);
   if (!zone) return undefined;
-  const occupied = boulderTiles(ctx, zoneId);
+  const occupied = obstacleTiles(ctx, zoneId);
   const bounds = zoneBounds(zone, (tx, ty) => occupied.has(tileKey(tx, ty)) || !isDryFloor(zone, tx, ty));
   let best: { target: NonNullable<ReturnType<typeof hogAt>>; dist: number } | undefined;
   for (const h of ctx.db.hog.zoneId.filter(zoneId)) {
@@ -233,6 +244,15 @@ export function meleeBoulderTarget(ctx: Ctx, zoneId: string, cx: number, cy: num
   return best;
 }
 
+export function meleeTreeTarget(ctx: Ctx, zoneId: string, cx: number, cy: number, aim: { dirX: number; dirY: number }) {
+  let best: { target: NonNullable<ReturnType<typeof treeAt>>; dist: number } | undefined;
+  for (const tr of ctx.db.tree.zoneId.filter(zoneId)) {
+    const dist = meleeHit(cx, cy, aim.dirX, aim.dirY, { x: tr.x + 0.5, y: tr.y + 0.5, radius: TREE_HIT_RADIUS });
+    if (dist !== undefined && (!best || dist < best.dist)) best = { target: tr, dist };
+  }
+  return best;
+}
+
 /** Adjacent pickup candidates, with the faced tile first when the client has a heading. */
 export function pickupDirs(dir: { dirX: number; dirY: number } | null): { dirX: number; dirY: number }[] {
   if (!dir) return [];
@@ -240,15 +260,15 @@ export function pickupDirs(dir: { dirX: number; dirY: number } | null): { dirX: 
   return [dir, ...CARDINALS.filter((d) => d.dirX !== dir.dirX || d.dirY !== dir.dirY)];
 }
 
-/** The adjacent target `interact` should pick up, preferring the faced direction. */
+/** The adjacent target `interact` should pick up, preferring the faced direction.
+ *  Boulders are not pickup targets: they're mining nodes, moved only by mining
+ *  them away (a legacy carried boulder still puts down and throws fine). */
 export function pickupTarget(ctx: Ctx, zoneId: string, x: number, y: number, dir: { dirX: number; dirY: number } | null, now: Stamp) {
   for (const d of pickupDirs(dir)) {
     const tx = x + d.dirX;
     const ty = y + d.dirY;
     const item = groundItemAt(ctx, zoneId, tx, ty);
     if (item) return { kind: "item" as const, row: item };
-    const b = boulderAt(ctx, zoneId, tx, ty);
-    if (b) return { kind: "boulder" as const, row: b };
     const h = hogAt(ctx, zoneId, tx, ty, now);
     // A big 2×2 Hog is a fixture, not liftable — the carry overlay is one tile, and a
     // giant on your head makes no sense — so only common Hogs are pickup targets.

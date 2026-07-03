@@ -63,11 +63,11 @@ test("the spawn plaza is open and every walkable tile is reachable from it", () 
 
 test("giants sit on clear 2×2 footprints and every seed is on open floor", () => {
   const zone = generateCaveZone(OPTS);
-  for (const seed of [...zone.boulders, ...zone.hogs, ...zone.items]) {
+  for (const seed of [...zone.boulders, ...zone.trees, ...zone.hogs, ...zone.items]) {
     assert.ok(isWalkable(zone, seed.x, seed.y), `seed at ${seed.x},${seed.y} is in rock`);
   }
   const world = ZONES["world"]!;
-  for (const seed of [...world.boulders, ...world.hogs, ...world.items]) {
+  for (const seed of [...world.boulders, ...world.trees, ...world.hogs, ...world.items]) {
     assert.ok(isDryFloor(world, seed.x, seed.y), `world seed at ${seed.x},${seed.y} is wet or in rock`);
   }
   for (const giant of zone.bigHogs) {
@@ -98,6 +98,8 @@ test("every region contributes open, seeded ground", () => {
   for (const region of WORLD_REGIONS) {
     const seeded = world.boulders.filter((b) => regionAt(b.x, b.y)?.slug === region.slug);
     assert.ok(seeded.length >= 8, `${region.slug} has only ${seeded.length} boulders`);
+    const wooded = world.trees.filter((t) => regionAt(t.x, t.y)?.slug === region.slug);
+    assert.ok(wooded.length >= 12, `${region.slug} has only ${wooded.length} trees`);
   }
 });
 

@@ -81,7 +81,6 @@ export function mountHelp(): void {
 function buildSections(): Section[] {
   const canRun = isFeatureEnabled("running");
   const useInteract = isFeatureEnabled("interact");
-  const pushEnabled = isFeatureEnabled("boulder-pushing");
   const chatEnabled = isFeatureEnabled("chat-enabled");
   const commandFlags = currentCommandFlags();
   const commandPanelEnabled = commandFlags.spawn || commandFlags.resetBoulders || commandFlags.resetHogs || commandFlags.ghost;
@@ -100,7 +99,6 @@ function buildSections(): Section[] {
   controls.push({ key: "F", desc: "Use equipped item" });
   controls.push({ key: "Sword + F", desc: "Attack a faced trogg or Hog" });
   controls.push({ key: "Carry + F", desc: "Throw held object" });
-  if (pushEnabled) controls.push({ key: "Walk into a boulder", desc: "Push it" });
   if (commandPanelEnabled) controls.push({ key: "`", desc: "Open Commands" });
   controls.push({ key: "M", desc: "World map" });
   if (chatEnabled) controls.push({ key: "Enter", desc: "Open chat" });

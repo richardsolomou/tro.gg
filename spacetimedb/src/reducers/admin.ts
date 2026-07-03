@@ -9,6 +9,7 @@ import {
   MAX_BOULDERS_PER_ZONE,
   MAX_GROUND_ITEMS_PER_ZONE,
   MAX_HOGS_PER_ZONE,
+  MAX_TREES_PER_ZONE,
   spawnTile,
   tileKey,
 } from "../../../shared/index";
@@ -36,8 +37,8 @@ import {
  * or a boxed-in trogg is a silent no-op.
  */
 function runSpawn(ctx: Ctx, { kind, item = "", source = "" }: { kind: string; item?: string; source?: string }): AnalyticsEvent[] {
-  if (kind !== "boulder" && kind !== "hog" && kind !== "item") return [];
-  if (kind === "boulder" && item !== "") return [];
+  if (kind !== "boulder" && kind !== "tree" && kind !== "hog" && kind !== "item") return [];
+  if ((kind === "boulder" || kind === "tree") && item !== "") return [];
   if (kind === "item" && !isSpawnableItemId(item)) return [];
   if (kind === "hog" && item !== "" && !isHogStyle(item)) return [];
 
@@ -50,10 +51,12 @@ function runSpawn(ctx: Ctx, { kind, item = "", source = "" }: { kind: string; it
   const existing =
     kind === "boulder"
       ? countRows(ctx.db.boulder.zoneId.filter(p.zoneId))
-      : kind === "hog"
-        ? countRows(ctx.db.hog.zoneId.filter(p.zoneId))
-        : countRows(ctx.db.groundItem.zoneId.filter(p.zoneId));
-  const cap = kind === "boulder" ? MAX_BOULDERS_PER_ZONE : kind === "hog" ? MAX_HOGS_PER_ZONE : MAX_GROUND_ITEMS_PER_ZONE;
+      : kind === "tree"
+        ? countRows(ctx.db.tree.zoneId.filter(p.zoneId))
+        : kind === "hog"
+          ? countRows(ctx.db.hog.zoneId.filter(p.zoneId))
+          : countRows(ctx.db.groundItem.zoneId.filter(p.zoneId));
+  const cap = kind === "boulder" ? MAX_BOULDERS_PER_ZONE : kind === "tree" ? MAX_TREES_PER_ZONE : kind === "hog" ? MAX_HOGS_PER_ZONE : MAX_GROUND_ITEMS_PER_ZONE;
   if (existing >= cap) return [];
 
   // Drop entities on free floor — never inside a wall or on top of anything solid
@@ -67,6 +70,8 @@ function runSpawn(ctx: Ctx, { kind, item = "", source = "" }: { kind: string; it
 
   if (kind === "boulder") {
     ctx.db.boulder.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y });
+  } else if (kind === "tree") {
+    ctx.db.tree.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y });
   } else if (kind === "hog") {
     // A spawned Hog starts at rest and joins the roamers — the next wander tick
     // gives it a heading like any other. `item` carries an explicit sprite style.
@@ -97,7 +102,7 @@ export const spawnAction = spacetimedb.procedure(
 
 /**
  * Reset the caller's zone boulders to their `ZONES` registry positions (GDD
- * "Pushing"). Clears the zone's boulders and reseeds from the registry — the single
+ * "Boulders"). Clears the zone's boulders and reseeds from the registry — the single
  * source of truth — so a layout shoved out of shape snaps back. Fired by the Commands
  * panel; open like every reducer, with the optional `boulder-reset` flag gating the
  * client control.

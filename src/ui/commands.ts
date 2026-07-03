@@ -9,7 +9,7 @@ import { currentCommandFlags, type ChatCommandFlags } from "./chat_commands.js";
 import { hauntGhost, resetBoulders, resetHogs, spawnDebugEntity } from "../net/procedures.js";
 import { itemIcon } from "./inventory.js";
 
-type SpawnRequest = { kind: "boulder" } | { kind: "hog"; style: HogStyle } | { kind: "item"; item: SpawnableItemId };
+type SpawnRequest = { kind: "boulder" } | { kind: "tree" } | { kind: "hog"; style: HogStyle } | { kind: "item"; item: SpawnableItemId };
 
 export interface CommandPanelContext {
   conn: DbConnection;
@@ -69,6 +69,7 @@ function spawnSection(conn: DbConnection, zone: string, status: HTMLElement): HT
   grid.className = "command-spawn-grid";
 
   grid.appendChild(spawnButton("Boulder", itemIcon("boulder"), () => requestSpawn(conn, zone, status, { kind: "boulder" })));
+  grid.appendChild(spawnButton("Tree", itemIcon("tree"), () => requestSpawn(conn, zone, status, { kind: "tree" })));
   for (const style of HOG_STYLES) {
     const label = `${titleCaseWords(style)} Hog`;
     grid.appendChild(spawnButton(label, hogIcon(style), () => requestSpawn(conn, zone, status, { kind: "hog", style })));
@@ -83,7 +84,7 @@ function spawnSection(conn: DbConnection, zone: string, status: HTMLElement): HT
 
 function requestSpawn(conn: DbConnection, zone: string, status: HTMLElement, request: SpawnRequest) {
   const item = request.kind === "hog" ? request.style : request.kind === "item" ? request.item : "";
-  const label = request.kind === "boulder" ? "boulder" : request.kind === "hog" ? `${titleCaseWords(request.style)} Hog` : ITEMS[request.item].name;
+  const label = request.kind === "hog" ? `${titleCaseWords(request.style)} Hog` : request.kind === "item" ? ITEMS[request.item].name : request.kind;
   void spawnDebugEntity(conn, request.kind, item, "commands").catch((err) => {
     logError("Command spawn request failed", { surface: "commands", action: "spawn", zone, kind: request.kind, item, error: err });
     audio.playError();

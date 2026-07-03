@@ -59,6 +59,8 @@ export const ITEM_3D = {
   rock: 0x74705c,
   rockLt: 0xb4ac78,
   rockDk: 0x45402d,
+  leaf: 0x4f8f4a,
+  leafDk: 0x36663a,
 } as const;
 
 /** Cave terrain tones (src/game/terrain.ts, shared with the landing page). */

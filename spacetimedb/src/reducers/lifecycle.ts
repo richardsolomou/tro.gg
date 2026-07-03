@@ -13,6 +13,7 @@ import {
   spawnAt,
   healStaleWorld,
   seedBoulders,
+  seedTrees,
   seedHogs,
   seedGroundItems,
   playerConnectionCount,
@@ -40,6 +41,7 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
   const startingZone = getZone(STARTING_ZONE_SLUG)!;
   healStaleWorld(ctx, startingZone);
   seedBoulders(ctx, startingZone);
+  seedTrees(ctx, startingZone);
   seedHogs(ctx, startingZone);
   seedGroundItems(ctx, startingZone);
   // A player is here, so make sure the Hogs are roaming (no-op if already armed).

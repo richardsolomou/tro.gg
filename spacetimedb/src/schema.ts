@@ -17,7 +17,7 @@ import {
 } from "../../shared/index";
 import {
   anyPlayerOnline,
-  boulderTiles,
+  obstacleTiles,
   addPlayerTiles,
   pickWanderDir,
   armWander,
@@ -171,14 +171,30 @@ const claimCode = table(
 );
 
 /**
- * A pushable boulder (GDD "Pushing"): a rock on an unwalkable tile that a trogg
- * can shove one tile at a time. Boulders are dynamic obstacles — walkability is
- * the static tilemap minus the tiles boulders sit on — so the same collision that
- * stops a trogg at a wall stops it at a boulder. Seeded per zone from the `ZONES`
- * registry on first connect; moved only by the `push` reducer.
+ * A boulder (GDD "Boulders"): a mineable rock on an unwalkable tile. Boulders are
+ * dynamic obstacles — walkability is the static tilemap minus the tiles boulders
+ * sit on — so the same collision that stops a trogg at a wall stops it at a
+ * boulder. Seeded per zone from the `ZONES` registry on first connect; a pickaxe
+ * mines one into Stone (removing the row), and a trogg can carry or throw one.
  */
 const boulder = table(
   { name: "boulder", public: true },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    zoneId: t.string().index("btree"),
+    x: t.i32(),
+    y: t.i32(),
+  },
+);
+
+/**
+ * A tree (GDD "Trees"): choppable scenery on an unwalkable tile, the woodcutting
+ * mirror of the boulder — the same dynamic-obstacle collision, seeded per zone
+ * from the `ZONES` registry on first connect. An axe fells one into Wood
+ * (removing the row). Trees are not carryable: a trunk is not tile-sized.
+ */
+const tree = table(
+  { name: "tree", public: true },
   {
     id: t.u64().primaryKey().autoInc(),
     zoneId: t.string().index("btree"),
@@ -309,7 +325,7 @@ const playerRespawn = table(
   },
 );
 
-const spacetimedb = schema({ player, chatMessage, ghostHaunt, claimCode, boulder, hog, groundItem, inventory, playerConnection, hogWander, playerRespawn });
+const spacetimedb = schema({ player, chatMessage, ghostHaunt, claimCode, boulder, tree, hog, groundItem, inventory, playerConnection, hogWander, playerRespawn });
 export default spacetimedb;
 
 /** The reducer context, typed against this module's schema (db view + sender). */
@@ -335,13 +351,13 @@ export const wanderHogs = spacetimedb.reducer({ timer: hogWander.rowType }, (ctx
   const online = anyPlayerOnline(ctx);
   const now = ctx.timestamp;
 
-  // Per-zone obstacles every Hog must avoid: boulders + troggs. Memoised across Hogs in
-  // the same zone; each Hog's own tile and the other Hogs' tiles are layered on in pass 2.
+  // Per-zone obstacles every Hog must avoid: boulders, trees + troggs. Memoised across
+  // Hogs in the same zone; each Hog's own tile and the other Hogs' tiles are layered on in pass 2.
   const blockersByZone = new Map<string, Set<string>>();
   const blockersFor = (zoneId: string): Set<string> => {
     let set = blockersByZone.get(zoneId);
     if (!set) {
-      set = boulderTiles(ctx, zoneId);
+      set = obstacleTiles(ctx, zoneId);
       addPlayerTiles(ctx, zoneId, now, set);
       blockersByZone.set(zoneId, set);
     }

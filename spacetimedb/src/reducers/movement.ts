@@ -3,21 +3,17 @@ import { t } from "spacetimedb/server";
 import { ScheduleAt, Timestamp } from "spacetimedb";
 import {
   elapsedMs,
-  facingTile,
   findPath,
   getZone,
-  isWalkable,
   projectMotion,
   serializePath,
   smoothPath,
-  snapToTile,
   tileKey,
   zoneBounds,
 } from "../../../shared/index";
 import {
   settle,
   troggBlockers,
-  boulderAt,
   cardinal,
   directionVector,
 } from "../helpers";
@@ -125,39 +121,4 @@ export const moveTo = spacetimedb.reducer({ x: t.i32(), y: t.i32(), running: t.b
   });
 });
 
-/**
- * Push the boulder a trogg is walking into (GDD "Pushing"). The client fires this
- * when its avatar lines up flush against a boulder; the server re-derives the
- * trogg's position authoritatively (invariant 3), and only shifts the boulder one
- * tile if the trogg is squarely facing it and the tile beyond is open floor. The
- * trogg's motion is re-based to the flush tile, so the boulder advances no faster
- * than the trogg can walk — there's no server tick (invariant 1), and spamming the
- * reducer can't help: after a push the boulder sits a tile away and isn't faced
- * again until the trogg physically catches up.
- */
-export const push = spacetimedb.reducer((ctx) => {
-  const p = ctx.db.player.identity.find(ctx.sender);
-  if (!p) return;
-  if (p.dead) return;
-  const zone = getZone(p.zoneId);
-  if (!zone) return;
-
-  const blockers = troggBlockers(ctx, p.zoneId, ctx.timestamp);
-  const pos = projectMotion(p, elapsedMs(p.movedAt, ctx.timestamp), zoneBounds(zone, (x, y) => blockers.has(tileKey(x, y))));
-
-  const ahead = facingTile(pos.x, pos.y, p.dirX, p.dirY);
-  if (!ahead) return; // not squarely facing a tile
-
-  const b = boulderAt(ctx, p.zoneId, ahead.x, ahead.y);
-  if (!b) return; // nothing to push (a Hog in the way is flush-blocking, not pushable)
-
-  const dest = { x: ahead.x + Math.sign(p.dirX), y: ahead.y + Math.sign(p.dirY) };
-  if (!isWalkable(zone, dest.x, dest.y) || blockers.has(tileKey(dest.x, dest.y))) return; // wall, boulder, or Hog
-
-  // `facingTile` proved the trogg is flush and lined up within tolerance; re-base
-  // its motion to the whole tile so the shove leaves it squarely in the push lane.
-  const flush = snapToTile(pos);
-  ctx.db.boulder.id.update({ ...b, x: dest.x, y: dest.y });
-  ctx.db.player.identity.update({ ...p, x: flush.x, y: flush.y, movedAt: ctx.timestamp });
-});
 

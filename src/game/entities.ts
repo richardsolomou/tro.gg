@@ -1,9 +1,9 @@
 import * as THREE from "three";
-import { BOULDER_HIT_RADIUS, EQUIPMENT_ACTION_MS, forward, HOG_HIT_RADIUS, HOG_MAX_HEALTH, hogSize, MELEE_ARC_RAD, MELEE_RANGE_TILES, PLAYER_HIT_RADIUS, PLAYER_MAX_HEALTH, RUN_SPEED_TILES_PER_SEC, timestampMs, wieldOf, type EquipSlot, type Facing, type ProjectedMotion, type Stamp } from "@trogg/shared";
+import { BOULDER_HIT_RADIUS, TREE_HIT_RADIUS, EQUIPMENT_ACTION_MS, forward, HOG_HIT_RADIUS, HOG_MAX_HEALTH, hogSize, MELEE_ARC_RAD, MELEE_RANGE_TILES, PLAYER_HIT_RADIUS, PLAYER_MAX_HEALTH, RUN_SPEED_TILES_PER_SEC, timestampMs, wieldOf, type EquipSlot, type Facing, type ProjectedMotion, type Stamp } from "@trogg/shared";
 import type { Player } from "../net/module_bindings/types";
 import { audio } from "../audio.js";
 import { buildGhost, buildHog, buildHogBall, buildTrogg } from "./creatures.js";
-import { buildBoulder, buildGroundItem, buildHeldItem } from "./items.js";
+import { buildBoulder, buildGroundItem, buildHeldItem, buildTree } from "./items.js";
 import { makeBubble, makeHealthBar, makeLabel, makeStatusText, type Overlay } from "./overlays.js";
 import { ATTACK_PERIOD, type CreatureModel } from "./rig.js";
 import { UI_3D } from "./palette.js";
@@ -402,6 +402,15 @@ export function createEntities(scene: THREE.Scene) {
     return marker;
   };
 
+  const makeTree = () => {
+    const marker = new THREE.Group();
+    const tree = buildTree();
+    tree.position.set(0.5, 0, 0.5);
+    marker.add(tree);
+    addHitbox(marker, hitRing(TREE_HIT_RADIUS, 0x6fdc9c), 0.5);
+    return marker;
+  };
+
   const makeGroundItem = (item: string) => {
     const marker = new THREE.Group();
     const glyph = buildGroundItem(item);
@@ -542,7 +551,7 @@ export function createEntities(scene: THREE.Scene) {
     }
   };
 
-  return { place, smoothPlace, headTop, makeMarker, animate, makeHog, animateHog, makeBoulder, makeGroundItem, applyCarry, applyEquipment, showBubble, destroy, hauntGhost, updateGhosts, setHitboxes, updateReach };
+  return { place, smoothPlace, headTop, makeMarker, animate, makeHog, animateHog, makeBoulder, makeTree, makeGroundItem, applyCarry, applyEquipment, showBubble, destroy, hauntGhost, updateGhosts, setHitboxes, updateReach };
 }
 
 export type Entities = ReturnType<typeof createEntities>;

@@ -87,6 +87,7 @@ export function makeCtx(opts: FakeCtxOpts) {
     db: {
       player: makeTable({ pk: "identity", indexes: ["zoneId"] }),
       boulder: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
+      tree: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
       hog: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
       groundItem: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
       inventory: makeTable({ pk: "id", autoInc: true, indexes: ["playerId"] }),

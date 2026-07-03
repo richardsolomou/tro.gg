@@ -9,7 +9,7 @@ export function sendChat(conn: DbConnection, text: string) {
   return conn.procedures.chatAction({ text, ...telemetry("chat") });
 }
 
-export function spawnDebugEntity(conn: DbConnection, kind: "boulder" | "hog" | "item", item: string, source: string) {
+export function spawnDebugEntity(conn: DbConnection, kind: "boulder" | "tree" | "hog" | "item", item: string, source: string) {
   return conn.procedures.spawnAction({ kind, item, ...telemetry(source) });
 }
 

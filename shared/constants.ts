@@ -1,7 +1,7 @@
 export * from "./glyphs";
 import { SOLID_GLYPHS, TILE_GLYPHS, WATER_TILE } from "./glyphs";
 import { setRegionRows, WORLD_H, WORLD_W } from "./worldgen";
-import { WORLD_BIG_HOGS, WORLD_BOULDERS, WORLD_HOGS, WORLD_ITEMS, WORLD_REGION_ROWS, WORLD_SPAWN, WORLD_TILES } from "./world-map";
+import { WORLD_BIG_HOGS, WORLD_BOULDERS, WORLD_HOGS, WORLD_ITEMS, WORLD_REGION_ROWS, WORLD_SPAWN, WORLD_TILES, WORLD_TREES } from "./world-map";
 
 // regionAt() reads the committed grid on both client and module
 setRegionRows(WORLD_REGION_ROWS);
@@ -50,6 +50,7 @@ export const HOG_IDLE_CHANCE = 0.25;
  */
 export const MAX_HOGS_PER_ZONE = 192;
 export const MAX_BOULDERS_PER_ZONE = 224;
+export const MAX_TREES_PER_ZONE = 320;
 export const MAX_GROUND_ITEMS_PER_ZONE = 384;
 
 /** Chat. (initial) */
@@ -82,9 +83,9 @@ export interface Coord {
 }
 
 /** Item ids are canonical across inventory rows, equipment slots, and UI labels. */
-export const ITEM_IDS = ["stone", "pickaxe", "shovel", "sword", "shield"] as const;
+export const ITEM_IDS = ["stone", "wood", "pickaxe", "shovel", "axe", "sword", "shield"] as const;
 export type ItemId = (typeof ITEM_IDS)[number];
-export const SPAWNABLE_ITEM_IDS = ["pickaxe", "shovel", "sword", "shield"] as const satisfies readonly ItemId[];
+export const SPAWNABLE_ITEM_IDS = ["pickaxe", "shovel", "axe", "sword", "shield"] as const satisfies readonly ItemId[];
 export type SpawnableItemId = (typeof SPAWNABLE_ITEM_IDS)[number];
 
 /** Inventory capacity (GDD "Inventory"): each row occupies one visible carry slot. (initial) */
@@ -133,6 +134,12 @@ export const ITEMS: Record<ItemId, ItemDef> = {
     stackable: true,
     blurb: "A useful chunk of cave rock.",
   },
+  wood: {
+    id: "wood",
+    name: "Wood",
+    stackable: true,
+    blurb: "A stout length of felled trunk.",
+  },
   pickaxe: {
     id: "pickaxe",
     name: "Pickaxe",
@@ -148,6 +155,14 @@ export const ITEMS: Record<ItemId, ItemDef> = {
     blurb: "Equipped in the main hand. It is ready for digging once soil rules exist.",
     slot: "mainHand",
     wield: "scoop",
+  },
+  axe: {
+    id: "axe",
+    name: "Axe",
+    stackable: false,
+    blurb: "Equipped in the main hand. Use it to fell trees into wood.",
+    slot: "mainHand",
+    wield: "chop",
   },
   sword: {
     id: "sword",
@@ -288,6 +303,8 @@ export interface Zone {
   spawn?: Coord;
   tiles: readonly string[];
   boulders: readonly Coord[];
+  /** Starting tiles of the zone's choppable trees — seeded like boulders, felled by an axe. */
+  trees: readonly Coord[];
   hogs: readonly Coord[];
   items: readonly GroundItemSeed[];
   bigHogs: readonly BigHog[];
@@ -313,6 +330,7 @@ export const ZONES: Record<string, Zone> = {
     spawn: WORLD_SPAWN,
     tiles: WORLD_TILES,
     boulders: WORLD_BOULDERS,
+    trees: WORLD_TREES,
     hogs: WORLD_HOGS,
     items: WORLD_ITEMS,
     bigHogs: WORLD_BIG_HOGS,
@@ -374,6 +392,11 @@ export function assertZones(zones: Record<string, Zone> = ZONES): void {
     for (const b of zone.boulders) {
       if (!isWalkable(zone, b.x, b.y)) {
         throw new Error(`zone ${zone.slug}: boulder at (${b.x}, ${b.y}) is not on walkable floor`);
+      }
+    }
+    for (const tr of zone.trees) {
+      if (!isDryFloor(zone, tr.x, tr.y)) {
+        throw new Error(`zone ${zone.slug}: tree at (${tr.x}, ${tr.y}) is not on dry open floor`);
       }
     }
     for (const h of zone.hogs) {

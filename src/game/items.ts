@@ -32,6 +32,14 @@ function pickaxe(): THREE.Group {
   return g;
 }
 
+function axe(): THREE.Group {
+  const g = new THREE.Group();
+  box(g, 0.07, 0.6, 0.07, ITEM_3D.wood, 0, 0.15); // haft through the fist
+  box(g, 0.26, 0.2, 0.08, ITEM_3D.steel, 0.1, 0.42); // head
+  box(g, 0.06, 0.24, 0.09, ITEM_3D.steelLt, 0.24, 0.42); // bit (the cutting edge)
+  return g;
+}
+
 function shovel(): THREE.Group {
   const g = new THREE.Group();
   box(g, 0.06, 0.66, 0.06, ITEM_3D.wood, 0, 0.18);
@@ -72,7 +80,21 @@ function stone(): THREE.Group {
   return g;
 }
 
-const BUILDERS: Record<string, () => THREE.Group> = { pickaxe, shovel, sword, shield, stone };
+function wood(): THREE.Group {
+  const g = new THREE.Group();
+  const log = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.1, 0.4, 6), mat(ITEM_3D.wood));
+  log.rotation.z = Math.PI / 2;
+  log.position.y = 0.1;
+  log.castShadow = true;
+  g.add(log);
+  const end = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.02, 6), mat(ITEM_3D.woodLt));
+  end.rotation.z = Math.PI / 2;
+  end.position.set(0.21, 0.1, 0);
+  g.add(end);
+  return g;
+}
+
+const BUILDERS: Record<string, () => THREE.Group> = { pickaxe, shovel, axe, sword, shield, stone, wood };
 
 export function hasItem3D(item: string): boolean {
   return BUILDERS[item] !== undefined;
@@ -84,8 +106,10 @@ export function hasItem3D(item: string): boolean {
 const HELD_PITCH: Record<string, number> = {
   sword: Math.PI / 2 - 0.9, // blade up-forward, at the ready
   pickaxe: Math.PI / 2 - 0.35, // hafted forward, head riding high
+  axe: Math.PI / 2 - 0.35, // hafted like the pick, bit leading
   shovel: Math.PI / 2 + 0.25, // blade low, ready to dig
   stone: Math.PI / 2,
+  wood: Math.PI / 2,
 };
 
 /** A held-item model — parent it to a rig hand node. The shield is the exception
@@ -100,7 +124,7 @@ export function buildHeldItem(item: string): THREE.Group | undefined {
     return g;
   }
   g.rotation.x = HELD_PITCH[item] ?? Math.PI / 2;
-  if (item === "pickaxe") g.rotation.y = Math.PI / 2; // pick tips fore-aft, striking edge forward
+  if (item === "pickaxe" || item === "axe") g.rotation.y = Math.PI / 2; // striking edge forward
   return g;
 }
 
@@ -116,7 +140,26 @@ export function buildGroundItem(item: string): THREE.Group | undefined {
   return wrap;
 }
 
-/** The pushable boulder: a chunky low-poly rock filling most of its tile. */
+/** A choppable tree: a squat trunk under stacked low-poly foliage clumps. */
+export function buildTree(): THREE.Group {
+  const g = new THREE.Group();
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.2, 0.9, 6), mat(ITEM_3D.woodDk));
+  trunk.position.y = 0.45;
+  trunk.castShadow = true;
+  g.add(trunk);
+  const crown = new THREE.Mesh(new THREE.IcosahedronGeometry(0.52, 0), mat(ITEM_3D.leaf));
+  crown.position.y = 1.25;
+  crown.scale.y = 0.85;
+  crown.castShadow = true;
+  g.add(crown);
+  const cap = new THREE.Mesh(new THREE.IcosahedronGeometry(0.3, 0), mat(ITEM_3D.leafDk));
+  cap.position.set(0.14, 1.68, -0.08);
+  cap.castShadow = true;
+  g.add(cap);
+  return g;
+}
+
+/** The mineable boulder: a chunky low-poly rock filling most of its tile. */
 export function buildBoulder(): THREE.Group {
   const g = new THREE.Group();
   const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(0.42, 0), mat(ITEM_3D.rock));

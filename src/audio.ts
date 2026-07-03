@@ -21,11 +21,6 @@ const cues = {
     asset(new URL("../assets/audio/footsteps/gbox-footsteps/01-footstep.ogg", import.meta.url)),
     asset(new URL("../assets/audio/footsteps/gbox-footsteps/02-footstep.ogg", import.meta.url)),
   ],
-  boulderPush: [
-    asset(new URL("../assets/audio/boulders/sfx-100-v2/sfx100v2_stones_01.ogg", import.meta.url)),
-    asset(new URL("../assets/audio/boulders/sfx-100-v2/sfx100v2_stones_02.ogg", import.meta.url)),
-    asset(new URL("../assets/audio/boulders/sfx-100-v2/sfx100v2_stones_03.ogg", import.meta.url)),
-  ],
   boulderSettle: [
     asset(new URL("../assets/audio/boulders/breaking-falling-hit/bfh1_rock_hit_01.ogg", import.meta.url)),
     asset(new URL("../assets/audio/boulders/breaking-falling-hit/bfh1_rock_falling_01.ogg", import.meta.url)),
@@ -56,7 +51,6 @@ const cues = {
 const CUE_CATEGORY: Record<keyof typeof cues, SoundCategory> = {
   footstepsWalk: "footsteps",
   footstepsRun: "footsteps",
-  boulderPush: "world",
   boulderSettle: "world",
   hog: "world",
   ghost: "world",
@@ -111,10 +105,6 @@ class AudioCues {
     const gain = AudioCues.falloff(distance);
     if (gain <= 0.02) return;
     this.play("boulderSettle", { volume: 0.16 * gain, minGapMs: 120, rate: [0.86, 1.02] });
-  }
-
-  playBoulderPush() {
-    this.play("boulderPush", { volume: 0.22, minGapMs: 140, rate: [0.88, 1.03] });
   }
 
   playBoulderSettle() {

@@ -74,6 +74,7 @@ export interface CaveOptions {
   height: number;
   seed: number;
   boulders: number;
+  trees?: number;
   hogs: number;
   biome: BiomeId;
   /** Which edges open into which neighbour zones (gates carved mid-edge). */
@@ -216,11 +217,13 @@ export function generateCaveZone(opts: CaveOptions): Zone {
 
   const boulders: Coord[] = [];
   for (let i = 0; i < opts.boulders; i++) boulders.push(openTile(SPAWN_CLEARING + 2));
+  const trees: Coord[] = [];
+  for (let i = 0; i < (opts.trees ?? 0); i++) trees.push(openTile(SPAWN_CLEARING + 2));
   const hogs: Coord[] = [];
   for (let i = 0; i < opts.hogs; i++) hogs.push(openTile(SPAWN_CLEARING + 3));
 
   // starter tools ring the spawn plaza, like the old cave's rack by the centre
-  const items: GroundItemSeed[] = (["pickaxe", "shovel", "sword", "shield"] as const).map((item, i) => {
+  const items: GroundItemSeed[] = (["pickaxe", "shovel", "axe", "sword", "shield"] as const).map((item, i) => {
     const tile = { x: cx - 2 + i, y: cy - 2 };
     taken.add(`${tile.x},${tile.y}`);
     return { item, ...tile };
@@ -249,6 +252,7 @@ export function generateCaveZone(opts: CaveOptions): Zone {
     exits,
     tiles: glyphs.map((row) => row.join("")),
     boulders,
+    trees,
     hogs,
     items,
     bigHogs,
@@ -328,6 +332,7 @@ export interface GeneratedWorld {
   tiles: string[];
   regions: string[];
   boulders: Coord[];
+  trees: Coord[];
   hogs: Coord[];
   items: GroundItemSeed[];
   bigHogs: BigHog[];
@@ -557,10 +562,10 @@ export function generateWorld(): GeneratedWorld {
       openTiles[region]!.push({ x, y });
     }
   }
-  const drawFrom = (region: number): Coord | undefined => {
+  const drawFrom = (region: number, rand = seedRand): Coord | undefined => {
     const pool = openTiles[region]!;
     for (let attempt = 0; attempt < 60; attempt++) {
-      const tile = pool[Math.floor(seedRand() * pool.length)];
+      const tile = pool[Math.floor(rand() * pool.length)];
       if (tile && !taken.has(`${tile.x},${tile.y}`)) {
         taken.add(`${tile.x},${tile.y}`);
         return tile;
@@ -578,7 +583,7 @@ export function generateWorld(): GeneratedWorld {
       if (tile) hogs.push(tile);
     }
   }
-  const items: GroundItemSeed[] = (["pickaxe", "shovel", "sword", "shield"] as const).map((item, i) => {
+  const items: GroundItemSeed[] = (["pickaxe", "shovel", "axe", "sword", "shield"] as const).map((item, i) => {
     const tile = { x: spawn.x - 2 + i, y: spawn.y - 2 };
     taken.add(`${tile.x},${tile.y}`);
     return { item, ...tile };
@@ -601,5 +606,17 @@ export function generateWorld(): GeneratedWorld {
     }
   }
 
-  return { tiles: glyphs.map((row) => row.join("")), regions: regionGrid.map((row) => row.join("")), boulders, hogs, items, bigHogs, spawn };
+  // 9. trees: choppable woods scattered per region. A separate rng stream, drawn
+  // after every other stage, so adding (or re-tuning) trees leaves the committed
+  // tiles and all existing seeds byte-identical.
+  const treeRand = mulberry32(0x70663009);
+  const trees: Coord[] = [];
+  for (let region = 0; region < WORLD_REGIONS.length; region++) {
+    for (let i = 0; i < 20; i++) {
+      const tile = drawFrom(region, treeRand);
+      if (tile) trees.push(tile);
+    }
+  }
+
+  return { tiles: glyphs.map((row) => row.join("")), regions: regionGrid.map((row) => row.join("")), boulders, trees, hogs, items, bigHogs, spawn };
 }

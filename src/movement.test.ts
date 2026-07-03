@@ -25,7 +25,6 @@ function harness(over: Partial<SelfControllerDeps> = {}) {
   const moves: MoveCall[] = [];
   const faces: FaceCall[] = [];
   const moveTos: Coord[] = [];
-  let pushes = 0;
   const hogTiles = new Set<string>();
   const boulderTiles = new Set<string>();
   const destinations: (Coord | undefined)[] = [];
@@ -48,7 +47,6 @@ function harness(over: Partial<SelfControllerDeps> = {}) {
       move: (i: MoveCall) => moves.push(i),
       face: (i: FaceCall) => faces.push(i),
       moveTo: (t: Coord & { running: boolean }) => moveTos.push({ x: t.x, y: t.y }),
-      push: () => pushes++,
     },
   } as unknown as SelfControllerDeps["conn"];
 
@@ -59,17 +57,16 @@ function harness(over: Partial<SelfControllerDeps> = {}) {
     bounds: { width: 20, height: 20, isWalkable: (x, y) => !hogTiles.has(`${x},${y}`) && !boulderTiles.has(`${x},${y}`) } as ZoneBounds,
     hogTiles,
     boulderTiles,
-    pushEnabled: true,
     getSelf: () => entry,
     showDestination: (tile) => destinations.push(tile),
     toBaseMs: () => 1000,
     facingFromDir,
-    audio: { playFootstep: () => {}, playBoulderPush: () => {} },
+    audio: { playFootstep: () => {} },
     ...over,
   });
 
   const motion = (x: number, y: number, dirX: number, dirY: number, arrived = false): ProjectedMotion => ({ x, y, dirX, dirY, arrived });
-  return { self, entry, player, moves, faces, moveTos, pushes: () => pushes, hogTiles, boulderTiles, destinations, motion };
+  return { self, entry, player, moves, faces, moveTos, hogTiles, boulderTiles, destinations, motion };
 }
 
 const idle: MoveIntent = { dirX: 0, dirY: 0, running: false };
@@ -234,18 +231,6 @@ test("a duplicate tab observes silently, then takes over on local keyboard input
   h.self.onIntent(down); // local input → this tab drives now
   h.self.update(h.entry, h.motion(1, 0, 1, 0), 1000);
   assert.deepEqual(h.moves.at(-1), down);
-});
-
-test("a push blocked by a Hog beyond the boulder retries until it clears", () => {
-  const h = harness();
-  h.boulderTiles.add("1,0"); // boulder directly ahead
-  h.self.onIntent(right, true); // commit to walking right, flush against the boulder
-  h.self.update(h.entry, h.motion(0, 0, 1, 0), 0); // rising edge: one shove
-  assert.equal(h.pushes(), 1);
-  h.self.update(h.entry, h.motion(0, 0, 1, 0), 100); // still flush, within the retry throttle
-  assert.equal(h.pushes(), 1);
-  h.self.update(h.entry, h.motion(0, 0, 1, 0), 300); // throttle elapsed → retry (so it resumes once the Hog leaves)
-  assert.equal(h.pushes(), 2);
 });
 
 test("a click queues a destination and routes from a tile centre", () => {

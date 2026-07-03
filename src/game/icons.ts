@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { buildHog, buildTrogg } from "./creatures.js";
-import { buildBoulder, buildHeldItem } from "./items.js";
+import { buildBoulder, buildHeldItem, buildTree } from "./items.js";
 import { ITEM_3D } from "./palette.js";
 
 /**
@@ -79,10 +79,11 @@ function cached(key: string, build: () => THREE.Object3D | undefined): HTMLCanva
   return copy;
 }
 
-/** An item's (or the boulder's) icon canvas. Unknown ids render blank. */
+/** An item's (or the boulder's/tree's) icon canvas. Unknown ids render blank. */
 export function itemIcon(item: string): HTMLCanvasElement {
   return cached(`item:${item}`, () => {
     if (item === "boulder") return buildBoulder();
+    if (item === "tree") return buildTree();
     const model = buildHeldItem(item);
     model?.rotation.set(0, 0.5, 0); // upright, slightly turned — the shelf pose
     return model;

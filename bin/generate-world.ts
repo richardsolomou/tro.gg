@@ -28,6 +28,8 @@ ${world.regions.map((row) => `  ${JSON.stringify(row)},`).join("\n")}
 
 export const WORLD_BOULDERS: readonly Coord[] = ${JSON.stringify(world.boulders)};
 
+export const WORLD_TREES: readonly Coord[] = ${JSON.stringify(world.trees)};
+
 export const WORLD_HOGS: readonly Coord[] = ${JSON.stringify(world.hogs)};
 
 export const WORLD_ITEMS: readonly GroundItemSeed[] = ${JSON.stringify(world.items)};
@@ -35,4 +37,4 @@ export const WORLD_ITEMS: readonly GroundItemSeed[] = ${JSON.stringify(world.ite
 export const WORLD_BIG_HOGS: readonly BigHog[] = ${JSON.stringify(world.bigHogs)};
 `;
 writeFileSync(fileURLToPath(new URL("../shared/world-map.ts", import.meta.url)), out);
-console.log(`world committed: ${world.tiles.length} rows, ${world.boulders.length} boulders, ${world.hogs.length} hogs`);
+console.log(`world committed: ${world.tiles.length} rows, ${world.boulders.length} boulders, ${world.trees.length} trees, ${world.hogs.length} hogs`);

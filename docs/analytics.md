@@ -46,11 +46,11 @@ snake_case. Low-volume by design — anything that could fire more than ~once/se
 | `chat_sent` | `zone, source?` | Message sent — **no content** |
 | `boulders_reset` | `zone, source` | Player resets boulders via the Commands panel |
 | `hedgehogs_reset` | `zone, source` | Player resets Hogs via the Commands panel |
-| `debug_entity_spawned` | `zone, kind, count, source, item?, style?` | Player requests a Commands panel spawn for a supported debug entity — `kind` is `boulder`, `hog`, or `item`; `style` is present for exact Hog skin spawns and `item` for spawned pickup items |
+| `debug_entity_spawned` | `zone, kind, count, source, item?, style?` | Player requests a Commands panel spawn for a supported debug entity — `kind` is `boulder`, `tree`, `hog`, or `item`; `style` is present for exact Hog skin spawns and `item` for spawned pickup items |
 | `ghost_summoned` | `zone, source, count` | Player requests one or more synced cosmetic ghost haunts via the Commands panel |
-| `object_picked_up` | `zone, kind, source?, style?` | Player picks up a tile-sized object — `kind` is `boulder` or `hog`; `style` is present for Hogs |
+| `object_picked_up` | `zone, kind, source?, style?` | Player picks up a tile-sized object — `kind` is `hog` (boulders stopped being carryable; old events also carry `boulder`); `style` is present for Hogs |
 | `object_dropped` | `zone, kind, source?, style?` | Player puts down what they were carrying; `style` is present for Hogs |
-| `object_thrown` | `zone, kind, range, source?, hit_target?` | Player throws a carried boulder or Hog; `hit_target` is `trogg` or `hog` when the throw damages a character |
+| `object_thrown` | `zone, kind, range, source?, hit_target?` | Player throws what they carry (a Hog; legacy carried boulders still count); `hit_target` is `trogg` or `hog` when the throw damages a character |
 | `combat_hit` | `zone, weapon, target, damage, killed, source?` | An accepted server-side attack damages a trogg or Hog. `weapon` is `sword`, `thrown_boulder`, or `thrown_hog`; `target` is `trogg` or `hog` |
 | `player_died` | `zone, cause, dropped_item_rows, dropped_item_qty, respawn_ms, source?` | Server-side combat damage kills a trogg, drops its inventory, and schedules its respawn |
 | `player_respawned` | `zone, respawn_ms, source` | The local player's authoritative row transitions from dead to alive after the scheduled respawn timer |
@@ -73,8 +73,7 @@ Code currently reads these flag keys:
 | ---- | -------- | -------- |
 | `auth-enabled` | Account sign-in / claim panel (the top-right claim/sign-out control) | On, but the UI still requires `VITE_SPACETIMEAUTH_CLIENT_ID` |
 | `ghost-trogg` | Zone-synced cosmetic ghost easter egg (Commands panel ghost button) | On |
-| `boulder-pushing` | Client push input for boulders | On |
-| `interact` | Interact key (`E`) — pick up / put down tile-sized objects | On |
+| `interact` | Interact key (`E`) — pick up ground items, pick up / put down Hogs | On |
 | `roaming-hogs` | Hog rendering and subscription | On |
 | `running` | Hold-shift-to-run input | On |
 | `spawn-command` | Commands panel spawn controls | On outside production (local dev + preview builds, which ship no PostHog key); flag-governed in production |
@@ -84,7 +83,7 @@ Code currently reads these flag keys:
 | `trogg-recolor` | Colour swatches in the Appearance panel | On |
 | `trogg-restyle` | Body-style buttons in the Appearance panel | On |
 
-Retired by the 3D renderer port: `avatar-sprites` (trogg sprite avatars vs the placeholder colour marker) is no longer read — the 3D client always renders models. The PostHog flag stays live while the 2D client is still the deployed production build; archive it in project 314596 when this port ships.
+Retired by the 3D renderer port: `avatar-sprites` (trogg sprite avatars vs the placeholder colour marker) is no longer read — the 3D client always renders models. The PostHog flag stays live while the 2D client is still the deployed production build; archive it in project 314596 when this port ships. Retired with boulder pushing: `boulder-pushing` is no longer read — boulders are mining nodes, not pushable; archive alongside `avatar-sprites`.
 
 PostHog project audit (2026-06-27): all code-read flags above are configured in PostHog project 314596 and active. They are intentionally still in use because they cover remote rollback, production-only debug command governance, or visible UI capabilities that should not advertise disabled controls. `interact` was created 2026-06-25 with the carry mechanic; `hog-reset` was created 2026-06-25 with the Hog reset tool; `trogg-restyle` was created 2026-06-27 with avatar body styles. No new flag is needed for the observability pass; planned future flags should be added here, and created in PostHog, when code starts reading them.
 

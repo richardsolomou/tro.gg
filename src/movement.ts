@@ -1,6 +1,5 @@
 import {
   candidateTargets,
-  facingTile,
   parsePath,
   projectMotion,
   projectMotionState,
@@ -31,11 +30,6 @@ export interface MotionEntry {
  *  exists yet, so re-routing around a Hog — or waiting for one to clear the only way —
  *  retries steadily without firing the reducer every frame. */
 const MOVETO_RETRY_MS = 250;
-
-/** Min gap between push retries while held flush against a boulder, so a shove the server
- *  rejected (a Hog stood beyond the boulder) keeps retrying until the way clears, without
- *  firing every frame. */
-const PUSH_RETRY_MS = 250;
 
 /** How far ahead the "can I move at all?" probe looks. Long enough that a blocked
  *  probe means genuinely flush against something, short enough to stay cheap. */
@@ -100,19 +94,12 @@ function playerFacing(p: Pick<Player, "faceX" | "faceY">): MoveIntent {
 /** The audio cues movement triggers. Injected so the controller carries no browser deps. */
 export interface MovementAudio {
   playFootstep(running: boolean): void;
-  playBoulderPush(): void;
 }
 
 export interface SelfControllerDeps {
   conn: DbConnection;
-  /** Trogg collision bounds (walls + boulders + Hogs), for prediction and probes. */
+  /** Trogg collision bounds (walls + boulders + trees + Hogs), for prediction and probes. */
   bounds: ZoneBounds;
-  /** Tiles Hogs occupy this frame — read live (the world rebuilds it each tick). */
-  hogTiles: Set<string>;
-  /** Tiles boulders occupy — read live. */
-  boulderTiles: Set<string>;
-  /** Whether the `boulder-pushing` flag is on. */
-  pushEnabled: boolean;
   /** The local player's tracked entry, or undefined before it's been inserted. */
   getSelf: () => MotionEntry | undefined;
   /** Show (or clear, with undefined) the click-to-move destination marker. */
@@ -138,7 +125,7 @@ export type SelfController = ReturnType<typeof createSelfController>;
  * the world owns rendering and feeds this the per-frame projected motion via `update`.
  */
 export function createSelfController(deps: SelfControllerDeps) {
-  const { conn, bounds, hogTiles, boulderTiles, pushEnabled, getSelf, showDestination, toBaseMs, facingFromDir, audio } = deps;
+  const { conn, bounds, getSelf, showDestination, toBaseMs, facingFromDir, audio } = deps;
 
   // `desired` is what the keys want now; `sent` is the committed display intent
   // (idle = stopped); `facing` is the cardinal the trogg points (display + tile
@@ -149,12 +136,6 @@ export function createSelfController(deps: SelfControllerDeps) {
   // The exact heading last steered (full-resolution vector, unlike the cardinal
   // `facing`) — what a swing aims along.
   let aim = { dirX: 0, dirY: 1 };
-  // Whether we were flush against a pushable boulder last frame, so the push sound and the
-  // first shove fire once (on the rising edge), not every frame.
-  let pushBlocked = false;
-  // When we last fired `push`, so a shove blocked by a transient obstacle (a Hog beyond the
-  // boulder) retries on a throttle instead of every frame.
-  let lastPushAt = 0;
   // When we last (re)issued a click-to-move route (`MOVETO_RETRY_MS` throttle).
   let lastMoveToAt = 0;
   // The tile the trogg last stood on, tracked separately for the footstep cadence and
@@ -250,25 +231,6 @@ export function createSelfController(deps: SelfControllerDeps) {
     if (key === lastFootstepTile) return;
     lastFootstepTile = key;
     audio.playFootstep(intent.running);
-  };
-
-  // Push (GDD "Pushing", gated by its optional flag) fires while the trogg is
-  // *actively pressing* a cardinal into a boulder it sits flush against
-  // (`facingTile` — a diagonal press faces nothing, so it never shoves). The rising
-  // edge slides the boulder one tile and plays the shove sound; while flush we also
-  // retry on a throttle (`PUSH_RETRY_MS`, silent) so a shove the server rejected
-  // (a Hog beyond the boulder) resumes the instant the way clears. The server
-  // re-validates and re-bases motion (invariant 3).
-  const pushStep = (x: number, y: number, now: number) => {
-    const pressing = pushEnabled && !isIdle(desired);
-    const ahead = pressing ? facingTile(x, y, desired.dirX, desired.dirY) : null;
-    const intoBoulder = ahead != null && boulderTiles.has(tileKey(ahead.x, ahead.y));
-    if (intoBoulder && (!pushBlocked || now - lastPushAt >= PUSH_RETRY_MS)) {
-      if (!pushBlocked) audio.playBoulderPush();
-      conn.reducers.push({});
-      lastPushAt = now;
-    }
-    pushBlocked = intoBoulder;
   };
 
   const driveSelf = (entry: MotionEntry, x: number, y: number, now: number) => {
@@ -377,7 +339,6 @@ export function createSelfController(deps: SelfControllerDeps) {
     } else {
       if (keyboardControlling) driveSelf(entry, x, y, now);
     }
-    if (keyboardControlling) pushStep(x, y, now);
   };
 
   /** Apply a server row for the local trogg: consume the matching optimistic move, or
@@ -403,7 +364,6 @@ export function createSelfController(deps: SelfControllerDeps) {
       entry.player = p;
       entry.baseMs = toBaseMs(p.movedAt);
       sent = keyboardControlling ? playerIntent(p) : { dirX: 0, dirY: 0, running: false };
-      pushBlocked = false;
     }
     if (p.faceX !== 0 || p.faceY !== 0) facing = playerFacing(p);
     syncDestinationFromPath(p.path);
@@ -437,7 +397,6 @@ export function createSelfController(deps: SelfControllerDeps) {
    *  unless a previous route is still unacked). */
   const onClick = (tile: Coord) => {
     desired = { dirX: 0, dirY: 0, running: false };
-    pushBlocked = false;
     destinationPath = "";
     pendingMoveTo = tile;
     keyboardControlling = false;

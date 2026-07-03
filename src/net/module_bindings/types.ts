@@ -130,3 +130,11 @@ export const PlayerRespawn = __t.object("PlayerRespawn", {
 });
 export type PlayerRespawn = __Infer<typeof PlayerRespawn>;
 
+export const Tree = __t.object("Tree", {
+  id: __t.u64(),
+  zoneId: __t.string(),
+  x: __t.i32(),
+  y: __t.i32(),
+});
+export type Tree = __Infer<typeof Tree>;
+

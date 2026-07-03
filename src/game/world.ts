@@ -28,7 +28,7 @@ import {
   type Zone,
 } from "@trogg/shared";
 import type { DbConnection } from "../net/module_bindings";
-import type { Boulder, GroundItem, Hog, Player } from "../net/module_bindings/types";
+import type { Boulder, GroundItem, Hog, Player, Tree } from "../net/module_bindings/types";
 import { attachKeyboard, type MoveIntent } from "../input.js";
 import { setupChat } from "../ui/chat.js";
 import { mountCommands } from "../ui/commands.js";
@@ -96,6 +96,7 @@ export class World3D {
 
   private readonly tracked = new Map<string, Tracked>();
   private readonly boulders = new Map<string, { row: Boulder; group: THREE.Group }>();
+  private readonly trees = new Map<string, { row: Tree; group: THREE.Group }>();
   /** Cleared until the camera has snapped to the local trogg once (first snapshot). */
   private cameraSnapped = false;
   /** Tiles between the local trogg and a world position — Infinity before spawn. */
@@ -116,6 +117,7 @@ export class World3D {
     }
     for (const view of this.hogs.values()) view.marker.visible = inRange(view.marker);
     for (const view of this.boulders.values()) view.group.visible = inRange(view.group);
+    for (const view of this.trees.values()) view.group.visible = inRange(view.group);
     for (const view of this.groundItems.values()) view.group.visible = inRange(view.group);
   }
 
@@ -130,6 +132,7 @@ export class World3D {
   private readonly hogs = new Map<string, HogView>();
 
   private readonly boulderTiles = new Set<string>();
+  private readonly treeTiles = new Set<string>();
   private readonly hogTiles = new Set<string>();
   private keyLight!: THREE.DirectionalLight;
   private hemi!: THREE.HemisphereLight;
@@ -231,9 +234,10 @@ export class World3D {
       interact: this.useInteract,
     });
 
-    // mirrors the server: water blocks a Hog like a boulder (GDD "Zones")
-    this.hogBounds = zoneBounds(this.zone, (x, y) => this.boulderTiles.has(tileKey(x, y)) || !isDryFloor(this.zone, x, y));
-    this.troggBounds = zoneBounds(this.zone, (x, y) => this.boulderTiles.has(tileKey(x, y)) || this.hogTiles.has(tileKey(x, y)));
+    // mirrors the server: water blocks a Hog like a boulder or tree (GDD "Zones")
+    const obstructed = (x: number, y: number) => this.boulderTiles.has(tileKey(x, y)) || this.treeTiles.has(tileKey(x, y));
+    this.hogBounds = zoneBounds(this.zone, (x, y) => obstructed(x, y) || !isDryFloor(this.zone, x, y));
+    this.troggBounds = zoneBounds(this.zone, (x, y) => obstructed(x, y) || this.hogTiles.has(tileKey(x, y)));
 
     // Torch-lit cave: dim warm ambient, one shadowing key light, dark fog closing in
     // past the zone. Glowmoss tiles add their own teal point lights (terrain3d).
@@ -278,9 +282,6 @@ export class World3D {
     this.self = createSelfController({
       conn,
       bounds: this.troggBounds,
-      hogTiles: this.hogTiles,
-      boulderTiles: this.boulderTiles,
-      pushEnabled: isFeatureEnabled("boulder-pushing"),
       getSelf: () => (this.myId ? this.tracked.get(this.myId) : undefined),
       showDestination: (tile) => {
         this.destinationTile = tile;
@@ -294,6 +295,7 @@ export class World3D {
     this.wirePlayers();
     this.wireGroundItems();
     this.wireBoulders();
+    this.wireTrees();
     if (this.useHogs) this.wireHogs();
     if (this.useGhost) this.wireGhostHaunts();
 
@@ -371,6 +373,7 @@ export class World3D {
       `SELECT * FROM chat_message WHERE zone_id = '${this.slug}'`,
       `SELECT * FROM ground_item WHERE zone_id = '${this.slug}'`,
       `SELECT * FROM boulder WHERE zone_id = '${this.slug}'`,
+      `SELECT * FROM tree WHERE zone_id = '${this.slug}'`,
     ];
     if (this.myId) queries.push(`SELECT * FROM inventory WHERE player_id = '${this.myId}'`);
     if (this.useHogs) queries.push(`SELECT * FROM hog WHERE zone_id = '${this.slug}'`);
@@ -686,6 +689,40 @@ export class World3D {
   private syncBoulderTiles(): void {
     this.boulderTiles.clear();
     for (const view of this.boulders.values()) this.boulderTiles.add(tileKey(view.row.x, view.row.y));
+  }
+
+  private syncTreeTiles(): void {
+    this.treeTiles.clear();
+    for (const view of this.trees.values()) this.treeTiles.add(tileKey(view.row.x, view.row.y));
+  }
+
+  private upsertTree(row: Tree): void {
+    const key = row.id.toString();
+    let view = this.trees.get(key);
+    if (!view) {
+      view = { row, group: this.entities.makeTree() };
+      this.trees.set(key, view);
+      this.scene.add(view.group);
+    } else {
+      view.row = row;
+    }
+    this.entities.place(view.group, row.x, row.y);
+    this.syncTreeTiles();
+  }
+
+  private removeTree(row: Tree): void {
+    const view = this.trees.get(row.id.toString());
+    if (view) disposeObject(view.group);
+    this.trees.delete(row.id.toString());
+    this.syncTreeTiles();
+    // a felled tree crashes down nearby — the settle hit doubles as the fall
+    if (this.sub.live) audio.playBoulderSettleAt(this.hearingDistance(row.x + 0.5, row.y + 0.5));
+  }
+
+  private wireTrees(): void {
+    const conn = this.conn;
+    conn.db.tree.onInsert((_ctx, row) => this.upsertTree(row));
+    conn.db.tree.onDelete((_ctx, row) => this.removeTree(row));
   }
 
   private upsertBoulder(b: Boulder): void {

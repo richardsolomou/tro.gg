@@ -22,8 +22,8 @@ import {
 /**
  * Interact with nearby things (GDD "Interacting") — a generic action key (client
  * `E`). Empty-handed, pick up an adjacent ground item into inventory or lift an
- * adjacent boulder / hog onto the trogg (delete its world row, stamp `carrying`);
- * already carrying, set it back down on the faced tile. The faced direction is
+ * adjacent Hog onto the trogg (delete its world row, stamp `carrying`); already
+ * carrying, set it back down on the faced tile. The faced direction is
  * passed in because an idle trogg's standing facing isn't synced (GDD "Movement");
  * the server still re-derives the trogg's tile and only acts on adjacent targets,
  * preferring the faced tile when there are multiple candidates, so the client can't
@@ -60,11 +60,6 @@ function runInteract(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; dirY
     if (!addInventory(ctx, p.identity, target.row.item, qty)) return [];
     ctx.db.groundItem.id.delete(target.row.id);
     return [{ distinctId: distinctId(ctx), event: "inventory_item_acquired", properties: { ...props, item: target.row.item, qty } }];
-  }
-  if (target?.kind === "boulder") {
-    ctx.db.boulder.id.delete(target.row.id);
-    ctx.db.player.identity.update({ ...p, carrying: "boulder", carryingStyle: "" });
-    return [{ distinctId: distinctId(ctx), event: "object_picked_up", properties: { ...props, kind: "boulder" } }];
   }
   if (target?.kind === "hog") {
     const carryingStyle = effectiveHogStyle(target.row);

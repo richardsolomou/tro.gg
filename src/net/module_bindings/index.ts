@@ -43,7 +43,6 @@ import HauntGhostReducer from "./haunt_ghost_reducer";
 import InteractReducer from "./interact_reducer";
 import MoveReducer from "./move_reducer";
 import MoveToReducer from "./move_to_reducer";
-import PushReducer from "./push_reducer";
 import RecolorReducer from "./recolor_reducer";
 import RedeemClaimReducer from "./redeem_claim_reducer";
 import RenameReducer from "./rename_reducer";
@@ -77,6 +76,7 @@ import GroundItemRow from "./ground_item_table";
 import HogRow from "./hog_table";
 import InventoryRow from "./inventory_table";
 import PlayerRow from "./player_table";
+import TreeRow from "./tree_table";
 
 /** Type-only namespace exports for generated type groups. */
 
@@ -180,6 +180,20 @@ const tablesSchema = __schema({
       { name: 'player_identity_key', constraint: 'unique', columns: ['identity'] },
     ],
   }, PlayerRow),
+  tree: __table({
+    name: 'tree',
+    indexes: [
+      { accessor: 'id', name: 'tree_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+      { accessor: 'zoneId', name: 'tree_zone_id_idx_btree', algorithm: 'btree', columns: [
+        'zoneId',
+      ] },
+    ],
+    constraints: [
+      { name: 'tree_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, TreeRow),
 });
 
 /** The schema information for all reducers in this module. This is defined the same way as the reducers would have been defined in the server, except the body of the reducer is omitted in code generation. */
@@ -193,7 +207,6 @@ const reducersSchema = __reducers(
   __reducerSchema("interact", InteractReducer),
   __reducerSchema("move", MoveReducer),
   __reducerSchema("move_to", MoveToReducer),
-  __reducerSchema("push", PushReducer),
   __reducerSchema("recolor", RecolorReducer),
   __reducerSchema("redeem_claim", RedeemClaimReducer),
   __reducerSchema("rename", RenameReducer),

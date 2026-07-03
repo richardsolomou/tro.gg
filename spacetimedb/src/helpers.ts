@@ -65,14 +65,17 @@ export function unit(): {} {
  */
 export function healStaleWorld(ctx: Ctx, zone: Zone): void {
   const boulders = [...ctx.db.boulder.zoneId.filter(zone.slug)];
+  const trees = [...ctx.db.tree.zoneId.filter(zone.slug)];
   const hogs = [...ctx.db.hog.zoneId.filter(zone.slug)];
   const items = [...ctx.db.groundItem.zoneId.filter(zone.slug)];
   const stale =
     boulders.some((b) => !isWalkable(zone, b.x, b.y)) ||
+    trees.some((tr) => !isWalkable(zone, tr.x, tr.y)) ||
     hogs.some((h) => !isWalkable(zone, Math.round(h.x), Math.round(h.y))) ||
     items.some((g) => !isWalkable(zone, g.x, g.y));
   if (!stale) return;
   for (const b of boulders) ctx.db.boulder.id.delete(b.id);
+  for (const tr of trees) ctx.db.tree.id.delete(tr.id);
   for (const h of hogs) ctx.db.hog.id.delete(h.id);
   for (const g of items) ctx.db.groundItem.id.delete(g.id);
 }
@@ -82,6 +85,14 @@ export function seedBoulders(ctx: Ctx, zone: Zone): void {
   if ([...ctx.db.boulder.zoneId.filter(zone.slug)].length > 0) return;
   for (const b of zone.boulders) {
     ctx.db.boulder.insert({ id: 0n, zoneId: zone.slug, x: b.x, y: b.y });
+  }
+}
+
+/** Seed a zone's trees from the registry, unless it already has some. */
+export function seedTrees(ctx: Ctx, zone: Zone): void {
+  if ([...ctx.db.tree.zoneId.filter(zone.slug)].length > 0) return;
+  for (const tr of zone.trees) {
+    ctx.db.tree.insert({ id: 0n, zoneId: zone.slug, x: tr.x, y: tr.y });
   }
 }
 

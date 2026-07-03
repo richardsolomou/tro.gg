@@ -22,6 +22,7 @@ import {
   solidTiles,
   addGroundItemTiles,
   meleeBoulderTarget,
+  meleeTreeTarget,
   meleeHogTarget,
   meleePlayerTarget,
   ownedInventoryRow,
@@ -177,10 +178,10 @@ export const discardItemAction = spacetimedb.procedure(
  * Use the equipped main-hand item (GDD "Avatars and equipment"). The row update
  * is a visible, low-volume impulse every client can animate. It preserves the
  * current movement intent — using a tool never turns into a stop. If the trogg is
- * carrying a boulder or Hog, `F` throws it as a tile-based impact weapon. Otherwise
- * pickaxes mine the faced boulder into one Stone inventory item, and swords damage
- * the nearest online trogg or Hog in reach of the swing; at zero health the
- * target dies.
+ * carrying a Hog, `F` throws it as a tile-based impact weapon. Otherwise pickaxes
+ * mine the nearest boulder in reach into one Stone inventory item, axes fell the
+ * nearest tree into one Wood, and swords damage the nearest online trogg or Hog
+ * in reach of the swing; at zero health the target dies.
  */
 function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; dirY: number; source?: string }): AnalyticsEvent[] {
   const p = ctx.db.player.identity.find(ctx.sender);
@@ -231,6 +232,14 @@ function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; d
       if (addInventory(ctx, p.identity, "stone", 1)) {
         ctx.db.boulder.id.delete(b.target.id);
         events.push({ distinctId: distinctId(ctx), event: "inventory_item_acquired", properties: { zone: p.zoneId, item: "stone", qty: 1, ...sourceProp(source) } });
+      }
+    }
+  } else if (equipped.item === "axe") {
+    const tr = meleeTreeTarget(ctx, p.zoneId, cx, cy, aim);
+    if (tr) {
+      if (addInventory(ctx, p.identity, "wood", 1)) {
+        ctx.db.tree.id.delete(tr.target.id);
+        events.push({ distinctId: distinctId(ctx), event: "inventory_item_acquired", properties: { zone: p.zoneId, item: "wood", qty: 1, ...sourceProp(source) } });
       }
     }
   } else if (equipped.item === "sword") {
