@@ -50,7 +50,7 @@ export function mountChat(send: (text: string) => void): ChatUI {
   input.className = "field";
   input.type = "text";
   input.maxLength = CHAT_MAX_CHARS;
-  input.placeholder = "Press Enter to chat...";
+  input.placeholder = "Press Enter to chat…";
   root.append(log, input);
   hudRoot().appendChild(root);
 

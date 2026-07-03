@@ -8,7 +8,9 @@ import { UI_3D } from "./palette.js";
  * never swallowed by a wall.
  */
 
-const FONT = "monospace";
+const FONT = '"Baloo 2", "Trebuchet MS", system-ui, sans-serif';
+// Nudge the HUD face into the font cache before the first nameplate paints.
+if (typeof document !== "undefined") void document.fonts?.load?.('700 16px "Baloo 2"');
 /** Canvas pixels per world unit — the text resolution. */
 const CRISP = 160;
 

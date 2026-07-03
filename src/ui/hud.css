@@ -1,40 +1,52 @@
 /*
  * HUD chrome — HTML/CSS overlays above the game canvas (chat, account, help,
  * appearance, inventory, commands).
- * Retro pixel-styled HUD: solid ink panels, high-contrast cream text, amber
- * active states, and bevels built from crisp 1px/2px shadows rather than soft UI
- * chrome. The world (troggs, bubbles, terrain) is drawn by the 3D renderer; everything
- * here is DOM, so the browser owns layout, text input, focus, and resize.
+ * The HUD is built from the world's own materials: deep timber slabs with
+ * chamfered facet corners (the low-poly cut translated to DOM), bone text, ember
+ * hover states, and glowmoss for anything selected or live. Depth comes from one
+ * hard torch-light drop shadow and a faint top light — flat fills, no gradients,
+ * no pixel bevels. The world (troggs, bubbles, terrain) is drawn by the 3D
+ * renderer; everything here is DOM, so the browser owns layout, text input,
+ * focus, and resize.
  */
 
+@font-face {
+  font-family: "Baloo 2";
+  src: url("./fonts/baloo2-latin.woff2") format("woff2");
+  font-weight: 400 800;
+  font-display: swap;
+}
+
 #hud {
-  --hud-ink: #0a0806;
-  --hud-ink-2: #15100b;
-  --hud-ink-3: #241a11;
-  --hud-stone-light: #6f6047;
-  --hud-cream: #f0e4c7;
-  --hud-cream-dim: #b8a98a;
-  --hud-amber: #f2c94c;
-  --hud-amber-dark: #9b6d20;
-  --hud-danger-dark: #5b211b;
-  --hud-panel-bg: #15100b;
-  --hud-panel-border: #3b2d1e;
-  --hud-panel-shadow:
-    0 0 0 1px var(--hud-ink),
-    1px 1px 0 1px var(--hud-stone-light) inset,
-    -2px -2px 0 0 #070504 inset,
-    0 4px 0 rgba(0, 0, 0, 0.45);
-  --hud-tile-shadow:
-    1px 1px 0 0 rgba(240, 228, 199, 0.22) inset,
-    -2px -2px 0 0 rgba(0, 0, 0, 0.55) inset;
-  --hud-tile-pressed:
-    2px 2px 0 0 rgba(0, 0, 0, 0.58) inset,
-    -1px -1px 0 0 rgba(240, 228, 199, 0.18) inset;
+  --hud-bone: #e8dcc4;
+  --hud-bone-dim: #a8977a;
+  --hud-ink: #241708;
+  --hud-timber: rgba(46, 33, 19, 0.95);
+  --hud-well: #1c1309;
+  --hud-well-lite: #2b1e10;
+  --hud-ember: #ff8c2e;
+  --hud-moss: #6fdc9c;
+  --hud-clay: #d94f1e;
+  /* The facet: every slab and control is an octagon, like a cut plank. */
+  --cut: 9px;
+  --facet: polygon(
+    var(--cut) 0,
+    calc(100% - var(--cut)) 0,
+    100% var(--cut),
+    100% calc(100% - var(--cut)),
+    calc(100% - var(--cut)) 100%,
+    var(--cut) 100%,
+    0 calc(100% - var(--cut)),
+    0 var(--cut)
+  );
+  --slab-light: inset 0 2px 0 rgba(232, 220, 196, 0.08), inset 0 -3px 0 rgba(0, 0, 0, 0.35);
+  --well-shade: inset 0 3px 0 rgba(0, 0, 0, 0.45), inset 0 -1px 0 rgba(232, 220, 196, 0.06);
   position: fixed;
   inset: 0;
   pointer-events: none; /* clicks fall through to the canvas… */
-  font-family: monospace;
-  color: var(--hud-cream);
+  font-family: "Baloo 2", "Trebuchet MS", system-ui, sans-serif;
+  font-weight: 500;
+  color: var(--hud-bone);
   z-index: 100;
 }
 
@@ -47,8 +59,9 @@
 /* Shared controls */
 #hud input,
 #hud button {
-  font-family: monospace;
-  color: var(--hud-cream);
+  font-family: inherit;
+  font-weight: 500;
+  color: var(--hud-bone);
   box-sizing: border-box;
 }
 
@@ -58,55 +71,47 @@
 }
 
 #hud button:focus-visible {
-  outline: 2px solid var(--hud-cream);
+  outline: 2px solid var(--hud-moss);
   outline-offset: 2px;
-  box-shadow:
-    0 0 0 4px var(--hud-ink),
-    var(--hud-tile-shadow);
 }
 
 #hud .field {
   width: 100%;
   height: 30px;
-  padding: 0 8px;
-  font-size: 13px;
-  background: var(--hud-ink);
-  border: 2px solid var(--hud-panel-border);
-  border-radius: 2px;
-  box-shadow:
-    2px 2px 0 0 rgba(0, 0, 0, 0.7) inset,
-    -1px -1px 0 0 rgba(240, 228, 199, 0.16) inset;
+  padding: 0 10px;
+  font-size: 14px;
+  background: var(--hud-well);
+  border: 0;
+  clip-path: var(--facet);
+  --cut: 6px;
+  box-shadow: var(--well-shade);
   outline: none;
 }
 #hud .field::placeholder {
-  color: var(--hud-cream-dim);
+  color: var(--hud-bone-dim);
 }
 #hud .field:focus {
-  background: #0d0a07;
-  border-color: var(--hud-cream);
+  box-shadow: var(--well-shade), inset 0 0 0 2px var(--hud-moss);
 }
 
 #hud .btn {
   width: 100%;
   height: 30px;
-  font-size: 13px;
+  font-size: 14px;
+  font-weight: 700;
   color: var(--hud-ink);
-  background: var(--hud-cream);
-  border: 2px solid var(--hud-ink);
-  border-radius: 2px;
-  box-shadow:
-    1px 1px 0 0 #fff6d8 inset,
-    -2px -2px 0 0 #8f805f inset,
-    0 0 0 1px var(--hud-panel-border);
+  background: var(--hud-bone);
+  border: 0;
+  clip-path: var(--facet);
+  --cut: 6px;
+  box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.18), inset 0 2px 0 rgba(255, 255, 255, 0.35);
   cursor: pointer;
 }
 #hud .btn:hover:not(:disabled) {
-  background: var(--hud-amber);
+  background: var(--hud-ember);
 }
 #hud .btn:active:not(:disabled) {
-  box-shadow:
-    2px 2px 0 0 rgba(0, 0, 0, 0.38) inset,
-    0 0 0 1px var(--hud-panel-border);
+  box-shadow: inset 0 3px 0 rgba(0, 0, 0, 0.25);
 }
 #hud .btn:disabled {
   opacity: 0.45;
@@ -123,15 +128,15 @@
   gap: 6px;
 }
 #hud .chat-log {
+  filter: drop-shadow(0 4px 0 rgba(0, 0, 0, 0.35));
   height: min(30vh, 220px);
-  padding: 6px 8px;
+  padding: 8px 12px;
   overflow-y: auto;
-  background: var(--hud-panel-bg);
-  border: 2px solid var(--hud-panel-border);
-  border-radius: 2px;
-  box-shadow: var(--hud-panel-shadow);
-  font-size: 13px;
-  line-height: 19px;
+  background: var(--hud-timber);
+  clip-path: var(--facet);
+  box-shadow: var(--slab-light);
+  font-size: 14px;
+  line-height: 20px;
   word-break: break-word;
   display: flex;
   flex-direction: column;
@@ -141,26 +146,26 @@
   white-space: pre-wrap;
 }
 #hud .chat-name {
-  font-weight: bold;
+  font-weight: 700;
 }
 
 /* ── Account (top-right) ─────────────────────────────────────────────────── */
 #hud .account {
+  filter: drop-shadow(0 4px 0 rgba(0, 0, 0, 0.35));
   top: 12px;
   right: 12px;
   width: min(280px, calc(100vw - 24px));
-  padding: 8px 10px;
+  padding: 10px 12px;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  background: var(--hud-panel-bg);
-  border: 2px solid var(--hud-panel-border);
-  border-radius: 2px;
-  box-shadow: var(--hud-panel-shadow);
+  background: var(--hud-timber);
+  clip-path: var(--facet);
+  box-shadow: var(--slab-light);
 }
 #hud .account-status {
-  font-size: 12px;
-  color: var(--hud-cream-dim);
+  font-size: 13px;
+  color: var(--hud-bone-dim);
   min-height: 14px;
 }
 #hud .swatches {
@@ -172,25 +177,17 @@
   width: 22px;
   height: 22px;
   padding: 0;
-  border: 2px solid var(--hud-ink);
-  border-radius: 2px;
-  box-shadow:
-    1px 1px 0 0 rgba(255, 255, 255, 0.22) inset,
-    -2px -2px 0 0 rgba(0, 0, 0, 0.48) inset,
-    0 0 0 1px var(--hud-panel-border);
+  border: 0;
+  clip-path: var(--facet);
+  --cut: 5px;
+  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.18);
   cursor: pointer;
 }
 #hud .swatch:hover {
-  box-shadow:
-    1px 1px 0 0 rgba(255, 255, 255, 0.26) inset,
-    -2px -2px 0 0 rgba(0, 0, 0, 0.55) inset,
-    0 0 0 2px var(--hud-amber);
+  box-shadow: inset 0 0 0 2px var(--hud-bone);
 }
 #hud .swatch[aria-pressed="true"] {
-  border-color: var(--hud-cream);
-  box-shadow:
-    0 0 0 2px var(--hud-amber),
-    2px 2px 0 0 rgba(0, 0, 0, 0.34) inset;
+  box-shadow: inset 0 0 0 2px var(--hud-moss);
 }
 
 /* ── Top-left toggle bar (Help, Appearance, Inventory, Commands) ──────────── */
@@ -215,68 +212,61 @@
 #hud .help-body,
 #hud .inventory-body,
 #hud .command-body {
+  filter: drop-shadow(0 4px 0 rgba(0, 0, 0, 0.35));
   position: absolute;
   top: 100%;
   left: 0;
-  margin-top: 6px;
+  margin-top: 8px;
 }
 #hud .hud-icon-button {
-  width: 32px;
-  height: 28px;
-  padding: 2px 5px;
+  width: 36px;
+  height: 34px;
+  padding: 2px;
   display: grid;
   place-items: center;
-  color: var(--hud-ink);
-  background: var(--hud-amber);
-  border: 2px solid var(--hud-ink);
-  border-radius: 2px;
-  box-shadow:
-    1px 1px 0 0 #fff0a8 inset,
-    -2px -2px 0 0 var(--hud-amber-dark) inset,
-    0 0 0 1px var(--hud-panel-border);
+  background: var(--hud-timber);
+  border: 0;
+  clip-path: var(--facet);
+  --cut: 7px;
+  box-shadow: var(--slab-light);
   cursor: pointer;
 }
 #hud .hud-icon-button:hover {
-  filter: brightness(1.08);
+  box-shadow: var(--slab-light), inset 0 0 0 2px var(--hud-ember);
 }
 #hud .hud-icon-button:active,
 #hud .hud-icon-button[aria-expanded="true"] {
-  box-shadow:
-    2px 2px 0 0 rgba(0, 0, 0, 0.42) inset,
-    -1px -1px 0 0 rgba(255, 255, 255, 0.28) inset,
-    0 0 0 1px var(--hud-panel-border);
+  background: var(--hud-well-lite);
+  box-shadow: inset 0 0 0 2px var(--hud-ember), inset 0 3px 0 rgba(0, 0, 0, 0.3);
 }
 #hud .hud-icon-button svg {
   width: 20px;
   height: 20px;
   display: block;
 }
-#hud .help-toggle {
-  font-size: 16px;
-  font-weight: bold;
-  line-height: 1;
-}
 #hud .help-body {
+  filter: drop-shadow(0 4px 0 rgba(0, 0, 0, 0.35));
   width: max-content;
   max-width: calc(100vw - 24px);
-  padding: 12px;
-  background: var(--hud-panel-bg);
-  border: 2px solid var(--hud-panel-border);
-  border-radius: 2px;
-  box-shadow: var(--hud-panel-shadow);
-  font-size: 13px;
+  padding: 14px;
+  background: var(--hud-timber);
+  clip-path: var(--facet);
+  box-shadow: var(--slab-light);
+  font-size: 14px;
 }
 #hud .help-body[hidden] {
   display: none;
 }
 #hud .help-section-title {
-  color: var(--hud-cream-dim);
-  font-size: 12px;
+  color: var(--hud-bone-dim);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
   margin: 0 0 4px;
   text-transform: uppercase;
 }
 #hud .help-section + .help-section {
-  margin-top: 10px;
+  margin-top: 12px;
 }
 #hud .help-rows {
   display: grid;
@@ -284,14 +274,12 @@
   gap: 2px 14px;
 }
 #hud .help-key {
-  color: var(--hud-amber);
+  color: var(--hud-ember);
+  font-weight: 700;
   white-space: nowrap;
 }
 
 /* ── Appearance ──────────────────────────────────────────────────────────── */
-#hud .appearance-toggle {
-  background: var(--hud-cream); /* set apart from Help's amber toggle */
-}
 #hud .appearance-body {
   width: min(248px, calc(100vw - 24px));
   display: flex;
@@ -309,38 +297,36 @@
   gap: 6px;
 }
 #hud .style-option {
-  padding: 4px 10px;
+  padding: 4px 12px;
   height: 26px;
-  font-size: 12px;
-  color: var(--hud-cream);
-  background: var(--hud-ink-2);
-  border: 2px solid var(--hud-panel-border);
-  border-radius: 2px;
-  box-shadow: var(--hud-tile-shadow);
+  font-size: 13px;
+  color: var(--hud-bone);
+  background: var(--hud-well);
+  border: 0;
+  clip-path: var(--facet);
+  --cut: 5px;
+  box-shadow: var(--well-shade);
   cursor: pointer;
 }
 #hud .style-option:hover {
-  border-color: var(--hud-amber);
-  background: var(--hud-ink-3);
+  background: var(--hud-well-lite);
+  box-shadow: var(--well-shade), inset 0 0 0 2px var(--hud-ember);
 }
 #hud .style-option[aria-pressed="true"] {
   color: var(--hud-ink);
-  background: var(--hud-cream);
-  border-color: var(--hud-ink);
-  box-shadow:
-    1px 1px 0 0 #fff6d8 inset,
-    -2px -2px 0 0 #8f805f inset,
-    0 0 0 1px var(--hud-amber);
+  font-weight: 700;
+  background: var(--hud-moss);
+  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.25);
 }
 
 /* ── Inventory ───────────────────────────────────────────────────────────── */
 #hud .inventory-body {
-  width: 244px;
-  padding: 10px;
-  background: var(--hud-panel-bg);
-  border: 2px solid var(--hud-panel-border);
-  border-radius: 2px;
-  box-shadow: var(--hud-panel-shadow);
+  filter: drop-shadow(0 4px 0 rgba(0, 0, 0, 0.35));
+  width: 252px;
+  padding: 12px;
+  background: var(--hud-timber);
+  clip-path: var(--facet);
+  box-shadow: var(--slab-light);
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -353,8 +339,8 @@
   justify-content: space-between;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
-  color: var(--hud-cream-dim);
+  font-size: 13px;
+  color: var(--hud-bone-dim);
 }
 #hud .inventory-equipped-group {
   display: flex;
@@ -366,18 +352,18 @@
   height: 34px;
   display: grid;
   place-items: center;
-  background: var(--hud-ink);
-  border: 2px solid var(--hud-panel-border);
-  border-radius: 2px;
-  box-shadow: var(--hud-tile-pressed);
+  background: var(--hud-well);
+  clip-path: var(--facet);
+  --cut: 6px;
+  box-shadow: var(--well-shade);
 }
 /* Item icons are small renders of the world's 3D models (src/game/icons.ts). */
 #hud canvas.item-icon {
   image-rendering: auto;
 }
 #hud .hud-icon-button .item-icon {
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
 }
 #hud .inventory-equipped-slot .item-icon {
   width: 28px;
@@ -396,26 +382,24 @@
   padding: 3px;
   display: grid;
   place-items: center;
-  color: var(--hud-cream);
-  background: var(--hud-ink-2);
-  border: 2px solid var(--hud-panel-border);
-  border-radius: 2px;
-  box-shadow: var(--hud-tile-shadow);
+  color: var(--hud-bone);
+  background: var(--hud-well);
+  border: 0;
+  clip-path: var(--facet);
+  --cut: 7px;
+  box-shadow: var(--well-shade);
   cursor: pointer;
 }
 #hud .inventory-item:hover:not(:disabled) {
-  border-color: var(--hud-amber);
-  background: var(--hud-ink-3);
+  background: var(--hud-well-lite);
+  box-shadow: var(--well-shade), inset 0 0 0 2px var(--hud-ember);
 }
 #hud .inventory-item[aria-pressed="true"] {
-  border-color: var(--hud-amber);
-  background: #2a2112;
+  box-shadow: var(--well-shade), inset 0 0 0 2px var(--hud-ember);
 }
 #hud .inventory-item.is-selected {
-  border-color: var(--hud-cream);
-  box-shadow:
-    0 0 0 2px var(--hud-amber),
-    var(--hud-tile-pressed);
+  background: var(--hud-well-lite);
+  box-shadow: var(--well-shade), inset 0 0 0 2px var(--hud-moss);
 }
 #hud .inventory-item:disabled {
   opacity: 0.9;
@@ -427,8 +411,7 @@
   padding: 0;
   place-self: center;
   cursor: default;
-  opacity: 0.65;
-  background: #100c08;
+  opacity: 0.6;
 }
 #hud .inventory-item .item-icon {
   width: 32px;
@@ -437,34 +420,35 @@
 #hud .inventory-qty {
   position: absolute;
   right: 2px;
-  bottom: 1px;
-  min-width: 12px;
-  height: 12px;
-  padding: 0 2px;
+  bottom: 2px;
+  min-width: 13px;
+  height: 13px;
+  padding: 0 3px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 9px;
-  line-height: 12px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 13px;
   color: var(--hud-ink);
-  background: var(--hud-amber);
-  border: 1px solid var(--hud-ink);
-  border-radius: 1px;
-  box-shadow: -1px -1px 0 0 var(--hud-amber-dark) inset;
+  background: var(--hud-ember);
+  border: 0;
+  border-radius: 3px;
 }
 #hud .inventory-actions {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding-top: 8px;
-  border-top: 2px solid var(--hud-panel-border);
+  padding-top: 10px;
+  box-shadow: inset 0 2px 0 rgba(232, 220, 196, 0.1);
 }
 #hud .inventory-actions[hidden] {
   display: none;
 }
 #hud .inventory-action-name {
-  font-size: 12px;
-  color: var(--hud-cream);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--hud-bone);
 }
 #hud .inventory-action-buttons {
   display: flex;
@@ -472,37 +456,36 @@
   gap: 6px;
 }
 #hud .inventory-action {
-  padding: 4px 10px;
-  font-size: 12px;
-  color: var(--hud-cream);
-  background: var(--hud-ink-2);
-  border: 2px solid var(--hud-panel-border);
-  border-radius: 2px;
-  box-shadow: var(--hud-tile-shadow);
+  padding: 4px 12px;
+  font-size: 13px;
+  color: var(--hud-bone);
+  background: var(--hud-well);
+  border: 0;
+  clip-path: var(--facet);
+  --cut: 5px;
+  box-shadow: var(--well-shade);
   cursor: pointer;
 }
 #hud .inventory-action:hover {
-  background: var(--hud-ink-3);
-  border-color: var(--hud-amber);
+  background: var(--hud-well-lite);
+  box-shadow: var(--well-shade), inset 0 0 0 2px var(--hud-ember);
 }
 #hud .inventory-action:active {
-  box-shadow: var(--hud-tile-pressed);
+  box-shadow: var(--well-shade), inset 0 3px 0 rgba(0, 0, 0, 0.35);
 }
 #hud .inventory-action.is-danger {
-  color: #f3c3b4;
-  border-color: var(--hud-danger-dark);
-  background: #2c100c;
+  color: #ffb49a;
+  box-shadow: var(--well-shade), inset 0 0 0 2px var(--hud-clay);
 }
 
 /* ── Commands ────────────────────────────────────────────────────────────── */
 #hud .command-body {
   width: min(330px, calc(100vw - 24px));
-  padding: 12px;
-  background: var(--hud-panel-bg);
-  border: 2px solid var(--hud-panel-border);
-  border-radius: 2px;
-  box-shadow: var(--hud-panel-shadow);
-  font-size: 13px;
+  padding: 14px;
+  background: var(--hud-timber);
+  clip-path: var(--facet);
+  box-shadow: var(--slab-light);
+  font-size: 14px;
 }
 #hud .command-body[hidden] {
   display: none;
@@ -527,25 +510,23 @@
 #hud .command-button {
   min-width: 0;
   height: 30px;
-  padding: 0 8px;
+  padding: 0 10px;
   overflow: hidden;
-  color: var(--hud-cream);
+  color: var(--hud-bone);
   text-overflow: ellipsis;
   white-space: nowrap;
-  background: var(--hud-ink-2);
-  border: 2px solid var(--hud-panel-border);
-  border-radius: 2px;
-  box-shadow: var(--hud-tile-shadow);
+  background: var(--hud-well);
+  border: 0;
+  clip-path: var(--facet);
+  --cut: 5px;
+  box-shadow: var(--well-shade);
   cursor: pointer;
 }
 #hud .command-button[aria-pressed="true"] {
   color: var(--hud-ink);
-  background: var(--hud-amber);
-  border-color: var(--hud-ink);
-  box-shadow:
-    1px 1px 0 0 #fff0a8 inset,
-    -2px -2px 0 0 var(--hud-amber-dark) inset,
-    0 0 0 1px var(--hud-panel-border);
+  font-weight: 700;
+  background: var(--hud-moss);
+  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.25);
 }
 #hud .command-spawn-button {
   display: grid;
@@ -554,20 +535,21 @@
   height: 48px;
   padding: 0;
   overflow: hidden;
-  background: var(--hud-ink-2);
-  border: 2px solid var(--hud-panel-border);
-  border-radius: 2px;
-  box-shadow: var(--hud-tile-shadow);
+  background: var(--hud-well);
+  border: 0;
+  clip-path: var(--facet);
+  --cut: 7px;
+  box-shadow: var(--well-shade);
   cursor: pointer;
 }
 #hud .command-spawn-button:hover,
 #hud .command-button:hover {
-  background: var(--hud-ink-3);
-  border-color: var(--hud-amber);
+  background: var(--hud-well-lite);
+  box-shadow: var(--well-shade), inset 0 0 0 2px var(--hud-ember);
 }
 #hud .command-spawn-button:active,
 #hud .command-button:active {
-  box-shadow: var(--hud-tile-pressed);
+  box-shadow: var(--well-shade), inset 0 3px 0 rgba(0, 0, 0, 0.35);
 }
 #hud .command-spawn-button .item-icon {
   width: 32px;
@@ -577,6 +559,6 @@
   display: block;
 }
 #hud .command-status {
-  color: var(--hud-cream-dim);
-  font-size: 12px;
+  color: var(--hud-bone-dim);
+  font-size: 13px;
 }
