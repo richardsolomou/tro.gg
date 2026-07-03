@@ -1,9 +1,9 @@
 import * as THREE from "three";
-import { BOULDER_HIT_RADIUS, TREE_HIT_RADIUS, EQUIPMENT_ACTION_MS, forward, HOG_HIT_RADIUS, hogMaxHealth, hogSize, MELEE_ARC_RAD, MELEE_RANGE_TILES, PLAYER_HIT_RADIUS, PLAYER_MAX_HEALTH, RUN_SPEED_TILES_PER_SEC, timestampMs, wieldOf, type EquipSlot, type Facing, type ProjectedMotion, type Stamp } from "@trogg/shared";
+import { EQUIPMENT_ACTION_MS, forward, HOG_HIT_RADIUS, hogMaxHealth, hogSize, MELEE_ARC_RAD, MELEE_RANGE_TILES, PLAYER_HIT_RADIUS, PLAYER_MAX_HEALTH, RUN_SPEED_TILES_PER_SEC, timestampMs, wieldOf, type EquipSlot, type Facing, type ProjectedMotion, type Stamp } from "@trogg/shared";
 import type { Player } from "../net/module_bindings/types";
 import { audio } from "../audio.js";
 import { buildGhost, buildHog, buildHogBall, buildTrogg } from "./creatures.js";
-import { buildBoulder, buildGroundItem, buildHeldItem, buildTree, updateHeldFx, wireHeldFx, type HeldFx } from "./items.js";
+import { buildBoulder, buildGroundItem, buildHeldItem, updateHeldFx, wireHeldFx, type HeldFx } from "./items.js";
 import { makeBubble, makeDamageText, makeHealthBar, makeLabel, makeStatusText, type Overlay } from "./overlays.js";
 import { ATTACK_PERIOD, type CreatureModel } from "./rig.js";
 import { UI_3D } from "./palette.js";
@@ -91,15 +91,17 @@ export interface HogView {
   overlays: Overlay[];
 }
 
-/** Recursively free an object's GPU resources and detach it. */
+/** Recursively free an object's GPU resources and detach it. Pooled resources
+ *  (`userData.shared`) stay alive — other instances still render from them. */
 export function disposeObject(obj: THREE.Object3D): void {
   obj.removeFromParent();
   obj.traverse((child) => {
     const mesh = child as THREE.Mesh;
-    if (mesh.geometry) mesh.geometry.dispose();
+    if (mesh.geometry && !mesh.geometry.userData.shared) mesh.geometry.dispose();
     const material = mesh.material as THREE.Material | THREE.Material[] | undefined;
-    if (Array.isArray(material)) for (const m of material) m.dispose();
-    else material?.dispose();
+    for (const m of Array.isArray(material) ? material : material ? [material] : []) {
+      if (!m.userData.shared) m.dispose();
+    }
   });
 }
 
@@ -444,24 +446,6 @@ export function createEntities(scene: THREE.Scene) {
     view.model.mixer.update(dt);
   };
 
-  const makeBoulder = () => {
-    const marker = new THREE.Group();
-    const rock = buildBoulder();
-    rock.position.set(0.5, 0, 0.5);
-    marker.add(rock);
-    addHitbox(marker, hitRing(BOULDER_HIT_RADIUS, 0x6fdc9c), 0.5);
-    return marker;
-  };
-
-  const makeTree = () => {
-    const marker = new THREE.Group();
-    const tree = buildTree();
-    tree.position.set(0.5, 0, 0.5);
-    marker.add(tree);
-    addHitbox(marker, hitRing(TREE_HIT_RADIUS, 0x6fdc9c), 0.5);
-    return marker;
-  };
-
   const makeGroundItem = (item: string) => {
     const marker = new THREE.Group();
     const glyph = buildGroundItem(item);
@@ -614,33 +598,14 @@ export function createEntities(scene: THREE.Scene) {
     ghosts.push({ root, materials, bornMs: performance.now(), from, drift });
   };
 
-  /** The white hit pop for things without a rig (boulders, trees): every standard
-   *  material flashes white for a beat, then restores its own base colour. */
-  const flashHit = (group: THREE.Group) => {
-    const standards: THREE.MeshStandardMaterial[] = [];
-    group.traverse((child) => {
-      const m = (child as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
-      if (m?.isMeshStandardMaterial) standards.push(m);
-    });
-    for (const m of standards) {
-      m.userData.baseColor ??= m.color.getHex();
-      m.color.setHex(0xffffff);
-    }
-    setTimeout(() => {
-      for (const m of standards) {
-        if (m.userData.baseColor !== undefined) m.color.setHex(m.userData.baseColor);
-      }
-    }, 130);
-  };
-
-  /** Pop a floating damage number above a hit creature (GDD "Combat"). The number
-   *  anchors to the world, not the marker, so a killing blow's number survives the
+  /** Pop a floating damage number over a tile anchor (GDD "Combat"). The number
+   *  anchors to the world, not the target, so a killing blow's number survives the
    *  target's row (and marker) vanishing. */
-  const showDamage = (marker: THREE.Group, amount: number, headY: number) => {
+  const showDamage = (at: { x: number; z: number }, amount: number, headY: number) => {
     if (amount <= 0) return;
     const overlay = makeDamageText(amount);
     const jitter = (Math.random() - 0.5) * 0.5;
-    overlay.sprite.position.set(marker.position.x + 0.5 + jitter, headY + 0.45, marker.position.z + 0.5);
+    overlay.sprite.position.set(at.x + 0.5 + jitter, headY + 0.45, at.z + 0.5);
     scene.add(overlay.sprite);
     damageFloats.push({ overlay, bornMs: performance.now(), from: overlay.sprite.position.clone() });
   };
@@ -682,7 +647,7 @@ export function createEntities(scene: THREE.Scene) {
     }
   };
 
-  return { place, smoothPlace, headTop, makeMarker, animate, makeHog, animateHog, makeBoulder, makeTree, makeGroundItem, animatePickupMotes, applyCarry, applyEquipment, showBubble, showDamage, flashHit, destroy, hauntGhost, updateGhosts, setHitboxes, updateReach };
+  return { place, smoothPlace, headTop, makeMarker, animate, makeHog, animateHog, makeGroundItem, animatePickupMotes, applyCarry, applyEquipment, showBubble, showDamage, destroy, hauntGhost, updateGhosts, setHitboxes, updateReach };
 }
 
 export type Entities = ReturnType<typeof createEntities>;

@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { Wield } from "@trogg/shared";
+import { poolGeometry } from "./pool.js";
 
 /**
  * The creature rig: jointed box models on named nodes, animated by real
@@ -68,7 +69,7 @@ export class Parts {
   }
 
   box(parent: THREE.Object3D, w: number, h: number, d: number, colour: number, x = 0, y = 0, z = 0, emissive = false): THREE.Mesh {
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), this.mat(colour, emissive));
+    const mesh = new THREE.Mesh(poolGeometry(`box:${w}:${h}:${d}`, () => new THREE.BoxGeometry(w, h, d)), this.mat(colour, emissive));
     mesh.position.set(x, y, z);
     mesh.castShadow = true;
     parent.add(mesh);
@@ -77,7 +78,7 @@ export class Parts {
 
   /** A flat-shaded coarse sphere — the low-poly blob for round bodies and rocks. */
   blob(parent: THREE.Object3D, r: number, colour: number, x = 0, y = 0, z = 0, scaleY = 1, detail = 1): THREE.Mesh {
-    const mesh = new THREE.Mesh(new THREE.IcosahedronGeometry(r, detail), this.mat(colour));
+    const mesh = new THREE.Mesh(poolGeometry(`ico:${r}:${detail}`, () => new THREE.IcosahedronGeometry(r, detail)), this.mat(colour));
     mesh.position.set(x, y, z);
     mesh.scale.y = scaleY;
     mesh.castShadow = true;
@@ -86,7 +87,7 @@ export class Parts {
   }
 
   cone(parent: THREE.Object3D, r: number, h: number, colour: number, x = 0, y = 0, z = 0, segments = 6): THREE.Mesh {
-    const mesh = new THREE.Mesh(new THREE.ConeGeometry(r, h, segments), this.mat(colour));
+    const mesh = new THREE.Mesh(poolGeometry(`cone:${r}:${h}:${segments}`, () => new THREE.ConeGeometry(r, h, segments)), this.mat(colour));
     mesh.position.set(x, y, z);
     mesh.castShadow = true;
     parent.add(mesh);

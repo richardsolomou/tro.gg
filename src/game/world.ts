@@ -15,6 +15,8 @@ import {
   PLAYER_RESPAWN_MS,
   BOULDER_MAX_HEALTH,
   TREE_MAX_HEALTH,
+  MAX_BOULDERS_PER_ZONE,
+  MAX_TREES_PER_ZONE,
   projectMotion,
   projectMotionState,
   snapToTile,
@@ -40,6 +42,8 @@ import { audio } from "../audio.js";
 import { interact, useEquipped } from "../net/procedures.js";
 import { isOlderPlayerMotion, playerMotionChanged, withPlayerMotion } from "../motion_sync.js";
 import { createEntities, disposeObject, type Entities, type HogView, type Tracked } from "./entities.js";
+import { buildBoulder, buildTree } from "./items.js";
+import { NodeField } from "./nodes.js";
 import { buildTerrain, type Terrain3D } from "./terrain.js";
 import { DAYLIGHT_3D, UI_3D } from "./palette.js";
 
@@ -82,6 +86,11 @@ const CREATURE_BUDGET = 16;
 /** How many equipped torches shed real light at once (nearest first). */
 const TORCH_LIGHT_BUDGET = 4;
 
+/** The render loop's ceiling. ProMotion displays drive the animation loop at
+ *  120Hz+, which doubles CPU/GPU heat for no gameplay benefit — excess ticks
+ *  are dropped whole (no projection, no render). */
+const FRAME_CAP_FPS = 60;
+
 export class World3D {
   /** The local trogg's live projected position (the overworld map marker). */
   selfPosition(): { x: number; y: number } | undefined {
@@ -104,8 +113,11 @@ export class World3D {
   private destination!: THREE.Mesh;
 
   private readonly tracked = new Map<string, Tracked>();
-  private readonly boulders = new Map<string, { row: Boulder; group: THREE.Group }>();
-  private readonly trees = new Map<string, { row: Tree; group: THREE.Group }>();
+  private readonly boulders = new Map<string, Boulder>();
+  private readonly trees = new Map<string, Tree>();
+  /** All trees (and, separately, boulders) draw as a handful of instanced meshes. */
+  private treeField!: NodeField;
+  private boulderField!: NodeField;
   /** Cleared until the camera has snapped to the local trogg once (first snapshot). */
   private cameraSnapped = false;
   /** Tiles between the local trogg and a world position — Infinity before spawn. */
@@ -149,8 +161,7 @@ export class World3D {
     torches.forEach((entry, i) => {
       entry.torchLight!.visible = i < TORCH_LIGHT_BUDGET;
     });
-    for (const view of this.boulders.values()) view.group.visible = inRange(view.group);
-    for (const view of this.trees.values()) view.group.visible = inRange(view.group);
+    // trees and boulders are instanced whole-zone draws — nothing to cull per node
     for (const view of this.groundItems.values()) view.group.visible = inRange(view.group);
   }
 
@@ -226,6 +237,7 @@ export class World3D {
   private destinationTile?: Coord;
   private readonly sub = { live: false };
   private lastMs = performance.now();
+  private lastFrameMs = 0;
   /** The raw screen-space WASD intent and its last camera-mapped delivery, so the
    *  tick can re-steer a held walk when the camera turns. */
   private rawIntent: MoveIntent = { dirX: 0, dirY: 0, running: false };
@@ -241,7 +253,9 @@ export class World3D {
     this.slug = data.slug;
     this.zone = getZone(data.slug) ?? getZone(STARTING_ZONE_SLUG)!;
     this.parent = parent;
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+    // No preserveDrawingBuffer: it forces a framebuffer copy every frame on
+    // tile-based GPUs (Apple); probes screenshot via the compositor instead.
+    this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -301,6 +315,8 @@ export class World3D {
     this.terrain = buildTerrain(this.zone);
     this.scene.add(this.terrain.group);
     this.entities = createEntities(this.scene);
+    this.treeField = new NodeField(this.scene, buildTree(), MAX_TREES_PER_ZONE);
+    this.boulderField = new NodeField(this.scene, buildBoulder(), MAX_BOULDERS_PER_ZONE);
 
     // The click-to-move destination marker: a flat gold-edged tile highlight.
     this.destination = new THREE.Mesh(
@@ -431,6 +447,9 @@ export class World3D {
    *  intent — never per-frame synced (invariant 2). */
   private readonly tick = () => {
     const now = performance.now();
+    // the -1.5ms slack keeps a plain 60Hz display's ~16.7ms frames passing
+    if (now - this.lastFrameMs < 1000 / FRAME_CAP_FPS - 1.5) return;
+    this.lastFrameMs = now;
     const dt = Math.min(0.1, (now - this.lastMs) / 1000);
     this.lastMs = now;
 
@@ -521,10 +540,28 @@ export class World3D {
           t.marker.traverse(() => troggMeshes++);
         }
         let sceneObjects = 0;
+        let totalObjects = 0;
         this.scene.traverse((o) => {
+          totalObjects++;
           if (o.visible) sceneObjects++;
         });
-        return { calls: this.renderer.info.render.calls, triangles: this.renderer.info.render.triangles, visibleTroggs, troggMeshes, sceneObjects };
+        const info = this.renderer.info;
+        return {
+          frame: info.render.frame,
+          calls: info.render.calls,
+          triangles: info.render.triangles,
+          geometries: info.memory.geometries,
+          textures: info.memory.textures,
+          programs: info.programs?.length ?? 0,
+          visibleTroggs,
+          troggMeshes,
+          sceneObjects,
+          totalObjects,
+          hogs: this.hogs.size,
+          trees: this.trees.size,
+          boulders: this.boulders.size,
+          groundItems: this.groundItems.size,
+        };
       };
     }
 
@@ -681,7 +718,7 @@ export class World3D {
       }
       if (p.health < _old.health) {
         if (!p.dead) entry.flinchBaseMs = performance.now();
-        this.entities.showDamage(entry.marker, _old.health - p.health, this.entities.headTop());
+        this.entities.showDamage(entry.marker.position, _old.health - p.health, this.entities.headTop());
       }
 
       // The nameplate, tint, body style, and health bar are baked into the marker;
@@ -751,32 +788,25 @@ export class World3D {
 
   private syncBoulderTiles(): void {
     this.boulderTiles.clear();
-    for (const view of this.boulders.values()) this.boulderTiles.add(tileKey(view.row.x, view.row.y));
+    for (const b of this.boulders.values()) this.boulderTiles.add(tileKey(b.x, b.y));
   }
 
   private syncTreeTiles(): void {
     this.treeTiles.clear();
-    for (const view of this.trees.values()) this.treeTiles.add(tileKey(view.row.x, view.row.y));
+    for (const t of this.trees.values()) this.treeTiles.add(tileKey(t.x, t.y));
   }
 
   private upsertTree(row: Tree): void {
     const key = row.id.toString();
-    let view = this.trees.get(key);
-    if (!view) {
-      view = { row, group: this.entities.makeTree() };
-      this.trees.set(key, view);
-      this.scene.add(view.group);
-    } else {
-      view.row = row;
-    }
-    this.entities.place(view.group, row.x, row.y);
+    this.trees.set(key, row);
+    this.treeField.set(key, row.x, row.y);
     this.syncTreeTiles();
   }
 
   private removeTree(row: Tree): void {
-    const view = this.trees.get(row.id.toString());
-    if (view) disposeObject(view.group);
-    this.trees.delete(row.id.toString());
+    const key = row.id.toString();
+    this.treeField.remove(key);
+    this.trees.delete(key);
     this.syncTreeTiles();
     // a felled tree crashes down nearby — the settle hit doubles as the fall
     if (this.sub.live) audio.playBoulderSettleAt(this.hearingDistance(row.x + 0.5, row.y + 0.5));
@@ -786,36 +816,27 @@ export class World3D {
     const conn = this.conn;
     conn.db.tree.onInsert((_ctx, row) => this.upsertTree(row));
     conn.db.tree.onUpdate((_ctx, _old, row) => {
-      const view = this.trees.get(row.id.toString());
-      if (view && row.health < _old.health) this.nodeHit(view.group, _old.health - row.health, 1.9);
+      if (row.health < _old.health) this.nodeHit(this.treeField, row, _old.health - row.health, 1.9);
       this.upsertTree(row);
     });
     conn.db.tree.onDelete((_ctx, row) => {
       // a full-health delete is a reset/heal wipe, not the felling blow
-      const view = this.trees.get(row.id.toString());
-      if (view && row.health < TREE_MAX_HEALTH) this.nodeHit(view.group, row.health, 1.9);
+      if (row.health < TREE_MAX_HEALTH) this.nodeHit(this.treeField, row, row.health, 1.9);
       this.removeTree(row);
     });
   }
 
   private upsertBoulder(b: Boulder): void {
     const key = b.id.toString();
-    let view = this.boulders.get(key);
-    if (!view) {
-      view = { row: b, group: this.entities.makeBoulder() };
-      this.boulders.set(key, view);
-      this.scene.add(view.group);
-    } else {
-      view.row = b;
-    }
-    this.entities.place(view.group, b.x, b.y);
+    this.boulders.set(key, b);
+    this.boulderField.set(key, b.x, b.y);
     this.syncBoulderTiles();
   }
 
   private removeBoulder(b: Boulder): void {
-    const view = this.boulders.get(b.id.toString());
-    if (view) disposeObject(view.group);
-    this.boulders.delete(b.id.toString());
+    const key = b.id.toString();
+    this.boulderField.remove(key);
+    this.boulders.delete(key);
     this.syncBoulderTiles();
   }
 
@@ -823,10 +844,10 @@ export class World3D {
    *  number, exactly the feedback a creature hit gives (GDD "Boulders and trees").
    *  The breaking hit arrives as a delete; the row's remaining health is the
    *  damage that swing effectively dealt. */
-  private nodeHit(group: THREE.Group, amount: number, headY: number): void {
+  private nodeHit(field: NodeField, row: { id: bigint; x: number; y: number }, amount: number, headY: number): void {
     if (!this.sub.live) return;
-    this.entities.flashHit(group);
-    this.entities.showDamage(group, amount, headY);
+    field.flash(row.id.toString());
+    this.entities.showDamage({ x: row.x, z: row.y }, amount, headY);
   }
 
   private wireBoulders(): void {
@@ -834,14 +855,12 @@ export class World3D {
     conn.db.boulder.onInsert((_ctx, b) => this.upsertBoulder(b));
     conn.db.boulder.onUpdate((_ctx, _old, b) => {
       if (this.sub.live && (_old.x !== b.x || _old.y !== b.y)) audio.playBoulderSettleAt(this.hearingDistance(b.x + 0.5, b.y + 0.5));
-      const view = this.boulders.get(b.id.toString());
-      if (view && b.health < _old.health) this.nodeHit(view.group, _old.health - b.health, 0.85);
+      if (b.health < _old.health) this.nodeHit(this.boulderField, b, _old.health - b.health, 0.85);
       this.upsertBoulder(b);
     });
     conn.db.boulder.onDelete((_ctx, b) => {
       // a full-health delete is a reset/heal wipe, not a mining blow
-      const view = this.boulders.get(b.id.toString());
-      if (view && b.health < BOULDER_MAX_HEALTH) this.nodeHit(view.group, b.health, 0.85);
+      if (b.health < BOULDER_MAX_HEALTH) this.nodeHit(this.boulderField, b, b.health, 0.85);
       this.removeBoulder(b);
     });
   }
@@ -926,7 +945,7 @@ export class World3D {
         const view = this.hogs.get(h.id.toString());
         if (view) {
           view.flinchBaseMs = performance.now();
-          this.entities.showDamage(view.marker, _old.health - h.health, view.model.height * hogSize(view.style));
+          this.entities.showDamage(view.marker.position, _old.health - h.health, view.model.height * hogSize(view.style));
         }
       }
       if (!this.sub.live) return;

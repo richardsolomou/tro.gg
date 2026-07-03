@@ -44,10 +44,11 @@ function renderIcon(model: THREE.Object3D): HTMLCanvasElement {
   scene.remove(model);
   model.traverse((child) => {
     const mesh = child as THREE.Mesh;
-    mesh.geometry?.dispose();
+    if (mesh.geometry && !mesh.geometry.userData.shared) mesh.geometry.dispose();
     const material = mesh.material as THREE.Material | THREE.Material[] | undefined;
-    if (Array.isArray(material)) for (const m of material) m.dispose();
-    else material?.dispose();
+    for (const m of Array.isArray(material) ? material : material ? [material] : []) {
+      if (!m.userData.shared) m.dispose();
+    }
   });
   const canvas = document.createElement("canvas");
   canvas.width = ICON_PX;

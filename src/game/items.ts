@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { ITEM_3D } from "./palette.js";
+import { poolGeometry, poolMaterial } from "./pool.js";
 
 /**
  * Tool, prop, and resource models. A held item is built with its **grip at the
@@ -12,15 +13,27 @@ import { ITEM_3D } from "./palette.js";
  */
 
 function mat(colour: number): THREE.MeshStandardMaterial {
-  return new THREE.MeshStandardMaterial({ color: colour, roughness: 0.85, metalness: 0, flatShading: true });
+  return poolMaterial(`item:${colour}`, () => new THREE.MeshStandardMaterial({ color: colour, roughness: 0.85, metalness: 0, flatShading: true }));
 }
 
 function box(parent: THREE.Object3D, w: number, h: number, d: number, colour: number, x = 0, y = 0, z = 0): THREE.Mesh {
-  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat(colour));
+  const m = new THREE.Mesh(poolGeometry(`box:${w}:${h}:${d}`, () => new THREE.BoxGeometry(w, h, d)), mat(colour));
   m.position.set(x, y, z);
   m.castShadow = true;
   parent.add(m);
   return m;
+}
+
+function ico(r: number, detail: number): THREE.BufferGeometry {
+  return poolGeometry(`ico:${r}:${detail}`, () => new THREE.IcosahedronGeometry(r, detail));
+}
+
+function cone(r: number, h: number, segments: number): THREE.BufferGeometry {
+  return poolGeometry(`cone:${r}:${h}:${segments}`, () => new THREE.ConeGeometry(r, h, segments));
+}
+
+function cylinder(rTop: number, rBottom: number, h: number, segments: number): THREE.BufferGeometry {
+  return poolGeometry(`cyl:${rTop}:${rBottom}:${h}:${segments}`, () => new THREE.CylinderGeometry(rTop, rBottom, h, segments));
 }
 
 function pickaxe(): THREE.Group {
@@ -78,11 +91,18 @@ function flameRng(seed: number): () => number {
 
 /** The stylised fire silhouette: a lathed wide-bulge-to-sharp-point profile —
  *  the landing page's flame, at held-item scale. Unlit, so it glows in the dark. */
+function flameMat(colour: number): THREE.MeshBasicMaterial {
+  return poolMaterial(`flame:${colour}`, () => new THREE.MeshBasicMaterial({ color: colour, transparent: true, opacity: 0.94 }));
+}
+
 function flameBody(colour: number, r: number, h: number): THREE.Mesh {
-  const profile = [
-    [0.001, 0], [0.72, 0.05], [1.0, 0.2], [0.8, 0.44], [0.45, 0.68], [0.16, 0.86], [0.001, 1],
-  ].map(([px, py]) => new THREE.Vector2(px! * r, py! * h));
-  return new THREE.Mesh(new THREE.LatheGeometry(profile, 6), new THREE.MeshBasicMaterial({ color: colour, transparent: true, opacity: 0.94 }));
+  const geo = poolGeometry(`flame:${r}:${h}`, () => {
+    const profile = [
+      [0.001, 0], [0.72, 0.05], [1.0, 0.2], [0.8, 0.44], [0.45, 0.68], [0.16, 0.86], [0.001, 1],
+    ].map(([px, py]) => new THREE.Vector2(px! * r, py! * h));
+    return new THREE.LatheGeometry(profile, 6);
+  });
+  return new THREE.Mesh(geo, flameMat(colour));
 }
 
 /** One flame cel: the pointed body holds its shape (height jitter, wandering
@@ -100,7 +120,7 @@ function flameCel(rand: () => number): THREE.Group {
   core.rotation.z = lean * 0.7;
   f.add(core);
   const side = rand() < 0.5 ? -1 : 1;
-  const tongue = new THREE.Mesh(new THREE.ConeGeometry(0.02 + rand() * 0.01, 0.08 + rand() * 0.05, 4), new THREE.MeshBasicMaterial({ color: rand() < 0.4 ? FLAME_DEEP : FLAME_MID, transparent: true, opacity: 0.94 }));
+  const tongue = new THREE.Mesh(cone(0.02 + rand() * 0.01, 0.08 + rand() * 0.05, 4), flameMat(rand() < 0.4 ? FLAME_DEEP : FLAME_MID));
   tongue.position.set(side * (0.05 + rand() * 0.03), 0.52 + rand() * 0.08, 0);
   tongue.rotation.z = -side * (0.25 + rand() * 0.3);
   f.add(tongue);
@@ -134,11 +154,11 @@ function shield(): THREE.Group {
 
 function stone(): THREE.Group {
   const g = new THREE.Group();
-  const rock = new THREE.Mesh(new THREE.IcosahedronGeometry(0.16, 0), mat(ITEM_3D.rock));
+  const rock = new THREE.Mesh(ico(0.16, 0), mat(ITEM_3D.rock));
   rock.position.y = 0.12;
   rock.castShadow = true;
   g.add(rock);
-  const chip = new THREE.Mesh(new THREE.IcosahedronGeometry(0.08, 0), mat(ITEM_3D.rockLt));
+  const chip = new THREE.Mesh(ico(0.08, 0), mat(ITEM_3D.rockLt));
   chip.position.set(0.12, 0.06, 0.05);
   chip.castShadow = true;
   g.add(chip);
@@ -147,11 +167,11 @@ function stone(): THREE.Group {
 
 function quill(): THREE.Group {
   const g = new THREE.Group();
-  const spine = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.34, 5), mat(ITEM_3D.woodLt));
+  const spine = new THREE.Mesh(cone(0.035, 0.34, 5), mat(ITEM_3D.woodLt));
   spine.position.y = 0.17;
   spine.castShadow = true;
   g.add(spine);
-  const tip = new THREE.Mesh(new THREE.ConeGeometry(0.02, 0.1, 5), mat(ITEM_3D.woodDk));
+  const tip = new THREE.Mesh(cone(0.02, 0.1, 5), mat(ITEM_3D.woodDk));
   tip.position.y = 0.32;
   g.add(tip);
   return g;
@@ -159,12 +179,12 @@ function quill(): THREE.Group {
 
 function wood(): THREE.Group {
   const g = new THREE.Group();
-  const log = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.1, 0.4, 6), mat(ITEM_3D.wood));
+  const log = new THREE.Mesh(cylinder(0.09, 0.1, 0.4, 6), mat(ITEM_3D.wood));
   log.rotation.z = Math.PI / 2;
   log.position.y = 0.1;
   log.castShadow = true;
   g.add(log);
-  const end = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.02, 6), mat(ITEM_3D.woodLt));
+  const end = new THREE.Mesh(cylinder(0.07, 0.07, 0.02, 6), mat(ITEM_3D.woodLt));
   end.rotation.z = Math.PI / 2;
   end.position.set(0.21, 0.1, 0);
   g.add(end);
@@ -264,16 +284,16 @@ export function buildGroundItem(item: string): THREE.Group | undefined {
 /** A choppable tree: a squat trunk under stacked low-poly foliage clumps. */
 export function buildTree(): THREE.Group {
   const g = new THREE.Group();
-  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.2, 0.9, 6), mat(ITEM_3D.woodDk));
+  const trunk = new THREE.Mesh(cylinder(0.14, 0.2, 0.9, 6), mat(ITEM_3D.woodDk));
   trunk.position.y = 0.45;
   trunk.castShadow = true;
   g.add(trunk);
-  const crown = new THREE.Mesh(new THREE.IcosahedronGeometry(0.52, 0), mat(ITEM_3D.leaf));
+  const crown = new THREE.Mesh(ico(0.52, 0), mat(ITEM_3D.leaf));
   crown.position.y = 1.25;
   crown.scale.y = 0.85;
   crown.castShadow = true;
   g.add(crown);
-  const cap = new THREE.Mesh(new THREE.IcosahedronGeometry(0.3, 0), mat(ITEM_3D.leafDk));
+  const cap = new THREE.Mesh(ico(0.3, 0), mat(ITEM_3D.leafDk));
   cap.position.set(0.14, 1.68, -0.08);
   cap.castShadow = true;
   g.add(cap);
@@ -283,13 +303,13 @@ export function buildTree(): THREE.Group {
 /** The mineable boulder: a chunky low-poly rock filling most of its tile. */
 export function buildBoulder(): THREE.Group {
   const g = new THREE.Group();
-  const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(0.42, 0), mat(ITEM_3D.rock));
+  const rock = new THREE.Mesh(poolGeometry("dodeca:0.42", () => new THREE.DodecahedronGeometry(0.42, 0)), mat(ITEM_3D.rock));
   rock.position.y = 0.36;
   rock.rotation.set(0.4, 0.7, 0.2);
   rock.castShadow = true;
   rock.receiveShadow = true;
   g.add(rock);
-  const cap = new THREE.Mesh(new THREE.IcosahedronGeometry(0.18, 0), mat(ITEM_3D.rockLt));
+  const cap = new THREE.Mesh(ico(0.18, 0), mat(ITEM_3D.rockLt));
   cap.position.set(0.1, 0.62, -0.05);
   cap.castShadow = true;
   g.add(cap);
