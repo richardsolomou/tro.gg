@@ -810,14 +810,63 @@ textarea {
 #hud .game-menu-title {
   font-size: 15px;
   color: var(--hud-bone);
-  text-align: center;
   letter-spacing: 0.12em;
 }
-#hud .game-menu-footer {
+#hud .game-menu > .game-menu-title {
+  text-align: center;
+}
+#hud .game-menu-nav {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding-top: 4px;
+}
+#hud .game-menu-nav-item {
+  padding: 12px 16px;
+  font-size: 16px;
+  font-weight: 700;
+  text-align: center;
+  color: var(--hud-bone);
+  background: var(--hud-well);
+  border: 0;
+  clip-path: var(--facet);
+  --cut: 7px;
+  box-shadow: var(--well-shade);
+  cursor: pointer;
+}
+#hud .game-menu-nav-item:hover {
+  background: var(--hud-well-lite);
+  color: var(--hud-ember);
+}
+#hud .game-menu-nav-item:active {
+  box-shadow: var(--well-shade), inset 0 3px 0 rgba(0, 0, 0, 0.35);
+}
+#hud .game-menu-nav-item.is-danger:hover {
+  background: var(--hud-clay);
+  color: var(--hud-bone);
+}
+#hud .game-menu-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+#hud .game-menu-back {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--hud-bone);
+  background: var(--hud-well);
+  border: 0;
+  clip-path: var(--facet);
+  --cut: 6px;
+  box-shadow: var(--well-shade);
+  cursor: pointer;
+}
+#hud .game-menu-back:hover {
+  background: var(--hud-well-lite);
+  color: var(--hud-ember);
 }
 
 /* ── World map (M) ───────────────────────────────────────────────────────────── */
