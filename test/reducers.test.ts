@@ -509,7 +509,7 @@ test("a sword hit at zero health kills, drops inventory, and respawns after the 
   assert.equal(target.name, "SameName");
   assert.equal(target.color, 1);
   assert.equal(target.style, 2);
-  assert.deepEqual({ x: target.x, y: target.y }, { x: 12, y: 8 });
+  assert.deepEqual({ x: target.x, y: target.y }, { x: 20, y: 12 });
 });
 
 test("useEquipped damages a faced adjacent Hog with a sword", () => {
@@ -751,7 +751,7 @@ test("a returning trogg embedded in a wall is nudged to spawn", () => {
   ctx.db.player.insert(playerRow(me, { online: false, x: 0, y: 0 })); // (0,0) is a rim wall
   onConnect(ctx);
   const p = ctx.db.player.identity.find(me);
-  assert.deepEqual({ x: p.x, y: p.y }, { x: 12, y: 8 }); // zone centre (spawnAt)
+  assert.deepEqual({ x: p.x, y: p.y }, { x: 20, y: 12 }); // zone centre (spawnAt)
 });
 
 test("disconnecting drops the carried entity into the world and marks the trogg offline", () => {

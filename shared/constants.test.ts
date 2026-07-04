@@ -6,6 +6,7 @@ import {
   isGeneratedName,
   isValidName,
   isWalkable,
+  PLATE_TILE,
   STARTING_ZONE_SLUG,
   TILE_GLYPHS,
   WALL_TILE,
@@ -82,7 +83,7 @@ test("assertZones rejects an unknown tile glyph", () => {
 test("the zone rim is walled and the interior is floor", () => {
   const zone = getZone(STARTING_ZONE_SLUG)!;
   assert.equal(isWalkable(zone, 0, 0), false); // corner rim
-  assert.equal(isWalkable(zone, 12, 8), true); // spawn (zone centre)
+  assert.equal(isWalkable(zone, Math.floor(zone.width / 2), Math.floor(zone.height / 2)), true); // spawn (zone centre)
   assert.equal(isWalkable(zone, -1, 5), false); // out of bounds is unwalkable
   assert.equal(isWalkable(zone, zone.width, 5), false);
 });
@@ -107,4 +108,10 @@ test("the starting zone seeds pickup items on walkable floor", () => {
   const zone = getZone(STARTING_ZONE_SLUG)!;
   assert.ok(zone.items.length > 0);
   for (const item of zone.items) assert.equal(isWalkable(zone, item.x, item.y), true);
+});
+
+test("the starting zone lays pressure plates in its courts", () => {
+  const zone = getZone(STARTING_ZONE_SLUG)!;
+  const plates = zone.tiles.join("").split(PLATE_TILE).length - 1;
+  assert.ok(plates > 0, "expected at least one pressure plate tile");
 });

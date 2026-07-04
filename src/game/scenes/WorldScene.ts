@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { footprintTiles, getZone, GHOST_HAUNT_FRESH_MS, hogSize, hogStyleFor, PLAYER_RESPAWN_MS, projectMotion, projectMotionState, snapToTile, STARTING_ZONE_SLUG, tileKey, timestampMs, troggColorFor, troggStyleFor, zoneBounds, type Coord, type Stamp, type ZoneBounds } from "@trogg/shared";
+import { footprintTiles, getZone, GHOST_HAUNT_FRESH_MS, hogSize, hogStyleFor, PLATE_TILE, PLAYER_RESPAWN_MS, projectMotion, projectMotionState, snapToTile, STARTING_ZONE_SLUG, tileKey, timestampMs, troggColorFor, troggStyleFor, zoneBounds, type Coord, type Stamp, type ZoneBounds } from "@trogg/shared";
 import type { DbConnection } from "../../net/module_bindings";
 import type { Boulder, GroundItem, Hog, Player } from "../../net/module_bindings/types";
 import { attachKeyboard } from "../../input.js";
@@ -7,7 +7,7 @@ import { setupChat } from "../../ui/chat.js";
 import { mountCommands } from "../../ui/commands.js";
 import { createSelfController, type SelfController } from "../../movement.js";
 import { ART, createEntities, type BoulderView, type Entities, type GroundItemView, type HogView, type Tracked } from "../entities.js";
-import { createTerrain, registerTerrainTextures, type Terrain } from "../terrain.js";
+import { createTerrain, PLATE_LIT_TEX, registerTerrainTextures, type Terrain } from "../terrain.js";
 import { facingFromDir, registerAvatarTextures } from "../avatars.js";
 import { registerItemTextures } from "../items.js";
 import { captureEvent, isFeatureEnabled, logError, logInfo } from "../../analytics.js";
@@ -55,6 +55,7 @@ export class WorldScene extends Phaser.Scene {
   private entities!: Entities;
   private terrain!: Terrain;
   private stage!: Phaser.GameObjects.Container;
+  private plateLayer!: Phaser.GameObjects.Container;
   private destinationLayer!: Phaser.GameObjects.Container;
   private groundItemLayer!: Phaser.GameObjects.Container;
   private boulderLayer!: Phaser.GameObjects.Container;
@@ -78,6 +79,14 @@ export class WorldScene extends Phaser.Scene {
   private readonly hogTiles = new Set<string>();
   private hogBounds!: ZoneBounds;
   private troggBounds!: ZoneBounds;
+
+  // Pressure plates (GDD "Courts and play props"): the amber glow over each plate
+  // tile, lit while a trogg, Hog, or boulder rests on it. Purely cosmetic — the lit
+  // state is derived per frame from the same projected tiles collision uses, so it
+  // syncs across clients without any server state. `playerTiles` is rebuilt each
+  // frame alongside `hogTiles`.
+  private readonly plates: { key: string; glow: Phaser.GameObjects.Image }[] = [];
+  private readonly playerTiles = new Set<string>();
 
   /** The click-to-move marker to show; display-only (the controller owns the target). */
   private destinationTile?: Coord;
@@ -141,11 +150,12 @@ export class WorldScene extends Phaser.Scene {
     this.terrain.vignette.setDepth(2);
     this.stage.add(this.terrain.ground);
 
+    this.plateLayer = this.add.container(0, 0);
     this.destinationLayer = this.add.container(0, 0);
     this.groundItemLayer = this.add.container(0, 0);
     this.boulderLayer = this.add.container(0, 0);
     this.hogLayer = this.add.container(0, 0);
-    this.stage.add([this.destinationLayer, this.groundItemLayer, this.boulderLayer, this.hogLayer]);
+    this.stage.add([this.plateLayer, this.destinationLayer, this.groundItemLayer, this.boulderLayer, this.hogLayer]);
 
     // An invisible interactive zone over the play field captures click-to-move. HUD
     // panels consume their own clicks (pointer-events), so only open-space clicks reach it.
@@ -254,14 +264,25 @@ export class WorldScene extends Phaser.Scene {
       for (const t of footprintTiles(tile.x, tile.y, size)) this.hogTiles.add(tileKey(t.x, t.y));
     }
 
+    this.playerTiles.clear();
     for (const entry of this.tracked.values()) {
       const motion = projectMotionState(entry.player, now - entry.baseMs, this.troggBounds);
       this.entities.place(entry.marker, motion.x, motion.y);
       this.entities.animate(entry, now, motion);
+      const tile = snapToTile({ x: motion.x, y: motion.y });
+      this.playerTiles.add(tileKey(tile.x, tile.y));
 
       if (entry.player.identity.toHexString() !== this.myId) continue;
       if (entry.player.dead) continue;
       this.self.update(entry, motion, now);
+    }
+
+    // Light each plate something rests on this frame. A gentle pulse keeps a lit
+    // plate reading as active rather than a static repaint.
+    for (const plate of this.plates) {
+      const lit = this.boulderTiles.has(plate.key) || this.hogTiles.has(plate.key) || this.playerTiles.has(plate.key);
+      plate.glow.setVisible(lit);
+      if (lit) plate.glow.setAlpha(0.82 + 0.14 * Math.sin(now / 240));
     }
   }
 
@@ -288,6 +309,7 @@ export class WorldScene extends Phaser.Scene {
     // The click zone shadows the zone in screen space (stage is centred, not scrolled).
     this.clickZone.setPosition(this.stage.x, this.stage.y);
     this.clickZone.setSize(this.zone.width * this.tile, this.zone.height * this.tile);
+    this.layoutPlates();
     this.drawDestination();
     // Markers and boulder sprites bake the tile size into their geometry, so a resize
     // redraws them; the tick repositions them next frame.
@@ -312,6 +334,23 @@ export class WorldScene extends Phaser.Scene {
       view.frameKey = built.frameKey;
       this.entities.place(view.marker, view.row.x, view.row.y);
       this.hogLayer.add(view.marker);
+    }
+  }
+
+  /** Rebuild the plate glow overlays for the current tile size (the images bake it,
+   *  like markers and boulders). The tick toggles their visibility each frame. */
+  private layoutPlates() {
+    this.plateLayer.removeAll(true);
+    this.plates.length = 0;
+    for (const [y, row] of this.zone.tiles.entries()) {
+      for (let x = 0; x < row.length; x++) {
+        if (row[x] !== PLATE_TILE) continue;
+        const glow = this.add.image(x * this.tile, y * this.tile, PLATE_LIT_TEX).setOrigin(0, 0);
+        glow.setDisplaySize(this.tile, this.tile);
+        glow.setVisible(false);
+        this.plateLayer.add(glow);
+        this.plates.push({ key: tileKey(x, y), glow });
+      }
     }
   }
 

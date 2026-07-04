@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { GLOWMOSS_TILE, GRAVEL_TILE, isWalkable, MOSS_TILE, WALL_TILE, WATER_TILE, type Zone } from "@trogg/shared";
+import { GLOWMOSS_TILE, GRAVEL_TILE, isWalkable, MOSS_TILE, PLATE_TILE, WALL_TILE, WATER_TILE, type Zone } from "@trogg/shared";
 
 /**
  * Procedural pixel-art terrain for a zone (GDD "Camera and rendering"). The
@@ -29,6 +29,10 @@ const GRAVEL = { light: 0x5a4632, mid: 0x4a3826, dark: 0x2f2417 };
 const MOSS = { light: 0x4a6b3a, mid: 0x3b5630, dark: 0x263b21 };
 const WATER = { deep: 0x12303a, base: 0x1b424f, ripple: 0x2f6675, glint: 0x70502e };
 const GLOWMOSS = { core: 0x7ff0d8, mid: 0x3fb6a2, halo: 0x224f48 };
+// Pressure plate: a stone disc set into the floor, plus the amber lit overlay the
+// scene toggles while something rests on the plate (GDD "Courts and play props").
+const PLATE = { rim: 0x1c140c, face: 0x4a3826, well: 0x271d12, pip: 0x0f0b07 };
+const PLATE_LIT = { ring: 0xf2c94c, glow: 0xb8934a, core: 0xffe9a8 };
 
 const FLOOR_TEX = "terrain-floor";
 const VOID_TEX = "terrain-void";
@@ -39,7 +43,10 @@ const DECAL_TEX: Record<string, string> = {
   [MOSS_TILE]: "decal-moss",
   [WATER_TILE]: "decal-water",
   [GLOWMOSS_TILE]: "decal-glowmoss",
+  [PLATE_TILE]: "decal-plate",
 };
+/** The amber overlay the scene shows over a plate while something rests on it. */
+export const PLATE_LIT_TEX = "decal-plate-lit";
 
 export interface Terrain {
   /** Full-viewport rock, drawn in screen space behind the zone. */
@@ -152,6 +159,8 @@ export function registerTerrainTextures(scene: Phaser.Scene): void {
     }
   }
 
+  addCanvas(scene, PLATE_LIT_TEX, plateLitTile());
+
   // The vignette is a smooth radial gradient, not a tile — keep it linear-filtered
   // so it doesn't show nearest-neighbour banding under the pixel-art default.
   const vignette = addCanvas(scene, VIGNETTE_TEX, vignetteCanvas());
@@ -169,6 +178,7 @@ function decalPatch(glyph: string): HTMLCanvasElement {
   if (glyph === GRAVEL_TILE) return gravelPatch();
   if (glyph === MOSS_TILE) return mossPatch();
   if (glyph === WATER_TILE) return waterPatch();
+  if (glyph === PLATE_TILE) return platePatch();
   return glowmossPatch();
 }
 
@@ -228,6 +238,53 @@ function waterPatch(): HTMLCanvasElement {
       for (let s = 0; s < len; s++) set(x + s, y, WATER.ripple, 0xf0);
     }
     for (let k = 0; k < 8; k++) set(Math.floor(rand() * size), Math.floor(rand() * size), WATER.glint, 0xc0);
+  });
+}
+
+/**
+ * Pressure plate: the same stone disc on every cell of the patch — unlike the
+ * flowing materials, each plate tile is one self-contained prop, so every
+ * sub-cell carries the full drawing. A dark rim ring, a flat face, and a sunken
+ * centre pip, all in the floor's own tones so an unlit plate reads as set stone.
+ */
+function platePatch(): HTMLCanvasElement {
+  const size = ART * PATCH;
+  return pixelCanvas(size, size, (set) => {
+    for (let cy = 0; cy < PATCH; cy++) {
+      for (let cx = 0; cx < PATCH; cx++) {
+        drawPlateDisc(set, cx * ART, cy * ART);
+      }
+    }
+  });
+}
+
+/** One plate disc into a tile whose top-left art pixel is (ox, oy). */
+function drawPlateDisc(set: (x: number, y: number, color: number, alpha?: number) => void, ox: number, oy: number): void {
+  const c = (ART - 1) / 2;
+  for (let y = 0; y < ART; y++) {
+    for (let x = 0; x < ART; x++) {
+      const d = Math.hypot(x - c, y - c);
+      if (d >= 4.5 && d < 5.7) set(ox + x, oy + y, PLATE.rim);
+      else if (d < 3.4) set(ox + x, oy + y, PLATE.well);
+      else if (d < 4.5) set(ox + x, oy + y, PLATE.face);
+      if (d < 1.4) set(ox + x, oy + y, PLATE.pip);
+    }
+  }
+}
+
+/** The lit overlay: an amber ring over the plate rim with a soft glow inside.
+ *  One tile, not a patch — the scene places one per plate and toggles visibility. */
+function plateLitTile(): HTMLCanvasElement {
+  return pixelCanvas(ART, ART, (set) => {
+    const c = (ART - 1) / 2;
+    for (let y = 0; y < ART; y++) {
+      for (let x = 0; x < ART; x++) {
+        const d = Math.hypot(x - c, y - c);
+        if (d >= 4.5 && d < 5.7) set(x, y, PLATE_LIT.ring);
+        else if (d < 1.4) set(x, y, PLATE_LIT.core);
+        else if (d < 4.5) set(x, y, PLATE_LIT.glow, 0x78);
+      }
+    }
   });
 }
 

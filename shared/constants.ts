@@ -76,7 +76,11 @@ export const GHOST_HAUNT_FRESH_MS = 10_000;
  * reads as varied terrain rather than one flat stone fill — they change how a tile
  * is drawn (`src/game/terrain.ts`), never how it collides. Water is a shallow puddle
  * the trogg wades through, so it stays walkable; an impassable pool would be a
- * `#`-class glyph instead. `assertZones` rejects any glyph not listed here.
+ * `#`-class glyph instead. The pressure plate (`o`) is a stone plate that lights
+ * up while a trogg, Hog, or boulder rests on it — the lit state is derived
+ * client-side from rows the client already syncs, so it is cosmetic like the
+ * other variants and never touches collision or server state (GDD "Courts and
+ * play props"). `assertZones` rejects any glyph not listed here.
  */
 export const WALL_TILE = "#";
 export const FLOOR_TILE = ".";
@@ -84,6 +88,7 @@ export const GRAVEL_TILE = ",";
 export const MOSS_TILE = '"';
 export const WATER_TILE = "~";
 export const GLOWMOSS_TILE = "*";
+export const PLATE_TILE = "o";
 
 /** Every recognised tilemap glyph. A character outside this set is a typo, not a tile. */
 export const TILE_GLYPHS: ReadonlySet<string> = new Set([
@@ -93,6 +98,7 @@ export const TILE_GLYPHS: ReadonlySet<string> = new Set([
   MOSS_TILE,
   WATER_TILE,
   GLOWMOSS_TILE,
+  PLATE_TILE,
 ]);
 
 /** An integer tile coordinate within a zone. */
@@ -284,44 +290,64 @@ export interface Zone {
  * Every zone in the world, keyed by slug. The current world has one shared zone;
  * later zones, starting areas, and gates are added here when they serve the game.
  *
- * `hog-town` is a 24×16 cave: a one-tile rock wall around the rim with two rock
- * pillars inside, so the playable floor is a real non-rectangular shape. The floor
- * is dressed with cosmetic tile variants (see `TILE_GLYPHS`) — gravel scree (`,`)
- * spilling around the rock pillars, moss (`"`) in the damp corners, a shallow
- * water puddle (`~`) in the low corner, and glowmoss (`*`) accents scattered
- * about — so the cave reads as varied terrain. They are all walkable; only `#`
- * blocks. Edit `tiles` to carve new layouts — walkability and rendering both read
- * from it. Two boulders flank the spawn (zone centre, 12×8) so a fresh trogg can
- * push one left and one right straight away. A handful of Hogs are scattered
- * around the floor and roam on their own (GDD "Hogs").
+ * `hog-town` is a 40×24 cave plaza: the original 24×16 cave (kept intact as the
+ * west end — its old floor tiles are never walled over, so entities resting there
+ * survive a redeploy) opened east and south into courts, regions dressed and
+ * seeded to suggest a community mini-game without enforcing one (GDD "Courts and
+ * play props"): a gravel curling lane in the north-east (staged boulders at the
+ * west end, plates and glowmoss rings as targets down the lane), a walled herding
+ * pen in the south-east meadow (a one-tile gate, plates inside for hogs to sit
+ * on), and an open boulder garden in the south (a 2×2 plate square with loose
+ * boulders around it). The commons around the spawn (zone centre, 20×12) stays
+ * open floor. The floor is dressed with cosmetic tile variants (see
+ * `TILE_GLYPHS`) — gravel scree (`,`), moss (`"`), a shallow water pool (`~`),
+ * glowmoss (`*`), and pressure plates (`o`). They are all walkable; only `#`
+ * blocks. Edit `tiles` to carve new layouts — walkability and rendering both
+ * read from it — but never place a new wall on a tile that shipped as floor:
+ * seeded rows in live databases keep their coordinates across deploys.
  */
 export const ZONES: Record<string, Zone> = {
   "hog-town": {
     slug: "hog-town",
     name: "Hog Town",
-    width: 24,
-    height: 16,
+    width: 40,
+    height: 24,
     tiles: [
-      "########################",
-      "#\"\"....................#",
-      "#\"\"......*.............#",
-      "#\"..,,,,.............\".#",
-      "#...,##,.............\"\"#",
-      "#...,##,...\"\".........\"#",
-      "#...,,,,............*..#",
-      "#......................#",
-      "#......................#",
-      "#.......*......,,,,....#",
-      "#..............,##,....#",
-      "#\"\".......,,...,##,....#",
-      "#.~~\"........*.,,,,....#",
-      "#~~~~\".........*...*...#",
-      "#~~~~\".................#",
-      "########################",
+      "########################################",
+      "#\"\".....................,,,,,,,,,,,,,,,#",
+      "#\"\"......*..............,,,,,,,,,,,*,*,#",
+      "#\"..,,,,.............\"..,,,,,,,,,,,,o,,#",
+      "#...,##,.............\"\".,,,,,,,,,,,*,*,#",
+      "#...,##,...\"\".........\".,,,,,,,,,o,,,,,#",
+      "#...,,,,............*...,,,,,,,,,,,,,,,#",
+      "#.......................######..########",
+      "#......................................#",
+      "#.......*......,,,,............*.......#",
+      "#..............,##,....................#",
+      "#\"\".......,,...,##,....................#",
+      "#.~~\"........*.,,,,....................#",
+      "#~~~~\".........*...*...................#",
+      "#~~~~\"....................\"\"..\"\"...\"\"..#",
+      "#####.............#####....\"\"..\"\"......#",
+      "#......,,,,........,,.....\"\".###.###\"..#",
+      "#........,,,,............\"\"..#.....#..\"#",
+      "#........,oo,.............\"\".#.o.o.#\"..#",
+      "#........,oo,................#.....#...#",
+      "#......,,,.........,,.....\"\".#######...#",
+      "#..\"\".....................\"\"..\"\"...\"\"..#",
+      "#\"\".....................\"\"..........\"\".#",
+      "########################################",
     ],
     boulders: [
       { x: 10, y: 8 },
       { x: 14, y: 8 },
+      // Curling lane staging: pushed (or thrown) east down the lane at the plates.
+      { x: 25, y: 3 },
+      { x: 25, y: 5 },
+      // Boulder garden: loose stock around the plate square.
+      { x: 8, y: 18 },
+      { x: 13, y: 19 },
+      { x: 12, y: 16 },
     ],
     hogs: [
       { x: 3, y: 3 },
@@ -330,6 +356,11 @@ export const ZONES: Record<string, Zone> = {
       { x: 3, y: 12 },
       { x: 20, y: 12 },
       { x: 8, y: 13 },
+      // Meadow roamers around the herding pen.
+      { x: 26, y: 15 },
+      { x: 28, y: 17 },
+      { x: 37, y: 16 },
+      { x: 32, y: 21 },
     ],
     items: [
       { item: "pickaxe", x: 11, y: 7 },
