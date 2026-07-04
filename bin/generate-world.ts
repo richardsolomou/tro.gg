@@ -41,8 +41,11 @@ export const WORLD_CELLS: readonly BirthCellSeed[] = [
 ${world.cells.map((cell) => `  ${JSON.stringify(cell)},`).join("\n")}
 ];
 
-/** Where an emerging newborn lands: the coast's cave-mouth alcove. */
+/** Where an emerging trogg lands: the coast's cave-mouth alcove. */
 export const WORLD_ARRIVAL: Coord = ${JSON.stringify(world.arrival)};
+
+/** The alcove's deep end — walk into it to descend into your own cave. */
+export const WORLD_CAVE_DOOR: Coord = ${JSON.stringify(world.caveDoor)};
 `;
 writeFileSync(fileURLToPath(new URL("../shared/world-map.ts", import.meta.url)), out);
 console.log(`world committed: ${world.tiles.length} rows, ${world.boulders.length} boulders, ${world.trees.length} trees, ${world.hogs.length} hogs, ${world.cells.length} birth cells`);
