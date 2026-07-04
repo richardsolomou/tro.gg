@@ -76,6 +76,7 @@ export const Hog = __t.object("Hog", {
   style: __t.string(),
   health: __t.i32(),
   lastDamagedAt: __t.timestamp(),
+  landingAt: __t.timestamp(),
 });
 export type Hog = __Infer<typeof Hog>;
 

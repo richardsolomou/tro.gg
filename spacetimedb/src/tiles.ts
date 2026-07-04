@@ -340,8 +340,10 @@ export function placeCarried(
   return placeCarriedAt(ctx, zone, kind, style, tile);
 }
 
-/** Materialise a carried entity on an exact tile, enforcing the same caps as put-down. */
-export function placeCarriedAt(ctx: Ctx, zone: Zone, kind: string, style: string, tile: { x: number; y: number }): boolean {
+/** Materialise a carried entity on an exact tile, enforcing the same caps as
+ *  put-down. `landingAt` in the future keeps a thrown Hog at rest (out of the
+ *  wander) until it touches down; the default (epoch) is a grounded put-down. */
+export function placeCarriedAt(ctx: Ctx, zone: Zone, kind: string, style: string, tile: { x: number; y: number }, landingAt: Timestamp = Timestamp.UNIX_EPOCH): boolean {
   // Honour the per-zone cap on the put-down too, so picking up, spawning to the cap, then
   // dropping can't push a zone past its ceiling. Refusing keeps the trogg carrying — the
   // same outcome as a boxed-in drop — so nothing is lost.
@@ -350,7 +352,7 @@ export function placeCarriedAt(ctx: Ctx, zone: Zone, kind: string, style: string
     ctx.db.boulder.insert({ id: 0n, zoneId: zone.slug, x: tile.x, y: tile.y, health: BOULDER_MAX_HEALTH, cellId: 0 });
   } else if (kind === "hog") {
     if (countRows(ctx.db.hog.zoneId.filter(zone.slug)) >= MAX_HOGS_PER_ZONE) return false;
-    ctx.db.hog.insert({ id: 0n, zoneId: zone.slug, x: tile.x, y: tile.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, path: "", homeX: tile.x, homeY: tile.y, style, health: hogMaxHealth(style), lastDamagedAt: Timestamp.UNIX_EPOCH });
+    ctx.db.hog.insert({ id: 0n, zoneId: zone.slug, x: tile.x, y: tile.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, path: "", homeX: tile.x, homeY: tile.y, style, health: hogMaxHealth(style), lastDamagedAt: Timestamp.UNIX_EPOCH, landingAt });
   } else {
     return false;
   }

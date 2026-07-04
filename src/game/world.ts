@@ -25,6 +25,8 @@ import {
   rockHeightAt,
   snapToTile,
   STARTING_ZONE_SLUG,
+  THROWN_FLIGHT_MAX_MS,
+  thrownFlightMs,
   tileKey,
   timestampMs,
   troggColorFor,
@@ -135,6 +137,15 @@ export class World3D {
   /** Ease-down is gated until this timestamp — refreshed on every lift, so
    *  corners flicking across the line while pathing can't pump the camera. */
   private camHoldUntilMs = 0;
+  /** Throws just released by any player, waiting to be paired with the object
+   *  row they spawn so the client can fly it there instead of popping it in. */
+  private pendingThrows: { kind: string; from: THREE.Vector3; ms: number }[] = [];
+  /** In-flight thrown objects: a ghost model arcing from thrower to landing;
+   *  on arrival the real object row is placed and the ghost disposed. */
+  private throwsInFlight: { ghost: THREE.Object3D; from: THREE.Vector3; to: THREE.Vector3; arc: number; startMs: number; durMs: number; spin: number; land: () => void }[] = [];
+  /** Thrown Hog ids whose real row is held out of the scene mid-arc, so a stray
+   *  update can't reveal them before they land. */
+  private deferredHogs = new Set<string>();
   /** A threshold transfer is in flight; don't re-fire while the row updates. */
   private transferPending = false;
   /** Cleared until the camera has snapped to the local trogg once (first snapshot). */
@@ -486,6 +497,13 @@ export class World3D {
         });
       },
       () => {
+        // If we're carrying, this F is a throw. Record the release now, from the
+        // local trogg's hands, so the object row it spawns pairs with it and
+        // arcs in — the row insert can arrive before the carrying-cleared update.
+        const self = this.myId ? this.tracked.get(this.myId) : undefined;
+        if (self && self.player.carrying !== "") {
+          this.pendingThrows.push({ kind: self.player.carrying, from: self.marker.position.clone().setY(1.3), ms: performance.now() });
+        }
         void useEquipped(conn, this.self.aim.dirX, this.self.aim.dirY).catch((err) => {
           logError("Use equipped action failed", { surface: "world", action: "use_equipped", zone: this.slug, error: err });
         });
@@ -735,10 +753,12 @@ export class World3D {
       const hooks = window as unknown as {
         __troggPos?: { x: number; y: number; z: number };
         __troggMoveTo?: (x: number, y: number) => void;
+        __throwsInFlight?: () => number;
         __renderInfo?: () => { calls: number; triangles: number };
       };
       hooks.__troggPos = { ...this.selfPos, z: motion.z };
       hooks.__troggMoveTo ??= (x: number, y: number) => this.self.onClick({ x, y });
+      hooks.__throwsInFlight ??= () => this.throwsInFlight.length;
       hooks.__renderInfo ??= () => {
         let troggMeshes = 0;
         let visibleTroggs = 0;
@@ -791,6 +811,7 @@ export class World3D {
     }
     this.crowd.commit();
     this.entities.updateGhosts(now);
+    this.updateThrows(now);
     this.orbit?.update();
     const restoreCamera = this.applyCameraOcclusion(dt);
     this.renderer.render(this.scene, this.camera);
@@ -876,6 +897,60 @@ export class World3D {
     }
     this.destination.position.set(this.destinationTile.x + 0.5, 0.02, this.destinationTile.y + 0.5);
     this.destination.visible = true;
+  }
+
+  /** Claim the most recent still-fresh release of `kind` (a thrower's F-press or
+   *  another player's carry-cleared update), returning where it left their
+   *  hands, or undefined if this object wasn't thrown. */
+  private takeThrowOrigin(kind: string): THREE.Vector3 | undefined {
+    const cutoff = performance.now() - 1500;
+    for (let i = this.pendingThrows.length - 1; i >= 0; i--) {
+      const t = this.pendingThrows[i]!;
+      if (t.ms >= cutoff && t.kind === kind) return this.pendingThrows.splice(i, 1)[0]!.from;
+    }
+    return undefined;
+  }
+
+  /** Arc `ghost` from `from` to the resting spot over `durMs`, deferring `land`
+   *  (which places the real row) until it touches down. */
+  private flyGhost(ghost: THREE.Object3D, from: THREE.Vector3, toX: number, toY: number, durMs: number, land: () => void): void {
+    const to = new THREE.Vector3(toX, 0, toY);
+    ghost.position.copy(from);
+    this.scene.add(ghost);
+    this.throwsInFlight.push({
+      ghost,
+      from,
+      to,
+      arc: Math.max(1, from.distanceTo(to) * 0.35), // higher lob the farther it flies
+      startMs: performance.now(),
+      durMs,
+      spin: (Math.random() * 2 - 1) * 6,
+      land,
+    });
+  }
+
+  /** Advance in-flight throws: a parabolic arc with tumble; on arrival place the
+   *  real object and drop the ghost. */
+  private updateThrows(now: number): void {
+    if (this.throwsInFlight.length === 0) return;
+    // stale releases that never paired with a row (e.g. an offline put-down)
+    this.pendingThrows = this.pendingThrows.filter((t) => now - t.ms < 700);
+    for (let i = this.throwsInFlight.length - 1; i >= 0; i--) {
+      const f = this.throwsInFlight[i]!;
+      const u = Math.min(1, (now - f.startMs) / f.durMs);
+      f.ghost.position.set(
+        f.from.x + (f.to.x - f.from.x) * u,
+        f.from.y + (f.to.y - f.from.y) * u + f.arc * 4 * u * (1 - u),
+        f.from.z + (f.to.z - f.from.z) * u,
+      );
+      f.ghost.rotation.y += f.spin * 0.016;
+      f.ghost.rotation.x += f.spin * 0.011;
+      if (u >= 1) {
+        disposeObject(f.ghost);
+        this.throwsInFlight.splice(i, 1);
+        f.land();
+      }
+    }
   }
 
   /** Size the viewport; on the first pass, fit the whole zone at the 3/4 angle
@@ -1018,6 +1093,13 @@ export class World3D {
 
       // The nameplate, tint, body style, and health bar are baked into the marker;
       // those changes rebuild it. Bare carrying/equipment changes retarget overlays.
+      // Another player released a carried object (throw or put-down): remember
+      // where it left their hands so the object row it spawns arcs in. (The
+      // local trogg records its own throw at F-press time, before the insert.)
+      if (id !== this.myId && _old.carrying !== "" && p.carrying === "" && this.sub.live) {
+        this.pendingThrows.push({ kind: _old.carrying, from: entry.marker.position.clone().setY(1.3), ms: performance.now() });
+      }
+
       if (_old.name !== p.name || _old.color !== p.color || _old.style !== p.style || _old.health !== p.health || _old.dead !== p.dead || _old.respawnAt !== p.respawnAt) this.rebuildMarker(id, entry);
       else if (_old.carrying !== p.carrying || _old.carryingStyle !== p.carryingStyle) this.entities.applyCarry(entry);
 
@@ -1148,7 +1230,19 @@ export class World3D {
 
   private wireBoulders(): void {
     const conn = this.conn;
-    conn.db.boulder.onInsert((_ctx, b) => this.upsertBoulder(b));
+    conn.db.boulder.onInsert((_ctx, b) => {
+      // Seeded boulders (boot) just appear. Once live, a boulder that lands where
+      // someone stopped carrying one was thrown — arc it in from their hands. The
+      // decision waits a microtask so the release (the thrower's F-press or, for
+      // a bystander, the carry-cleared update from the same transaction) is
+      // recorded first, so the arc shows for everyone, not only the thrower.
+      if (!this.sub.live) return this.upsertBoulder(b);
+      queueMicrotask(() => {
+        const from = this.takeThrowOrigin("boulder");
+        if (from) this.flyGhost(buildBoulder(), from, b.x + 0.5, b.y + 0.5, thrownFlightMs(from.distanceTo(new THREE.Vector3(b.x + 0.5, 0, b.y + 0.5))), () => this.upsertBoulder(b));
+        else this.upsertBoulder(b);
+      });
+    });
     conn.db.boulder.onUpdate((_ctx, _old, b) => {
       if (this.sub.live && (_old.x !== b.x || _old.y !== b.y)) audio.playBoulderSettleAt(this.hearingDistance(b.x + 0.5, b.y + 0.5));
       if (b.health < _old.health) this.nodeHit(this.boulderField, b, _old.health - b.health, 0.85);
@@ -1233,8 +1327,35 @@ export class World3D {
 
   private wireHogs(): void {
     const conn = this.conn;
-    conn.db.hog.onInsert((_ctx, h) => this.addHog(h));
+    conn.db.hog.onInsert((_ctx, h) => {
+      // A grounded Hog (seeded, dropped, or an ordinary roamer) just appears. A
+      // thrown one carries a future landingAt: hold it out of the scene, arc a
+      // ghost in from the thrower's hands, and reveal the real Hog when it lands.
+      // The server keeps it at rest past landingAt (THROWN_HOG_SETTLE_MS), so it
+      // can't stride off before the arc sets it down.
+      if (!h.landingAt || timestampMs(h.landingAt) - Date.now() <= 30) return this.addHog(h);
+      const id = h.id.toString();
+      this.deferredHogs.add(id);
+      // resolve on a microtask so the release is recorded first (see boulders)
+      queueMicrotask(() => {
+        const from = this.takeThrowOrigin("hog");
+        const land = () => {
+          this.deferredHogs.delete(id);
+          this.addHog(h);
+        };
+        if (from) {
+          const style = h.style || hogStyleFor(id, h.style);
+          const ghost = this.entities.makeHog(style, "down", h.health).marker;
+          this.flyGhost(ghost, from, h.x, h.y, thrownFlightMs(from.distanceTo(new THREE.Vector3(h.x, 0, h.y))), land);
+        } else {
+          // never saw the release: keep it hidden until the arc would have ended,
+          // then show it at rest (the server won't let it move yet anyway)
+          window.setTimeout(land, THROWN_FLIGHT_MAX_MS);
+        }
+      });
+    });
     conn.db.hog.onUpdate((_ctx, _old, h) => {
+      if (this.deferredHogs.has(h.id.toString())) return; // still mid-arc; reveal on landing
       const damaged = h.health < _old.health;
       this.updateHog(h);
       if (damaged) {

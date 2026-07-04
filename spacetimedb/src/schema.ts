@@ -280,6 +280,11 @@ const hog = table(
     health: t.i32().default(HOG_MAX_HEALTH),
     // When damage last landed — the out-of-combat clock the regen sweep reads.
     lastDamagedAt: t.timestamp().default(Timestamp.UNIX_EPOCH),
+    // A thrown Hog is in flight until this time: the wander leaves it at rest so
+    // it doesn't walk off before the client's arc lands it. Epoch (the default)
+    // = grounded — an ordinary roamer, a put-down, or a seeded Hog. Appended last
+    // per the migration note on the player table.
+    landingAt: t.timestamp().default(Timestamp.UNIX_EPOCH),
   },
 );
 
@@ -441,6 +446,7 @@ export const wanderHogs = spacetimedb.reducer({ timer: hogWander.rowType }, (ctx
     const zone = getZone(h.zoneId);
     if (!zone) continue;
     if (h.health <= 0) continue; // corpses lie where they fell
+    if (h.landingAt && elapsedMs(h.landingAt, now) < 0) continue; // a thrown Hog waits at rest until it lands
     const size = hogSize(h.style);
     const blockers = blockersFor(h.zoneId);
     // Hogs keep to dry ground: water blocks them like a boulder does (GDD "Zones").

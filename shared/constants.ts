@@ -200,6 +200,21 @@ export const EQUIPMENT_ACTION_MS = 300;
 export const EQUIPMENT_USE_COOLDOWN_MS = 250;
 export const THROWN_OBJECT_DAMAGE = 40;
 export const THROWN_OBJECT_RANGE = 4;
+
+/** The client's throw-arc duration by distance (cosmetic): how long the object
+ *  visibly flies from the thrower's hands to where it lands. */
+export const THROWN_FLIGHT_MS_PER_TILE = 70;
+export const THROWN_FLIGHT_MIN_MS = 240;
+export const THROWN_FLIGHT_MAX_MS = 650;
+export function thrownFlightMs(distanceTiles: number): number {
+  return Math.min(THROWN_FLIGHT_MAX_MS, Math.max(THROWN_FLIGHT_MIN_MS, distanceTiles * THROWN_FLIGHT_MS_PER_TILE));
+}
+
+/** How long a thrown Hog sits still after landing before it can roam again
+ *  (GDD "Hogs"): a fixed settle, kept above `THROWN_FLIGHT_MAX_MS` so it never
+ *  strides off before the client's arc has set it down — decoupled from the
+ *  arc's own length, so neither has to know the other's timing. */
+export const THROWN_HOG_SETTLE_MS = 900;
 export const PLAYER_RESPAWN_MS = 5000;
 
 export type EquipmentSlot = "mainHand" | "offHand";

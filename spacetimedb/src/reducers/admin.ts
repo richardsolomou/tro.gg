@@ -82,7 +82,7 @@ function runSpawn(ctx: Ctx, { kind, item = "", source = "" }: { kind: string; it
   } else if (kind === "hog") {
     // A spawned Hog starts at rest and joins the roamers — the next wander tick
     // gives it a heading like any other. `item` carries an explicit sprite style.
-    ctx.db.hog.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, path: "", homeX: tile.x, homeY: tile.y, style: item, health: hogMaxHealth(item), lastDamagedAt: Timestamp.UNIX_EPOCH });
+    ctx.db.hog.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, path: "", homeX: tile.x, homeY: tile.y, style: item, health: hogMaxHealth(item), lastDamagedAt: Timestamp.UNIX_EPOCH, landingAt: Timestamp.UNIX_EPOCH });
   } else {
     ctx.db.groundItem.insert({ id: 0n, zoneId: p.zoneId, item, x: tile.x, y: tile.y, qty: 1 });
   }

@@ -14,6 +14,7 @@ import {
   spawnTiles,
   THROWN_OBJECT_DAMAGE,
   THROWN_OBJECT_RANGE,
+  THROWN_HOG_SETTLE_MS,
   type Stamp,
   tileKey,
   type Zone,
@@ -193,13 +194,15 @@ export function damagePlayer(ctx: Ctx, target: NonNullable<ReturnType<typeof pla
   return { health: 0, killed: true, droppedItemRows: dropped.rows, droppedItemQty: dropped.qty, respawnMs: PLAYER_RESPAWN_MS };
 }
 
-/** Throw a carried boulder or Hog in a straight cardinal line, damaging the first character hit. */
+/** Throw a carried boulder or Hog along the exact aim (free-direction, not the
+ *  four cardinals), damaging the first character hit and landing on the tile the
+ *  throw reaches. */
 export function throwCarried(
   ctx: Ctx,
   p: NonNullable<ReturnType<typeof playerAt>>,
   zone: Zone,
   pos: { x: number; y: number },
-  dir: { dirX: number; dirY: number },
+  aim: { dirX: number; dirY: number },
 ):
   | {
       kind: "boulder" | "hog";
@@ -212,6 +215,11 @@ export function throwCarried(
   | undefined {
   if (p.carrying !== "boulder" && p.carrying !== "hog") return undefined;
 
+  const len = Math.hypot(aim.dirX, aim.dirY);
+  if (len === 0) return undefined;
+  const ux = aim.dirX / len;
+  const uy = aim.dirY / len;
+
   const sx = Math.round(pos.x);
   const sy = Math.round(pos.y);
   const pathOccupied = solidTiles(ctx, p.zoneId, ctx.timestamp, p.identity);
@@ -219,9 +227,16 @@ export function throwCarried(
   let hit: NonNullable<ReturnType<typeof playerAt>> | undefined;
   let hogHit: NonNullable<ReturnType<typeof hogAt>> | undefined;
 
-  for (let step = 1; step <= THROWN_OBJECT_RANGE; step++) {
-    const tx = sx + dir.dirX * step;
-    const ty = sy + dir.dirY * step;
+  // Walk the aim ray tile by tile out to range: sample every half tile and act
+  // on each new tile the ray enters, so a diagonal throw travels diagonally
+  // instead of snapping to an axis.
+  let prevKey = tileKey(sx, sy);
+  for (let d = 0.5; d <= THROWN_OBJECT_RANGE + 1e-6; d += 0.5) {
+    const tx = Math.round(sx + ux * d);
+    const ty = Math.round(sy + uy * d);
+    const key = tileKey(tx, ty);
+    if (key === prevKey) continue;
+    prevKey = key;
     if (!isWalkable(zone, tx, ty)) break;
 
     hit = playerAt(ctx, p.zoneId, tx, ty, ctx.timestamp, p.identity);
@@ -229,7 +244,7 @@ export function throwCarried(
     hogHit = hogAt(ctx, p.zoneId, tx, ty, ctx.timestamp);
     if (hogHit) break;
 
-    if (pathOccupied.has(tileKey(tx, ty))) break;
+    if (pathOccupied.has(key)) break;
     lastFree = { x: tx, y: ty };
   }
 
@@ -237,11 +252,16 @@ export function throwCarried(
   if (hit || hogHit) {
     const targetTile = hit ? snapToTile(settle(ctx, hit, ctx.timestamp)) : hogTile(ctx, hogHit!, ctx.timestamp);
     const landingOccupied = solidTiles(ctx, p.zoneId, ctx.timestamp);
-    landing = spawnTile(zone, (tx, ty) => landingOccupied.has(tileKey(tx, ty)), targetTile.x, targetTile.y, dir.dirX, dir.dirY) ?? lastFree;
+    landing = spawnTile(zone, (tx, ty) => landingOccupied.has(tileKey(tx, ty)), targetTile.x, targetTile.y, ux, uy) ?? lastFree;
   }
 
-  if (!landing || !placeCarriedAt(ctx, zone, p.carrying, p.carryingStyle, landing)) return undefined;
-  const range = Math.abs(dir.dirX !== 0 ? landing.x - sx : landing.y - sy);
+  const dist = landing ? Math.hypot(landing.x - sx, landing.y - sy) : 0;
+  // A thrown Hog can't move for a fixed settle after it lands, so it never
+  // strides off before the client's arc sets it down; a boulder never roams, so
+  // it rests immediately and the client arc alone carries the throw.
+  const landingAt = p.carrying === "hog" ? addMs(ctx.timestamp, THROWN_HOG_SETTLE_MS) : Timestamp.UNIX_EPOCH;
+  if (!landing || !placeCarriedAt(ctx, zone, p.carrying, p.carryingStyle, landing, landingAt)) return undefined;
+  const range = Math.round(dist);
   const result: {
     kind: "boulder" | "hog";
     range: number;

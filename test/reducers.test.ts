@@ -854,6 +854,33 @@ test("useEquipped throws a carried object to max range when it hits no trogg", (
   assert.deepEqual({ x: b.x, y: b.y }, { x: 73, y: 96 });
 });
 
+test("useEquipped throws a carried object along a diagonal aim, not the nearest cardinal", () => {
+  const { ctx, me } = withPlayer({ x: 69, y: 96, carrying: "boulder", equippedMainHand: "" });
+
+  useEquipped(ctx, { dirX: 1, dirY: 1 });
+
+  assert.equal(ctx.db.player.identity.find(me).carrying, "");
+  const b = ctx.db.boulder.rows()[0];
+  // travelled on both axes — a cardinal-snapped throw would leave y at 96
+  assert.ok(b.x > 69 && b.y > 96, `expected a diagonal landing, got (${b.x}, ${b.y})`);
+});
+
+test("a thrown Hog is settled in place and the wander leaves it alone until it lands", () => {
+  const { ctx, me } = withPlayer({ x: 69, y: 96, carrying: "hog", equippedMainHand: "", online: true }, { now: 0n, random: 0.99, integerInRange: (lo) => lo });
+
+  useEquipped(ctx, { dirX: 1, dirY: 0 });
+
+  const thrown = ctx.db.hog.rows()[0];
+  assert.equal(ctx.db.player.identity.find(me).carrying, "");
+  assert.equal(thrown.dirX, 0); // lands at rest
+  assert.ok(Number(thrown.landingAt.microsSinceUnixEpoch) > 0, "landingAt set into the future");
+
+  // the wander runs at the same instant (still in flight): the Hog must not move
+  wanderHogs(ctx, {});
+  const after = ctx.db.hog.id.find(thrown.id);
+  assert.deepEqual({ x: after.x, y: after.y, dirX: after.dirX, dirY: after.dirY }, { x: thrown.x, y: thrown.y, dirX: 0, dirY: 0 });
+});
+
 test("interact prioritizes the faced pickup when several entities are adjacent", () => {
   const { ctx, me } = withPlayer({ x: 69, y: 96, carrying: "" });
   ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 69, y: 95 });

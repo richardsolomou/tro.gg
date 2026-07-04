@@ -189,8 +189,8 @@ function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; d
   const p = ctx.db.player.identity.find(ctx.sender);
   if (!p) return [];
   if (p.dead) return [];
-  // The client sends its exact aim; throws and tile mechanics keep using the
-  // dominant cardinal of it.
+  // The client sends its exact aim. A throw travels along it (free-direction);
+  // the tile mechanics (melee, gathering, facing) take its dominant cardinal.
   const aim = directionVector(dirX, dirY);
   if (aim.dirX === 0 && aim.dirY === 0) return [];
   const dir = Math.abs(aim.dirX) >= Math.abs(aim.dirY) ? { dirX: Math.sign(aim.dirX), dirY: 0 } : { dirX: 0, dirY: Math.sign(aim.dirY) };
@@ -202,7 +202,7 @@ function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; d
   const events: AnalyticsEvent[] = [];
 
   if (p.carrying !== "") {
-    const thrown = throwCarried(ctx, p, zone, pos, dir);
+    const thrown = throwCarried(ctx, p, zone, pos, aim);
     if (!thrown) return [];
     const throwProps: Record<string, string | number | boolean> = { ...props, kind: thrown.kind, range: thrown.range };
     if (thrown.hitTarget) throwProps.hit_target = thrown.hitTarget;
