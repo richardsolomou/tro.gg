@@ -22,12 +22,14 @@ import {
   MAX_TREES_PER_ZONE,
   projectMotion,
   projectMotionState,
+  rockHeightAt,
   snapToTile,
   STARTING_ZONE_SLUG,
   tileKey,
   timestampMs,
   troggColorFor,
   troggStyleFor,
+  WALL_TILE,
   zoneBounds,
   type Coord,
   type Stamp,
@@ -126,6 +128,12 @@ export class World3D {
   private boulderField!: NodeField;
   /** Creatures beyond the full-rig budget render as moving silhouettes, not nothing. */
   private crowd!: FarCrowd;
+  /** Render-time camera occlusion: the extra upward pitch (radians) currently
+   *  lifting the lens over terrain that crosses the sight line. */
+  private camLift = 0;
+  /** Ease-down is gated until this timestamp — refreshed on every lift, so
+   *  corners flicking across the line while pathing can't pump the camera. */
+  private camHoldUntilMs = 0;
   /** A threshold transfer is in flight; don't re-fire while the row updates. */
   private transferPending = false;
   /** Cleared until the camera has snapped to the local trogg once (first snapshot). */
@@ -781,8 +789,82 @@ export class World3D {
     this.crowd.commit();
     this.entities.updateGhosts(now);
     this.orbit?.update();
+    const restoreCamera = this.applyCameraOcclusion(dt);
     this.renderer.render(this.scene, this.camera);
+    restoreCamera?.();
   };
+
+  /** Keep the trogg in sight without touching the player's zoom: when rock
+   *  crosses the trogg→camera sight line (checked against the shared height
+   *  model — the very heights the walls render at), the camera rises on its
+   *  orbit sphere — same radius, same azimuth, the smallest pitch lift that
+   *  looks over the blocker — briskly eased up, gently eased back down.
+   *  Applied to the render only and restored right after: the orbit derives
+   *  its state from the camera transform and must keep seeing the pose the
+   *  player chose, or the lift would stick as a drag. */
+  private applyCameraOcclusion(dt: number): (() => void) | undefined {
+    if (!this.orbit || !this.cameraSnapped) return undefined;
+    const pivot = this.orbit.target;
+    const offset = new THREE.Vector3().subVectors(this.camera.position, pivot);
+    const spherical = new THREE.Spherical().setFromVector3(offset);
+    if (spherical.radius < 1e-3) return undefined;
+    // the sky look-up pose deliberately aims past the target — leave it be
+    const forward = this.camera.getWorldDirection(new THREE.Vector3());
+    if (forward.dot(offset.normalize().negate()) < 0.99) return undefined;
+
+    const STEP = 0.3;
+    const posAt = (phi: number) =>
+      new THREE.Vector3().setFromSpherical(new THREE.Spherical(spherical.radius, phi, spherical.theta)).add(pivot);
+    const lineBlocked = (to: THREE.Vector3): boolean => {
+      const dist = pivot.distanceTo(to);
+      for (let d = STEP; d < dist; d += STEP) {
+        const t = d / dist;
+        const tx = Math.floor(pivot.x + (to.x - pivot.x) * t);
+        const ty = Math.floor(pivot.z + (to.z - pivot.z) * t);
+        if (this.zone.tiles[ty]?.[tx] !== WALL_TILE) continue;
+        if (pivot.y + (to.y - pivot.y) * t < rockHeightAt(this.zone, tx, ty)) return true;
+      }
+      return false;
+    };
+
+    // The smallest lift that clears the line (rock has no overhangs, so more
+    // lift only ever helps); best-effort near-top-down when nothing does.
+    const MIN_PHI = 0.15;
+    const range = Math.max(0, spherical.phi - MIN_PHI);
+    let needed = 0;
+    if (lineBlocked(posAt(spherical.phi))) {
+      needed = range;
+      for (let i = 1; i <= 16; i++) {
+        const lift = (range * i) / 16;
+        if (!lineBlocked(posAt(spherical.phi - lift))) {
+          needed = lift;
+          break;
+        }
+      }
+    }
+    // Ease both ways — briskly up when rock crosses the line, gently back
+    // down, and only after the line has stayed clear for a moment: pathing
+    // past wall corners blocks and clears several times a second, and without
+    // the hold the camera pumps with every graze.
+    if (needed > this.camLift) {
+      this.camLift += (needed - this.camLift) * Math.min(1, dt * 7);
+      this.camHoldUntilMs = this.lastMs + 500;
+    } else if (this.lastMs >= this.camHoldUntilMs) {
+      this.camLift += (needed - this.camLift) * Math.min(1, dt * 1.5);
+    }
+    if (this.camLift < 1e-3) {
+      this.camLift = 0;
+      return undefined;
+    }
+    const position = this.camera.position.clone();
+    const quaternion = this.camera.quaternion.clone();
+    this.camera.position.copy(posAt(Math.max(MIN_PHI, spherical.phi - this.camLift)));
+    this.camera.lookAt(pivot);
+    return () => {
+      this.camera.position.copy(position);
+      this.camera.quaternion.copy(quaternion);
+    };
+  }
 
   private drawDestination(): void {
     if (!this.destinationTile) {
