@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   assertZones,
+  blockFractionOf,
   getZone,
+  SHIELD_BLOCK_FRACTION,
   wieldOf,
   isGeneratedName,
   isValidName,
@@ -118,4 +120,12 @@ test("wieldOf maps weapons to their attack class and everything else to the bare
   assert.equal(wieldOf("shield"), "swing");
   assert.equal(wieldOf(""), "swing");
   assert.equal(wieldOf("not-an-item"), "swing");
+});
+
+test("blockFractionOf only credits the shield's toughness stat", () => {
+  assert.equal(blockFractionOf("shield"), SHIELD_BLOCK_FRACTION);
+  assert.equal(blockFractionOf("sword"), 0);
+  assert.equal(blockFractionOf("torch"), 0);
+  assert.equal(blockFractionOf(""), 0);
+  assert.equal(blockFractionOf("not-an-item"), 0);
 });

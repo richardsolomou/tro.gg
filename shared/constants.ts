@@ -172,6 +172,11 @@ export function weaponDamageRange(item: string): readonly [number, number] | und
  *  roll, never below a 1-point scratch. (initial) */
 export const OFF_TOOL_NODE_FACTOR = 0.08;
 
+/** A shield's toughness: the fraction of every incoming hit its wearer blocks
+ *  while it's equipped in the off hand (GDD "Combat"), applied in
+ *  `damagePlayer` against melee and thrown damage alike. (initial) */
+export const SHIELD_BLOCK_FRACTION = 0.3;
+
 /** Bare fists: the empty-handed swing's damage range — always available, the
  *  weakest option. Stored as the "fists" action impulse so clients animate it. */
 export const UNARMED_DAMAGE: readonly [number, number] = [5, 10];
@@ -230,6 +235,9 @@ export interface ItemDef {
   blurb: string;
   slot?: EquipmentSlot;
   wield?: Wield;
+  /** Fraction of incoming damage this item's wearer blocks while it's equipped
+   *  in the off hand. Absent (or main-hand) items block nothing. */
+  block?: number;
 }
 
 /**
@@ -292,8 +300,9 @@ export const ITEMS: Record<ItemId, ItemDef> = {
     id: "shield",
     name: "Shield",
     stackable: false,
-    blurb: "Equipped in the off hand.",
+    blurb: "Equipped in the off hand. Blocks a fraction of every hit you take.",
     slot: "offHand",
+    block: SHIELD_BLOCK_FRACTION,
   },
   torch: {
     id: "torch",
@@ -324,6 +333,11 @@ export function equipSlotOf(item: string): EquipmentSlot | undefined {
 /** The attack clip class for a held item — bare-fisted "swing" when empty or unclassed. */
 export function wieldOf(item: string): Wield {
   return (isItemId(item) ? ITEMS[item].wield : undefined) ?? "swing";
+}
+
+/** The fraction of incoming damage a held item blocks — 0 for anything without a `block` stat. */
+export function blockFractionOf(item: string): number {
+  return (isItemId(item) ? ITEMS[item].block : undefined) ?? 0;
 }
 
 export function isStackableItem(item: string): item is ItemId {
