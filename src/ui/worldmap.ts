@@ -127,7 +127,8 @@ export function mountWorldMap({ zone, selfPosition }: WorldMapContext): void {
     }
   };
   registerKeybind({ id: "worldmap", matches: (event) => event.code === "KeyM", handler: () => setOpen(panel.hidden === true) });
-  registerKeybind({ id: "worldmap-close", matches: (event) => event.code === "Escape" && !panel.hidden, handler: () => setOpen(false) });
+  // Escape is owned by the game menu (menu.ts); it closes the map through the
+  // shared hud-menu-open broadcast, so the map needs no Escape binding of its own.
   panel.addEventListener("click", () => setOpen(false));
   window.addEventListener("hud-menu-open", ((event: Event) => {
     if ((event as CustomEvent<string>).detail !== "worldmap") setOpen(false);

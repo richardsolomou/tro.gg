@@ -40,6 +40,7 @@ import type { DbConnection } from "../net/module_bindings";
 import type { Boulder, GroundItem, Hog, Player, Tree } from "../net/module_bindings/types";
 import { attachKeyboard, isTyping, type MoveIntent } from "../input.js";
 import { setupChat } from "../ui/chat.js";
+import { coachHit } from "../ui/coach.js";
 import { mountCommands } from "../ui/commands.js";
 import { createSelfController, type SelfController } from "../movement.js";
 import { captureEvent, isFeatureEnabled, logError, logInfo } from "../analytics.js";
@@ -418,6 +419,8 @@ export class World3D {
     // 1-wide throat, and its guidance is glowmoss pools the template stamps
     // along the walk — light leading toward the exit without ever showing it.
     if (isBirthZone(this.slug)) {
+      // first breath in the dark: teach the pickup verb (once ever)
+      coachHit("find-pickaxe");
       // the wake-up ember: a warm hearth glow over the newborn's spot
       const cell = this.zone.cells[0];
       if (cell) {

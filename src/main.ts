@@ -4,10 +4,9 @@ import { captureEvent, identifyUser, initAnalytics, isFeatureEnabled, logError, 
 import { theme } from "./theme.js";
 import { clearStoredToken, clearPendingClaim, getPendingClaim } from "./identity.js";
 import { connect } from "./net/net.js";
-import { mountAccount } from "./ui/account.js";
 import { mountAppearance } from "./ui/appearance.js";
-import { mountHelp } from "./ui/help.js";
-import { mountSettings } from "./ui/settings.js";
+import { mountCoach } from "./ui/coach.js";
+import { mountGameMenu } from "./ui/menu.js";
 import { mountWorldMap } from "./ui/worldmap.js";
 import { mountInventory } from "./ui/inventory.js";
 import { startReconnect } from "./net/reconnect.js";
@@ -86,6 +85,11 @@ async function main() {
     captureEvent("player_joined", { zone: slug, is_guest: !signedIn });
     logInfo("Player joined world", { zone: slug, is_guest: !signedIn });
 
+    // The coach listens for onboarding milestones; mount it before the world so
+    // the first one (a newborn's "find the pickaxe", fired during world boot)
+    // isn't dispatched into the void before its listener exists.
+    mountCoach();
+
     // Three.js owns the canvas and the world render loop; StartGame boots the 3D
     // world with the live connection (game/main.ts, GDD "Camera and rendering").
     bootStage("entering the world…");
@@ -93,18 +97,19 @@ async function main() {
     theme.start(); // the generative game theme (starts on the first user gesture)
     mountWorldMap({ zone: getZone(slug)!, selfPosition: () => world.selfPosition() });
 
-    // HUD chrome (help, appearance, account) is HTML overlaid on the canvas (hud.css);
-    // chat is mounted by the scene since its speech bubbles live in the world.
-    mountHelp();
-    mountSettings();
+    // HUD chrome is HTML overlaid on the canvas (hud.css); chat is mounted by
+    // the scene since its speech bubbles live in the world. The game menu
+    // (Escape) folds Help, Settings, and the account action into one modal.
+    mountGameMenu({
+      conn,
+      signedIn,
+      authAvailable: isFeatureEnabled("auth-enabled") && authConfigured(),
+      claimFailed: signInReturn === "error",
+    });
     // Appearance (name/colour/style) is for every player, no auth needed; it sits in the
-    // top-left stack beside Help.
+    // top-left stack.
     mountAppearance(conn);
     if (conn.identity) mountInventory(conn, conn.identity.toHexString());
-    // The account panel is only the claim/sign-out control, so it's mounted only when
-    // SpacetimeAuth is configured for this build.
-    if (isFeatureEnabled("auth-enabled"))
-      mountAccount(conn, { signedIn, authAvailable: authConfigured(), claimFailed: signInReturn === "error" });
 
     // The frontend deploys separately from the backend (Cloudflare vs the VPS), so
     // a client-only deploy fires no socket disconnect — poll for it instead and

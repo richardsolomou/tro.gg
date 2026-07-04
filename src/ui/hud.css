@@ -173,19 +173,6 @@ textarea {
 }
 
 /* ── Account (top-right) ─────────────────────────────────────────────────── */
-#hud .account {
-  filter: drop-shadow(0 4px 0 rgba(0, 0, 0, 0.35));
-  top: 12px;
-  right: 12px;
-  width: min(280px, calc(100vw - 24px));
-  padding: 10px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  background: var(--hud-timber);
-  clip-path: var(--facet);
-  box-shadow: var(--slab-light);
-}
 #hud .account-status {
   font-size: 13px;
   color: var(--hud-bone-dim);
@@ -322,13 +309,11 @@ textarea {
   margin: 0 0 4px;
   text-transform: uppercase;
 }
-#hud .help-section + .help-section {
-  margin-top: 12px;
-}
-#hud .help-rows {
+#hud .menu-controls {
   display: grid;
-  grid-template-columns: auto auto;
-  gap: 2px 14px;
+  grid-template-columns: auto 1fr;
+  gap: 3px 16px;
+  font-size: 14px;
 }
 #hud .help-key {
   color: var(--hud-ember);
@@ -746,6 +731,93 @@ textarea {
 #hud .command-status {
   color: var(--hud-bone-dim);
   font-size: 13px;
+}
+
+/* ── Coach (first-time hints) ─────────────────────────────────────────────────
+   A single hint card above the chat line, bottom-centre, shown once per
+   milestone (coach.ts). Click to dismiss; auto-fades after a few seconds. */
+#hud .coach {
+  position: absolute;
+  left: 50%;
+  bottom: 132px;
+  transform: translateX(-50%);
+  z-index: 12;
+  max-width: min(440px, calc(100vw - 32px));
+  padding: 12px 20px;
+  text-align: center;
+  font-size: 15px;
+  line-height: 1.35;
+  color: var(--hud-bone);
+  background: var(--hud-timber);
+  clip-path: var(--facet);
+  box-shadow: var(--slab-light), 0 0 18px rgba(255, 140, 46, 0.25);
+  pointer-events: auto;
+  cursor: pointer;
+  animation: coach-in 0.22s ease-out;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+#hud .coach[hidden] {
+  display: none;
+}
+#hud .coach.is-leaving {
+  opacity: 0;
+  transform: translate(-50%, 8px);
+}
+@keyframes coach-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 12px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  #hud .coach {
+    animation: none;
+    transition: opacity 0.25s ease;
+  }
+}
+
+/* ── Game menu (Esc) ─────────────────────────────────────────────────────────
+   A centred modal like the world map: a dim full-screen backdrop that closes on
+   click, with the menu panel floating above it. */
+#hud .game-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 15;
+  display: grid;
+  place-items: center;
+  background: rgba(6, 4, 2, 0.55);
+  pointer-events: auto;
+}
+#hud .game-menu-backdrop[hidden] {
+  display: none;
+}
+#hud .game-menu {
+  position: relative;
+  width: min(420px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  padding: 20px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  background: var(--hud-timber);
+  clip-path: var(--facet);
+  box-shadow: var(--slab-light);
+  filter: drop-shadow(0 5px 0 rgba(0, 0, 0, 0.4));
+  scrollbar-width: thin;
+  scrollbar-color: var(--hud-moss) transparent;
+}
+#hud .game-menu-title {
+  font-size: 15px;
+  color: var(--hud-bone);
+  text-align: center;
+  letter-spacing: 0.12em;
+}
+#hud .game-menu-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 4px;
 }
 
 /* ── World map (M) ───────────────────────────────────────────────────────────── */

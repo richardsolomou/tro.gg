@@ -9,6 +9,7 @@ import { hudLeft, hudRoot } from "./hud.js";
 import { registerKeybind } from "./keybinds.js";
 import { pickupToast } from "./toasts.js";
 import { attachTip, hideTip } from "./tooltip.js";
+import { coachHit } from "./coach.js";
 
 /** Mount the compact inventory/equipment panel. Rows are driven by subscribed inventory state. */
 export function mountInventory(conn: DbConnection, playerId: string): void {
@@ -209,6 +210,9 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
   const announcePickup = (item: string, qty: number) => {
     pickupToast(item, qty);
     audio.playPickup(item);
+    coachHit("first-pickup");
+    if (item === "stone") coachHit("mined-stone");
+    if (item === "wood") coachHit("chopped-wood");
   };
   conn.db.inventory.onInsert((ctx, row) => {
     if (!mine(row)) return;
@@ -230,6 +234,8 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
 
   const applyPlayer = (p: Player) => {
     if (p.identity.toHexString() !== playerId) return;
+    // first time either hand goes from empty to holding something
+    if (!mainHand && !offHand && (p.equippedMainHand || p.equippedOffHand)) coachHit("first-equip");
     mainHand = p.equippedMainHand;
     mainHandInventoryId = p.equippedMainHandInventoryId;
     offHand = p.equippedOffHand;

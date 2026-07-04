@@ -1,37 +1,12 @@
-import { hudIcon } from "../game/icons.js";
 import { SOUND_CATEGORIES, setSoundLevel, soundLevel } from "../sound-settings.js";
-import { hudLeft } from "./hud.js";
-import { registerKeybind } from "./keybinds.js";
-import { attachTip } from "./tooltip.js";
 
 /**
- * The Settings panel: a top-left toggle beside Help holding global preferences.
- * Today that is the sound mix — one 0–100% slider per category from
- * SOUND_CATEGORIES, so every cue in the game is under some slider. Levels apply
+ * The sound mix, rendered as one 0–100% slider per category for the game
+ * menu's Settings tab. Every cue in the game is under some slider; levels apply
  * live (the theme re-mixes without restarting) and persist in localStorage,
  * which the landing page theme reads too.
  */
-export function mountSettings(): void {
-  const root = document.createElement("div");
-  root.className = "settings";
-
-  const toggle = document.createElement("button");
-  toggle.type = "button";
-  toggle.className = "hud-icon-button settings-toggle";
-  toggle.appendChild(hudIcon("settings"));
-  toggle.setAttribute("aria-label", "Settings");
-  toggle.setAttribute("aria-keyshortcuts", "O");
-  attachTip(toggle, "Settings (O)", "Sound sliders, per category", "below");
-
-  const body = document.createElement("div");
-  body.className = "help-body settings-body";
-  body.hidden = true;
-
-  const title = document.createElement("div");
-  title.className = "help-section-title";
-  title.textContent = "Sound";
-  body.appendChild(title);
-
+export function renderSoundSettings(): HTMLElement {
   const rows = document.createElement("div");
   rows.className = "settings-rows";
   for (const category of SOUND_CATEGORIES) {
@@ -61,22 +36,5 @@ export function mountSettings(): void {
 
     rows.append(label, slider, value);
   }
-  body.appendChild(rows);
-
-  const setOpen = (open: boolean) => {
-    const opening = open && body.hidden;
-    body.hidden = !open;
-    toggle.setAttribute("aria-expanded", String(!body.hidden));
-    if (opening) window.dispatchEvent(new CustomEvent("hud-menu-open", { detail: "settings" }));
-  };
-  const toggleOpen = () => setOpen(body.hidden === true);
-  toggle.addEventListener("click", toggleOpen);
-  registerKeybind({ id: "hud-settings", matches: (event) => event.code === "KeyO", handler: toggleOpen });
-  // Accordion: opening any left-bar menu closes the others, so two drop-downs never overlap.
-  window.addEventListener("hud-menu-open", ((event: Event) => {
-    if ((event as CustomEvent<string>).detail !== "settings") setOpen(false);
-  }) as EventListener);
-
-  root.append(toggle, body);
-  hudLeft().appendChild(root);
+  return rows;
 }
