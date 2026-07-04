@@ -10,7 +10,7 @@ export const SOUND_CATEGORIES = [
   { id: "music", label: "Music", blurb: "The game theme" },
   { id: "footsteps", label: "Footsteps", blurb: "Troggs and Hogs on the move" },
   { id: "world", label: "World", blurb: "Boulders, Hog snuffles, the ghost" },
-  { id: "interface", label: "Interface", blurb: "Chat, commands, errors" },
+  { id: "interface", label: "Interface", blurb: "Chat, commands, pickups, errors" },
 ] as const;
 
 export type SoundCategory = (typeof SOUND_CATEGORIES)[number]["id"];

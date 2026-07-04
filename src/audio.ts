@@ -41,6 +41,25 @@ const cues = {
     asset(new URL("../assets/audio/ui/kenney-ui-audio/Audio/switch2.ogg", import.meta.url)),
   ],
   error: [asset(new URL("../assets/audio/ui/assorted-menu-level-up/Menu Error.mp3", import.meta.url))],
+  itemStone: [
+    asset(new URL("../assets/audio/future/mining/cc0-rpg-sfx/item_stone_01.ogg", import.meta.url)),
+    asset(new URL("../assets/audio/future/mining/cc0-rpg-sfx/item_stone_02.ogg", import.meta.url)),
+    asset(new URL("../assets/audio/future/mining/cc0-rpg-sfx/item_stone_03.ogg", import.meta.url)),
+    asset(new URL("../assets/audio/future/mining/cc0-rpg-sfx/item_stone_04.ogg", import.meta.url)),
+  ],
+  itemWood: [
+    asset(new URL("../assets/audio/future/mining/cc0-rpg-sfx/item_wood_01.ogg", import.meta.url)),
+    asset(new URL("../assets/audio/future/mining/cc0-rpg-sfx/item_wood_02.ogg", import.meta.url)),
+    asset(new URL("../assets/audio/future/mining/cc0-rpg-sfx/item_wood_03.ogg", import.meta.url)),
+  ],
+  itemMisc: [
+    asset(new URL("../assets/audio/future/mining/cc0-rpg-sfx/item_misc_01.ogg", import.meta.url)),
+    asset(new URL("../assets/audio/future/mining/cc0-rpg-sfx/item_misc_02.ogg", import.meta.url)),
+    asset(new URL("../assets/audio/future/mining/cc0-rpg-sfx/item_misc_03.ogg", import.meta.url)),
+    asset(new URL("../assets/audio/future/mining/cc0-rpg-sfx/item_misc_04.ogg", import.meta.url)),
+    asset(new URL("../assets/audio/future/mining/cc0-rpg-sfx/item_misc_05.ogg", import.meta.url)),
+    asset(new URL("../assets/audio/future/mining/cc0-rpg-sfx/item_misc_06.ogg", import.meta.url)),
+  ],
   ghost: [
     asset(new URL("../assets/audio/ghost/opengameart-ghost/ghost.wav", import.meta.url)),
     asset(new URL("../assets/audio/ghost/opengameart-ghost/qubodup-GhostMoans/mp3/qubodup-GhostMoan05.mp3", import.meta.url)),
@@ -58,6 +77,9 @@ const CUE_CATEGORY: Record<keyof typeof cues, SoundCategory> = {
   chatReceive: "interface",
   command: "interface",
   error: "interface",
+  itemStone: "interface",
+  itemWood: "interface",
+  itemMisc: "interface",
 };
 
 class AudioCues {
@@ -116,6 +138,13 @@ class AudioCues {
     const gain = AudioCues.falloff(distance);
     if (gain <= 0.02) return;
     this.play("hog", { volume: 0.08 * gain, minGapMs: 2200, rate: [0.92, 1.08] });
+  }
+
+  /** Something entered the pack — a different voice per material: stone
+   *  rattles, wood knocks, everything else lands with the soft item thump. */
+  playPickup(item: string) {
+    const cue = item === "stone" ? "itemStone" : item === "wood" ? "itemWood" : "itemMisc";
+    this.play(cue, { volume: 0.16, minGapMs: 90, rate: [0.96, 1.08] });
   }
 
   playChatSend() {

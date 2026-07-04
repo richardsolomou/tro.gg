@@ -85,7 +85,7 @@ export interface Coord {
 /** Item ids are canonical across inventory rows, equipment slots, and UI labels. */
 export const ITEM_IDS = ["stone", "wood", "quill", "pickaxe", "shovel", "axe", "sword", "shield", "torch"] as const;
 export type ItemId = (typeof ITEM_IDS)[number];
-export const SPAWNABLE_ITEM_IDS = ["pickaxe", "shovel", "axe", "sword", "shield", "torch"] as const satisfies readonly ItemId[];
+export const SPAWNABLE_ITEM_IDS = ["pickaxe", "shovel", "axe", "sword", "shield", "torch", "stone", "wood"] as const satisfies readonly ItemId[];
 export type SpawnableItemId = (typeof SPAWNABLE_ITEM_IDS)[number];
 
 /** Inventory capacity (GDD "Inventory"): each row occupies one visible carry slot. (initial) */

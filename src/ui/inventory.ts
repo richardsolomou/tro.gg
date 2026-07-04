@@ -1,5 +1,6 @@
 import { equipSlotOf, INVENTORY_SLOT_COUNT, ITEMS, isEquippableItem } from "@trogg/shared";
 import { hudIcon, itemIcon } from "../game/icons.js";
+import { audio } from "../audio.js";
 import { logError } from "../analytics.js";
 import type { DbConnection } from "../net/module_bindings";
 import type { Inventory, Player } from "../net/module_bindings/types";
@@ -242,19 +243,23 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
   };
 
   const mine = (row: Inventory) => row.playerId.toHexString() === playerId;
-  // Toast live pickups only: rows the initial subscription delivers are what
-  // the trogg already held, not something just picked up.
+  // Toast (and sound) live pickups only: rows the initial subscription
+  // delivers are what the trogg already held, not something just picked up.
+  const announcePickup = (item: string, qty: number) => {
+    pickupToast(item, qty);
+    audio.playPickup(item);
+  };
   conn.db.inventory.onInsert((ctx, row) => {
     if (!mine(row)) return;
     rows.set(row.id.toString(), row);
     render();
-    if (ctx.event.tag !== "SubscribeApplied") pickupToast(row.item, row.qty);
+    if (ctx.event.tag !== "SubscribeApplied") announcePickup(row.item, row.qty);
   });
   conn.db.inventory.onUpdate((ctx, old, row) => {
     if (!mine(row)) return;
     rows.set(row.id.toString(), row);
     render();
-    if (ctx.event.tag !== "SubscribeApplied" && row.qty > old.qty) pickupToast(row.item, row.qty - old.qty);
+    if (ctx.event.tag !== "SubscribeApplied" && row.qty > old.qty) announcePickup(row.item, row.qty - old.qty);
   });
   conn.db.inventory.onDelete((_ctx, row) => {
     if (!mine(row)) return;

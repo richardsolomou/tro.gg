@@ -120,7 +120,7 @@ test("spawn can add a registered ground item", () => {
 
 test("spawn refuses registered items that are not exposed in the Commands panel", () => {
   const { ctx } = withPlayer({ x: 69, y: 96 });
-  spawn(ctx, { kind: "item", item: "stone" });
+  spawn(ctx, { kind: "item", item: "quill" });
   assert.equal(ctx.db.groundItem.rows().length, 0);
 });
 
