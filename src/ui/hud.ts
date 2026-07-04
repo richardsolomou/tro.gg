@@ -14,8 +14,19 @@ export function hudRoot(): HTMLDivElement {
     root.id = "hud";
     document.body.appendChild(root);
     blockPinchZoom();
+    blockNativeContextMenu();
   }
   return root;
+}
+
+/** The page is a game surface, not a document: the browser context menu never
+ *  opens (right-click belongs to the game — e.g. inventory tile menus). Text
+ *  inputs keep theirs, for paste. */
+function blockNativeContextMenu(): void {
+  window.addEventListener("contextmenu", (e) => {
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+    e.preventDefault();
+  });
 }
 
 /** Keep a macOS trackpad pinch from browser-zooming the page: Chrome reports the

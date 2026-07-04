@@ -5,7 +5,7 @@ import { logError } from "../analytics.js";
 import type { DbConnection } from "../net/module_bindings";
 import type { Inventory, Player } from "../net/module_bindings/types";
 import { discardItem, dropItem, equipItem } from "../net/procedures.js";
-import { hudLeft } from "./hud.js";
+import { hudLeft, hudRoot } from "./hud.js";
 import { registerKeybind } from "./keybinds.js";
 import { pickupToast } from "./toasts.js";
 import { attachTip, hideTip } from "./tooltip.js";
@@ -36,21 +36,85 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
   const list = document.createElement("div");
   list.className = "inventory-list";
 
-  const actions = document.createElement("div");
-  actions.className = "inventory-actions";
-  actions.hidden = true;
-
-  body.append(equipped, list, actions);
+  body.append(equipped, list);
   root.append(toggle, body);
   hudLeft().appendChild(root);
+
+  // The right-click menu: a tile's actions (equip/drop/delete) open at the
+  // cursor instead of a persistent selection row — left-clicking a tile does
+  // nothing. One menu, shared by every tile, floating in the HUD root (the
+  // panel's stacking context would clip it) and clamped to the viewport.
+  const menu = document.createElement("div");
+  menu.className = "ctx-menu";
+  menu.hidden = true;
+  hudRoot().appendChild(menu);
+
+  const closeMenu = () => {
+    menu.hidden = true;
+  };
+  window.addEventListener("pointerdown", (event) => {
+    if (!menu.contains(event.target as Node)) closeMenu();
+  });
+  window.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeMenu();
+  });
+
+  const menuButton = (label: string, onPick: (button: HTMLButtonElement) => void): HTMLButtonElement => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "ctx-menu-item";
+    button.textContent = label;
+    button.addEventListener("click", () => onPick(button));
+    menu.appendChild(button);
+    return button;
+  };
+
+  const openMenuFor = (row: Inventory, x: number, y: number) => {
+    hideTip();
+    menu.replaceChildren();
+    const name = document.createElement("span");
+    name.className = "ctx-menu-name";
+    name.textContent = ITEMS[row.item as keyof typeof ITEMS]?.name ?? row.item;
+    menu.appendChild(name);
+
+    if (isEquippableItem(row.item)) {
+      const equippedNow = row.id === equippedSlotId(row.item);
+      menuButton(equippedNow ? "Unequip" : "Equip", () => {
+        run("Equip item", row.item, () => equipItem(conn, row.id), "equip_item");
+        closeMenu();
+      });
+    }
+    menuButton("Drop", () => {
+      run("Drop item", row.item, () => dropItem(conn, row.id), "drop_item");
+      closeMenu();
+    });
+    // delete arms itself in place: the first click turns the entry into the
+    // confirm, the second destroys one unit
+    menuButton("Delete", (button) => {
+      if (button.classList.contains("is-danger")) {
+        run("Discard item", row.item, () => discardItem(conn, row.id), "discard_item");
+        closeMenu();
+        return;
+      }
+      button.classList.add("is-danger");
+      button.textContent = "Confirm delete";
+    });
+
+    // measure, then clamp fully on-screen (like the tooltip)
+    menu.style.visibility = "hidden";
+    menu.hidden = false;
+    const w = menu.offsetWidth;
+    const h = menu.offsetHeight;
+    menu.style.left = `${Math.round(Math.max(8, Math.min(x, window.innerWidth - w - 8)))}px`;
+    menu.style.top = `${Math.round(Math.max(8, Math.min(y, window.innerHeight - h - 8)))}px`;
+    menu.style.visibility = "";
+  };
 
   const rows = new Map<string, Inventory>();
   let mainHand = "";
   let mainHandInventoryId = 0n;
   let offHand = "";
   let offHandInventoryId = 0n;
-  let selectedId: bigint | null = null;
-  let confirmDelete = false;
 
   /** The inventory id equipped in the slot this item belongs to (off hand for shields, else main). */
   const equippedSlotId = (item: string): bigint => (equipSlotOf(item) === "offHand" ? offHandInventoryId : mainHandInventoryId);
@@ -59,10 +123,7 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
     const opening = open && body.hidden;
     body.hidden = !open;
     toggle.setAttribute("aria-expanded", String(!body.hidden));
-    if (!open) {
-      selectedId = null;
-      confirmDelete = false;
-    }
+    if (!open) closeMenu();
     if (opening) window.dispatchEvent(new CustomEvent("hud-menu-open", { detail: "inventory" }));
   };
   const toggleOpen = () => setOpen(body.hidden === true);
@@ -91,16 +152,12 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
 
   const render = () => {
     hideTip(); // the hovered tile may not survive the rebuild
+    closeMenu(); // nor may the menu's row
     equipped.replaceChildren(equippedGroup("Main hand", mainHand), equippedGroup("Off hand", offHand));
 
     list.replaceChildren();
 
     const sorted = [...rows.values()].sort((a, b) => a.item.localeCompare(b.item) || Number(a.id - b.id));
-
-    if (selectedId !== null && !rows.has(selectedId.toString())) {
-      selectedId = null;
-      confirmDelete = false;
-    }
 
     for (const row of sorted) {
       const def = ITEMS[row.item as keyof typeof ITEMS];
@@ -109,12 +166,9 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
       item.type = "button";
       item.className = "inventory-item";
       const equippedNow = row.id === equippedSlotId(row.item);
-      const selectedNow = row.id === selectedId;
       item.setAttribute("aria-label", `${name}${equippedNow ? ", equipped" : ""}`);
       item.setAttribute("aria-pressed", String(equippedNow));
-      item.setAttribute("aria-haspopup", "true");
-      item.setAttribute("aria-expanded", String(selectedNow));
-      if (selectedNow) item.classList.add("is-selected");
+      item.setAttribute("aria-haspopup", "menu");
       attachTip(item, name, def?.blurb ?? "");
       item.appendChild(itemIcon(row.item));
 
@@ -124,27 +178,10 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
         qty.textContent = `x${row.qty}`;
         item.appendChild(qty);
       }
-      item.addEventListener("click", () => {
-        selectedId = selectedNow ? null : row.id;
-        confirmDelete = false;
-        render();
-      });
-
-      // Dragging a tile off the panel and letting go over the world throws
-      // one unit away for good (the Delete action; the drag out is the
-      // deliberate gesture the confirm step exists for). Releasing over any
-      // HUD panel does nothing, and a cancelled drag reports (0,0).
-      item.draggable = true;
-      item.addEventListener("dragstart", (event) => {
-        hideTip();
-        event.dataTransfer?.setData("text/plain", row.item);
-        if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
-      });
-      item.addEventListener("dragend", (event) => {
-        if (event.clientX === 0 && event.clientY === 0) return;
-        const over = document.elementFromPoint(event.clientX, event.clientY);
-        if (over?.closest("#hud")) return;
-        run("Discard item", row.item, () => discardItem(conn, row.id), "discard_item");
+      item.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        openMenuFor(row, event.clientX, event.clientY);
       });
 
       list.appendChild(item);
@@ -158,69 +195,12 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
       empty.title = "Empty";
       list.appendChild(empty);
     }
-
-    renderActions();
-  };
-
-  const action = (label: string, onClick: () => void): HTMLButtonElement => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "inventory-action";
-    button.textContent = label;
-    button.addEventListener("click", onClick);
-    return button;
   };
 
   const run = (label: string, item: string, op: () => Promise<unknown>, analyticsAction: string) => {
     void op().catch((err) => {
       logError(`${label} request failed`, { surface: "inventory", action: analyticsAction, item, error: err });
     });
-  };
-
-  const renderActions = () => {
-    actions.replaceChildren();
-    const row = selectedId !== null ? rows.get(selectedId.toString()) : undefined;
-    if (!row) {
-      actions.hidden = true;
-      return;
-    }
-    actions.hidden = false;
-    const def = ITEMS[row.item as keyof typeof ITEMS];
-
-    const name = document.createElement("span");
-    name.className = "inventory-action-name";
-    name.textContent = def?.name ?? row.item;
-    actions.appendChild(name);
-
-    const buttons = document.createElement("div");
-    buttons.className = "inventory-action-buttons";
-
-    if (confirmDelete) {
-      const confirm = action("Confirm delete", () => run("Discard item", row.item, () => discardItem(conn, row.id), "discard_item"));
-      confirm.classList.add("is-danger");
-      const cancel = action("Cancel", () => {
-        confirmDelete = false;
-        render();
-      });
-      buttons.append(confirm, cancel);
-      actions.appendChild(buttons);
-      return;
-    }
-
-    if (isEquippableItem(row.item)) {
-      const equippedNow = row.id === equippedSlotId(row.item);
-      buttons.appendChild(
-        action(equippedNow ? "Unequip" : "Equip", () => run("Equip item", row.item, () => equipItem(conn, row.id), "equip_item")),
-      );
-    }
-    buttons.appendChild(action("Drop", () => run("Drop item", row.item, () => dropItem(conn, row.id), "drop_item")));
-    buttons.appendChild(
-      action("Delete", () => {
-        confirmDelete = true;
-        render();
-      }),
-    );
-    actions.appendChild(buttons);
   };
 
   const mine = (row: Inventory) => row.playerId.toHexString() === playerId;
