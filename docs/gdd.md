@@ -239,7 +239,7 @@ Pre-alpha combat is deliberately small and tile-based. Troggs and roaming Hogs a
 - **Use cooldown:** the server drops an equipment use that lands inside the previous swing (`EQUIPMENT_USE_COOLDOWN_MS`, 250 ms *(initial)*, just under the 300 ms `EQUIPMENT_ACTION_MS` impulse), so attack rate is capped by the animation cadence, not by how fast a client can call the reducer (invariant 3).
 - **No twitch checks:** combat has no projectiles, physics, cursor aiming, or per-frame attack checks — a use is one input-driven reducer resolving static hit circles at that instant.
 - **Death:** when damage takes a trogg to zero health, the server marks it `dead`, stops its motion on its current tile, and leaves it online so other players can see it — lying flat in the dead stance (every creature shares it), faded translucent, under its respawn countdown. Dead troggs cannot move, interact, spawn objects, or use equipment. If a dying trogg is carrying a tile-sized object, the server tries to drop it at the death tile so nothing is orphaned. Every inventory row, including equipped items, is removed from the trogg and dropped as `ground_item` rows nearby; stack quantities are preserved.
-- **Respawn:** death stamps `respawnAt` five seconds in the future (`PLAYER_RESPAWN_MS`, 5000 *(initial)*) and inserts a one-shot `player_respawn` scheduled row. Dead troggs show a visible respawn countdown. When the timer fires, the same `player` row returns to the zone spawn at full health with the same name, colour, and style.
+- **Respawn:** death stamps `respawnAt` five seconds in the future (`PLAYER_RESPAWN_MS`, 5000 *(initial)*) and inserts a one-shot `player_respawn` scheduled row. Dead troggs show a visible respawn countdown. When the timer fires, the same `player` row returns at full health with the same name, colour, and style, **just outside your cave** — the world's coast alcove (`EMERGE_ARRIVAL`), where you first emerged and where you descend back down. A trogg that died inside its own birth cave is pulled out to the alcove too (the cave is for births, not a spawn room), which the client sees as a zone transfer.
 
 ### Onboarding: the Warren
 
@@ -250,7 +250,7 @@ The arc: wake in the **middle of the glowmoss cavern** (a hearth ember lights th
 - **Rubble is the boulder mechanic verbatim** — rows in the newborn's zone id; mining, hit feedback, and the stone drop just work. World-zone tools (`resetBoulders`, the registry seeder, the spawn cap) never touch other zones' rows.
 - **The cave is yours and it persists**: nothing is wiped on emerge — your mined-out neck stays mined. In the world, the arrival alcove's deep end is a dark tunnel mouth; pushing into it (`enterCave`, same client-detect/server-verify shape) descends into your own cave, landing below the neck so arriving never bounces straight back out. Every trogg keeps its cave; nobody else's is reachable.
 - The client boots the zone named on the player row (a newborn's cave or the world); `getZone` resolves any `birth:*` id to the shared template. Terrain palettes use regions only on the world map — other zones are one biome throughout.
-- Deaths respawn at the town spawn; a dead newborn's respawn also lands in town (the cave is for births, not a spawn room).
+- Deaths respawn just outside your cave (the coast alcove, `EMERGE_ARRIVAL`), including a newborn that dies mid-dig — the cave is for births, not a spawn room.
 - Open threads: the emergence sightline (a landmark fire at town, walk-to-town breadcrumbs, naming at the fire).
 
 ### Debug cheats (Commands drawer)

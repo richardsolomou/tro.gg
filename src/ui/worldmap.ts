@@ -1,4 +1,4 @@
-import { regionAt, WORLD_REGIONS, type Zone } from "@trogg/shared";
+import { isBirthZone, regionAt, WORLD_REGIONS, type Zone } from "@trogg/shared";
 import { biomePalette } from "../game/palette.js";
 import { hudRoot } from "./hud.js";
 import { registerKeybind } from "./keybinds.js";
@@ -99,7 +99,7 @@ export function mountWorldMap({ zone, selfPosition }: WorldMapContext): void {
 
   const title = document.createElement("div");
   title.className = "help-section-title";
-  title.textContent = "The Caves";
+  title.textContent = isBirthZone(zone.slug) ? "The Cave" : "The World";
   panel.append(title, frame);
   hudRoot().appendChild(panel);
 

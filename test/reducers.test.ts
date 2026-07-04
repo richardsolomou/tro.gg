@@ -715,7 +715,7 @@ test("a sword hit at zero health kills, drops inventory, and respawns after the 
   assert.equal(target.name, "SameName");
   assert.equal(target.color, 1);
   assert.equal(target.style, 2);
-  assert.deepEqual({ x: target.x, y: target.y }, { x: 112, y: 104 });
+  assert.deepEqual({ x: target.x, y: target.y }, { x: EMERGE_ARRIVAL.x, y: EMERGE_ARRIVAL.y }); // just outside the cave
 });
 
 test("useEquipped damages a faced adjacent Hog with a sword", () => {

@@ -1,10 +1,12 @@
 import { ScheduleAt, Timestamp } from "spacetimedb";
 import {
   elapsedMs,
+  EMERGE_ARRIVAL,
   getZone,
   hogLoot,
   type LootRoll,
   isWalkable,
+  STARTING_ZONE_SLUG,
   HOG_MAX_HEALTH,
   MAX_GROUND_ITEMS_PER_ZONE,
   PLAYER_MAX_HEALTH,
@@ -20,7 +22,6 @@ import {
   type Zone,
 } from "../../shared/index";
 import {
-  spawnAt,
   settle,
   solidTiles,
   addGroundItemTiles,
@@ -49,19 +50,23 @@ export function respawnDue(p: { respawnAt?: Stamp }, now: Stamp): boolean {
 export function respawnPlayer(ctx: Ctx, p: { identity: Ctx["sender"]; zoneId: string }): void {
   const current = ctx.db.player.identity.find(p.identity);
   if (!current || !current.dead) return;
-  const zone = getZone(current.zoneId);
-  if (!zone) return;
-  const at = spawnAt(zone);
+  // Always respawn just outside your cave: the coast alcove in the world, where
+  // you first emerged and where you descend back down (GDD "Onboarding"). A
+  // trogg that died inside its birth cave is pulled out here too — the cave is
+  // for births, not a spawn room — which reads as a zone transfer to the client.
   ctx.db.player.identity.update({
     ...current,
-    x: at.x,
-    y: at.y,
+    zoneId: STARTING_ZONE_SLUG,
+    x: EMERGE_ARRIVAL.x,
+    y: EMERGE_ARRIVAL.y,
     z: 0,
     dirZ: 0,
     dirX: 0,
     dirY: 0,
     running: false,
     path: "",
+    faceX: 0,
+    faceY: -1, // facing out from the cave mouth, toward the world
     health: PLAYER_MAX_HEALTH,
     dead: false,
     respawnAt: undefined,
