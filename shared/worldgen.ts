@@ -264,22 +264,26 @@ export function generateCaveZone(opts: CaveOptions): Zone {
  * The instanced birth cave (GDD "Onboarding: the Warren"): ONE small, fully
  * enclosed template every newborn gets a private copy of — rows are scoped by a
  * per-player `birth:<identity>` zone id, the geometry is this shared, purely
- * deterministic map. A sealed cell at the bottom (rubble rows plug the corridor
- * at seeding), a glowmoss cavern to cross, and the exit light at the top where
- * `E` emerges into the world. No other player can ever appear or reach in.
+ * deterministic map. A glowmoss cavern to wake in, a rubble plug to mine out
+ * of a long throat, and glowmoss pools spacing the walk up to the exit
+ * landing, where crossing the threshold emerges into the world. No other
+ * player can ever appear or reach in.
  */
 export function generateBirthCave(): Zone {
   const W = 26;
-  const H = 30;
-  const CAVERN_TOP = 11;
+  const H = 52;
+  const CAVERN_TOP = 33;
   const rand = mulberry32(0xb117);
   const idx = (x: number, y: number) => y * W + x;
-  // One open glowmoss cavern under a thick top band. The newborn wakes in the
-  // cavern itself (lit, roomy — the opening frame reads at a glance); the only
-  // way up is a long 1-wide throat through the band, plugged with two rubble
-  // rows at its cavern end. Break the rocks where their stones drop, gather
-  // them, then WALK the throat — the transfer threshold sits at its far end,
-  // so nothing whisks you away before you've picked up your haul.
+  // One open glowmoss cavern under a very deep top band. The newborn wakes in
+  // the cavern itself (lit, roomy — the opening frame reads at a glance); the
+  // only way up is a LONG throat through the band that tapers as it climbs —
+  // three wide at the cavern, then two, then one at the exit — plugged with
+  // two rubble rows at its cavern end. Break the rocks where their stones
+  // drop, gather them, then WALK the throat — glowmoss pools spaced along it
+  // lead toward the exit without ever showing it, and the transfer threshold
+  // sits at the far end, so nothing whisks you away before you've picked up
+  // your haul.
   let rock = new Uint8Array(W * H);
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
@@ -299,17 +303,22 @@ export function generateBirthCave(): Zone {
     rock = next;
   }
   const cx = Math.floor(W / 2);
-  // The exit landing (its rim opens too: the mouth frames the window of the
-  // real outside), the long open throat below it, and the two-rock plug at
-  // the throat's cavern end.
-  for (let y = 0; y <= 3; y++) for (let x = cx - 1; x <= cx + 1; x++) rock[idx(x, y)] = 0;
-  for (let y = 4; y <= CAVERN_TOP - 3; y++) rock[idx(cx, y)] = 0;
-  const corridor: Coord[] = [
-    { x: cx, y: CAVERN_TOP - 2 },
-    { x: cx, y: CAVERN_TOP - 1 },
-  ];
+  // The tapering throat: three wide leaving the cavern, two through the
+  // middle, one at the top — the way out narrows as the light grows.
+  const throatX = (y: number): number[] => {
+    const third = (y - 4) / (CAVERN_TOP - 4);
+    if (third < 1 / 3) return [cx];
+    if (third < 2 / 3) return [cx, cx + 1];
+    return [cx - 1, cx, cx + 1];
+  };
+  // The exit landing (a sealed pocket at the throat's narrowest — the roof
+  // stays rock; the world transfer, not a view, is the way out), the long
+  // open throat below it, and the rubble plug spanning its cavern end.
+  for (let y = 1; y <= 3; y++) rock[idx(cx, y)] = 0;
+  for (let y = 4; y <= CAVERN_TOP - 3; y++) for (const x of throatX(y)) rock[idx(x, y)] = 0;
+  const corridor: Coord[] = [CAVERN_TOP - 2, CAVERN_TOP - 1].flatMap((y) => throatX(y).map((x) => ({ x, y })));
   for (const t of corridor) rock[idx(t.x, t.y)] = 0;
-  rock[idx(cx, CAVERN_TOP)] = 0; // the throat always meets the cavern
+  for (const x of throatX(CAVERN_TOP - 1)) rock[idx(x, CAVERN_TOP)] = 0; // the throat always meets the cavern
 
   // one cavern: everything the exit can't reach returns to rock
   const reach = new Uint8Array(W * H);
@@ -370,6 +379,19 @@ export function generateBirthCave(): Zone {
     }
     glyphs.push(row);
   }
+
+  // The throat is dressed by hand: a worn gravel path, dark between deliberate
+  // glowmoss pools every few strides — clumps wandering between the walls,
+  // light leading toward the exit without ever showing it — and a glowing
+  // landing at the far end, so nearing the way out is unmistakable.
+  for (let y = 4; y < CAVERN_TOP; y++) for (const x of throatX(y)) glyphs[y]![x] = GRAVEL_TILE;
+  for (let y = 5, i = 0; y < CAVERN_TOP; y += 6, i++) {
+    const cols = throatX(y);
+    glyphs[y]![cols[i % cols.length]!] = GLOWMOSS_TILE;
+  }
+  glyphs[1]![cx] = GLOWMOSS_TILE;
+  glyphs[2]![cx] = GRAVEL_TILE;
+  glyphs[3]![cx] = GRAVEL_TILE;
 
   return {
     slug: "birthcave",

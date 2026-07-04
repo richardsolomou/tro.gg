@@ -33,18 +33,7 @@ export interface Terrain3D {
 /** Tiles per streamed chunk (a region is 64×44, so seams stay region-aligned on x). */
 const CHUNK = 32;
 
-export interface TerrainWindow {
-  /** Render only tiles inside this rect — the slice of the outside a birth
-   *  cave shows beyond its mouth (GDD "Onboarding"). Hard-clipped in both
-   *  axes so streaming can never pop sunlit geometry outside the throat's
-   *  masked slot; a windowed terrain also skips the void underlay. */
-  minTileX: number;
-  maxTileX: number;
-  minTileY: number;
-  maxTileY: number;
-}
-
-export function buildTerrain(zone: Zone, window?: TerrainWindow): Terrain3D {
+export function buildTerrain(zone: Zone): Terrain3D {
   const group = new THREE.Group();
   const globalDisposables: { dispose(): void }[] = [];
 
@@ -80,15 +69,13 @@ export function buildTerrain(zone: Zone, window?: TerrainWindow): Terrain3D {
   voidTex.wrapT = THREE.RepeatWrapping;
   voidTex.repeat.set(600 / PATCH, 600 / PATCH);
   globalDisposables.push(voidTex);
-  if (!window) {
-    const voidPlane = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), new THREE.MeshStandardMaterial({ map: voidTex, roughness: 1 }));
-    voidPlane.rotation.x = -Math.PI / 2;
-    // well below the sunken river channels (whose tops sit at -0.18): anything cut
-    // out of the floor must reveal what's carved beneath it, not this underlay
-    voidPlane.position.set(zone.width / 2, -0.62, zone.height / 2);
-    voidPlane.receiveShadow = true;
-    group.add(voidPlane);
-  }
+  const voidPlane = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), new THREE.MeshStandardMaterial({ map: voidTex, roughness: 1 }));
+  voidPlane.rotation.x = -Math.PI / 2;
+  // well below the sunken river channels (whose tops sit at -0.18): anything cut
+  // out of the floor must reveal what's carved beneath it, not this underlay
+  voidPlane.position.set(zone.width / 2, -0.62, zone.height / 2);
+  voidPlane.receiveShadow = true;
+  group.add(voidPlane);
 
   // Walls tint per tile through instance colours, so biome borders stay
   // tile-exact even when a chunk straddles two regions.
@@ -120,25 +107,10 @@ export function buildTerrain(zone: Zone, window?: TerrainWindow): Terrain3D {
   const wallColour = new THREE.Color();
 
   const buildChunk = (cx: number, cy: number): BuiltChunk | undefined => {
-    let x0 = cx * CHUNK;
-    let y0 = cy * CHUNK;
-    let w = Math.min(CHUNK, zone.width - x0);
-    let h = Math.min(CHUNK, zone.height - y0);
-    if (window) {
-      // clip the chunk to the window rect — a full-size floor plane with
-      // transparent texels would still write depth and z-fight the host
-      // scene's coplanar floor, and unclipped columns would stream sunlit
-      // geometry beyond the throat's masked slot
-      const rowStart = Math.max(y0, window.minTileY);
-      const rowEnd = Math.min(y0 + h - 1, window.maxTileY);
-      const colStart = Math.max(x0, window.minTileX);
-      const colEnd = Math.min(x0 + w - 1, window.maxTileX);
-      if (rowEnd < rowStart || colEnd < colStart) return undefined;
-      x0 = colStart;
-      w = colEnd - colStart + 1;
-      y0 = rowStart;
-      h = rowEnd - rowStart + 1;
-    }
+    const x0 = cx * CHUNK;
+    const y0 = cy * CHUNK;
+    const w = Math.min(CHUNK, zone.width - x0);
+    const h = Math.min(CHUNK, zone.height - y0);
     if (w <= 0 || h <= 0) return undefined;
 
     const chunkGroup = new THREE.Group();
