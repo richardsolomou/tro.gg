@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Bundle the landing backdrop (src/landing3d.ts) into a self-contained classic
+# script for stream-setup's file:// OBS scenes: three.js and the creature models
+# baked in, exposed as the TroggBackdrop global.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+out="${1:-../stream-setup/shared/backdrop3d.js}"
+pnpm exec esbuild src/landing3d.ts --bundle --minify --format=iife --global-name=TroggBackdrop \
+  --banner:js="// Built from tro.gg src/landing3d.ts — do not edit; rebuild with tro.gg/bin/export-backdrop." \
+  --outfile="$out"

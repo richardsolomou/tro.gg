@@ -4,17 +4,16 @@ import type { CreatureModel } from "./game/rig.js";
 import { CAVE_3D } from "./game/palette.js";
 
 /**
- * The landing page's ambient backdrop: darkness, a rocky low-poly floor, and two
- * flickering torches framing the copy — the old pixel-torch page translated to
- * 3D, nothing added. Generic by design (not the game world), so the same look
- * ports to the stream scenes (starting soon / brb / ending). No creatures, no
+ * The landing page's ambient backdrop: darkness, a rocky low-poly floor, two
+ * flickering torches framing the copy, and a trogg and a hog sitting in their
+ * light. Generic by design (not the game world), so the same look ports to the
+ * stream scenes (starting soon / brb / ending) via bin/export-backdrop. No
  * netcode.
  */
 
 const FLAME_HOT = 0xffe08a;
 const FLAME_MID = 0xff8c2e;
 const FLAME_DEEP = 0xd94f1e;
-const GLOWMOSS = CAVE_3D.glowmoss;
 
 function rockMat(colour: number): THREE.MeshStandardMaterial {
   return new THREE.MeshStandardMaterial({ color: colour, roughness: 1, flatShading: true });
@@ -54,11 +53,10 @@ interface Torch {
   seed: number;
 }
 
-function flameBit(parent: THREE.Group, colour: number, r: number, sx: number, sy: number, x: number, y: number, z = 0, rz = 0): void {
+/** A small ember blob — the base ember and the stray sparks above the flame. */
+function flameBit(parent: THREE.Group, colour: number, r: number, x: number, y: number): void {
   const bit = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 0), new THREE.MeshBasicMaterial({ color: colour, transparent: true, opacity: 0.94 }));
-  bit.scale.set(sx, sy, sx);
-  bit.position.set(x, y, z);
-  bit.rotation.z = rz;
+  bit.position.set(x, y, 0);
   parent.add(bit);
 }
 
@@ -86,11 +84,11 @@ function flameTongue(parent: THREE.Group, colour: number, r: number, h: number, 
   parent.add(tongue);
 }
 
+const FLAME_CELS = 10;
+
 /** One flame cel, sculpted from a seeded RNG: the pointed body holds its shape
  *  (with height jitter and a wandering lean) while tongues and sparks land
  *  somewhere new every frame — endless variation, steady silhouette. */
-const FLAME_CELS = 10;
-
 function flameFrame(rand: () => number): THREE.Group {
   const f = new THREE.Group();
   const h = 0.72 + rand() * 0.18;
@@ -106,7 +104,7 @@ function flameFrame(rand: () => number): THREE.Group {
   f.add(core);
 
   // a deep-orange base ember on one side or the other
-  flameBit(f, FLAME_DEEP, 0.07 + rand() * 0.02, 1, 1, (rand() < 0.5 ? -1 : 1) * (0.1 + rand() * 0.05), 1.6 + rand() * 0.04);
+  flameBit(f, FLAME_DEEP, 0.07 + rand() * 0.02, (rand() < 0.5 ? -1 : 1) * (0.1 + rand() * 0.05), 1.6 + rand() * 0.04);
 
   // one or two pointed tongues licking off the sides
   const tongues = 1 + Math.floor(rand() * 2);
@@ -117,12 +115,12 @@ function flameFrame(rand: () => number): THREE.Group {
   // sometimes a spark breaks clear above the flame
   if (rand() < 0.45) {
     const side = rand() < 0.5 ? -1 : 1;
-    flameBit(f, rand() < 0.5 ? FLAME_DEEP : FLAME_HOT, 0.035 + rand() * 0.02, 1, 1, side * (0.1 + rand() * 0.14) + lean * 0.4, 2.3 + rand() * 0.18);
+    flameBit(f, rand() < 0.5 ? FLAME_DEEP : FLAME_HOT, 0.035 + rand() * 0.02, side * (0.1 + rand() * 0.14) + lean * 0.4, 2.3 + rand() * 0.18);
   }
   return f;
 }
 
-function buildTorch(x: number, z: number, seed: number): Torch {
+function buildTorch(x: number, z: number, seed: number, shadows: boolean): Torch {
   const group = new THREE.Group();
   const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 1.45, 6), rockMat(0x4a3826));
   stick.position.y = 0.72;
@@ -143,8 +141,12 @@ function buildTorch(x: number, z: number, seed: number): Torch {
 
   const light = new THREE.PointLight(FLAME_MID, 9, 14, 1.6);
   light.position.y = 2.0;
-  light.castShadow = true;
-  light.shadow.mapSize.set(512, 512);
+  // A shadow-casting point light renders the scene into a 6-face cube map —
+  // per torch, per frame. Only the offline still generator pays that.
+  if (shadows) {
+    light.castShadow = true;
+    light.shadow.mapSize.set(512, 512);
+  }
   group.add(light);
 
   group.position.set(x, 0, z);
@@ -184,7 +186,7 @@ interface BackdropScene {
   tick(t: number, dt: number): void;
 }
 
-function buildBackdropScene(glow: number, spacing: number, layout: "pair" | "right"): BackdropScene {
+function buildBackdropScene(glow: number, spacing: number, layout: "pair" | "right", shadows: boolean): BackdropScene {
   const rand = rng(0x7060);
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(CAVE_3D.voidBase);
@@ -194,10 +196,10 @@ function buildBackdropScene(glow: number, spacing: number, layout: "pair" | "rig
 
   // Two torches framing the copy, like the old page — now casting real light —
   // with a trogg and a hog sitting in their pools, facing the middle.
-  const torches = [buildTorch(4.6 * spacing, 1.0, 2)];
+  const torches = [buildTorch(4.6 * spacing, 1.0, 2, shadows)];
   const creatures = [seat(buildHog("classic"), 3.7 * spacing, 1.8, -0.6, 0.12)];
   if (layout === "pair") {
-    torches.push(buildTorch(-4.6 * spacing, 1.0, 1));
+    torches.push(buildTorch(-4.6 * spacing, 1.0, 1, shadows));
     creatures.push(seat(buildTrogg("moss"), -3.9 * spacing, 1.2, 0.6, 0.44));
   }
   for (const torch of torches) scene.add(torch.group);
@@ -225,13 +227,16 @@ function buildBackdropScene(glow: number, spacing: number, layout: "pair" | "rig
   return { scene, camera, tick };
 }
 
-export function mountBackdrop(canvas: HTMLCanvasElement, { glow = 1, spacing = 1, layout = "pair" }: BackdropOptions = {}): void {
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+/** The ambient loop's ceiling: the flames step at 6fps and the camera drift is
+ *  a slow breath, so a backdrop rendering faster than this only makes heat. */
+const BACKDROP_FPS = 30;
 
-  const { scene, camera, tick } = buildBackdropScene(glow, spacing, layout);
+export function mountBackdrop(canvas: HTMLCanvasElement, { glow = 1, spacing = 1, layout = "pair" }: BackdropOptions = {}): { stop(): void } {
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  // a fogged, near-black backdrop — nobody can see past 1.5x density
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+
+  const { scene, camera, tick } = buildBackdropScene(glow, spacing, layout, false);
 
   const resize = () => {
     const w = canvas.clientWidth || window.innerWidth;
@@ -245,12 +250,22 @@ export function mountBackdrop(canvas: HTMLCanvasElement, { glow = 1, spacing = 1
 
   const clock = new THREE.Clock();
   let last = 0;
+  let lastFrame = -Infinity;
   renderer.setAnimationLoop(() => {
     const t = clock.getElapsedTime();
+    if (t - lastFrame < 1 / BACKDROP_FPS - 0.0015) return;
+    lastFrame = t;
     tick(t, t - last);
     last = t;
     renderer.render(scene, camera);
   });
+  // Hand the caller the off switch: the page stops burning GPU the moment the
+  // player heads into the world, instead of racing the game's load.
+  return {
+    stop() {
+      renderer.setAnimationLoop(null);
+    },
+  };
 }
 
 /** One frame of the backdrop at a fixed size, for the static image generators:
@@ -263,7 +278,7 @@ export function renderBackdropStill(width: number, height: number, { glow = 1, s
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
   // by default, spread the scene so the torches clear a centred text block
-  const { scene, camera, tick } = buildBackdropScene(glow, spacing ?? Math.max(1, width / height / 1.9), layout);
+  const { scene, camera, tick } = buildBackdropScene(glow, spacing ?? Math.max(1, width / height / 1.9), layout, true);
   camera.aspect = width / height;
   camera.updateProjectionMatrix();
   tick(0.6, 0.6); // a settled mid-breath pose with both flames lit

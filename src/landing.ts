@@ -13,8 +13,23 @@ initAnalytics();
 // audibly restart it (the stream is generative; the fade is the continuity).
 theme.start();
 
-const backdrop = document.getElementById("diorama");
-if (backdrop instanceof HTMLCanvasElement) mountBackdrop(backdrop);
+const canvas = document.getElementById("backdrop");
+const backdrop = canvas instanceof HTMLCanvasElement ? mountBackdrop(canvas) : undefined;
+
+// The moment the player heads for the world, the backdrop stops rendering —
+// navigation and the game's module load shouldn't race an ambient GPU loop.
+document.getElementById("play")?.addEventListener("click", () => backdrop?.stop());
+
+// Warm the game while the page idles: importing the entry pulls the whole
+// render + net module graph into cache (no boot side effects — StartGame and
+// connect only run when /play calls them), so the play click lands on a page
+// that's mostly already fetched and compiled.
+const prefetchGame = () => {
+  void import("./game/main.js").catch(() => {});
+  void import("./net/net.js").catch(() => {});
+};
+if ("requestIdleCallback" in window) requestIdleCallback(prefetchGame, { timeout: 4000 });
+else setTimeout(prefetchGame, 2500);
 
 const TWITCH_CHANNEL = "richardsolomou";
 

@@ -8,70 +8,51 @@
 <meta property="og:title" content="tro.gg">
 <meta property="og:description" content="A tiny multiplayer world, built live with PostHog Code. Step in — no signup.">
 <meta property="og:type" content="website">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
 <style>
+  /* self-hosted latin subsets (OFL), like the HUD's Baloo 2 — no font CDN round trips */
+  @font-face {
+    font-family: "Press Start 2P";
+    src: url("/src/ui/fonts/press-start-2p-latin.woff2") format("woff2");
+    font-weight: 400;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: "VT323";
+    src: url("/src/ui/fonts/vt323-latin.woff2") format("woff2");
+    font-weight: 400;
+    font-display: swap;
+  }
   :root {
-    --ink: #0a0806; --stone: #2a2118; --stone-lite: #4a3826; --bone: #e8dcc4;
-    --flame-hot: #ffe08a; --flame-mid: #ff8c2e; --flame-deep: #d94f1e; --glowcap: #6fdc9c;
-    --dim: #9b8a6c; --px: 0.5vmin;
+    --ink: #0a0806; --deep-ink: #241708; --bone: #e8dcc4;
+    --flame-hot: #ffe08a; --flame-mid: #ff8c2e;
+    --dim: #9b8a6c;
+    /* the facet: chamfered corners, the low-poly cut the game HUD uses */
+    --cut: 1.2vmin;
+    --facet: polygon(
+      var(--cut) 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% calc(100% - var(--cut)),
+      calc(100% - var(--cut)) 100%, var(--cut) 100%, 0 calc(100% - var(--cut)), 0 var(--cut));
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { width: 100%; height: 100%; overflow: hidden; background: var(--ink); }
   body { font-family: "VT323", monospace; color: var(--bone); }
 
-  /* torch glow pools, flickering at stepped pixel-rates */
-  .glow { position: absolute; width: 60vmin; height: 60vmin; border-radius: 50%; filter: blur(8vmin);
-          background: radial-gradient(circle, rgba(255,140,46,.26), transparent 65%);
-          animation: flicker 1.1s steps(5) infinite; pointer-events: none; }
-  .glow.left  { left: 4vw; bottom: 2vh; }
-  .glow.right { right: 4vw; bottom: 2vh; animation-duration: .9s; }
-  @keyframes flicker {
-    0%,100% { opacity: .9; transform: scale(1); }
-    25% { opacity: .65; transform: scale(.96); }
-    50% { opacity: 1;   transform: scale(1.04); }
-    75% { opacity: .75; transform: scale(.98); }
-  }
-
-  /* pixel torch: stick + 3-frame box-shadow flame */
-  .torch { position: absolute; bottom: 10vh; width: var(--px); height: var(--px); }
-  .torch.left { left: 11vw; } .torch.right { right: 11vw; }
-  .stick { position: absolute; top: calc(var(--px) * 6); left: calc(var(--px) * 3); width: calc(var(--px) * 2); height: calc(var(--px) * 10); background: var(--stone-lite); box-shadow: 0 calc(var(--px) * 10) 0 calc(var(--px)) var(--stone); }
-  .flame { position: absolute; width: var(--px); height: var(--px); animation: burn .5s steps(1) infinite; }
-  @keyframes burn {
-    0%, 100% { box-shadow:
-      calc(var(--px)*3) 0 var(--flame-hot), calc(var(--px)*4) 0 var(--flame-hot),
-      calc(var(--px)*2) calc(var(--px)) var(--flame-mid), calc(var(--px)*3) calc(var(--px)) var(--flame-hot), calc(var(--px)*4) calc(var(--px)) var(--flame-mid), calc(var(--px)*5) calc(var(--px)) var(--flame-mid),
-      calc(var(--px)*2) calc(var(--px)*2) var(--flame-mid), calc(var(--px)*3) calc(var(--px)*2) var(--flame-mid), calc(var(--px)*4) calc(var(--px)*2) var(--flame-deep), calc(var(--px)*5) calc(var(--px)*2) var(--flame-mid),
-      calc(var(--px)*3) calc(var(--px)*3) var(--flame-deep), calc(var(--px)*4) calc(var(--px)*3) var(--flame-deep); }
-    33% { box-shadow:
-      calc(var(--px)*4) 0 var(--flame-hot),
-      calc(var(--px)*3) calc(var(--px)) var(--flame-hot), calc(var(--px)*4) calc(var(--px)) var(--flame-mid), calc(var(--px)*5) calc(var(--px)) var(--flame-hot),
-      calc(var(--px)*2) calc(var(--px)*2) var(--flame-mid), calc(var(--px)*3) calc(var(--px)*2) var(--flame-deep), calc(var(--px)*4) calc(var(--px)*2) var(--flame-mid), calc(var(--px)*5) calc(var(--px)*2) var(--flame-deep),
-      calc(var(--px)*3) calc(var(--px)*3) var(--flame-deep), calc(var(--px)*4) calc(var(--px)*3) var(--flame-mid); }
-    66% { box-shadow:
-      calc(var(--px)*2) 0 var(--flame-hot), calc(var(--px)*3) 0 var(--flame-mid),
-      calc(var(--px)*2) calc(var(--px)) var(--flame-mid), calc(var(--px)*3) calc(var(--px)) var(--flame-hot), calc(var(--px)*4) calc(var(--px)) var(--flame-hot),
-      calc(var(--px)*2) calc(var(--px)*2) var(--flame-deep), calc(var(--px)*3) calc(var(--px)*2) var(--flame-mid), calc(var(--px)*4) calc(var(--px)*2) var(--flame-mid), calc(var(--px)*5) calc(var(--px)*2) var(--flame-deep),
-      calc(var(--px)*3) calc(var(--px)*3) var(--flame-mid), calc(var(--px)*4) calc(var(--px)*3) var(--flame-deep); }
-  }
-
-  .wrap { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 6vmin; }
-  .stack { display: grid; gap: 3.4vmin; max-width: 90vw; }
+  .wrap { position: absolute; inset: 0; z-index: 2; display: grid; place-items: center; text-align: center; padding: 6vmin; }
+  .stack { position: relative; display: grid; gap: 3.4vmin; max-width: 90vw; }
+  /* a soft ink pool behind the copy so it reads over the bright cave */
+  .stack::before { content: ""; position: absolute; inset: -8vmin -10vmin; z-index: -1;
+                   background: radial-gradient(ellipse at center, rgba(10,8,6,.72) 30%, transparent 72%); }
   h1 { font-family: "Press Start 2P", monospace; font-size: 9vmin; line-height: 1.2; color: var(--bone);
        text-shadow: 0 .6vmin 0 #000, 0 0 7vmin rgba(255,140,46,.4); }
   .sub { font-size: 3.6vmin; color: var(--flame-mid); }
   .body { font-size: 3vmin; color: var(--dim); line-height: 1.3; }
-  .body a { color: var(--glowcap); text-decoration: none; border-bottom: .2vmin dotted var(--glowcap); }
 
-  /* pixel CTA into the world */
-  .play { justify-self: center; display: inline-block; font-family: "Press Start 2P", monospace; font-size: 1.5vmin;
-          color: var(--ink); background: var(--flame-mid); text-decoration: none; padding: 1.3vmin 2.6vmin; letter-spacing: .3vmin;
-          box-shadow: 0 .4vmin 0 var(--flame-deep), 0 0 3vmin rgba(255,140,46,.45);
-          transition: transform .08s steps(2), background .08s, box-shadow .08s; }
-  .play:hover { background: var(--flame-hot); box-shadow: 0 .4vmin 0 var(--flame-deep), 0 0 5vmin rgba(255,224,138,.65); }
-  .play:active { transform: translateY(.3vmin); box-shadow: 0 .1vmin 0 var(--flame-deep), 0 0 3vmin rgba(255,140,46,.45); }
+  /* the CTA into the world: a faceted ember slab, hotter on hover */
+  .play { justify-self: center; display: inline-block; font-family: "Press Start 2P", monospace; font-size: 1.5vmin; letter-spacing: .3vmin;
+          color: var(--deep-ink); background: var(--flame-mid); text-decoration: none; padding: 1.5vmin 5vmin;
+          clip-path: var(--facet); filter: drop-shadow(0 .5vmin 0 rgba(0,0,0,.45)) drop-shadow(0 0 3vmin rgba(255,140,46,.35));
+          transition: background .12s, transform .08s, filter .12s; }
+  .play:hover { background: var(--flame-hot); filter: drop-shadow(0 .5vmin 0 rgba(0,0,0,.45)) drop-shadow(0 0 5vmin rgba(255,224,138,.5)); }
+  .play:active { transform: translateY(.3vmin); filter: drop-shadow(0 .15vmin 0 rgba(0,0,0,.45)); }
 
   .socials { display: flex; align-items: center; justify-content: center; gap: 2.4vmin; flex-wrap: wrap; }
   .socials a { display: inline-flex; align-items: center; color: var(--bone); text-decoration: none;
@@ -82,28 +63,27 @@
   /* live-now pill — revealed only while the Twitch channel is streaming */
   .live { justify-self: center; display: inline-flex; align-items: center; gap: 1vmin; text-decoration: none;
           font-family: "Press Start 2P", monospace; font-size: 1.4vmin; letter-spacing: .2vmin; color: var(--bone);
-          background: rgba(217,79,30,.16); border: .2vmin solid var(--flame-deep); border-radius: 10vmin; padding: 1.1vmin 2.2vmin; }
+          background: rgba(217,79,30,.2); clip-path: var(--facet); --cut: .9vmin; padding: 1vmin 2.4vmin; }
   /* the .live display rule above would otherwise override the hidden attribute's display:none */
   .live[hidden] { display: none; }
-  .live:hover { background: rgba(217,79,30,.3); }
-  .live .dot { width: 1.4vmin; height: 1.4vmin; border-radius: 50%; background: #ff3b3b;
+  .live:hover { background: rgba(217,79,30,.38); }
+  .live .dot { width: 1.3vmin; height: 1.3vmin; border-radius: 50%; background: #ff3b3b;
                box-shadow: 0 0 1.4vmin #ff3b3b; animation: pulse 1.1s steps(1) infinite; }
   @keyframes pulse { 50% { opacity: .25; } }
 
-  .grain { position: absolute; inset: 0; pointer-events: none; opacity: .5; mix-blend-mode: overlay;
+  /* CRT dressing over everything: film grain and a vignette pulling the eye centre */
+  .grain { position: absolute; inset: 0; z-index: 3; pointer-events: none; opacity: .4; mix-blend-mode: overlay;
            background-image: repeating-conic-gradient(rgba(255,255,255,.04) 0% 25%, transparent 0% 50%); background-size: 3px 3px; }
-  .scan { position: absolute; inset: 0; pointer-events: none; opacity: .12;
-          background: repeating-linear-gradient(to bottom, transparent 0 2px, rgba(0,0,0,.7) 2px 4px); }
-  .vig { position: absolute; inset: 0; pointer-events: none;
+  .vig { position: absolute; inset: 0; z-index: 3; pointer-events: none;
          background: radial-gradient(ellipse at center, transparent 42%, rgba(0,0,0,.85) 100%); }
   canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #backdrop { z-index: 0; }
+  #embers { z-index: 1; }
 </style>
 </head>
 <body>
-  <div class="glow left"></div><div class="glow right"></div>
+  <canvas id="backdrop"></canvas>
   <canvas id="embers"></canvas>
-  <div class="torch left"><div class="flame"></div><div class="stick"></div></div>
-  <div class="torch right"><div class="flame"></div><div class="stick"></div></div>
   <div class="wrap">
     <div class="stack">
       <h1>tro.gg</h1>
@@ -129,10 +109,11 @@
       <a id="play" class="play" data-attr="play" href="/play">play</a>
     </div>
   </div>
-  <div class="vig"></div><div class="grain"></div><div class="scan"></div>
+  <div class="vig"></div><div class="grain"></div>
   <script type="module" src="/src/landing.ts"></script>
   <script>
-    // pixelated ember particles drifting up
+    // Pixelated ember particles drifting up. Inline on purpose: it animates
+    // immediately, while the module graph (with the three.js chunk) downloads.
     const cv = document.getElementById("embers"), cx = cv.getContext("2d");
     const fit = () => { cv.width = innerWidth; cv.height = innerHeight; };
     fit(); addEventListener("resize", fit);
