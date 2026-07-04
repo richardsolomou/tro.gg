@@ -9,7 +9,9 @@ import {
   TROGG_STYLES,
 } from "@trogg/shared";
 import type { DbConnection } from "../net/module_bindings";
-import { isFeatureEnabled, logError, logWarn } from "../analytics.js";
+import { captureEvent, isFeatureEnabled, logError, logInfo, logWarn } from "../analytics.js";
+import { signIn } from "../auth.js";
+import { setPendingClaim } from "../identity.js";
 import { attachTip } from "./tooltip.js";
 import { cssColor } from "../ui_text.js";
 import { hudIcon } from "../game/icons.js";
@@ -28,7 +30,13 @@ const STYLE_LABELS: Record<string, string> = { moss: "Moss", stone: "Stone", rid
  * browser's job); swatches and style buttons use procedure wrappers so accepted
  * server mutations emit analytics. Each control is gated by its own flag, so the panel never offers something switched off.
  */
-export function mountAppearance(conn: DbConnection): void {
+export interface AppearanceContext {
+  signedIn: boolean;
+  authAvailable: boolean;
+  claimFailed?: boolean;
+}
+
+export function mountAppearance(conn: DbConnection, account: AppearanceContext): void {
   const myId = conn.identity?.toHexString();
   const me = () => (conn.identity ? conn.db.player.identity.find(conn.identity) : undefined);
   const myName = () => me()?.name ?? "";
@@ -156,6 +164,20 @@ export function mountAppearance(conn: DbConnection): void {
     body.append(section("Style", options));
   }
 
+  // ── Account ──────────────────────────────────────────────────────────────────
+  // Claiming an account (sign in with Discord) lets a guest log back into the
+  // same trogg on any device. It lives here beside name/colour — the rest of
+  // "who your trogg is" — while Log out lives in the game menu (Esc).
+  if (account.authAvailable && !account.signedIn) {
+    const claim = document.createElement("button");
+    claim.type = "button";
+    claim.className = "btn";
+    claim.textContent = "Claim account with Discord";
+    claim.addEventListener("click", () => startClaim(conn, claim, status));
+    if (account.claimFailed) status.textContent = "Sign-in didn't complete. Try again.";
+    body.append(section("Account", claim));
+  }
+
   body.append(status);
   root.append(toggle, body);
   hudLeft().appendChild(root);
@@ -178,6 +200,34 @@ export function mountAppearance(conn: DbConnection): void {
   });
 
   refresh();
+}
+
+/** Begin an account claim (GDD "Identity"): register the one-time nonce on the
+ *  guest row, then redirect to sign in; the return folds the guest in. */
+function startClaim(conn: DbConnection, button: HTMLButtonElement, status: HTMLElement): void {
+  void (async () => {
+    button.disabled = true;
+    status.textContent = "Starting sign-in…";
+    const code = crypto.randomUUID();
+    try {
+      await conn.reducers.startClaim({ code });
+    } catch (err) {
+      logError("Account claim start failed", { surface: "appearance", action: "start_claim", error: err });
+      status.textContent = "Couldn't start sign-in. Try again.";
+      button.disabled = false;
+      return;
+    }
+    setPendingClaim(code);
+    captureEvent("account_claim_started");
+    logInfo("Account claim started", { surface: "appearance" });
+    try {
+      await signIn();
+    } catch (err) {
+      logError("Sign-in redirect failed", { surface: "appearance", action: "sign_in_redirect", error: err });
+      status.textContent = "Couldn't open sign-in. Try again.";
+      button.disabled = false;
+    }
+  })();
 }
 
 /** A labelled block in the panel: a small title above its control. */

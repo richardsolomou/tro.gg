@@ -1,17 +1,13 @@
-import type { DbConnection } from "../net/module_bindings";
-import { captureEvent, logError, logInfo } from "../analytics.js";
-import { signIn, signOut } from "../auth.js";
-import { setPendingClaim } from "../identity.js";
+import { captureEvent, logInfo } from "../analytics.js";
+import { signOut } from "../auth.js";
 import { renderControls } from "./help.js";
 import { renderSoundSettings } from "./settings.js";
 import { closeHudMenus, hudRoot } from "./hud.js";
 import { registerKeybind } from "./keybinds.js";
 
 export interface GameMenuContext {
-  conn: DbConnection;
   signedIn: boolean;
   authAvailable: boolean;
-  claimFailed?: boolean;
 }
 
 /** The open overlays Escape should dismiss before it opens the game menu — the
@@ -28,14 +24,14 @@ function anyOverlayOpen(): boolean {
 
 /**
  * The game menu (GDD HUD note): a centred modal — like the world map — holding
- * Help (controls), Settings (the sound mix), and the account action (Log out,
- * or Sign in when a guest). It owns Escape for the whole game: with the menu
- * closed and nothing else open, Escape opens it; with something open (map, a
- * drawer, or the menu itself) Escape closes that first. Chat keeps its own
- * Escape — a focused input swallows the keybind — so Escape only reaches here
- * when you aren't typing.
+ * Help (controls), Settings (the sound mix), and Log out when signed in. (The
+ * guest "Claim account" button lives under Appearance, beside name/colour.) It
+ * owns Escape for the whole game: with the menu closed and nothing else open,
+ * Escape opens it; with something open (map, a drawer, or the menu itself)
+ * Escape closes that first. Chat keeps its own Escape — a focused input
+ * swallows the keybind — so Escape only reaches here when you aren't typing.
  */
-export function mountGameMenu({ conn, signedIn, authAvailable, claimFailed }: GameMenuContext): void {
+export function mountGameMenu({ signedIn, authAvailable }: GameMenuContext): void {
   const backdrop = document.createElement("div");
   backdrop.className = "game-menu-backdrop";
   backdrop.hidden = true;
@@ -51,21 +47,19 @@ export function mountGameMenu({ conn, signedIn, authAvailable, claimFailed }: Ga
   panel.appendChild(menuSection("Controls", renderControls()));
   panel.appendChild(menuSection("Sound", renderSoundSettings()));
 
-  const footer = document.createElement("div");
-  footer.className = "game-menu-footer";
-  const status = document.createElement("div");
-  status.className = "account-status";
-  if (claimFailed && !signedIn) status.textContent = "Sign-in didn't complete. Try again.";
-
-  if (authAvailable) {
+  // Only signed-in players have anything to do here — Log out. A guest claims an
+  // account from the Appearance panel instead.
+  if (authAvailable && signedIn) {
+    const footer = document.createElement("div");
+    footer.className = "game-menu-footer";
     const account = document.createElement("button");
     account.type = "button";
     account.className = "btn";
-    account.textContent = signedIn ? "Log out" : "Sign in with Discord";
-    account.addEventListener("click", () => (signedIn ? logOut() : startSignIn(conn, account, status)));
-    footer.append(account, status);
+    account.textContent = "Log out";
+    account.addEventListener("click", logOut);
+    footer.appendChild(account);
+    panel.appendChild(footer);
   }
-  panel.appendChild(footer);
 
   backdrop.appendChild(panel);
   hudRoot().appendChild(backdrop);
@@ -117,31 +111,4 @@ function logOut(): void {
   void signOut().finally(() => {
     window.location.href = "/";
   });
-}
-
-/** Begin an account claim: register the nonce, then redirect to sign in. */
-function startSignIn(conn: DbConnection, button: HTMLButtonElement, status: HTMLElement): void {
-  void (async () => {
-    button.disabled = true;
-    status.textContent = "Starting sign-in…";
-    const code = crypto.randomUUID();
-    try {
-      await conn.reducers.startClaim({ code });
-    } catch (err) {
-      logError("Account claim start failed", { surface: "menu", action: "start_claim", error: err });
-      status.textContent = "Couldn't start sign-in. Try again.";
-      button.disabled = false;
-      return;
-    }
-    setPendingClaim(code);
-    captureEvent("account_claim_started");
-    logInfo("Account claim started", { surface: "menu" });
-    try {
-      await signIn();
-    } catch (err) {
-      logError("Sign-in redirect failed", { surface: "menu", action: "sign_in_redirect", error: err });
-      status.textContent = "Couldn't open sign-in. Try again.";
-      button.disabled = false;
-    }
-  })();
 }

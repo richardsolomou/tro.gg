@@ -97,18 +97,16 @@ async function main() {
     theme.start(); // the generative game theme (starts on the first user gesture)
     mountWorldMap({ zone: getZone(slug)!, selfPosition: () => world.selfPosition() });
 
+    const authAvailable = isFeatureEnabled("auth-enabled") && authConfigured();
+
     // HUD chrome is HTML overlaid on the canvas (hud.css); chat is mounted by
     // the scene since its speech bubbles live in the world. The game menu
-    // (Escape) folds Help, Settings, and the account action into one modal.
-    mountGameMenu({
-      conn,
-      signedIn,
-      authAvailable: isFeatureEnabled("auth-enabled") && authConfigured(),
-      claimFailed: signInReturn === "error",
-    });
-    // Appearance (name/colour/style) is for every player, no auth needed; it sits in the
-    // top-left stack.
-    mountAppearance(conn);
+    // (Escape) folds Help, Settings, and Log out into one modal.
+    mountGameMenu({ signedIn, authAvailable });
+    // Appearance (name/colour/style) sits in the top-left stack, and carries the
+    // guest "Claim account with Discord" button beside the rest of "who your
+    // trogg is".
+    mountAppearance(conn, { signedIn, authAvailable, claimFailed: signInReturn === "error" });
     if (conn.identity) mountInventory(conn, conn.identity.toHexString());
 
     // The frontend deploys separately from the backend (Cloudflare vs the VPS), so
