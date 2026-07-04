@@ -502,6 +502,100 @@
   border: 0;
   border-radius: 3px;
 }
+/* The floating item tooltip: name + blurb beside the hovered tile. It lives in
+   the HUD root (the tiles' facet clip-path would crop a child) and is placed
+   from the tile's rect by inventory.ts. */
+#hud .item-tip {
+  position: fixed;
+  transform: translateY(-50%);
+  z-index: 20;
+  max-width: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 14px;
+  background: var(--hud-timber);
+  clip-path: var(--facet);
+  --cut: 7px;
+  box-shadow: var(--slab-light);
+  pointer-events: none;
+}
+#hud .item-tip[hidden] {
+  display: none;
+}
+#hud .item-tip-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--hud-bone);
+}
+#hud .item-tip-blurb {
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--hud-bone-dim);
+}
+#hud .item-tip-blurb[hidden] {
+  display: none;
+}
+
+/* Pickup toasts: what just entered the pack — icon, name, coalesced count —
+   bottom centre, fading after a beat (toasts.ts). */
+#hud .pickup-toasts {
+  position: absolute;
+  left: 50%;
+  bottom: 92px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+}
+#hud .pickup-toast {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  background: var(--hud-timber);
+  clip-path: var(--facet);
+  --cut: 7px;
+  box-shadow: var(--slab-light);
+  animation: pickup-toast-in 0.16s ease-out;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+#hud .pickup-toast.is-leaving {
+  opacity: 0;
+  transform: translateY(8px);
+}
+#hud .pickup-toast .item-icon {
+  width: 26px;
+  height: 26px;
+}
+#hud .pickup-toast-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--hud-bone);
+}
+#hud .pickup-toast-qty {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--hud-ember);
+}
+#hud .pickup-toast-qty[hidden] {
+  display: none;
+}
+@keyframes pickup-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  #hud .pickup-toast {
+    animation: none;
+    transition: opacity 0.25s ease;
+  }
+}
+
 #hud .inventory-actions {
   display: flex;
   flex-direction: column;

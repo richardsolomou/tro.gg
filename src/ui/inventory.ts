@@ -4,8 +4,9 @@ import { logError } from "../analytics.js";
 import type { DbConnection } from "../net/module_bindings";
 import type { Inventory, Player } from "../net/module_bindings/types";
 import { discardItem, dropItem, equipItem } from "../net/procedures.js";
-import { hudLeft } from "./hud.js";
+import { hudLeft, hudRoot } from "./hud.js";
 import { registerKeybind } from "./keybinds.js";
+import { pickupToast } from "./toasts.js";
 
 /** Mount the compact inventory/equipment panel. Rows are driven by subscribed inventory state. */
 export function mountInventory(conn: DbConnection, playerId: string): void {
@@ -40,6 +41,43 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
   body.append(equipped, list, actions);
   root.append(toggle, body);
   hudLeft().appendChild(root);
+
+  // The one floating tooltip (name + blurb) every tile shares. It can't live
+  // inside the tiles — their facet clip-path would crop it — so it floats in
+  // the HUD root, placed beside whichever tile is hovered or focused.
+  document.getElementById("item-tip")?.remove();
+  const tip = document.createElement("div");
+  tip.id = "item-tip";
+  tip.className = "item-tip";
+  tip.setAttribute("role", "tooltip");
+  tip.hidden = true;
+  const tipName = document.createElement("span");
+  tipName.className = "item-tip-name";
+  const tipBlurb = document.createElement("span");
+  tipBlurb.className = "item-tip-blurb";
+  tip.append(tipName, tipBlurb);
+  hudRoot().appendChild(tip);
+
+  const attachTip = (el: HTMLElement, name: string, blurb: string) => {
+    el.removeAttribute("title"); // the rich tooltip replaces the native one
+    el.setAttribute("aria-describedby", "item-tip");
+    const show = () => {
+      tipName.textContent = name;
+      tipBlurb.textContent = blurb;
+      tipBlurb.hidden = blurb === "";
+      const rect = el.getBoundingClientRect();
+      tip.style.left = `${Math.round(rect.right + 10)}px`;
+      tip.style.top = `${Math.round(rect.top + rect.height / 2)}px`;
+      tip.hidden = false;
+    };
+    const hide = () => {
+      tip.hidden = true;
+    };
+    el.addEventListener("mouseenter", show);
+    el.addEventListener("mouseleave", hide);
+    el.addEventListener("focus", show);
+    el.addEventListener("blur", hide);
+  };
 
   const rows = new Map<string, Inventory>();
   let mainHand = "";
@@ -76,14 +114,18 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
     text.textContent = label;
     const slot = document.createElement("span");
     slot.className = "inventory-equipped-slot";
-    slot.title = item ? (ITEMS[item as keyof typeof ITEMS]?.name ?? item) : "Empty";
-    slot.setAttribute("aria-label", `${label}: ${slot.title}`);
+    const def = item ? ITEMS[item as keyof typeof ITEMS] : undefined;
+    const itemName = item ? (def?.name ?? item) : "Empty";
+    slot.setAttribute("aria-label", `${label}: ${itemName}`);
+    if (item) attachTip(slot, itemName, def?.blurb ?? "");
+    else slot.title = "Empty";
     slot.appendChild(itemIcon(item || "empty"));
     group.append(text, slot);
     return group;
   };
 
   const render = () => {
+    tip.hidden = true; // the hovered tile may not survive the rebuild
     equipped.replaceChildren(equippedGroup("Main hand", mainHand), equippedGroup("Off hand", offHand));
 
     list.replaceChildren();
@@ -108,7 +150,7 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
       item.setAttribute("aria-haspopup", "true");
       item.setAttribute("aria-expanded", String(selectedNow));
       if (selectedNow) item.classList.add("is-selected");
-      item.title = name;
+      attachTip(item, name, def?.blurb ?? "");
       item.appendChild(itemIcon(row.item));
 
       if (row.qty > 1) {
@@ -200,15 +242,19 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
   };
 
   const mine = (row: Inventory) => row.playerId.toHexString() === playerId;
-  conn.db.inventory.onInsert((_ctx, row) => {
+  // Toast live pickups only: rows the initial subscription delivers are what
+  // the trogg already held, not something just picked up.
+  conn.db.inventory.onInsert((ctx, row) => {
     if (!mine(row)) return;
     rows.set(row.id.toString(), row);
     render();
+    if (ctx.event.tag !== "SubscribeApplied") pickupToast(row.item, row.qty);
   });
-  conn.db.inventory.onUpdate((_ctx, _old, row) => {
+  conn.db.inventory.onUpdate((ctx, old, row) => {
     if (!mine(row)) return;
     rows.set(row.id.toString(), row);
     render();
+    if (ctx.event.tag !== "SubscribeApplied" && row.qty > old.qty) pickupToast(row.item, row.qty - old.qty);
   });
   conn.db.inventory.onDelete((_ctx, row) => {
     if (!mine(row)) return;
