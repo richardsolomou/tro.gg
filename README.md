@@ -1,8 +1,8 @@
 # tro.gg
 
-A tiny multiplayer world in your browser, built incrementally in public as a challenge: **how much of a real multiplayer game can [PostHog](https://posthog.com)'s products power?** The plan is for everything that can be PostHog to be PostHog — analytics, feature flags, error tracking, AI observability, and more — each doing a real job in the game. The one thing PostHog doesn't offer is a backend — so that's the one piece we run ourselves: a [SpacetimeDB](https://spacetimedb.com) instance self-hosted on a Hetzner VPS, its TypeScript tables, reducers, and procedure wrappers the whole server (no separate database or cache).
+A tiny multiplayer world in your browser, built incrementally in public as a challenge: **how much of a real multiplayer game can [PostHog](https://posthog.com)'s products power?** The plan is for everything that can be PostHog to be PostHog — analytics, feature flags, error tracking, and more — each doing a real job in the game. The one thing PostHog doesn't offer is a backend — so that's the one piece we run ourselves: a [SpacetimeDB](https://spacetimedb.com) instance self-hosted on a Hetzner VPS, its TypeScript tables, reducers, and procedure wrappers the whole server (no separate database or cache).
 
-You're a trogg in a shared world. Gather, craft better gear, and push into harder ground — alongside the Hogs, a town of friendly hedgehogs — as the world grows, one piece at a time.
+You're a trogg in a shared world. Gather to feed the tribe's one fire, hold the light against the dark pressing in past it, and push the frontline outward — but only as far as the tribe is actually there to push it: log off and your trogg keeps working on instinct, at a duller pace, for as long as the fire it helped light lasts.
 
 ## Play
 
@@ -20,6 +20,8 @@ You're a trogg in a shared world. Gather, craft better gear, and push into harde
 ## Status
 
 Playable shared-world foundation: SpacetimeDB module + client wired, one zone with presence, grid movement, boulders, roaming Hogs, account claiming, 3D avatars, recolouring, and zone chat. State lives in durable SpacetimeDB tables, so players and chat resume across reconnects and restarts.
+
+The game design has since pivoted to a fire-and-dark direction (see [docs/gdd.md](docs/gdd.md)): a communal stockpile, hearths holding back a hostile dark, and troggs who keep working on instinct while their player is away. The status above describes the shipped, pre-pivot build; migrating it to the new spec is the current work (see the GDD's Roadmap section).
 
 ## Development
 
