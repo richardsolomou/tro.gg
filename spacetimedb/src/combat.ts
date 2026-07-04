@@ -1,5 +1,6 @@
 import { ScheduleAt, Timestamp } from "spacetimedb";
 import {
+  blockFractionOf,
   elapsedMs,
   EMERGE_ARRIVAL,
   getZone,
@@ -74,7 +75,9 @@ export function respawnPlayer(ctx: Ctx, p: { identity: Ctx["sender"]; zoneId: st
   });
 }
 
-type DamageResult = { health: number; killed: boolean };
+/** `dealt` is the damage actually applied after any reduction (a shield's
+ *  block), which callers report to analytics instead of the raw weapon roll. */
+type DamageResult = { health: number; killed: boolean; dealt: number };
 type PlayerDamageResult = DamageResult & { droppedItemRows: number; droppedItemQty: number; respawnMs: number };
 
 export function playerDiedEvent(distinctId: string, props: Record<string, string | number | boolean>, cause: string, result: PlayerDamageResult): AnalyticsEvent {
@@ -99,7 +102,7 @@ export function damageHog(ctx: Ctx, target: NonNullable<ReturnType<typeof hogAt>
   const health = Math.max(0, hogHealth(target) - amount);
   if (health > 0) {
     ctx.db.hog.id.update({ ...target, health, lastDamagedAt: ctx.timestamp });
-    return { health, killed: false };
+    return { health, killed: false, dealt: amount };
   }
   // The killing blow leaves a corpse where the Hog actually was (its stored
   // origin can be a whole run behind under the gliding wander): settled, stopped,
@@ -107,7 +110,7 @@ export function damageHog(ctx: Ctx, target: NonNullable<ReturnType<typeof hogAt>
   const at = hogTile(ctx, target, ctx.timestamp);
   ctx.db.hog.id.update({ ...target, x: at.x, y: at.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, health: 0, lastDamagedAt: ctx.timestamp });
   dropLoot(ctx, target.zoneId, hogLoot(target.style), at);
-  return { health: 0, killed: true };
+  return { health: 0, killed: true, dealt: amount };
 }
 
 /** Lay loot down as ground items on the nearest free tiles around where its
@@ -151,14 +154,17 @@ export function dropInventory(ctx: Ctx, target: NonNullable<ReturnType<typeof pl
   return { rows: rows.length, qty };
 }
 
-/** Apply weapon damage to a trogg; zero health kills, drops inventory, and starts respawn. */
+/** Apply weapon damage to a trogg; zero health kills, drops inventory, and starts respawn.
+ *  A shield equipped in the off hand blocks `SHIELD_BLOCK_FRACTION` of the raw amount first
+ *  (GDD "Combat"), so `dealt` on the result can read lower than `amount`. */
 export function damagePlayer(ctx: Ctx, target: NonNullable<ReturnType<typeof playerAt>>, amount: number): PlayerDamageResult {
   // the invulnerability cheat (GDD "Commands panel"): the swing lands, nothing changes
-  if (target.cheatInvulnerable) return { health: target.health, killed: false, droppedItemRows: 0, droppedItemQty: 0, respawnMs: 0 };
-  const health = Math.max(0, target.health - amount);
+  if (target.cheatInvulnerable) return { health: target.health, killed: false, dealt: 0, droppedItemRows: 0, droppedItemQty: 0, respawnMs: 0 };
+  const dealt = Math.round(amount * (1 - blockFractionOf(target.equippedOffHand)));
+  const health = Math.max(0, target.health - dealt);
   if (health > 0) {
     ctx.db.player.identity.update({ ...target, health, lastDamagedAt: ctx.timestamp });
-    return { health, killed: false, droppedItemRows: 0, droppedItemQty: 0, respawnMs: 0 };
+    return { health, killed: false, dealt, droppedItemRows: 0, droppedItemQty: 0, respawnMs: 0 };
   }
 
   const settled = settle(ctx, target, ctx.timestamp);
@@ -196,7 +202,7 @@ export function damagePlayer(ctx: Ctx, target: NonNullable<ReturnType<typeof pla
     respawnAt,
     movedAt: ctx.timestamp,
   });
-  return { health: 0, killed: true, droppedItemRows: dropped.rows, droppedItemQty: dropped.qty, respawnMs: PLAYER_RESPAWN_MS };
+  return { health: 0, killed: true, dealt, droppedItemRows: dropped.rows, droppedItemQty: dropped.qty, respawnMs: PLAYER_RESPAWN_MS };
 }
 
 /** Throw a carried boulder or Hog along the exact aim (free-direction, not the
@@ -278,14 +284,14 @@ export function throwCarried(
   if (hit) {
     const damage = damagePlayer(ctx, hit, THROWN_OBJECT_DAMAGE);
     result.hitTarget = "trogg";
-    result.damage = THROWN_OBJECT_DAMAGE;
+    result.damage = damage.dealt;
     result.killed = damage.killed;
     if (damage.killed) result.playerDeath = { ...damage, distinctId: hit.identity.toHexString() };
   }
   if (hogHit) {
     const damage = damageHog(ctx, hogHit, THROWN_OBJECT_DAMAGE);
     result.hitTarget = "hog";
-    result.damage = THROWN_OBJECT_DAMAGE;
+    result.damage = damage.dealt;
     result.killed = damage.killed;
   }
   ctx.db.player.identity.update({ ...p, carrying: "", carryingStyle: "" });

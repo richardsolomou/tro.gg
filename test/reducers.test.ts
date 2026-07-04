@@ -30,6 +30,7 @@ import {
   parsePath,
   PLAYER_MAX_HEALTH,
   PLAYER_RESPAWN_MS,
+  SHIELD_BLOCK_FRACTION,
   SPACETIMEAUTH_ISSUER,
   WEAPON_DAMAGE,
   BOULDER_MAX_HEALTH,
@@ -591,6 +592,33 @@ test("useEquipped damages a faced adjacent trogg with a sword", () => {
   assert.equal(target.health, PLAYER_MAX_HEALTH - WEAPON_DAMAGE.sword![0]);
   assert.equal(target.dead, false);
   assert.equal(ctx.db.player.identity.find(me).equipmentAction, "sword");
+});
+
+test("a shield in the off hand blocks a fraction of melee damage taken", () => {
+  const { ctx, me } = withPlayer({ x: 69, y: 96, equippedMainHand: "sword" });
+  const sword = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });
+  ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedMainHandInventoryId: sword.id });
+  const other = id("other");
+  ctx.db.player.insert(playerRow(other, { x: 70, y: 96, health: PLAYER_MAX_HEALTH, equippedOffHand: "shield" }));
+
+  useEquipped(ctx, { dirX: 1, dirY: 0 });
+
+  const dealt = Math.round(WEAPON_DAMAGE.sword![0] * (1 - SHIELD_BLOCK_FRACTION));
+  const target = ctx.db.player.identity.find(other);
+  assert.equal(target.health, PLAYER_MAX_HEALTH - dealt);
+});
+
+test("a shield also blocks a fraction of thrown damage taken", () => {
+  const { ctx, me } = withPlayer({ x: 69, y: 96, carrying: "hog", equippedMainHand: "" });
+  const other = id("other");
+  ctx.db.player.insert(playerRow(other, { x: 70, y: 96, health: PLAYER_MAX_HEALTH, equippedOffHand: "shield" }));
+
+  useEquipped(ctx, { dirX: 1, dirY: 0 });
+
+  const dealt = Math.round(THROWN_OBJECT_DAMAGE * (1 - SHIELD_BLOCK_FRACTION));
+  const target = ctx.db.player.identity.find(other);
+  assert.equal(target.health, PLAYER_MAX_HEALTH - dealt);
+  assert.equal(ctx.db.player.identity.find(me).carrying, "");
 });
 
 test("every damaging weapon wounds a creature for its own damage number", () => {

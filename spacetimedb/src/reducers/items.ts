@@ -275,7 +275,7 @@ function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; d
       const hog = meleeHogTarget(ctx, p.zoneId, cx, cy, aim, ctx.timestamp);
       if (trogg && (!hog || trogg.dist <= hog.dist)) {
         const result = damagePlayer(ctx, trogg.target, damage);
-        events.push({ distinctId: distinctId(ctx), event: "combat_hit", properties: { ...props, weapon: item, target: "trogg", damage, killed: result.killed } });
+        events.push({ distinctId: distinctId(ctx), event: "combat_hit", properties: { ...props, weapon: item, target: "trogg", damage: result.dealt, killed: result.killed } });
         if (result.killed) events.push(playerDiedEvent(trogg.target.identity.toHexString(), props, item, result));
         landed = true;
       } else if (hog) {
