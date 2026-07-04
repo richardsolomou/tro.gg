@@ -1,57 +1,65 @@
-import avatarUrl from "../../assets/sprites/troggs-and-hogs.png";
-import { FRAME_H, FRAME_W, frameRect, HOG_STYLES, ITEMS, SHEET_H, SHEET_W, SPAWNABLE_ITEM_IDS, type HogStyle, type SpawnableItemId, type Zone } from "@trogg/shared";
+import { CHEAT_SPEED_MULTIPLIER, HOG_STYLES, ITEMS, SPAWNABLE_ITEM_IDS, type HogStyle, type SpawnableItemId, type Zone } from "@trogg/shared";
+import { hogIcon as hogModelIcon, hudIcon } from "../game/icons.js";
 import type { DbConnection } from "../net/module_bindings";
 import { logError, logInfo } from "../analytics.js";
 import { audio } from "../audio.js";
-import { hudLeft } from "./hud.js";
+import { hudRoot } from "./hud.js";
 import { registerKeybind } from "./keybinds.js";
 import { currentCommandFlags, type ChatCommandFlags } from "./chat_commands.js";
 import { hauntGhost, resetBoulders, resetHogs, spawnDebugEntity } from "../net/procedures.js";
 import { itemIcon } from "./inventory.js";
+import { attachTip } from "./tooltip.js";
 
-type SpawnRequest = { kind: "boulder" } | { kind: "hog"; style: HogStyle } | { kind: "item"; item: SpawnableItemId };
+type SpawnRequest = { kind: "boulder" } | { kind: "tree" } | { kind: "hog"; style: HogStyle } | { kind: "item"; item: SpawnableItemId };
 
 export interface CommandPanelContext {
   conn: DbConnection;
   zone: Zone;
 }
 
-/** Mount the pre-alpha Commands panel beside Help. It exposes bounded debug
- * controls for stress testing without using chat slash commands. */
+/** Mount the pre-alpha Commands drawer: a right-edge slide-out holding every
+ * debug tool (spawn, reset, ghost, cheats, world dials) — deliberately on the
+ * opposite side from the player-facing top-left menus, so debug chrome never
+ * crowds real controls. */
 export function mountCommands({ conn, zone }: CommandPanelContext): void {
   const flags = currentCommandFlags();
-  if (!flags.spawn && !flags.resetBoulders && !flags.resetHogs && !flags.ghost) return;
+  if (!flags.spawn && !flags.resetBoulders && !flags.resetHogs && !flags.ghost && !flags.cheats) return;
 
   const root = document.createElement("div");
-  root.className = "commands";
+  root.className = "commands command-drawer";
 
   const toggle = document.createElement("button");
   toggle.type = "button";
   toggle.className = "hud-icon-button command-toggle";
-  toggle.setAttribute("aria-label", "Commands");
+  toggle.setAttribute("aria-label", "Debug Tools");
   toggle.setAttribute("aria-keyshortcuts", "`");
-  toggle.title = "Commands (`)";
-  toggle.appendChild(commandIcon());
+  attachTip(toggle, "Debug Tools (`)", "", "left");
+  toggle.appendChild(hudIcon("commands"));
 
   const body = document.createElement("div");
   body.className = "command-body";
-  body.hidden = true;
 
   const status = document.createElement("div");
   status.className = "command-status";
+  status.textContent = "pre-alpha debug tools";
 
+  if (flags.cheats) {
+    const toggle = cheatToggles(conn, zone.slug, status);
+    body.append(movementSection(toggle), survivalSection(conn, zone.slug, status, toggle), worldSection(conn, zone.slug, status));
+  }
   if (flags.spawn) body.appendChild(spawnSection(conn, zone.slug, status));
   if (flags.resetBoulders || flags.resetHogs) body.appendChild(resetSection(conn, zone.slug, flags, status));
   if (flags.ghost) body.appendChild(ghostSection(conn, zone.slug, status));
+  body.appendChild(debugSection(status));
   body.appendChild(status);
 
   const setOpen = (open: boolean) => {
-    const opening = open && body.hidden;
-    body.hidden = !open;
-    toggle.setAttribute("aria-expanded", String(!body.hidden));
+    const opening = open && !root.classList.contains("is-open");
+    root.classList.toggle("is-open", open);
+    toggle.setAttribute("aria-expanded", String(open));
     if (opening) window.dispatchEvent(new CustomEvent("hud-menu-open", { detail: "commands" }));
   };
-  const toggleOpen = () => setOpen(body.hidden === true);
+  const toggleOpen = () => setOpen(!root.classList.contains("is-open"));
   toggle.addEventListener("click", toggleOpen);
   registerKeybind({ id: "hud-commands", matches: (event) => event.code === "Backquote", handler: toggleOpen });
   window.addEventListener("hud-menu-open", ((event: Event) => {
@@ -59,31 +67,56 @@ export function mountCommands({ conn, zone }: CommandPanelContext): void {
   }) as EventListener);
 
   root.append(toggle, body);
-  hudLeft().appendChild(root);
+  hudRoot().appendChild(root);
 }
 
-function svg(width: number, height: number): SVGSVGElement {
-  const node = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  node.setAttribute("viewBox", `0 0 ${width} ${height}`);
-  node.setAttribute("aria-hidden", "true");
-  node.setAttribute("focusable", "false");
-  return node;
-}
+/** Shared world dials. The daylight slider pins the day-night phase for EVERY
+ *  client via the `world_state` singleton (the sky is shared fiction); "Live"
+ *  hands the sky back to the shared wall clock. The controls paint from the
+ *  synced row, so every open drawer shows the same sky state. */
+function worldSection(conn: DbConnection, zone: string, status: HTMLElement): HTMLElement {
+  const section = commandSection("World");
 
-function el(name: string, attrs: Record<string, string | number>): SVGElement {
-  const node = document.createElementNS("http://www.w3.org/2000/svg", name);
-  for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, String(value));
-  return node;
-}
+  const row = document.createElement("div");
+  row.className = "command-daylight";
+  const slider = document.createElement("input");
+  slider.type = "range";
+  slider.min = "0";
+  slider.max = "1000";
+  slider.step = "1";
+  slider.setAttribute("aria-label", "Time of day");
+  const live = commandButton("Live");
+  live.setAttribute("aria-pressed", "true");
 
-function commandIcon(): SVGSVGElement {
-  const icon = svg(24, 24);
-  icon.append(
-    el("rect", { x: 4, y: 5, width: 16, height: 14, rx: 2, fill: "none", stroke: "currentColor", "stroke-width": 2 }),
-    el("path", { d: "M8 10l3 2-3 2", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round" }),
-    el("path", { d: "M13 15h4", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round" }),
-  );
-  return icon;
+  const names = ["dawn", "morning", "noon", "afternoon", "dusk", "evening", "midnight", "small hours"];
+  const label = document.createElement("div");
+  label.className = "command-hint";
+  label.textContent = "live — the shared sky";
+
+  const paint = (state: { skyLocked: boolean; skyPhase: number }) => {
+    live.setAttribute("aria-pressed", String(!state.skyLocked));
+    if (state.skyLocked) slider.value = String(Math.round(state.skyPhase * 1000));
+    label.textContent = state.skyLocked ? `sky locked at ${names[Math.floor(state.skyPhase * 8) % 8]} — for everyone` : "live — the shared sky";
+  };
+  conn.db.worldState.onInsert((_ctx, state) => paint(state));
+  conn.db.worldState.onUpdate((_ctx, _old, state) => paint(state));
+
+  const send = (phase: number, locked: boolean) => {
+    void conn.reducers.setSky({ phase, locked }).catch((err: unknown) => {
+      logError("Sky change failed", { surface: "commands", action: "set_sky", zone, error: err });
+      audio.playError();
+      status.textContent = "couldn't change the sky";
+    });
+    logInfo("Sky changed", { surface: "commands", action: "set_sky", zone, locked, source: "commands" });
+    audio.playCommand();
+    status.textContent = locked ? "sky locked — for everyone" : "sky follows the shared clock";
+  };
+  slider.addEventListener("input", () => send(Number(slider.value) / 1000, true));
+  live.addEventListener("click", () => send(0, false));
+
+  row.append(slider, live);
+  section.append(row, label);
+  return section;
 }
 
 function spawnSection(conn: DbConnection, zone: string, status: HTMLElement): HTMLElement {
@@ -92,6 +125,7 @@ function spawnSection(conn: DbConnection, zone: string, status: HTMLElement): HT
   grid.className = "command-spawn-grid";
 
   grid.appendChild(spawnButton("Boulder", itemIcon("boulder"), () => requestSpawn(conn, zone, status, { kind: "boulder" })));
+  grid.appendChild(spawnButton("Tree", itemIcon("tree"), () => requestSpawn(conn, zone, status, { kind: "tree" })));
   for (const style of HOG_STYLES) {
     const label = `${titleCaseWords(style)} Hog`;
     grid.appendChild(spawnButton(label, hogIcon(style), () => requestSpawn(conn, zone, status, { kind: "hog", style })));
@@ -106,7 +140,7 @@ function spawnSection(conn: DbConnection, zone: string, status: HTMLElement): HT
 
 function requestSpawn(conn: DbConnection, zone: string, status: HTMLElement, request: SpawnRequest) {
   const item = request.kind === "hog" ? request.style : request.kind === "item" ? request.item : "";
-  const label = request.kind === "boulder" ? "boulder" : request.kind === "hog" ? `${titleCaseWords(request.style)} Hog` : ITEMS[request.item].name;
+  const label = request.kind === "hog" ? `${titleCaseWords(request.style)} Hog` : request.kind === "item" ? ITEMS[request.item].name : request.kind;
   void spawnDebugEntity(conn, request.kind, item, "commands").catch((err) => {
     logError("Command spawn request failed", { surface: "commands", action: "spawn", zone, kind: request.kind, item, error: err });
     audio.playError();
@@ -206,6 +240,122 @@ function haunt(conn: DbConnection, zone: string, count: number): boolean {
   return true;
 }
 
+/** The cheat toggles' shared controller: each button flips one field and sends
+ *  the full state to `setCheats`; pressed state paints from the live player
+ *  row, so it survives reloads and stays honest if the server clamps a value. */
+function cheatToggles(conn: DbConnection, zone: string, status: HTMLElement) {
+  const me = () => (conn.identity ? conn.db.player.identity.find(conn.identity) : undefined);
+  const current = () => {
+    const p = me();
+    return { speed: (p?.cheatSpeed ?? 1) > 1, fly: p?.cheatFly ?? false, noclip: p?.cheatNoclip ?? false, invulnerable: p?.cheatInvulnerable ?? false };
+  };
+  type CheatKey = keyof ReturnType<typeof current>;
+  const painters: (() => void)[] = [];
+  const paint = () => painters.forEach((fn) => fn());
+  conn.db.player.onUpdate((_ctx, _old, row) => {
+    if (conn.identity && row.identity.isEqual(conn.identity)) paint();
+  });
+  conn.db.player.onInsert((_ctx, row) => {
+    if (conn.identity && row.identity.isEqual(conn.identity)) paint();
+  });
+  return (key: CheatKey, text: string, label: string): HTMLButtonElement => {
+    const button = commandButton(text);
+    painters.push(() => button.setAttribute("aria-pressed", String(current()[key])));
+    button.addEventListener("click", () => {
+      const next = { ...current(), [key]: !current()[key] };
+      void conn.reducers
+        .setCheats({ speed: next.speed ? CHEAT_SPEED_MULTIPLIER : 1, fly: next.fly, noclip: next.noclip, invulnerable: next.invulnerable })
+        .catch((err: unknown) => {
+          logError("Cheat toggle failed", { surface: "commands", action: "set_cheats", zone, cheat: key, error: err });
+          audio.playError();
+          status.textContent = "couldn't toggle cheat";
+        });
+      logInfo("Cheat toggled", { surface: "commands", action: "set_cheats", zone, cheat: key, on: next[key], source: "commands" });
+      audio.playCommand();
+      status.textContent = `${label} ${next[key] ? "on" : "off"}`;
+    });
+    button.setAttribute("aria-pressed", "false");
+    return button;
+  };
+}
+
+/** Movement cheats (GDD "Debug cheats"): speed, flight, noclip. */
+function movementSection(toggle: ReturnType<typeof cheatToggles>): HTMLElement {
+  const section = commandSection("Movement");
+  const grid = document.createElement("div");
+  grid.className = "command-grid";
+  grid.append(toggle("speed", `Speed ×${CHEAT_SPEED_MULTIPLIER}`, "speed"), toggle("fly", "Fly", "fly"), toggle("noclip", "Noclip", "noclip"));
+  section.appendChild(grid);
+  const hint = document.createElement("div");
+  hint.className = "command-hint";
+  hint.textContent = "fly: Space climbs, C sinks — you pass whatever sits below you · noclip walks through anything";
+  section.appendChild(hint);
+  return section;
+}
+
+/** Survival tools (GDD "Debug cheats"): god mode, plus the alpha-tester escape
+ *  hatches — full heal, and Unstuck for any weird spot you lock yourself into. */
+function survivalSection(conn: DbConnection, zone: string, status: HTMLElement, toggle: ReturnType<typeof cheatToggles>): HTMLElement {
+  const section = commandSection("Survival");
+  const grid = document.createElement("div");
+  grid.className = "command-grid";
+
+  const heal = commandButton("Heal");
+  heal.addEventListener("click", () => {
+    void conn.reducers.healSelf({}).catch((err: unknown) => {
+      logError("Heal failed", { surface: "commands", action: "heal_self", zone, error: err });
+      audio.playError();
+      status.textContent = "couldn't heal";
+    });
+    logInfo("Heal requested", { surface: "commands", action: "heal_self", zone, source: "commands" });
+    audio.playCommand();
+    status.textContent = "healed to full";
+  });
+
+  const unstuck = commandButton("Unstuck");
+  unstuck.addEventListener("click", () => {
+    void conn.reducers.rescue({}).catch((err: unknown) => {
+      logError("Rescue failed", { surface: "commands", action: "rescue", zone, error: err });
+      audio.playError();
+      status.textContent = "couldn't rescue";
+    });
+    logInfo("Rescue requested", { surface: "commands", action: "rescue", zone, source: "commands" });
+    audio.playCommand();
+    status.textContent = "moved to safe ground";
+  });
+
+  grid.append(toggle("invulnerable", "God mode", "god mode"), heal, unstuck);
+  section.appendChild(grid);
+  const hint = document.createElement("div");
+  hint.className = "command-hint";
+  hint.textContent = "Unstuck lands you on the nearest safe tile (spawn as a last resort)";
+  section.appendChild(hint);
+  return section;
+}
+
+/** Client-side debug overlays: combat hit circles plus the local melee reach cone. */
+function debugSection(status: HTMLElement): HTMLElement {
+  const section = commandSection("Debug");
+  const grid = document.createElement("div");
+  grid.className = "command-grid";
+
+  const button = commandButton("Hitboxes (B)");
+  button.setAttribute("aria-pressed", "false");
+  let on = false;
+  const toggle = () => {
+    on = !on;
+    button.setAttribute("aria-pressed", String(on));
+    window.dispatchEvent(new CustomEvent("trogg-debug-hitboxes", { detail: on }));
+    status.textContent = on ? "hitboxes shown" : "hitboxes hidden";
+  };
+  button.addEventListener("click", toggle);
+  registerKeybind({ id: "debug-hitboxes", matches: (event) => event.code === "KeyB", handler: toggle });
+
+  grid.appendChild(button);
+  section.appendChild(grid);
+  return section;
+}
+
 function commandSection(title: string): HTMLElement {
   const section = document.createElement("div");
   section.className = "command-section";
@@ -229,22 +379,16 @@ function spawnButton(label: string, icon: HTMLElement | SVGSVGElement, onClick: 
   button.type = "button";
   button.className = "command-spawn-button";
   button.setAttribute("aria-label", `Spawn ${label}`);
-  button.title = `Spawn ${label}`;
+  // the tooltip skips the verb — the tile sits under the "Spawn" heading
+  attachTip(button, label, "", "left");
   button.appendChild(icon);
   button.addEventListener("click", onClick);
   return button;
 }
 
-function hogIcon(style: HogStyle): HTMLSpanElement {
-  const frame = frameRect("hog", style, "down", "idle");
-  const scale = 1;
-  const icon = document.createElement("span");
-  icon.className = "command-avatar-icon";
-  icon.style.width = `${FRAME_W * scale}px`;
-  icon.style.height = `${FRAME_H * scale}px`;
-  icon.style.backgroundImage = `url("${avatarUrl}")`;
-  icon.style.backgroundSize = `${SHEET_W * scale}px ${SHEET_H * scale}px`;
-  icon.style.backgroundPosition = `-${frame.x * scale}px -${frame.y * scale}px`;
+function hogIcon(style: HogStyle): HTMLElement {
+  const icon = hogModelIcon(style);
+  icon.classList.add("command-avatar-icon");
   return icon;
 }
 

@@ -1,6 +1,6 @@
 /**
- * A trogg's avatar appearance (GDD "Avatars and equipment"; programmer pixel art
- * per pillar 5). Two independent axes: a body **style** (the sprite shape, picked
+ * A trogg's avatar appearance (GDD "Avatars and equipment"; programmer low-poly
+ * 3D per pillar 5). Two independent axes: a body **style** (the model, picked
  * by `restyle`) and a **colour** tint over it (picked by `recolor`). Each is the
  * value it chose (a palette/style index stored on the row), or — until it picks —
  * a stable default derived from its durable id, so an unchosen trogg looks the same
@@ -9,9 +9,9 @@
  * straight from their entity id, giving a zone a varied, stable crowd.
  */
 
-import { COMMON_HOG_STYLES, HOG_STYLES, TROGG_STYLES, type HogStyle, type TroggStyle } from "./sprites";
+import { COMMON_HOG_STYLES, HOG_STYLES, TROGG_STYLES, type HogStyle, type TroggStyle } from "./creatures";
 
-/** The recolour palette: earthy hide tints applied as a multiply over the sprite's
+/** The recolour palette: earthy hide tints applied as a multiply over the model's
  *  olive base, so a trogg always reads as a believable stone-and-moss creature —
  *  natural greens, greys, tans and clays, never neon. */
 export const TROGG_COLORS = [
@@ -98,7 +98,7 @@ export function hogStyleFor(hogId: string, storedStyle = ""): HogStyle {
   return isHogStyle(storedStyle) ? storedStyle : COMMON_HOG_STYLES[hashId(hogId) % COMMON_HOG_STYLES.length]!;
 }
 
-/** Whether `style` is one of the Hog sprite skins the shared sheet contains. */
+/** Whether `style` is one of the registered Hog skins. */
 export function isHogStyle(style: string): style is HogStyle {
   return (HOG_STYLES as readonly string[]).includes(style);
 }

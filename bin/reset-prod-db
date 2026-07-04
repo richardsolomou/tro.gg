@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Wipe and re-seed the PRODUCTION trogg database (spacetime.tro.gg). Destructive
+# and irreversible: republishes the current module with --delete-data, so every
+# player, cave, and chat line is gone and the world re-seeds from scratch. Meant
+# to be run once, by hand, at a go-live that changes everything for everyone.
+#
+# Needs the `spacetime` CLI logged in as the identity that owns `trogg`, and the
+# `trogg-prod` server registered (`spacetime server add trogg-prod --url
+# https://spacetime.tro.gg`).
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+spacetime="${SPACETIME:-spacetime}"
+server="trogg-prod"
+db="trogg"
+
+echo "This DESTROYS all data on the PRODUCTION database '$db' ($server) and re-seeds it fresh."
+echo "There is no undo."
+read -r -p "Type the database name ('$db') to confirm: " reply
+if [ "$reply" != "$db" ]; then
+  echo "Aborted."
+  exit 1
+fi
+
+"$spacetime" publish --server "$server" --module-path spacetimedb "$db" --delete-data -y
+echo "Production database cleared and republished."

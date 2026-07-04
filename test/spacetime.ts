@@ -87,6 +87,7 @@ export function makeCtx(opts: FakeCtxOpts) {
     db: {
       player: makeTable({ pk: "identity", indexes: ["zoneId"] }),
       boulder: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
+      tree: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
       hog: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
       groundItem: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
       inventory: makeTable({ pk: "id", autoInc: true, indexes: ["playerId"] }),
@@ -96,6 +97,8 @@ export function makeCtx(opts: FakeCtxOpts) {
       claimCode: makeTable({ pk: "code" }),
       hogWander: makeTable({ pk: "scheduledId", autoInc: true }),
       playerRespawn: makeTable({ pk: "scheduledId", autoInc: true, indexes: ["playerId"] }),
+      worldState: makeTable({ pk: "id" }),
+      creatureRegen: makeTable({ pk: "scheduledId", autoInc: true }),
     },
   };
 }
@@ -106,7 +109,7 @@ export type FakeCtx = ReturnType<typeof makeCtx>;
 export function playerRow(identity: Id, over: Record<string, unknown> = {}) {
   return {
     identity,
-    zoneId: "hog-town",
+    zoneId: "world",
     name: "trogg-0000",
     color: -1,
     x: 5,
@@ -131,6 +134,12 @@ export function playerRow(identity: Id, over: Record<string, unknown> = {}) {
     isGuest: true,
     movedAt: { microsSinceUnixEpoch: 0n },
     lastChatAt: undefined,
+    cheatSpeed: 1,
+    cheatFly: false,
+    cheatInvulnerable: false,
+    cheatNoclip: false,
+    z: 0,
+    dirZ: 0,
     ...over,
   };
 }

@@ -1,10 +1,17 @@
+export * from "./glyphs";
+import { SOLID_GLYPHS, TILE_GLYPHS, WATER_TILE } from "./glyphs";
+import { generateBirthCave, setRegionRows, WORLD_H, WORLD_W } from "./worldgen";
+import { WORLD_ARRIVAL, WORLD_CAVE_DOOR, WORLD_BIG_HOGS, WORLD_BOULDERS, WORLD_CELLS, WORLD_HOGS, WORLD_ITEMS, WORLD_REGION_ROWS, WORLD_SPAWN, WORLD_TILES, WORLD_TREES } from "./world-map";
+
+// regionAt() reads the committed grid on both client and module
+setRegionRows(WORLD_REGION_ROWS);
 /**
  * Tuning values from the GDD. Those marked (initial) are starting values; keep
  * them centralized here and make them remotely configurable only when runtime
  * tuning or experiments are useful. See docs/gdd.md.
  */
 
-import { BIG_HOG_STYLES } from "./sprites";
+import { BIG_HOG_STYLES, hogSize } from "./creatures";
 
 /** Movement speed shared by click-to-move and WASD. (initial) */
 export const MOVE_SPEED_TILES_PER_SEC = 4;
@@ -41,9 +48,10 @@ export const HOG_IDLE_CHANCE = 0.25;
  * Enforced server-side (invariant 3); the client feature flags only gate the UI, not the
  * reducer. Far above the registry seeds (2 boulders, 6 Hogs) — purely a DoS ceiling. (initial)
  */
-export const MAX_HOGS_PER_ZONE = 64;
-export const MAX_BOULDERS_PER_ZONE = 64;
-export const MAX_GROUND_ITEMS_PER_ZONE = 128;
+export const MAX_HOGS_PER_ZONE = 192;
+export const MAX_BOULDERS_PER_ZONE = 224;
+export const MAX_TREES_PER_ZONE = 320;
+export const MAX_GROUND_ITEMS_PER_ZONE = 384;
 
 /** Chat. (initial) */
 export const CHAT_MAX_CHARS = 200;
@@ -68,33 +76,6 @@ export const GHOST_HAUNT_HISTORY_MAX = 50;
  */
 export const GHOST_HAUNT_FRESH_MS = 10_000;
 
-/**
- * Tilemap glyphs (GDD "Zones"). Each character in a zone's `tiles` rows is one
- * tile. `WALL_TILE` (`#`) is the only unwalkable glyph — `isWalkable` treats it,
- * and only it, as solid; every other glyph is walkable floor. The non-wall glyphs
- * are cosmetic floor variants (gravel, moss, shallow water, glowmoss) so a zone
- * reads as varied terrain rather than one flat stone fill — they change how a tile
- * is drawn (`src/game/terrain.ts`), never how it collides. Water is a shallow puddle
- * the trogg wades through, so it stays walkable; an impassable pool would be a
- * `#`-class glyph instead. `assertZones` rejects any glyph not listed here.
- */
-export const WALL_TILE = "#";
-export const FLOOR_TILE = ".";
-export const GRAVEL_TILE = ",";
-export const MOSS_TILE = '"';
-export const WATER_TILE = "~";
-export const GLOWMOSS_TILE = "*";
-
-/** Every recognised tilemap glyph. A character outside this set is a typo, not a tile. */
-export const TILE_GLYPHS: ReadonlySet<string> = new Set([
-  WALL_TILE,
-  FLOOR_TILE,
-  GRAVEL_TILE,
-  MOSS_TILE,
-  WATER_TILE,
-  GLOWMOSS_TILE,
-]);
-
 /** An integer tile coordinate within a zone. */
 export interface Coord {
   x: number;
@@ -102,23 +83,145 @@ export interface Coord {
 }
 
 /** Item ids are canonical across inventory rows, equipment slots, and UI labels. */
-export const ITEM_IDS = ["stone", "pickaxe", "shovel", "sword", "shield"] as const;
+export const ITEM_IDS = ["stone", "wood", "quill", "pickaxe", "shovel", "axe", "sword", "shield", "torch"] as const;
 export type ItemId = (typeof ITEM_IDS)[number];
-export const SPAWNABLE_ITEM_IDS = ["pickaxe", "shovel", "sword", "shield"] as const satisfies readonly ItemId[];
+export const SPAWNABLE_ITEM_IDS = ["pickaxe", "shovel", "axe", "sword", "shield", "torch", "stone", "wood"] as const satisfies readonly ItemId[];
 export type SpawnableItemId = (typeof SPAWNABLE_ITEM_IDS)[number];
 
 /** Inventory capacity (GDD "Inventory"): each row occupies one visible carry slot. (initial) */
-export const INVENTORY_SLOT_COUNT = 10;
+export const INVENTORY_SLOT_COUNT = 20;
 
 /** Trogg/Hog combat health, damage, and respawn timing. (initial) */
 export const PLAYER_MAX_HEALTH = 100;
 export const HOG_MAX_HEALTH = 60;
-export const SWORD_DAMAGE = 25;
+
+/** A Hog's max health scales with the area of its footprint: a 2×2 giant is
+ *  four commons' worth of hedgehog. (initial) */
+export function hogMaxHealth(style: string): number {
+  const size = hogSize(style);
+  return HOG_MAX_HEALTH * size * size;
+}
+
+/**
+ * Out-of-combat regeneration (GDD "Combat"): a creature untouched for
+ * `HEALTH_REGEN_DELAY_MS` heals `HEALTH_REGEN_FRACTION` of its max (rounded up)
+ * every `HEALTH_REGEN_TICK_MS`, driven by the scheduled `regenCreatures` sweep
+ * (the sanctioned timer exception, like `wanderHogs`). Dead troggs never regen.
+ * (initial)
+ */
+export const HEALTH_REGEN_DELAY_MS = 30_000;
+export const HEALTH_REGEN_TICK_MS = 3_000;
+export const HEALTH_REGEN_FRACTION = 0.05;
+
+/** How long a dead NPC lies where it fell before the corpse is reaped (troggs
+ *  instead respawn after PLAYER_RESPAWN_MS). Corpses are scenery: not solid,
+ *  not targetable, not liftable. (initial) */
+export const NPC_CORPSE_MS = 30_000;
+
+/** How far (tiles, centre to centre) `E` reaches for ground items — a radius,
+ *  not a facing, so a drop at your feet is always liftable. (initial) */
+export const ITEM_PICKUP_RADIUS = 1.75;
+
+/** One entry of a creature's loot table: an inclusive quantity range rolled
+ *  with the reducer's context RNG when the creature dies. */
+export interface LootRoll {
+  item: ItemId;
+  min: number;
+  max: number;
+}
+
+/**
+ * What a Hog leaves behind (GDD "Combat"): loot lands as ground items on the
+ * nearest free tiles around the corpse. A giant sheds proportionally more.
+ * Troggs need no table — their loot is whatever they carried and held, which
+ * death already drops. (initial)
+ */
+export function hogLoot(style: string): LootRoll[] {
+  return hogSize(style) > 1 ? [{ item: "quill", min: 4, max: 6 }] : [{ item: "quill", min: 1, max: 2 }];
+}
+
+/** Gathering-node health: a boulder or tree soaks a few tool swings (each rolls
+ *  the tool's WEAPON_DAMAGE range) before it breaks and grants its resource —
+ *  roughly three average hits each. (initial) */
+export const BOULDER_MAX_HEALTH = 45;
+export const TREE_MAX_HEALTH = 54;
+
+/**
+ * Per-weapon melee damage as an inclusive [floor, ceiling] — every accepted hit
+ * rolls inside its weapon's range with the reducer's context RNG, so no two
+ * swings feel identical but replay stays deterministic (GDD "Combat"). Every
+ * equippable main-hand item can hurt a trogg or Hog, the sword just does it
+ * best. Tools resolve their gathering target first (pickaxe → boulder,
+ * axe → tree) and only wound creatures when no node is in reach. Unlisted
+ * items, off-hand items, and bare fists deal nothing. (initial)
+ */
+export const WEAPON_DAMAGE: Partial<Record<ItemId, readonly [number, number]>> = {
+  sword: [20, 30],
+  axe: [14, 22],
+  pickaxe: [11, 19],
+  shovel: [8, 16],
+};
+
+/** The melee damage range an equipped item rolls against creatures, if it can hurt them. */
+export function weaponDamageRange(item: string): readonly [number, number] | undefined {
+  return isItemId(item) ? WEAPON_DAMAGE[item] : undefined;
+}
+
+/** How much of a weapon's roll lands on a gathering node it wasn't made for —
+ *  a sword CAN whittle a tree down, it's just a terrible saw. Applied to the
+ *  roll, never below a 1-point scratch. (initial) */
+export const OFF_TOOL_NODE_FACTOR = 0.08;
+
+/** Bare fists: the empty-handed swing's damage range — always available, the
+ *  weakest option. Stored as the "fists" action impulse so clients animate it. */
+export const UNARMED_DAMAGE: readonly [number, number] = [5, 10];
+
+/** The Commands-drawer speed cheat's multiplier (GDD "Debug cheats"). Also the
+ *  ceiling `setCheats` clamps to — a forged call can't buy more (invariant 3). */
+export const CHEAT_SPEED_MULTIPLIER = 3;
+
+/** Fly cheat (GDD "Debug cheats"): climb/sink rate, the altitude ceiling, and
+ *  the heights airborne movement must clear — deep water is flat and scattered
+ *  obstacles (trees, boulders, creatures) reach canopy height; rock walls use
+ *  their actual rendered per-tile height (`rockHeightAt`, shared/heights.ts),
+ *  so "just above the rock you can see" is exactly what clears. All shared:
+ *  the projection is the one authority on where a flyer passes (invariant 3). */
+export const FLY_VERTICAL_TILES_PER_SEC = 5;
+export const FLY_MAX_HEIGHT = 14;
+export const FLY_CLEAR_WATER = 0.2;
+export const FLY_CLEAR_OBSTACLE = 2;
+
+/** How long a visible equipment-use impulse lasts — the attack clip length. */
+export const EQUIPMENT_ACTION_MS = 300;
+
+/** Server-enforced floor between equipment uses: chaining at the swing cadence is
+ *  fine, spamming faster than the animation is not. Slightly under
+ *  EQUIPMENT_ACTION_MS so a hold-to-attack client never races the clock. */
+export const EQUIPMENT_USE_COOLDOWN_MS = 250;
 export const THROWN_OBJECT_DAMAGE = 40;
 export const THROWN_OBJECT_RANGE = 4;
+
+/** The client's throw-arc duration by distance (cosmetic): how long the object
+ *  visibly flies from the thrower's hands to where it lands. */
+export const THROWN_FLIGHT_MS_PER_TILE = 70;
+export const THROWN_FLIGHT_MIN_MS = 240;
+export const THROWN_FLIGHT_MAX_MS = 650;
+export function thrownFlightMs(distanceTiles: number): number {
+  return Math.min(THROWN_FLIGHT_MAX_MS, Math.max(THROWN_FLIGHT_MIN_MS, distanceTiles * THROWN_FLIGHT_MS_PER_TILE));
+}
+
+/** How long a thrown Hog sits still after landing before it can roam again
+ *  (GDD "Hogs"): a fixed settle, kept above `THROWN_FLIGHT_MAX_MS` so it never
+ *  strides off before the client's arc has set it down — decoupled from the
+ *  arc's own length, so neither has to know the other's timing. */
+export const THROWN_HOG_SETTLE_MS = 900;
 export const PLAYER_RESPAWN_MS = 5000;
 
 export type EquipmentSlot = "mainHand" | "offHand";
+
+/** How a weapon is used: the attack clip class every species plays for it.
+ *  "swing" is the bare-fisted default. */
+export type Wield = "swing" | "stab" | "chop" | "scoop";
 
 export interface ItemDef {
   id: ItemId;
@@ -126,12 +229,13 @@ export interface ItemDef {
   stackable: boolean;
   blurb: string;
   slot?: EquipmentSlot;
-  sprite?: "pickaxe" | "shovel" | "sword";
+  wield?: Wield;
 }
 
 /**
  * Static item registry (GDD "Inventory"). Inventory rows store only item id and
- * quantity; holdable items point at their equipment slot and sprite.
+ * quantity; holdable items point at their equipment slot, and weapons at the
+ * wield class that picks their attack animation.
  */
 export const ITEMS: Record<ItemId, ItemDef> = {
   stone: {
@@ -140,13 +244,25 @@ export const ITEMS: Record<ItemId, ItemDef> = {
     stackable: true,
     blurb: "A useful chunk of cave rock.",
   },
+  wood: {
+    id: "wood",
+    name: "Wood",
+    stackable: true,
+    blurb: "A stout length of felled trunk.",
+  },
+  quill: {
+    id: "quill",
+    name: "Quill",
+    stackable: true,
+    blurb: "A stiff Hog spine, shed by the fallen.",
+  },
   pickaxe: {
     id: "pickaxe",
     name: "Pickaxe",
     stackable: false,
     blurb: "Equipped in the main hand. Use it to mine boulders into stone.",
     slot: "mainHand",
-    sprite: "pickaxe",
+    wield: "chop",
   },
   shovel: {
     id: "shovel",
@@ -154,7 +270,15 @@ export const ITEMS: Record<ItemId, ItemDef> = {
     stackable: false,
     blurb: "Equipped in the main hand. It is ready for digging once soil rules exist.",
     slot: "mainHand",
-    sprite: "shovel",
+    wield: "scoop",
+  },
+  axe: {
+    id: "axe",
+    name: "Axe",
+    stackable: false,
+    blurb: "Equipped in the main hand. Use it to fell trees into wood.",
+    slot: "mainHand",
+    wield: "chop",
   },
   sword: {
     id: "sword",
@@ -162,13 +286,20 @@ export const ITEMS: Record<ItemId, ItemDef> = {
     stackable: false,
     blurb: "Equipped in the main hand. Use it to attack a faced adjacent trogg.",
     slot: "mainHand",
-    sprite: "sword",
+    wield: "stab",
   },
   shield: {
     id: "shield",
     name: "Shield",
     stackable: false,
     blurb: "Equipped in the off hand.",
+    slot: "offHand",
+  },
+  torch: {
+    id: "torch",
+    name: "Torch",
+    stackable: false,
+    blurb: "Equipped in the off hand. Carries a pool of firelight into the dark.",
     slot: "offHand",
   },
 };
@@ -188,6 +319,11 @@ export function isEquippableItem(item: string): item is ItemId {
 /** The equipment slot an item occupies, or undefined when it isn't equippable. */
 export function equipSlotOf(item: string): EquipmentSlot | undefined {
   return isItemId(item) ? ITEMS[item].slot : undefined;
+}
+
+/** The attack clip class for a held item — bare-fisted "swing" when empty or unclassed. */
+export function wieldOf(item: string): Wield {
+  return (isItemId(item) ? ITEMS[item].wield : undefined) ?? "swing";
 }
 
 export function isStackableItem(item: string): item is ItemId {
@@ -268,88 +404,111 @@ export interface BigHog {
   style: string;
 }
 
+/** A gate on a zone edge: standing on its tile and interacting travels to `to`,
+ *  arriving inside that zone's reciprocal gate (GDD "Zones"). */
+export interface ZoneExit {
+  dir: "north" | "south" | "east" | "west";
+  to: string;
+  x: number;
+  y: number;
+}
+
+/** One birth cell in the warren (GDD "Onboarding: the Warren"): a sealed 3×3
+ *  room burrowed into the south-coast rock where a newborn trogg wakes. The
+ *  corridor tiles are open floor in the tilemap but plugged with mineable
+ *  rubble rows at assignment; the pickaxe seeds beside the spawn point. */
+export interface BirthCellSeed extends Coord {
+  corridor: readonly Coord[];
+  pickaxe: Coord;
+}
+
+/** Whether a (fractional) position sits inside a birth cell's room or corridor. */
+export function birthCellContains(cell: BirthCellSeed, x: number, y: number): boolean {
+  const tx = Math.round(x);
+  const ty = Math.round(y);
+  if (Math.abs(tx - cell.x) <= 1 && Math.abs(ty - cell.y) <= 1) return true;
+  return cell.corridor.some((t) => t.x === tx && t.y === ty);
+}
+
 export interface Zone {
   slug: string;
   name: string;
   width: number;
   height: number;
+  /** Colour/decoration family — the client picks palettes by it (BIOME_3D). */
+  biome: string;
+  /** Edge gates into neighbouring zones. */
+  exits: readonly ZoneExit[];
+  /** Where fresh troggs appear; defaults to the zone centre when absent. */
+  spawn?: Coord;
   tiles: readonly string[];
   boulders: readonly Coord[];
+  /** Starting tiles of the zone's choppable trees — seeded like boulders, felled by an axe. */
+  trees: readonly Coord[];
   hogs: readonly Coord[];
   items: readonly GroundItemSeed[];
   bigHogs: readonly BigHog[];
+  /** The birth warren's cells; empty for zones without one. */
+  cells: readonly BirthCellSeed[];
+  /** Where `E` emerges from an instanced birth cave (GDD "Onboarding"). */
+  exit?: Coord;
 }
 
 /**
- * Every zone in the world, keyed by slug. The current world has one shared zone;
- * later zones, starting areas, and gates are added here when they serve the game.
- *
- * `hog-town` is a 24×16 cave: a one-tile rock wall around the rim with two rock
- * pillars inside, so the playable floor is a real non-rectangular shape. The floor
- * is dressed with cosmetic tile variants (see `TILE_GLYPHS`) — gravel scree (`,`)
- * spilling around the rock pillars, moss (`"`) in the damp corners, a shallow
- * water puddle (`~`) in the low corner, and glowmoss (`*`) accents scattered
- * about — so the cave reads as varied terrain. They are all walkable; only `#`
- * blocks. Edit `tiles` to carve new layouts — walkability and rendering both read
- * from it. Two boulders flank the spawn (zone centre, 12×8) so a fresh trogg can
- * push one left and one right straight away. A handful of Hogs are scattered
- * around the floor and roam on their own (GDD "Hogs").
+ * The world (GDD "Zones"): ONE seamless zone, read from the committed map
+ * (`shared/world-map.ts` — generated once by `bin/generate-world`, then owned by
+ * hand). It is a plus-shaped layout of eleven biome regions (`WORLD_REGIONS` in
+ * worldgen.ts) stitched into a single 192×220 coordinate space with natural
+ * carved passages between them — regions are colour/decoration character and a
+ * name for a part of the map, not instances; you walk across. The client streams
+ * terrain in proximity chunks; the whole world is one subscription space.
  */
 export const ZONES: Record<string, Zone> = {
-  "hog-town": {
-    slug: "hog-town",
-    name: "Hog Town",
-    width: 24,
-    height: 16,
-    tiles: [
-      "########################",
-      "#\"\"....................#",
-      "#\"\"......*.............#",
-      "#\"..,,,,.............\".#",
-      "#...,##,.............\"\"#",
-      "#...,##,...\"\".........\"#",
-      "#...,,,,............*..#",
-      "#......................#",
-      "#......................#",
-      "#.......*......,,,,....#",
-      "#..............,##,....#",
-      "#\"\".......,,...,##,....#",
-      "#.~~\"........*.,,,,....#",
-      "#~~~~\".........*...*...#",
-      "#~~~~\".................#",
-      "########################",
-    ],
-    boulders: [
-      { x: 10, y: 8 },
-      { x: 14, y: 8 },
-    ],
-    hogs: [
-      { x: 3, y: 3 },
-      { x: 20, y: 3 },
-      { x: 12, y: 2 },
-      { x: 3, y: 12 },
-      { x: 20, y: 12 },
-      { x: 8, y: 13 },
-    ],
-    items: [
-      { item: "pickaxe", x: 11, y: 7 },
-      { item: "shovel", x: 12, y: 7 },
-      { item: "sword", x: 13, y: 7 },
-    ],
-    // Two giants (GDD "Hogs"): a buff hog on the open left flat, a dino on the right.
-    // Each anchor's 2×2 footprint is clear floor (rows 7-8 are an open band).
-    bigHogs: [
-      { x: 3, y: 7, style: "buff" },
-      { x: 18, y: 7, style: "dino" },
-    ],
+  world: {
+    slug: "world",
+    name: "The Caves",
+    width: WORLD_W,
+    height: WORLD_H,
+    biome: "cave",
+    exits: [],
+    spawn: WORLD_SPAWN,
+    tiles: WORLD_TILES,
+    boulders: WORLD_BOULDERS,
+    trees: WORLD_TREES,
+    hogs: WORLD_HOGS,
+    items: WORLD_ITEMS,
+    bigHogs: WORLD_BIG_HOGS,
+    cells: WORLD_CELLS,
   },
+  birthcave: generateBirthCave(),
 };
 
+/** Per-player birth zone ids: `birth:<identity hex>`. Rows scoped by such an id
+ *  are one newborn's private copy of the shared `birthcave` template — nobody
+ *  else subscribes to it, so onboarding is single-player by construction. */
+export const BIRTH_ZONE_PREFIX = "birth:";
+
+export function birthZoneFor(identityHex: string): string {
+  return `${BIRTH_ZONE_PREFIX}${identityHex}`;
+}
+
+export function isBirthZone(slug: string): boolean {
+  return slug.startsWith(BIRTH_ZONE_PREFIX);
+}
+
+/** Where an emerging trogg lands: the coast's cave-mouth alcove. */
+export const EMERGE_ARRIVAL = WORLD_ARRIVAL;
+
+/** The alcove's deep end: walking into it descends into your own birth cave —
+ *  every trogg keeps its cave, and nobody else's cave is ever reachable. */
+export const CAVE_DOOR = WORLD_CAVE_DOOR;
+
 /** Where a fresh trogg spawns, and the default room the client joins. */
-export const STARTING_ZONE_SLUG = "hog-town";
+export const STARTING_ZONE_SLUG = "world";
 
 /** Look up a zone definition, or undefined if the slug is unknown. */
 export function getZone(slug: string): Zone | undefined {
+  if (isBirthZone(slug)) return ZONES["birthcave"];
   return ZONES[slug];
 }
 
@@ -358,11 +517,23 @@ export function getZone(slug: string): Zone | undefined {
  * unwalkable, so movement clamps at the zone edge the same way it clamps at a
  * wall. Coordinates are integer tile indices.
  */
+/** The glyph at a tile, or undefined out of bounds. */
+export function tileGlyph(zone: Zone, tileX: number, tileY: number): string | undefined {
+  return zone.tiles[tileY]?.[tileX];
+}
+
+/** Walkable AND dry: where things may be placed and ambient creatures roam —
+ *  a trogg wades through shallow water, but items don't float and Hogs keep to
+ *  the banks (GDD "Zones"). */
+export function isDryFloor(zone: Zone, tileX: number, tileY: number): boolean {
+  return isWalkable(zone, tileX, tileY) && tileGlyph(zone, tileX, tileY) !== WATER_TILE;
+}
+
 export function isWalkable(zone: Zone, tileX: number, tileY: number): boolean {
   if (tileX < 0 || tileY < 0 || tileY >= zone.tiles.length) return false;
   const row = zone.tiles[tileY]!;
   if (tileX >= row.length) return false;
-  return row[tileX] !== WALL_TILE;
+  return !SOLID_GLYPHS.has(row[tileX]!);
 }
 
 /**
@@ -370,8 +541,8 @@ export function isWalkable(zone: Zone, tileX: number, tileY: number): boolean {
  * row length would silently break collision, so fail loudly instead. Called by a
  * unit test; cheap enough to also run at module load if ever needed.
  */
-export function assertZones(): void {
-  for (const zone of Object.values(ZONES)) {
+export function assertZones(zones: Record<string, Zone> = ZONES): void {
+  for (const zone of Object.values(zones)) {
     if (zone.tiles.length !== zone.height) {
       throw new Error(`zone ${zone.slug}: ${zone.tiles.length} rows, expected height ${zone.height}`);
     }
@@ -390,6 +561,11 @@ export function assertZones(): void {
         throw new Error(`zone ${zone.slug}: boulder at (${b.x}, ${b.y}) is not on walkable floor`);
       }
     }
+    for (const tr of zone.trees) {
+      if (!isDryFloor(zone, tr.x, tr.y)) {
+        throw new Error(`zone ${zone.slug}: tree at (${tr.x}, ${tr.y}) is not on dry open floor`);
+      }
+    }
     for (const h of zone.hogs) {
       if (!isWalkable(zone, h.x, h.y)) {
         throw new Error(`zone ${zone.slug}: hog at (${h.x}, ${h.y}) is not on walkable floor`);
@@ -401,6 +577,19 @@ export function assertZones(): void {
       }
       if (!isWalkable(zone, item.x, item.y)) {
         throw new Error(`zone ${zone.slug}: ground item ${item.item} at (${item.x}, ${item.y}) is not on walkable floor`);
+      }
+    }
+    for (const exit of zone.exits) {
+      if (!isWalkable(zone, exit.x, exit.y)) {
+        throw new Error(`zone ${zone.slug}: ${exit.dir} gate at (${exit.x}, ${exit.y}) is not walkable`);
+      }
+      const target = zones[exit.to];
+      if (!target) {
+        throw new Error(`zone ${zone.slug}: ${exit.dir} gate leads to unknown zone ${JSON.stringify(exit.to)}`);
+      }
+      const opposite = { north: "south", south: "north", east: "west", west: "east" }[exit.dir];
+      if (!target.exits.some((back) => back.dir === opposite && back.to === zone.slug)) {
+        throw new Error(`zone ${zone.slug}: ${exit.dir} gate to ${exit.to} has no reciprocal gate back`);
       }
     }
     for (const h of zone.bigHogs) {

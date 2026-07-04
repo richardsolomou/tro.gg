@@ -1,14 +1,20 @@
-import { ScheduleAt } from "spacetimedb";
+import { ScheduleAt, Timestamp } from "spacetimedb";
 import {
   GHOST_HAUNT_HISTORY_MAX,
   HOG_IDLE_CHANCE,
   HOG_STEP_INTERVAL_MS,
   HOG_TURN_CHANCE,
+  HEALTH_REGEN_TICK_MS,
   isValidName,
   isWalkable,
   HOG_MAX_HEALTH,
+  hogMaxHealth,
+  BOULDER_MAX_HEALTH,
+  TREE_MAX_HEALTH,
   SPACETIMEAUTH_ISSUER,
-  walkableCardinals,
+  getZone,
+  tileKey,
+  walkableSteps,
   type Zone,
   type ZoneBounds,
 } from "../../shared/index";
@@ -55,11 +61,45 @@ export function unit(): {} {
   return {};
 }
 
-/** Seed a zone's boulders from the registry, unless it already has some. */
+/**
+ * Regenerating the committed world map under a live database leaves rows seeded
+ * from the old layout sitting inside the new map's rock — visibly embedded in
+ * walls, and poisoning collision (a hog projected from inside rock makes the
+ * client and server disagree about blocked tiles). Detect any seedable row on
+ * unwalkable ground and wipe the zone's boulders, Hogs, and ground items; the
+ * idempotent seeders right after then re-seed from the current map.
+ */
+export function healStaleWorld(ctx: Ctx, zone: Zone): void {
+  const boulders = [...ctx.db.boulder.zoneId.filter(zone.slug)];
+  const trees = [...ctx.db.tree.zoneId.filter(zone.slug)];
+  const hogs = [...ctx.db.hog.zoneId.filter(zone.slug)];
+  const items = [...ctx.db.groundItem.zoneId.filter(zone.slug)];
+  const stale =
+    boulders.some((b) => !isWalkable(zone, b.x, b.y)) ||
+    trees.some((tr) => !isWalkable(zone, tr.x, tr.y)) ||
+    hogs.some((h) => !isWalkable(zone, Math.round(h.x), Math.round(h.y))) ||
+    items.some((g) => !isWalkable(zone, g.x, g.y));
+  if (!stale) return;
+  for (const b of boulders) ctx.db.boulder.id.delete(b.id);
+  for (const tr of trees) ctx.db.tree.id.delete(tr.id);
+  for (const h of hogs) ctx.db.hog.id.delete(h.id);
+  for (const g of items) ctx.db.groundItem.id.delete(g.id);
+}
+
+/** Seed a zone's boulders from the registry, unless it already has some.
+ *  Warren rubble is not the registry's — only world boulders count. */
 export function seedBoulders(ctx: Ctx, zone: Zone): void {
-  if ([...ctx.db.boulder.zoneId.filter(zone.slug)].length > 0) return;
+  if ([...ctx.db.boulder.zoneId.filter(zone.slug)].some((b) => !b.cellId)) return;
   for (const b of zone.boulders) {
-    ctx.db.boulder.insert({ id: 0n, zoneId: zone.slug, x: b.x, y: b.y });
+    ctx.db.boulder.insert({ id: 0n, zoneId: zone.slug, x: b.x, y: b.y, health: BOULDER_MAX_HEALTH, cellId: 0 });
+  }
+}
+
+/** Seed a zone's trees from the registry, unless it already has some. */
+export function seedTrees(ctx: Ctx, zone: Zone): void {
+  if ([...ctx.db.tree.zoneId.filter(zone.slug)].length > 0) return;
+  for (const tr of zone.trees) {
+    ctx.db.tree.insert({ id: 0n, zoneId: zone.slug, x: tr.x, y: tr.y, health: TREE_MAX_HEALTH });
   }
 }
 
@@ -69,10 +109,10 @@ export function seedBoulders(ctx: Ctx, zone: Zone): void {
 export function seedHogs(ctx: Ctx, zone: Zone): void {
   if ([...ctx.db.hog.zoneId.filter(zone.slug)].length > 0) return;
   for (const h of zone.hogs) {
-    ctx.db.hog.insert({ id: 0n, zoneId: zone.slug, x: h.x, y: h.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, path: "", homeX: h.x, homeY: h.y, style: "", health: HOG_MAX_HEALTH });
+    ctx.db.hog.insert({ id: 0n, zoneId: zone.slug, x: h.x, y: h.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, path: "", homeX: h.x, homeY: h.y, style: "", health: HOG_MAX_HEALTH, lastDamagedAt: Timestamp.UNIX_EPOCH, landingAt: Timestamp.UNIX_EPOCH });
   }
   for (const h of zone.bigHogs) {
-    ctx.db.hog.insert({ id: 0n, zoneId: zone.slug, x: h.x, y: h.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, path: "", homeX: h.x, homeY: h.y, style: h.style, health: HOG_MAX_HEALTH });
+    ctx.db.hog.insert({ id: 0n, zoneId: zone.slug, x: h.x, y: h.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, path: "", homeX: h.x, homeY: h.y, style: h.style, health: hogMaxHealth(h.style), lastDamagedAt: Timestamp.UNIX_EPOCH, landingAt: Timestamp.UNIX_EPOCH });
   }
 }
 
@@ -82,6 +122,25 @@ export function seedGroundItems(ctx: Ctx, zone: Zone): void {
   for (const item of zone.items) {
     ctx.db.groundItem.insert({ id: 0n, zoneId: zone.slug, item: item.item, x: item.x, y: item.y, qty: 1 });
   }
+}
+
+// ── the instanced birth cave (GDD "Onboarding: the Warren") ─────────────────────
+// Every newborn gets a private copy of the `birthcave` template: its rubble and
+// pickaxe are ordinary rows scoped by the player's own `birth:<hex>` zone id,
+// which nobody else ever subscribes to — single-player by construction, so no
+// occupancy tracking, no reclaim, and nothing another player could steal.
+
+/** Seed one newborn's private cave: rubble plugs the cell corridor, a pickaxe
+ *  waits beside the spawn. Idempotent per zone id. */
+export function seedBirthInstance(ctx: Ctx, zoneId: string): void {
+  const zone = getZone(zoneId);
+  const cell = zone?.cells[0];
+  if (!zone || !cell) return;
+  if ([...ctx.db.boulder.zoneId.filter(zoneId)].length > 0) return;
+  for (const t of cell.corridor) {
+    ctx.db.boulder.insert({ id: 0n, zoneId, x: t.x, y: t.y, health: BOULDER_MAX_HEALTH, cellId: 1 });
+  }
+  ctx.db.groundItem.insert({ id: 0n, zoneId, item: "pickaxe", x: cell.pickaxe.x, y: cell.pickaxe.y, qty: 1 });
 }
 
 /** Whether any player is currently online — the Hogs only roam while someone is
@@ -136,26 +195,29 @@ export function armWander(ctx: Ctx): void {
 }
 
 /**
- * A Hog's heading for the next tile (GDD "Hogs"). A Hog ambling in a direction keeps
- * going so long as that tile is open and a `HOG_TURN_CHANCE` roll doesn't turn it — so
- * it walks in gentle runs rather than jittering every tile. Otherwise (blocked ahead,
- * or it turned, or it was idle) it picks fresh: idle with `HOG_IDLE_CHANCE` so it
- * pauses, else a random walkable cardinal. `bounds` already treats walls, boulders,
- * troggs, and other Hogs as unwalkable, so a picked tile is always clear.
+ * A fresh wander heading (GDD "Hogs"), picked when a run ends — blocked ahead,
+ * a turn roll, or waking from idle. Idle with `HOG_IDLE_CHANCE` so Hogs pause,
+ * else a random open step from all 8 directions (`walkableSteps` keeps
+ * diagonals from squeezing wall corners). `bounds` already treats walls,
+ * boulders, trees, troggs, and other Hogs as unwalkable.
  */
 export function pickWanderDir(
   ctx: Ctx,
   bounds: ZoneBounds,
-  hog: { dirX: number; dirY: number },
   pos: { x: number; y: number },
   size: number,
 ): { dirX: number; dirY: number } {
-  const options = walkableCardinals(bounds, pos.x, pos.y, size);
-  const ahead = options.find((d) => d.dirX === hog.dirX && d.dirY === hog.dirY);
-  if (ahead && ctx.random() > HOG_TURN_CHANCE) return ahead;
   if (ctx.random() < HOG_IDLE_CHANCE) return { dirX: 0, dirY: 0 };
+  const options = walkableSteps(bounds, pos.x, pos.y, size);
   if (options.length === 0) return { dirX: 0, dirY: 0 };
   return options[ctx.random.integerInRange(0, options.length - 1)]!;
+}
+
+/** Arm the out-of-combat regen sweep, unless one is already pending (GDD "Combat"). */
+export function armRegen(ctx: Ctx): void {
+  if (ctx.db.creatureRegen.count() > 0n) return;
+  const at = ctx.timestamp.microsSinceUnixEpoch + BigInt(HEALTH_REGEN_TICK_MS) * 1000n;
+  ctx.db.creatureRegen.insert({ scheduledId: 0n, scheduledAt: ScheduleAt.time(at) });
 }
 
 /** Whether the caller authenticated with a SpacetimeAuth OIDC token (an account, not a guest). */

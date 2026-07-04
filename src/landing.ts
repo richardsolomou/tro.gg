@@ -1,9 +1,35 @@
 import { initAnalytics } from "./analytics.js";
+import { mountBackdrop } from "./landing3d.js";
+import { theme } from "./theme.js";
 
 // Landing page boots PostHog so autocapture and session replay cover the
 // funnel — landing pageview → play click → `player_joined` once the game
-// connects on /play. No game bundle loads here.
+// connects on /play. The hero is an ambient low-poly cave backdrop
+// (landing3d.ts) — the Three.js chunk it pulls is shared with /play, so it's
+// warm in cache by the time the player steps in. No netcode loads here.
 initAnalytics();
+
+// The game theme starts here and swells in — walking into the world doesn't
+// audibly restart it (the stream is generative; the fade is the continuity).
+theme.start();
+
+const canvas = document.getElementById("backdrop");
+const backdrop = canvas instanceof HTMLCanvasElement ? mountBackdrop(canvas) : undefined;
+
+// The moment the player heads for the world, the backdrop stops rendering —
+// navigation and the game's module load shouldn't race an ambient GPU loop.
+document.getElementById("play")?.addEventListener("click", () => backdrop?.stop());
+
+// Warm the game while the page idles: importing the entry pulls the whole
+// render + net module graph into cache (no boot side effects — StartGame and
+// connect only run when /play calls them), so the play click lands on a page
+// that's mostly already fetched and compiled.
+const prefetchGame = () => {
+  void import("./game/main.js").catch(() => {});
+  void import("./net/net.js").catch(() => {});
+};
+if ("requestIdleCallback" in window) requestIdleCallback(prefetchGame, { timeout: 4000 });
+else setTimeout(prefetchGame, 2500);
 
 const TWITCH_CHANNEL = "richardsolomou";
 

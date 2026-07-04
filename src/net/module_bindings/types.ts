@@ -15,6 +15,8 @@ export const Boulder = __t.object("Boulder", {
   zoneId: __t.string(),
   x: __t.i32(),
   y: __t.i32(),
+  health: __t.i32(),
+  cellId: __t.u32(),
 });
 export type Boulder = __Infer<typeof Boulder>;
 
@@ -34,6 +36,12 @@ export const ClaimCode = __t.object("ClaimCode", {
   createdAt: __t.timestamp(),
 });
 export type ClaimCode = __Infer<typeof ClaimCode>;
+
+export const CreatureRegen = __t.object("CreatureRegen", {
+  scheduledId: __t.u64(),
+  scheduledAt: __t.scheduleAt(),
+});
+export type CreatureRegen = __Infer<typeof CreatureRegen>;
 
 export const GhostHaunt = __t.object("GhostHaunt", {
   id: __t.u64(),
@@ -67,6 +75,8 @@ export const Hog = __t.object("Hog", {
   homeY: __t.i32(),
   style: __t.string(),
   health: __t.i32(),
+  lastDamagedAt: __t.timestamp(),
+  landingAt: __t.timestamp(),
 });
 export type Hog = __Infer<typeof Hog>;
 
@@ -113,6 +123,13 @@ export const Player = __t.object("Player", {
   respawnAt: __t.option(__t.timestamp()),
   equippedOffHand: __t.string(),
   equippedOffHandInventoryId: __t.u64(),
+  lastDamagedAt: __t.timestamp(),
+  cheatSpeed: __t.f64(),
+  cheatFly: __t.bool(),
+  cheatInvulnerable: __t.bool(),
+  cheatNoclip: __t.bool(),
+  z: __t.f64(),
+  dirZ: __t.i32(),
 });
 export type Player = __Infer<typeof Player>;
 
@@ -129,4 +146,20 @@ export const PlayerRespawn = __t.object("PlayerRespawn", {
   scheduledAt: __t.scheduleAt(),
 });
 export type PlayerRespawn = __Infer<typeof PlayerRespawn>;
+
+export const Tree = __t.object("Tree", {
+  id: __t.u64(),
+  zoneId: __t.string(),
+  x: __t.i32(),
+  y: __t.i32(),
+  health: __t.i32(),
+});
+export type Tree = __Infer<typeof Tree>;
+
+export const WorldState = __t.object("WorldState", {
+  id: __t.u32(),
+  skyLocked: __t.bool(),
+  skyPhase: __t.f64(),
+});
+export type WorldState = __Infer<typeof WorldState>;
 

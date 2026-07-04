@@ -5,14 +5,22 @@ import {
   getZone,
   isHogStyle,
   isSpawnableItemId,
+  hogMaxHealth,
   HOG_MAX_HEALTH,
+  BOULDER_MAX_HEALTH,
+  TREE_MAX_HEALTH,
   MAX_BOULDERS_PER_ZONE,
   MAX_GROUND_ITEMS_PER_ZONE,
   MAX_HOGS_PER_ZONE,
+  MAX_TREES_PER_ZONE,
+  CHEAT_SPEED_MULTIPLIER,
+  PLAYER_MAX_HEALTH,
+  nearestSafeTile,
   spawnTile,
   tileKey,
 } from "../../../shared/index";
 import {
+  spawnAt,
   seedBoulders,
   seedHogs,
   captureProcedureEvents,
@@ -36,8 +44,8 @@ import {
  * or a boxed-in trogg is a silent no-op.
  */
 function runSpawn(ctx: Ctx, { kind, item = "", source = "" }: { kind: string; item?: string; source?: string }): AnalyticsEvent[] {
-  if (kind !== "boulder" && kind !== "hog" && kind !== "item") return [];
-  if (kind === "boulder" && item !== "") return [];
+  if (kind !== "boulder" && kind !== "tree" && kind !== "hog" && kind !== "item") return [];
+  if ((kind === "boulder" || kind === "tree") && item !== "") return [];
   if (kind === "item" && !isSpawnableItemId(item)) return [];
   if (kind === "hog" && item !== "" && !isHogStyle(item)) return [];
 
@@ -49,11 +57,13 @@ function runSpawn(ctx: Ctx, { kind, item = "", source = "" }: { kind: string; it
 
   const existing =
     kind === "boulder"
-      ? countRows(ctx.db.boulder.zoneId.filter(p.zoneId))
-      : kind === "hog"
-        ? countRows(ctx.db.hog.zoneId.filter(p.zoneId))
-        : countRows(ctx.db.groundItem.zoneId.filter(p.zoneId));
-  const cap = kind === "boulder" ? MAX_BOULDERS_PER_ZONE : kind === "hog" ? MAX_HOGS_PER_ZONE : MAX_GROUND_ITEMS_PER_ZONE;
+      ? [...ctx.db.boulder.zoneId.filter(p.zoneId)].filter((b) => !b.cellId).length
+      : kind === "tree"
+        ? countRows(ctx.db.tree.zoneId.filter(p.zoneId))
+        : kind === "hog"
+          ? countRows(ctx.db.hog.zoneId.filter(p.zoneId))
+          : countRows(ctx.db.groundItem.zoneId.filter(p.zoneId));
+  const cap = kind === "boulder" ? MAX_BOULDERS_PER_ZONE : kind === "tree" ? MAX_TREES_PER_ZONE : kind === "hog" ? MAX_HOGS_PER_ZONE : MAX_GROUND_ITEMS_PER_ZONE;
   if (existing >= cap) return [];
 
   // Drop entities on free floor — never inside a wall or on top of anything solid
@@ -66,11 +76,13 @@ function runSpawn(ctx: Ctx, { kind, item = "", source = "" }: { kind: string; it
   if (!tile) return [];
 
   if (kind === "boulder") {
-    ctx.db.boulder.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y });
+    ctx.db.boulder.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y, health: BOULDER_MAX_HEALTH, cellId: 0 });
+  } else if (kind === "tree") {
+    ctx.db.tree.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y, health: TREE_MAX_HEALTH });
   } else if (kind === "hog") {
     // A spawned Hog starts at rest and joins the roamers — the next wander tick
     // gives it a heading like any other. `item` carries an explicit sprite style.
-    ctx.db.hog.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, path: "", homeX: tile.x, homeY: tile.y, style: item, health: HOG_MAX_HEALTH });
+    ctx.db.hog.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, path: "", homeX: tile.x, homeY: tile.y, style: item, health: hogMaxHealth(item), lastDamagedAt: Timestamp.UNIX_EPOCH, landingAt: Timestamp.UNIX_EPOCH });
   } else {
     ctx.db.groundItem.insert({ id: 0n, zoneId: p.zoneId, item, x: tile.x, y: tile.y, qty: 1 });
   }
@@ -97,7 +109,7 @@ export const spawnAction = spacetimedb.procedure(
 
 /**
  * Reset the caller's zone boulders to their `ZONES` registry positions (GDD
- * "Pushing"). Clears the zone's boulders and reseeds from the registry — the single
+ * "Boulders"). Clears the zone's boulders and reseeds from the registry — the single
  * source of truth — so a layout shoved out of shape snaps back. Fired by the Commands
  * panel; open like every reducer, with the optional `boulder-reset` flag gating the
  * client control.
@@ -107,7 +119,10 @@ function runResetBoulders(ctx: Ctx, source = ""): AnalyticsEvent[] {
   if (!p) return [];
   const zone = getZone(p.zoneId);
   if (!zone) return [];
-  for (const b of [...ctx.db.boulder.zoneId.filter(zone.slug)]) ctx.db.boulder.id.delete(b.id);
+  // warren rubble (cellId > 0) belongs to the birth cells, not the registry
+  for (const b of [...ctx.db.boulder.zoneId.filter(zone.slug)]) {
+    if (!b.cellId) ctx.db.boulder.id.delete(b.id);
+  }
   seedBoulders(ctx, zone);
   return [{ distinctId: distinctId(ctx), event: "boulders_reset", properties: { zone: zone.slug, ...sourceProp(source) } }];
 }
@@ -159,3 +174,125 @@ export const resetHogsAction = spacetimedb.procedure(
   },
 );
 
+
+/**
+ * Debug cheats (GDD "Commands panel"): a move-speed multiplier, flight (hover;
+ * altitude is client display state), noclip (walk through anything), and
+ * invulnerability, toggled from the Commands panel. Motion settles first — a
+ * speed or noclip change re-derives position from the origin, so an unsettled
+ * intent would replay its history at the new rules and teleport (the same
+ * reason `move` settles before storing a new heading). Values are clamped,
+ * never trusted (invariant 3): speed only 1 or the fixed multiplier, and a
+ * trogg switching noclip off while inside geometry settles to the nearest safe
+ * tile so it can't end up standing inside a wall.
+ */
+export const setCheats = spacetimedb.reducer({ speed: t.f64(), fly: t.bool(), noclip: t.bool(), invulnerable: t.bool() }, (ctx, { speed, fly, noclip, invulnerable }) => {
+  const p = ctx.db.player.identity.find(ctx.sender);
+  if (!p) return;
+  const zone = getZone(p.zoneId);
+  if (!zone) return;
+  const settled = settle(ctx, p, ctx.timestamp);
+  let at = { x: settled.x, y: settled.y };
+  if ((p.cheatNoclip && !noclip) || (p.cheatFly && !fly)) {
+    // touching down / re-clipping: airborne or noclipped projection ignored
+    // walkability, so the settled spot may be a wall or water — step to the
+    // nearest standable ground
+    const tile = nearestSafeTile(zone, Math.round(at.x), Math.round(at.y));
+    if (tile) at = tile;
+  }
+  ctx.db.player.identity.update({
+    ...p,
+    x: at.x,
+    y: at.y,
+    // grounding: switching fly off drops the trogg; staying airborne keeps the
+    // settled altitude and stops the climb (a fresh Space press resumes it)
+    z: fly ? settled.z : 0,
+    dirZ: 0,
+    dirX: 0,
+    dirY: 0,
+    path: "",
+    movedAt: ctx.timestamp,
+    cheatSpeed: speed > 1 ? CHEAT_SPEED_MULTIPLIER : 1,
+    cheatFly: fly,
+    cheatInvulnerable: invulnerable,
+    cheatNoclip: noclip,
+  });
+});
+
+/**
+ * The fly cheat's vertical intent (GDD "Debug cheats"): -1 sinking, 0 holding,
+ * +1 climbing — written on Space/C input transitions, exactly the `move`
+ * pattern for the third axis. Settles first so elapsed climb at the old lift
+ * isn't lost or replayed; sign-clamped, never trusted (invariant 3). Ignored
+ * unless the flyer is airborne (cheatFly).
+ */
+export const setLift = spacetimedb.reducer({ dirZ: t.i32() }, (ctx, { dirZ }) => {
+  const p = ctx.db.player.identity.find(ctx.sender);
+  if (!p) return;
+  if (p.dead || !p.cheatFly) return;
+  const settled = settle(ctx, p, ctx.timestamp);
+  // a click-route's stored waypoints aren't trimmed by the settle; re-basing the
+  // origin under the full path would glide the trogg backward, so the route ends
+  ctx.db.player.identity.update({
+    ...p,
+    x: settled.x,
+    y: settled.y,
+    z: settled.z,
+    dirZ: Math.sign(dirZ),
+    path: "",
+    movedAt: ctx.timestamp,
+  });
+});
+
+/**
+ * Debug/alpha escape hatch (GDD "Debug cheats"): restore full health. A dead
+ * trogg stays dead — respawn already handles that; this is for walking away
+ * from a botched fight while testing.
+ */
+export const healSelf = spacetimedb.reducer((ctx) => {
+  const p = ctx.db.player.identity.find(ctx.sender);
+  if (!p) return;
+  if (p.dead) return;
+  ctx.db.player.identity.update({ ...p, health: PLAYER_MAX_HEALTH });
+});
+
+/**
+ * Debug/alpha escape hatch (GDD "Debug cheats"): unstuck. Settle, then step to
+ * the nearest standable tile — or all the way back to spawn when nothing nearby
+ * is safe — grounding and stopping the trogg. The way out of any weird spot a
+ * tester locks themselves into.
+ */
+export const rescue = spacetimedb.reducer((ctx) => {
+  const p = ctx.db.player.identity.find(ctx.sender);
+  if (!p) return;
+  if (p.dead) return;
+  const zone = getZone(p.zoneId);
+  if (!zone) return;
+  const settled = settle(ctx, p, ctx.timestamp);
+  const at = nearestSafeTile(zone, Math.round(settled.x), Math.round(settled.y)) ?? spawnAt(zone);
+  ctx.db.player.identity.update({
+    ...p,
+    x: at.x,
+    y: at.y,
+    z: 0,
+    dirZ: 0,
+    dirX: 0,
+    dirY: 0,
+    running: false,
+    path: "",
+    movedAt: ctx.timestamp,
+  });
+});
+
+/**
+ * Pin (or release) the shared day-night cycle (GDD "Debug cheats"). The sky is
+ * shared fiction — a scrubbed noon is noon for every client — so the override
+ * lives in the public `world_state` singleton rather than any one client.
+ * Phase is wrapped into [0, 1); live = the shared wall clock resumes.
+ */
+export const setSky = spacetimedb.reducer({ phase: t.f64(), locked: t.bool() }, (ctx, { phase, locked }) => {
+  const wrapped = ((phase % 1) + 1) % 1;
+  const existing = ctx.db.worldState.id.find(0);
+  if (existing) ctx.db.worldState.id.update({ ...existing, skyLocked: locked, skyPhase: wrapped });
+  else ctx.db.worldState.insert({ id: 0, skyLocked: locked, skyPhase: wrapped });
+});

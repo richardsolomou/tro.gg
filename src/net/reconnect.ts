@@ -14,7 +14,7 @@ import { connect } from "./net.js";
  * Once a probe connects we reload rather than re-wire the live connection: every
  * table is server-authoritative and re-derived from subscriptions on connect, and
  * the stored Identity token resumes the same trogg (GDD "Guest persistence"), so a
- * clean reload loses nothing and avoids rebuilding every subscription and Phaser
+ * clean reload loses nothing and avoids rebuilding every subscription and renderer
  * object by hand. Nothing is orphaned — the server settles the trogg on disconnect
  * (GDD invariant 1).
  */

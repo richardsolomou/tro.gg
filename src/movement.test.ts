@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Coord, Facing, ProjectedMotion, ZoneBounds } from "@trogg/shared";
 import type { Player } from "./net/module_bindings/types";
-import type { Tracked } from "./game/entities.js";
+import type { MotionEntry } from "./movement.js";
 import type { MoveIntent } from "./input.js";
 import { createSelfController, type SelfControllerDeps } from "./movement.js";
 
@@ -25,7 +25,6 @@ function harness(over: Partial<SelfControllerDeps> = {}) {
   const moves: MoveCall[] = [];
   const faces: FaceCall[] = [];
   const moveTos: Coord[] = [];
-  let pushes = 0;
   const hogTiles = new Set<string>();
   const boulderTiles = new Set<string>();
   const destinations: (Coord | undefined)[] = [];
@@ -39,35 +38,37 @@ function harness(over: Partial<SelfControllerDeps> = {}) {
     faceY: 1,
     running: false,
     path: "",
+    z: 0,
+    dirZ: 0,
     movedAt: { microsSinceUnixEpoch: 0n },
   } as unknown as Player;
-  const entry = { player, baseMs: 0, facing: "down" as Facing, frameKey: "", carriedKind: "" } as unknown as Tracked;
+  const entry = { player, baseMs: 0, facing: "down" as Facing } satisfies MotionEntry;
 
   const conn = {
     reducers: {
       move: (i: MoveCall) => moves.push(i),
       face: (i: FaceCall) => faces.push(i),
       moveTo: (t: Coord & { running: boolean }) => moveTos.push({ x: t.x, y: t.y }),
-      push: () => pushes++,
     },
   } as unknown as SelfControllerDeps["conn"];
 
   const self = createSelfController({
     conn,
-    bounds: { width: 20, height: 20 } as ZoneBounds,
+    // Like production, the bounds treat hog and boulder tiles as unwalkable, so the
+    // controller's can-I-progress probe collides with them (world3d's zoneBounds wiring).
+    bounds: { width: 20, height: 20, isWalkable: (x, y) => !hogTiles.has(`${x},${y}`) && !boulderTiles.has(`${x},${y}`) } as ZoneBounds,
     hogTiles,
     boulderTiles,
-    pushEnabled: true,
     getSelf: () => entry,
     showDestination: (tile) => destinations.push(tile),
     toBaseMs: () => 1000,
     facingFromDir,
-    audio: { playFootstep: () => {}, playBoulderPush: () => {} },
+    audio: { playFootstep: () => {} },
     ...over,
   });
 
-  const motion = (x: number, y: number, dirX: number, dirY: number, arrived = false): ProjectedMotion => ({ x, y, dirX, dirY, arrived });
-  return { self, entry, player, moves, faces, moveTos, pushes: () => pushes, hogTiles, boulderTiles, destinations, motion };
+  const motion = (x: number, y: number, dirX: number, dirY: number, arrived = false): ProjectedMotion => ({ x, y, z: 0, dirX, dirY, arrived });
+  return { self, entry, player, moves, faces, moveTos, hogTiles, boulderTiles, destinations, motion };
 }
 
 const idle: MoveIntent = { dirX: 0, dirY: 0, running: false };
@@ -91,23 +92,29 @@ test("the first keypress honours the synced self row facing", () => {
   assert.equal(h.faces.length, 0);
 });
 
-test("pressing an unfaced direction turns in place without moving", () => {
+test("pressing a new direction walks immediately and faces it (free movement)", () => {
   const h = harness();
-  h.self.onIntent(right); // facing is down, so this should turn, not walk
+  h.self.onIntent(right); // facing is down — no turn-in-place beat, just go
   h.self.update(h.entry, h.motion(0, 0, 0, 0, true), 0);
-  assert.equal(h.moves.length, 0);
-  assert.deepEqual(h.faces.at(-1), { dirX: 1, dirY: 0 });
+  assert.deepEqual(h.moves.at(-1), right);
   assert.deepEqual({ dirX: h.self.facing.dirX, dirY: h.self.facing.dirY }, { dirX: 1, dirY: 0 });
 });
 
-test("holding the faced direction past the turn beat starts walking", () => {
+test("changing direction mid-walk re-bases from the fractional spot, no snap", () => {
   const h = harness();
-  h.self.onIntent(right);
-  h.self.update(h.entry, h.motion(0, 0, 0, 0, true), 0); // turns in place, arms walkAfter
-  assert.equal(h.moves.length, 0);
-  assert.equal(h.faces.length, 1);
-  h.self.update(h.entry, h.motion(0, 0, 0, 0, true), 1000); // well past TURN_TAP_MS
-  assert.deepEqual(h.moves.at(-1), right);
+  h.self.onIntent(right, true);
+  h.self.onIntent(down);
+  h.self.update(h.entry, h.motion(0.4, 0, 1, 0), 16); // mid-tile when the new key lands
+  assert.deepEqual(h.moves.at(-1), down);
+  assert.equal(h.entry.player.x, 0.4); // origin stays fractional — nothing banks or snaps
+});
+
+test("a diagonal intent is sent as-is and faces its dominant axis", () => {
+  const h = harness();
+  h.self.onIntent({ dirX: 1, dirY: 1, running: false });
+  h.self.update(h.entry, h.motion(0, 0, 0, 0, true), 0);
+  assert.deepEqual(h.moves.at(-1), { dirX: 1, dirY: 1, running: false });
+  assert.deepEqual({ dirX: h.self.facing.dirX, dirY: h.self.facing.dirY }, { dirX: 1, dirY: 0 });
 });
 
 test("waiting against a blocking Hog sends one standing face update", () => {
@@ -120,15 +127,18 @@ test("waiting against a blocking Hog sends one standing face update", () => {
   assert.deepEqual(h.faces, [{ dirX: 1, dirY: 0 }]);
 });
 
-test("a held run re-bases the origin once per tile centre crossed", () => {
+test("a held run re-bases the origin once per tile crossed", () => {
   const h = harness();
   h.self.onIntent(right, true); // sends the initial move(right), origin tile (0,0)
   h.moves.length = 0;
   h.self.update(h.entry, h.motion(0.05, 0, 1, 0), 0); // same tile, no re-base
-  h.self.update(h.entry, h.motion(0.5, 0, 1, 0), 1); // mid-tile, not a centre
+  h.self.update(h.entry, h.motion(0.49, 0, 1, 0), 1); // still nearest tile 0
   assert.equal(h.moves.length, 0);
-  h.self.update(h.entry, h.motion(1, 0, 1, 0), 2); // crossed into tile 1 → re-base
+  h.self.update(h.entry, h.motion(1, 0, 1, 0), 2); // now on tile 1 → re-base
   assert.deepEqual(h.moves.at(-1), right);
+  assert.equal(h.moves.length, 1); // once per crossing, not per frame
+  h.self.update(h.entry, h.motion(1.2, 0, 1, 0), 3);
+  assert.equal(h.moves.length, 1);
 });
 
 test("walking flush into a Hog stops the trogg, keeping it idle (no stale intent)", () => {
@@ -140,10 +150,31 @@ test("walking flush into a Hog stops the trogg, keeping it idle (no stale intent
   assert.deepEqual(h.moves.at(-1), { dirX: 0, dirY: 0, running: false });
 });
 
+test("a server settle near the optimistic origin acks it — clock drift is not a snap", () => {
+  const h = harness();
+  h.self.onIntent(right, true); // optimistic move(right) from (0,0)
+  const predictedBaseMs = h.entry.baseMs;
+  // The server derived the same trajectory on its own clock: same heading, slightly
+  // different fractional origin (latency × speed).
+  const server = { x: 0.42, y: 0, dirX: 1, dirY: 0, faceX: 1, faceY: 0, running: false, z: 0, dirZ: 0, path: "", movedAt: { microsSinceUnixEpoch: 5n } } as unknown as Player;
+  h.self.reconcile(h.entry, server);
+  assert.equal(h.entry.player.x, 0); // local prediction kept
+  assert.equal(h.entry.baseMs, predictedBaseMs); // no animation restart
+});
+
+test("a server motion far from the optimistic origin still snaps to authority", () => {
+  const h = harness();
+  h.self.onIntent(right, true);
+  const server = { x: 7, y: 3, dirX: 1, dirY: 0, faceX: 1, faceY: 0, running: false, z: 0, dirZ: 0, path: "", movedAt: { microsSinceUnixEpoch: 5n } } as unknown as Player;
+  h.self.reconcile(h.entry, server);
+  assert.equal(h.entry.player.x, 7); // genuine disagreement → server truth
+  assert.equal(h.entry.baseMs, 1000); // re-based to the server stamp
+});
+
 test("a server row that matches a pending move is an ack, not a snap", () => {
   const h = harness();
   h.self.onIntent(right, true); // optimistic move(right) from (0,0)
-  const server = { x: 0, y: 0, dirX: 1, dirY: 0, faceX: 1, faceY: 0, running: false, path: "", movedAt: { microsSinceUnixEpoch: 5n } } as unknown as Player;
+  const server = { x: 0, y: 0, dirX: 1, dirY: 0, faceX: 1, faceY: 0, running: false, z: 0, dirZ: 0, path: "", movedAt: { microsSinceUnixEpoch: 5n } } as unknown as Player;
   h.self.reconcile(h.entry, server);
   // Predicted motion is kept (intent stays right); baseMs is NOT reset to the server stamp.
   assert.equal(h.entry.player.dirX, 1);
@@ -163,6 +194,8 @@ test("a stale non-motion self row does not snap over pending local movement", ()
     faceY: 1,
     running: false,
     path: "",
+    z: 0,
+    dirZ: 0,
     movedAt: { microsSinceUnixEpoch: 0n },
     equipmentAction: "sword",
     equipmentActionAt: { microsSinceUnixEpoch: 9n },
@@ -177,7 +210,7 @@ test("a stale non-motion self row does not snap over pending local movement", ()
 
 test("a server row that matches nothing snaps to authority", () => {
   const h = harness();
-  const server = { x: 7, y: 3, dirX: 0, dirY: 0, faceX: 0, faceY: -1, running: false, path: "", movedAt: { microsSinceUnixEpoch: 9n } } as unknown as Player;
+  const server = { x: 7, y: 3, dirX: 0, dirY: 0, faceX: 0, faceY: -1, running: false, z: 0, dirZ: 0, path: "", movedAt: { microsSinceUnixEpoch: 9n } } as unknown as Player;
   h.self.reconcile(h.entry, server);
   assert.equal(h.entry.player.x, 7);
   assert.equal(h.entry.player.y, 3);
@@ -187,33 +220,21 @@ test("a server row that matches nothing snaps to authority", () => {
 
 test("an idle duplicate tab observing WASD movement does not send a stop", () => {
   const h = harness();
-  const server = { x: 0, y: 0, dirX: 1, dirY: 0, faceX: 1, faceY: 0, running: false, path: "", movedAt: { microsSinceUnixEpoch: 9n } } as unknown as Player;
+  const server = { x: 0, y: 0, dirX: 1, dirY: 0, faceX: 1, faceY: 0, running: false, z: 0, dirZ: 0, path: "", movedAt: { microsSinceUnixEpoch: 9n } } as unknown as Player;
   h.self.reconcile(h.entry, server); // another tab started walking this shared trogg
   h.self.update(h.entry, h.motion(1, 0, 1, 0), 1000); // observer reaches a tile centre
   assert.equal(h.moves.length, 0);
 });
 
-test("a duplicate tab can take over WASD once it receives local keyboard input", () => {
+test("a duplicate tab observes silently, then takes over on local keyboard input", () => {
   const h = harness();
-  const server = { x: 0, y: 0, dirX: 1, dirY: 0, faceX: 1, faceY: 0, running: false, path: "", movedAt: { microsSinceUnixEpoch: 9n } } as unknown as Player;
+  const server = { x: 0, y: 0, dirX: 1, dirY: 0, faceX: 1, faceY: 0, running: false, z: 0, dirZ: 0, path: "", movedAt: { microsSinceUnixEpoch: 9n } } as unknown as Player;
   h.self.reconcile(h.entry, server);
-  h.self.onIntent(down);
+  h.self.update(h.entry, h.motion(1, 0, 1, 0), 500); // observing another tab's motion
+  assert.equal(h.moves.length, 0);
+  h.self.onIntent(down); // local input → this tab drives now
   h.self.update(h.entry, h.motion(1, 0, 1, 0), 1000);
-  assert.deepEqual(h.faces.at(-1), { dirX: 0, dirY: 1 });
-  h.self.update(h.entry, h.motion(1, 0, 0, 0), 2000);
   assert.deepEqual(h.moves.at(-1), down);
-});
-
-test("a push blocked by a Hog beyond the boulder retries until it clears", () => {
-  const h = harness();
-  h.boulderTiles.add("1,0"); // boulder directly ahead
-  h.self.onIntent(right, true); // commit to walking right, flush against the boulder
-  h.self.update(h.entry, h.motion(0, 0, 1, 0), 0); // rising edge: one shove
-  assert.equal(h.pushes(), 1);
-  h.self.update(h.entry, h.motion(0, 0, 1, 0), 100); // still flush, within the retry throttle
-  assert.equal(h.pushes(), 1);
-  h.self.update(h.entry, h.motion(0, 0, 1, 0), 300); // throttle elapsed → retry (so it resumes once the Hog leaves)
-  assert.equal(h.pushes(), 2);
 });
 
 test("a click queues a destination and routes from a tile centre", () => {
@@ -248,7 +269,7 @@ test("re-clicking the tile we're already routing to is ignored (no re-path snap)
   assert.equal(h.moveTos.length, 0); // deduped — re-routing would reset movedAt and snap the trogg
 });
 
-test("redirecting mid-route re-routes only at the next tile centre", () => {
+test("redirecting mid-route re-routes immediately from the fractional spot", () => {
   const h = harness();
   h.self.onClick({ x: 4, y: 0 });
   h.self.update(h.entry, h.motion(0, 0, 0, 0, true), 0); // fires the first moveTo
@@ -256,13 +277,10 @@ test("redirecting mid-route re-routes only at the next tile centre", () => {
   const server = { x: 0, y: 0, dirX: 1, dirY: 0, faceX: 1, faceY: 0, running: false, path: "1,0;2,0;3,0;4,0", movedAt: { microsSinceUnixEpoch: 5n } } as unknown as Player;
   h.self.reconcile(h.entry, server);
   h.moveTos.length = 0;
-  h.self.onClick({ x: 4, y: 2 }); // redirect to a different tile
-  h.self.update(h.entry, h.motion(0.1, 0, 1, 0), 32); // just left the centre (prev NaN after reconcile) → no off-centre fire
-  assert.equal(h.moveTos.length, 0);
-  h.self.update(h.entry, h.motion(0.5, 0, 1, 0), 40); // mid-tile → no fire
-  assert.equal(h.moveTos.length, 0);
-  h.self.update(h.entry, h.motion(1, 0, 1, 0), 48); // reached the next centre → one clean re-route
+  h.self.onClick({ x: 4, y: 2 }); // redirect to a different tile mid-glide
+  h.self.update(h.entry, h.motion(0.4, 0, 1, 0), 32); // free movement banks nothing → fire now
   assert.deepEqual(h.moveTos.at(-1), { x: 4, y: 2 });
+  assert.equal(h.moveTos.length, 1);
 });
 
 test("clicking a tile we're already on clears the marker instead of retrying forever", () => {
@@ -270,7 +288,7 @@ test("clicking a tile we're already on clears the marker instead of retrying for
   h.self.onClick({ x: 0, y: 0 }); // our own tile
   h.self.update(h.entry, h.motion(0, 0, 0, 0, true), 0); // flushes the (no-op) moveTo
   // Server answers with an empty path (findPath returns [] for the current tile).
-  const server = { x: 0, y: 0, dirX: 0, dirY: 0, faceX: 0, faceY: 1, running: false, path: "", movedAt: { microsSinceUnixEpoch: 1n } } as unknown as Player;
+  const server = { x: 0, y: 0, dirX: 0, dirY: 0, faceX: 0, faceY: 1, running: false, z: 0, dirZ: 0, path: "", movedAt: { microsSinceUnixEpoch: 1n } } as unknown as Player;
   h.self.reconcile(h.entry, server);
   const before = h.moveTos.length;
   h.self.update(h.entry, h.motion(0, 0, 0, 0, true), 1000); // well past the retry throttle

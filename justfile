@@ -45,6 +45,11 @@ dev: reset-local-db publish
 publish-prod:
     {{spacetime}} publish --server trogg-prod --module-path spacetimedb trogg
 
+# DESTROY and re-seed the production database (spacetime.tro.gg) — a go-live
+# reset that wipes every player. Prompts for confirmation; there is no undo.
+reset-prod-db:
+    bin/reset-prod-db
+
 # Build the client.
 build:
     pnpm build
@@ -57,7 +62,3 @@ typecheck:
 # Run the shared pure-logic unit tests.
 test:
     pnpm test
-
-# Regenerate the trogg + Hog avatar sprite sheet (assets/sprites/) from shared/sprites.ts.
-sprites:
-    pnpm sprites

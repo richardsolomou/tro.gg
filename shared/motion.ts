@@ -1,16 +1,21 @@
-import { type Coord, isWalkable, MOVE_SPEED_TILES_PER_SEC, RUN_SPEED_TILES_PER_SEC, type Zone } from "./constants";
+import {
+  isDryFloor, type Coord, isWalkable, tileGlyph, DEEP_WATER_TILE,
+  FLY_CLEAR_OBSTACLE, FLY_CLEAR_WATER, FLY_MAX_HEIGHT, FLY_VERTICAL_TILES_PER_SEC,
+  MOVE_SPEED_TILES_PER_SEC, RUN_SPEED_TILES_PER_SEC, type Zone } from "./constants";
+import { rockHeightAt } from "./heights";
 
 /**
  * Position-over-time derivation, shared by server and client so both agree
  * exactly (no determinism mismatch — GDD "Movement"). Motion is an intent:
  * an origin (x, y), a WASD direction, and the moment it began. The position
  * after `elapsedMs` is the origin advanced along the direction at move speed,
- * clamped to the zone and to the first unwalkable tile in the way. (0, 0) = idle.
+ * clamped to the zone and sliding along walls. (0, 0) = idle.
  *
- * Movement is 4-directional (cardinal only — no diagonals), so exactly one axis
- * is ever non-zero; the trogg slides along that axis until it hits a wall, the
- * zone edge, or the clock runs out (GDD: "WASD clamps at the first unwalkable
- * tile or the zone edge").
+ * Movement is free 8-directional: a cardinal intent slides along its axis until
+ * it hits a wall, the zone edge, or the clock runs out; a diagonal intent moves
+ * at unit speed along the diagonal and **slides** — when one axis meets a wall,
+ * the other keeps going (GDD "Movement"). Origins are fractional; nothing snaps
+ * to tiles. Hogs still walk tile-to-tile with cardinal intents.
  *
  * The server passes elapsed against its own clock to settle the origin on each
  * input transition; the client passes elapsed since it received the intent to
@@ -32,11 +37,33 @@ export interface Motion {
    *  or common Hog, 2 for a big 2×2 Hog (GDD "Hogs"). Absent = 1. The footprint
    *  clamps against walls across its whole width/height, not a single tile. */
   size?: number;
+  /** Debug speed multiplier (GDD "Commands panel" cheats). Rides the synced
+   *  intent like `running`, so every client derives the same faster position.
+   *  Absent = 1. */
+  cheatSpeed?: number;
+  /** Debug flight (GDD "Debug cheats"): airborne. Horizontal collision clears
+   *  everything shorter than the flyer's altitude (`ZoneBounds.flyWalkable`),
+   *  judged at the motion's origin `z` — every input transition and per-tile
+   *  rebase refreshes it, so the threshold trails a climb by at most a tile. */
+  cheatFly?: boolean;
+  /** Debug noclip (GDD "Debug cheats"): walk through anything — the projection
+   *  ignores tile walkability and clamps only to the zone rectangle. On the
+   *  row, so prediction, other clients, and the server all derive the same
+   *  motion. */
+  cheatNoclip?: boolean;
+  /** Altitude origin, tiles above ground (fly cheat). Like `x`/`y`, the origin
+   *  of a linear derivation — never per-frame synced. Absent = grounded. */
+  z?: number;
+  /** Vertical intent: -1 sinking, 0 holding, +1 climbing (fly cheat). Rides
+   *  the row like `dirX`/`dirY`; `projectMotionState` derives z over time. */
+  dirZ?: number;
 }
 
 export interface ProjectedMotion {
   x: number;
   y: number;
+  /** Altitude at `elapsedMs` (fly cheat) — 0 for grounded movers. */
+  z: number;
   dirX: number;
   dirY: number;
   arrived: boolean;
@@ -52,6 +79,11 @@ export interface ZoneBounds {
   width: number;
   height: number;
   isWalkable?(tileX: number, tileY: number): boolean;
+  /** Whether a flyer at altitude `z` clears this tile (GDD "Debug cheats"):
+   *  open floor always; deep water above `FLY_CLEAR_WATER`; dynamic obstacles
+   *  (trees, boulders, creatures) above `FLY_CLEAR_OBSTACLE`; rock above
+   *  `FLY_CLEAR_ROCK`. Absent (hand-built bounds) = grounded rules apply. */
+  flyWalkable?(tileX: number, tileY: number, z: number): boolean;
 }
 
 /**
@@ -66,25 +98,45 @@ export function zoneBounds(zone: Zone, occupied?: (tileX: number, tileY: number)
     width: zone.width,
     height: zone.height,
     isWalkable: (x, y) => isWalkable(zone, x, y) && !(occupied?.(x, y) ?? false),
+    flyWalkable: (x, y, z) => {
+      // rock clears at its rendered height, so the eye and the projection agree
+      if (!isWalkable(zone, x, y)) return z > (tileGlyph(zone, x, y) === DEEP_WATER_TILE ? FLY_CLEAR_WATER : rockHeightAt(zone, x, y));
+      if (occupied?.(x, y)) return z > FLY_CLEAR_OBSTACLE;
+      return true;
+    },
   };
 }
 
 /**
- * The tile a trogg would push into, given its position and cardinal direction —
- * or null if it isn't squarely on a tile. Pushing (GDD "Pushing") requires the
- * trogg to be tile-aligned and flush, so a boulder only gives way when you line
- * up and walk straight into it, like the block puzzles in classic top-down games.
- * `tol` absorbs float noise in the derived position.
+ * The tile a trogg pressing a **mostly-cardinal** direction would act on — or null
+ * when it isn't lined up. With free movement a trogg is rarely exactly on a tile
+ * and headings are camera-relative vectors, so "facing a tile" means: a press
+ * whose minor axis is small next to its major (an oblique press faces nothing),
+ * within `tol` of the lane on the perpendicular axis, and within `tol` of flush
+ * along the movement axis (walking into a blocker clamps exactly flush, so a
+ * deliberate push always qualifies). Pushing and interacting stay tile mechanics
+ * on top of free movement.
  */
-export function facingTile(x: number, y: number, dirX: number, dirY: number, tol = 0.1): Coord | null {
-  if (dirX === 0 && dirY === 0) return null;
+export function facingTile(x: number, y: number, dirX: number, dirY: number, tol = 0.35): Coord | null {
+  const ax = Math.abs(dirX);
+  const ay = Math.abs(dirY);
+  if (ax === 0 && ay === 0) return null;
+  if (Math.min(ax, ay) > Math.max(ax, ay) * 0.35) return null; // oblique — no square facing
   const tx = Math.round(x);
   const ty = Math.round(y);
   if (Math.abs(x - tx) > tol || Math.abs(y - ty) > tol) return null;
-  return { x: tx + Math.sign(dirX), y: ty + Math.sign(dirY) };
+  return ax >= ay ? { x: tx + Math.sign(dirX), y: ty } : { x: tx, y: ty + Math.sign(dirY) };
 }
 
-/** The four cardinal movement directions — the only headings the game allows. */
+/**
+ * Wire scale for movement headings: a direction is an integer vector with each
+ * axis in [-DIR_SCALE, DIR_SCALE] (the columns are i32). Only the vector's
+ * *direction* matters — projection normalises, so magnitude never buys speed.
+ * Hogs and legacy rows use plain ±1 vectors, which are just short headings.
+ */
+export const DIR_SCALE = 1000;
+
+/** The four cardinal movement directions — the headings Hog wander picks from. */
 export const CARDINALS: readonly { dirX: number; dirY: number }[] = [
   { dirX: 0, dirY: -1 },
   { dirX: 0, dirY: 1 },
@@ -103,6 +155,23 @@ export const CARDINALS: readonly { dirX: number; dirY: number }[] = [
  */
 export function walkableCardinals(zone: ZoneBounds, x: number, y: number, size = 1): { dirX: number; dirY: number }[] {
   return CARDINALS.filter(({ dirX, dirY }) => footprintWalkable(zone, x + dirX, y + dirY, size));
+}
+
+/** All 8 step directions open to a `size`-footprint at (x, y): the cardinals,
+ *  plus each diagonal whose destination AND both flanking cardinals are open —
+ *  no squeezing through a wall corner. */
+export function walkableSteps(zone: ZoneBounds, x: number, y: number, size = 1): { dirX: number; dirY: number }[] {
+  const steps = walkableCardinals(zone, x, y, size);
+  for (const [dirX, dirY] of [[1, 1], [1, -1], [-1, 1], [-1, -1]] as const) {
+    if (
+      footprintWalkable(zone, x + dirX, y + dirY, size) &&
+      footprintWalkable(zone, x + dirX, y, size) &&
+      footprintWalkable(zone, x, y + dirY, size)
+    ) {
+      steps.push({ dirX, dirY });
+    }
+  }
+  return steps;
 }
 
 /** Whether the whole `size`-tile footprint anchored at top-left (x, y) is inside the
@@ -151,8 +220,14 @@ export function parsePath(path: string | undefined): Coord[] {
  * the nearest reachable cardinal neighbour instead, so obstacle clicks still get
  * the trogg as close as possible.
  */
+/** The farthest click-to-move routes (manhattan tiles): far destinations are
+ *  reached by clicking again as you go, and the A* search stays bounded on the
+ *  seamless world grid. */
+export const MOVETO_MAX_TILES = 72;
+
 export function findPath(zone: ZoneBounds, start: Coord, target: Coord): Coord[] {
   if (!inBounds(zone, target.x, target.y)) return [];
+  if (Math.abs(target.x - Math.round(start.x)) + Math.abs(target.y - Math.round(start.y)) > MOVETO_MAX_TILES) return [];
 
   const sx = Math.round(start.x);
   const sy = Math.round(start.y);
@@ -196,12 +271,10 @@ export function findPath(zone: ZoneBounds, start: Coord, target: Coord): Coord[]
 }
 
 /**
- * The tile centre nearest a position — a trogg's grid-locked resting place.
- * Movement is tile-to-tile (GDD "Movement", Pokémon/Zelda style), so a settled
- * origin is always a whole tile, never a fractional point on one. A trogg only
- * ever slides along one axis between integer tiles, and every tile it crosses is
- * walkable (`projectMotion` stops at the first that isn't), so rounding always
- * lands on walkable floor.
+ * The tile nearest a position — the anchor the tile mechanics (interact, push,
+ * attack targeting, drops) act from. Movement itself is free; a projected
+ * footprint never overlaps an unwalkable cell, so the nearest tile is always
+ * walkable floor.
  */
 export function snapToTile(pos: { x: number; y: number }): { x: number; y: number } {
   return { x: Math.round(pos.x), y: Math.round(pos.y) };
@@ -228,7 +301,7 @@ export function spawnTiles(
   const px = Math.round(x);
   const py = Math.round(y);
   const wanted = Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0;
-  const free = (tx: number, ty: number) => isWalkable(zone, tx, ty) && !occupied(tx, ty);
+  const free = (tx: number, ty: number) => isDryFloor(zone, tx, ty) && !occupied(tx, ty);
   const tiles: Coord[] = [];
   const seen = new Set<string>();
 
@@ -263,6 +336,24 @@ export function spawnTiles(
   return tiles;
 }
 
+/** The walkable dry tile nearest to (x, y), ring-searched outward — where a
+ *  returning trogg relocates when the map changed underneath it, so it comes
+ *  back beside where it logged out instead of teleporting to spawn. */
+export function nearestSafeTile(zone: Zone, x: number, y: number, maxRadius = 32): Coord | undefined {
+  const px = Math.round(x);
+  const py = Math.round(y);
+  if (isDryFloor(zone, px, py)) return { x: px, y: py };
+  for (let radius = 1; radius <= maxRadius; radius++) {
+    for (let dy = -radius; dy <= radius; dy++) {
+      const dx = radius - Math.abs(dy);
+      for (const tx of dx === 0 ? [px] : [px + dx, px - dx]) {
+        if (isDryFloor(zone, tx, py + dy)) return { x: tx, y: py + dy };
+      }
+    }
+  }
+  return undefined;
+}
+
 /** Pick the first free tile for one spawned or dropped thing. */
 export function spawnTile(
   zone: Zone,
@@ -283,54 +374,184 @@ export function projectMotion(motion: Motion, elapsedMs: number, zone: ZoneBound
   return { x: projected.x, y: projected.y };
 }
 
-export function projectMotionState(motion: Motion, elapsedMs: number, zone: ZoneBounds): ProjectedMotion {
-  const path = parsePath(motion.path);
-  if (path.length > 0) return projectPathMotion(motion, path, elapsedMs, zone);
-
-  const { dirX, dirY } = motion;
-  if (dirX === 0 && dirY === 0) return { x: motion.x, y: motion.y, dirX: 0, dirY: 0, arrived: true };
-
-  const speed = motion.running ? RUN_SPEED_TILES_PER_SEC : MOVE_SPEED_TILES_PER_SEC;
-  const dist = (speed * Math.max(elapsedMs, 0)) / 1000;
-  const size = motion.size ?? 1;
-
-  // Cardinal: exactly one axis moves. Clamp to bounds (the footprint stays inside),
-  // then to the first wall the footprint meets.
-  if (dirX !== 0) {
-    const step = Math.sign(dirX);
-    const target = clamp(motion.x + step * dist, 0, zone.width - size);
-    return { x: zone.isWalkable ? wallX(zone, motion.x, motion.y, target, step, size) : target, y: motion.y, dirX, dirY, arrived: false };
-  }
-  const step = Math.sign(dirY);
-  const target = clamp(motion.y + step * dist, 0, zone.height - size);
-  return { x: motion.x, y: zone.isWalkable ? wallY(zone, motion.x, motion.y, target, step, size) : target, dirX, dirY, arrived: false };
+/** A mover's tiles-per-second, from its synced intent (`running`, `cheatSpeed`). */
+function motionSpeed(motion: Motion): number {
+  return (motion.running ? RUN_SPEED_TILES_PER_SEC : MOVE_SPEED_TILES_PER_SEC) * (motion.cheatSpeed || 1);
 }
 
-function projectPathMotion(motion: Motion, path: readonly Coord[], elapsedMs: number, zone: ZoneBounds): ProjectedMotion {
-  const speed = motion.running ? RUN_SPEED_TILES_PER_SEC : MOVE_SPEED_TILES_PER_SEC;
-  let remaining = (speed * Math.max(elapsedMs, 0)) / 1000;
+/** Altitude at `elapsedMs`: the linear derivation z gets, mirroring x/y. */
+export function projectAltitude(motion: Motion, elapsedMs: number): number {
+  const z = motion.cheatFly ? (motion.z ?? 0) + (motion.dirZ ?? 0) * FLY_VERTICAL_TILES_PER_SEC * (Math.max(elapsedMs, 0) / 1000) : 0;
+  return Math.min(FLY_MAX_HEIGHT, Math.max(0, z));
+}
+
+/** The collision context a mover actually projects against. Noclip keeps only
+ *  the zone rectangle (`isWalkable` omitted = open floor); a flyer clears
+ *  whatever sits below its origin altitude (`flyWalkable`). */
+function motionBounds(motion: Motion, zone: ZoneBounds): ZoneBounds {
+  if (motion.cheatNoclip) return { width: zone.width, height: zone.height };
+  if (motion.cheatFly) {
+    const fly = zone.flyWalkable;
+    if (!fly) return { width: zone.width, height: zone.height };
+    const z = motion.z ?? 0;
+    return { width: zone.width, height: zone.height, isWalkable: (x, y) => fly(x, y, z) };
+  }
+  return zone;
+}
+
+export function projectMotionState(motion: Motion, elapsedMs: number, zone: ZoneBounds): ProjectedMotion {
+  const bounds = motionBounds(motion, zone);
+  const z = projectAltitude(motion, elapsedMs);
+  const path = parsePath(motion.path);
+  if (path.length > 0) return { ...projectPathMotion(motion, path, elapsedMs, bounds), z };
+
+  const { dirX, dirY } = motion;
+  if (dirX === 0 && dirY === 0) return { x: motion.x, y: motion.y, z, dirX: 0, dirY: 0, arrived: motion.dirZ === undefined || motion.dirZ === 0 };
+
+  const dist = (motionSpeed(motion) * Math.max(elapsedMs, 0)) / 1000;
+  const size = motion.size ?? 1;
+
+  const p = slideAdvance(motion.x, motion.y, dirX, dirY, dist, bounds, size);
+  return { x: p.x, y: p.y, z, dirX, dirY, arrived: false };
+}
+
+/**
+ * Advance a `size` footprint from (x, y) along the heading (dirX, dirY) for `dist`
+ * tiles of travel, clamping against walls with slide — the one collision walker
+ * every mover shares (WASD projection, path hops, line-of-sight tests). Cardinal
+ * headings take exact single-axis clamps; anything else goes through the angled
+ * segment walker.
+ */
+function slideAdvance(x: number, y: number, dirX: number, dirY: number, dist: number, zone: ZoneBounds, size: number): { x: number; y: number } {
+  if (dirY === 0) {
+    const step = Math.sign(dirX);
+    const target = clamp(x + step * dist, 0, zone.width - size);
+    return { x: zone.isWalkable ? wallX(zone, x, y, target, step, size) : target, y };
+  }
+  if (dirX === 0) {
+    const step = Math.sign(dirY);
+    const target = clamp(y + step * dist, 0, zone.height - size);
+    return { x, y: zone.isWalkable ? wallY(zone, x, y, target, step, size) : target };
+  }
+  return projectAngled(x, y, dirX, dirY, dist, zone, size);
+}
+
+/**
+ * Is the straight segment `from` → `to` fully walkable for a `size` footprint?
+ * Answered by walking it with the shared collision walker: the line is clear
+ * exactly when the walk arrives (any clamp or slide en route deviates from `to`),
+ * so line-of-sight agrees byte-for-byte with how movement will actually execute.
+ */
+export function lineWalkable(zone: ZoneBounds, from: { x: number; y: number }, to: { x: number; y: number }, size = 1): boolean {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const hop = Math.hypot(dx, dy);
+  if (hop < EPS) return true;
+  const end = slideAdvance(from.x, from.y, dx, dy, hop, zone, size);
+  return Math.hypot(end.x - to.x, end.y - to.y) < 1e-4;
+}
+
+/**
+ * String-pull a cardinal A* route into the fewest straight hops (GDD "Movement"):
+ * from the (fractional) start, greedily take the furthest waypoint reachable in a
+ * straight line, then repeat from there. Open floor collapses to a single direct
+ * glide; only genuine corners keep bends. The `path` wire format is unchanged —
+ * waypoints just stop being adjacent.
+ */
+export function smoothPath(zone: ZoneBounds, start: { x: number; y: number }, path: readonly Coord[], size = 1): Coord[] {
+  const out: Coord[] = [];
+  let from = { x: start.x, y: start.y };
+  let i = 0;
+  while (i < path.length) {
+    let j = path.length - 1;
+    for (; j > i; j--) if (lineWalkable(zone, from, path[j]!, size)) break;
+    out.push(path[j]!);
+    from = path[j]!;
+    i = j + 1;
+  }
+  return out;
+}
+
+/**
+ * Off-axis movement with wall slide. The direction is any vector (camera-relative
+ * headings quantise to ints on the wire; only its *direction* matters — the length
+ * never affects speed): the trogg advances along the normalised heading, and when
+ * one axis meets a wall (or the zone edge) the other keeps going. Advanced in
+ * segments that end at each tile-boundary crossing, so the footprint's row/column
+ * span — what the `wallX`/`wallY` clamps check against — is constant within a
+ * segment; a pure function of its inputs, so client and server derive identically.
+ */
+function projectAngled(ox: number, oy: number, dirX: number, dirY: number, dist: number, zone: ZoneBounds, size: number): { x: number; y: number } {
+  const len = Math.hypot(dirX, dirY);
+  const nx = dirX / len; // per-axis share of unit speed along the heading
+  const ny = dirY / len;
+  const stepX = Math.sign(nx);
+  const stepY = Math.sign(ny);
+  let x = ox;
+  let y = oy;
+  let remaining = dist;
+  let blockedX = false;
+  let blockedY = false;
+  const guard = Math.ceil(dist) * 4 + 8;
+
+  for (let i = 0; i < guard && remaining > EPS; i++) {
+    // Path length until each axis next crosses a tile boundary (∞ once blocked).
+    const untilX = blockedX ? Number.POSITIVE_INFINITY : boundaryDistance(x, stepX, size) / Math.abs(nx);
+    const untilY = blockedY ? Number.POSITIVE_INFINITY : boundaryDistance(y, stepY, size) / Math.abs(ny);
+    const segment = Math.min(remaining, untilX, untilY);
+
+    if (!blockedX) {
+      const target = clamp(x + nx * segment, 0, zone.width - size);
+      const cx = zone.isWalkable ? wallX(zone, x, y, target, stepX, size) : target;
+      blockedX = stepX > 0 ? cx < target - EPS : cx > target + EPS;
+      x = cx;
+    }
+    if (!blockedY) {
+      const target = clamp(y + ny * segment, 0, zone.height - size);
+      const cy = zone.isWalkable ? wallY(zone, x, y, target, stepY, size) : target;
+      blockedY = stepY > 0 ? cy < target - EPS : cy > target + EPS;
+      y = cy;
+    }
+    if (blockedX && blockedY) break;
+    remaining -= segment;
+  }
+  return { x, y };
+}
+
+/** Distance along one axis until the leading edge of a `size` footprint at `p`
+ *  next crosses a tile boundary moving in `step` (always > 0, even from exactly
+ *  on a boundary — that crossing already happened). */
+function boundaryDistance(p: number, step: number, size: number): number {
+  const edge = step > 0 ? p + size : p;
+  const next = step > 0 ? Math.floor(edge + EPS) + 1 - edge : edge - (Math.ceil(edge - EPS) - 1);
+  return Math.max(next, EPS * 2);
+}
+
+function projectPathMotion(motion: Motion, path: readonly Coord[], elapsedMs: number, zone: ZoneBounds): Omit<ProjectedMotion, "z"> {
+  const size = motion.size ?? 1;
+  let remaining = (motionSpeed(motion) * Math.max(elapsedMs, 0)) / 1000;
   let current = { x: motion.x, y: motion.y };
 
   for (const next of path) {
     const dx = next.x - current.x;
     const dy = next.y - current.y;
-    if (Math.abs(dx) + Math.abs(dy) !== 1) {
-      return { ...current, dirX: 0, dirY: 0, arrived: true };
+    const hop = Math.hypot(dx, dy);
+    if (hop < EPS) continue; // already standing on this waypoint
+
+    if (remaining <= hop) {
+      // Mid-hop: glide along the segment through the live collision walker, so an
+      // obstacle that arrived after routing (a Hog, a shoved boulder) clamps the
+      // glide instead of being passed through. A clamp or slide means the hop is
+      // no longer clean — report no heading, which is the stall signal the client
+      // re-routes on. Hops already consumed are behind us: forward-only projection,
+      // so a Hog landing on ground already covered never rewinds the trogg.
+      const end = slideAdvance(current.x, current.y, dx, dy, remaining, zone, size);
+      const expectedX = current.x + (dx / hop) * remaining;
+      const expectedY = current.y + (dy / hop) * remaining;
+      const clean = Math.hypot(end.x - expectedX, end.y - expectedY) < 1e-4;
+      return { x: end.x, y: end.y, dirX: clean ? dx / hop : 0, dirY: clean ? dy / hop : 0, arrived: false };
     }
-    const dirX = Math.sign(dx);
-    const dirY = Math.sign(dy);
-    if (remaining <= 1) {
-      // Stepping into `next`: block only on the tile we're entering. Tiles already
-      // traversed (consumed in the branch below) are behind us, so an obstacle that
-      // lands on one never rewinds us — it can only stop us going further. This is
-      // what keeps a Hog wandering onto a tile you've already crossed from snapping
-      // you back to it (forward-only projection; re-route handled by the client).
-      if (!tileWalkable(zone, next.x, next.y)) {
-        return { ...current, dirX: 0, dirY: 0, arrived: false };
-      }
-      return { x: current.x + dirX * remaining, y: current.y + dirY * remaining, dirX, dirY, arrived: false };
-    }
-    remaining -= 1;
+    remaining -= hop;
     current = { x: next.x, y: next.y };
   }
 

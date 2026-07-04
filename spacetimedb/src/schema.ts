@@ -3,11 +3,20 @@ import { Timestamp } from "spacetimedb";
 import {
   COLOR_UNSET,
   elapsedMs,
+  isDryFloor,
   footprintTiles,
   getZone,
   hogSize,
   STYLE_UNSET,
   HOG_MAX_HEALTH,
+  hogMaxHealth,
+  HOG_TURN_CHANCE,
+  HEALTH_REGEN_DELAY_MS,
+  NPC_CORPSE_MS,
+  HEALTH_REGEN_FRACTION,
+  footprintWalkable,
+  BOULDER_MAX_HEALTH,
+  TREE_MAX_HEALTH,
   PLAYER_MAX_HEALTH,
   projectMotion,
   tileKey,
@@ -16,10 +25,11 @@ import {
 } from "../../shared/index";
 import {
   anyPlayerOnline,
-  boulderTiles,
+  obstacleTiles,
   addPlayerTiles,
   pickWanderDir,
   armWander,
+  armRegen,
   respawnDue,
   scheduleRespawnAt,
   respawnPlayer,
@@ -112,6 +122,23 @@ const player = table(
     // equipment"). Appended last so adding it is a non-breaking, auto-migratable column add.
     equippedOffHand: t.string().default(""),
     equippedOffHandInventoryId: t.u64().default(0n),
+    // When damage last landed — the out-of-combat clock the regen sweep reads.
+    lastDamagedAt: t.timestamp().default(Timestamp.UNIX_EPOCH),
+    // Debug cheats (GDD "Commands panel"): a move-speed multiplier, flight
+    // (hover + client-side altitude; display only), invulnerability
+    // (damagePlayer no-ops), and noclip (the shared projection ignores tile
+    // walkability). They ride the synced row like `running`, so every client
+    // derives the same motion; written only by `setCheats`.
+    cheatSpeed: t.f64().default(1),
+    cheatFly: t.bool().default(false),
+    cheatInvulnerable: t.bool().default(false),
+    cheatNoclip: t.bool().default(false),
+    // Flight altitude (GDD "Debug cheats"): like x/y, `z` is the origin of a
+    // linear derivation and `dirZ` (-1/0/+1) the vertical intent, written on
+    // input transitions (`setLift`) — position over time is derived, never
+    // ticked. Grounded rows stay 0/0.
+    z: t.f64().default(0),
+    dirZ: t.i32().default(0),
   },
 );
 
@@ -170,11 +197,11 @@ const claimCode = table(
 );
 
 /**
- * A pushable boulder (GDD "Pushing"): a rock on an unwalkable tile that a trogg
- * can shove one tile at a time. Boulders are dynamic obstacles — walkability is
- * the static tilemap minus the tiles boulders sit on — so the same collision that
- * stops a trogg at a wall stops it at a boulder. Seeded per zone from the `ZONES`
- * registry on first connect; moved only by the `push` reducer.
+ * A boulder (GDD "Boulders"): a mineable rock on an unwalkable tile. Boulders are
+ * dynamic obstacles — walkability is the static tilemap minus the tiles boulders
+ * sit on — so the same collision that stops a trogg at a wall stops it at a
+ * boulder. Seeded per zone from the `ZONES` registry on first connect; a pickaxe
+ * mines one into Stone (removing the row), and a trogg can carry or throw one.
  */
 const boulder = table(
   { name: "boulder", public: true },
@@ -183,6 +210,30 @@ const boulder = table(
     zoneId: t.string().index("btree"),
     x: t.i32(),
     y: t.i32(),
+    // Appended with a default (see the player table's migration note).
+    health: t.i32().default(BOULDER_MAX_HEALTH),
+    // Which birth cell this rubble plugs (GDD "Onboarding: the Warren");
+    // 0 = an ordinary world boulder. Rubble mines exactly like a boulder but
+    // is excluded from resets and the spawn cap.
+    cellId: t.u32().default(0),
+  },
+);
+
+/**
+ * A tree (GDD "Trees"): choppable scenery on an unwalkable tile, the woodcutting
+ * mirror of the boulder — the same dynamic-obstacle collision, seeded per zone
+ * from the `ZONES` registry on first connect. An axe fells one into Wood
+ * (removing the row). Trees are not carryable: a trunk is not tile-sized.
+ */
+const tree = table(
+  { name: "tree", public: true },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    zoneId: t.string().index("btree"),
+    x: t.i32(),
+    y: t.i32(),
+    // Appended with a default (see the player table's migration note).
+    health: t.i32().default(TREE_MAX_HEALTH),
   },
 );
 
@@ -227,6 +278,13 @@ const hog = table(
     // size. Appended last per the migration note on the player table.
     style: t.string().default(""),
     health: t.i32().default(HOG_MAX_HEALTH),
+    // When damage last landed — the out-of-combat clock the regen sweep reads.
+    lastDamagedAt: t.timestamp().default(Timestamp.UNIX_EPOCH),
+    // A thrown Hog is in flight until this time: the wander leaves it at rest so
+    // it doesn't walk off before the client's arc lands it. Epoch (the default)
+    // = grounded — an ordinary roamer, a put-down, or a seeded Hog. Appended last
+    // per the migration note on the player table.
+    landingAt: t.timestamp().default(Timestamp.UNIX_EPOCH),
   },
 );
 
@@ -308,7 +366,36 @@ const playerRespawn = table(
   },
 );
 
-const spacetimedb = schema({ player, chatMessage, ghostHaunt, claimCode, boulder, hog, groundItem, inventory, playerConnection, hogWander, playerRespawn });
+/**
+ * The out-of-combat regeneration sweep's timer (GDD "Combat") — the same
+ * sanctioned scheduled-reducer exception as `hog_wander`: re-armed only while a
+ * player is online, so an empty world does no regen work.
+ */
+const creatureRegen = table(
+  { name: "creature_regen", scheduled: (): any => regenCreatures },
+  {
+    scheduledId: t.u64().primaryKey().autoInc(),
+    scheduledAt: t.scheduleAt(),
+  },
+);
+
+/**
+ * Shared world dials (GDD "Debug cheats") — one public singleton row (id 0).
+ * `skyLocked`/`skyPhase` pin the day-night cycle for EVERYONE: the cycle is
+ * cosmetic, but the sky is shared fiction, so a Commands-drawer scrub changes
+ * every client's sun, not just the scrubber's. Written by `setSky`; clients
+ * subscribe and read it in their daylight pass.
+ */
+const worldState = table(
+  { name: "world_state", public: true },
+  {
+    id: t.u32().primaryKey(),
+    skyLocked: t.bool(),
+    skyPhase: t.f64(),
+  },
+);
+
+const spacetimedb = schema({ player, chatMessage, ghostHaunt, claimCode, boulder, tree, hog, groundItem, inventory, playerConnection, hogWander, playerRespawn, creatureRegen, worldState });
 export default spacetimedb;
 
 /** The reducer context, typed against this module's schema (db view + sender). */
@@ -334,38 +421,40 @@ export const wanderHogs = spacetimedb.reducer({ timer: hogWander.rowType }, (ctx
   const online = anyPlayerOnline(ctx);
   const now = ctx.timestamp;
 
-  // Per-zone obstacles every Hog must avoid: boulders + troggs. Memoised across Hogs in
-  // the same zone; each Hog's own tile and the other Hogs' tiles are layered on in pass 2.
+  // Per-zone obstacles every Hog must avoid: boulders, trees + troggs. Memoised across
+  // Hogs in the same zone; each Hog's own tile and the other Hogs' tiles are layered on in pass 2.
   const blockersByZone = new Map<string, Set<string>>();
   const blockersFor = (zoneId: string): Set<string> => {
     let set = blockersByZone.get(zoneId);
     if (!set) {
-      set = boulderTiles(ctx, zoneId);
+      set = obstacleTiles(ctx, zoneId);
       addPlayerTiles(ctx, zoneId, now, set);
       blockersByZone.set(zoneId, set);
     }
     return set;
   };
 
-  // Pass 1: settle every Hog to the tile it's on now, so the tiles other Hogs settle
-  // onto are known before any heading is picked (Hogs are solid to each other). A Hog
-  // re-bases each tile, so its stored intent is at most one tile old.
+  // Pass 1: project every Hog to where its stored intent has carried it. A run in
+  // progress is a single intent gliding from an old origin (fluid, any of the 8
+  // directions) — rows re-base only when a run ends, so a straight run costs no
+  // writes at all. The rounded tile registers the footprint other Hogs collide with.
   const hogList = [...ctx.db.hog.iter()];
   type HogRow = (typeof hogList)[number];
-  const settled: { hog: HogRow; x: number; y: number; size: number; zone: Zone; blockers: Set<string> }[] = [];
+  const settled: { hog: HogRow; px: number; py: number; x: number; y: number; size: number; zone: Zone; blockers: Set<string> }[] = [];
   const hogTilesByZone = new Map<string, Set<string>>();
   for (const h of hogList) {
     const zone = getZone(h.zoneId);
     if (!zone) continue;
+    if (h.health <= 0) continue; // corpses lie where they fell
+    if (h.landingAt && elapsedMs(h.landingAt, now) < 0) continue; // a thrown Hog waits at rest until it lands
     const size = hogSize(h.style);
     const blockers = blockersFor(h.zoneId);
-    const bounds = zoneBounds(zone, (x, y) => blockers.has(tileKey(x, y)));
-    // Round the in-between position (the footprint's top-left) to the tile it ended on:
-    // a Hog steps tile-to-tile over walkable floor, so rounding stays on walkable floor.
+    // Hogs keep to dry ground: water blocks them like a boulder does (GDD "Zones").
+    const bounds = zoneBounds(zone, (x, y) => blockers.has(tileKey(x, y)) || !isDryFloor(zone, x, y));
     const pos = projectMotion({ ...h, size }, elapsedMs(h.movedAt, now), bounds);
     const x = Math.round(pos.x);
     const y = Math.round(pos.y);
-    settled.push({ hog: h, x, y, size, zone, blockers });
+    settled.push({ hog: h, px: pos.x, py: pos.y, x, y, size, zone, blockers });
     let tiles = hogTilesByZone.get(h.zoneId);
     if (!tiles) {
       tiles = new Set<string>();
@@ -374,11 +463,11 @@ export const wanderHogs = spacetimedb.reducer({ timer: hogWander.rowType }, (ctx
     for (const tile of footprintTiles(x, y, size)) tiles.add(tileKey(tile.x, tile.y));
   }
 
-  // Pass 2: pick each Hog's heading against walls, boulders, troggs, the other Hogs'
-  // settled tiles, and the tiles Hogs earlier this tick have *claimed* to step onto — its
-  // own tile excepted, so it isn't blocked by itself. Pass 1's settled set keeps two Hogs
-  // from resting on the same tile; the per-tick `claimed` set keeps two from heading onto
-  // the same empty tile (GDD: two Hogs never share a tile). While the zone is empty, rest.
+  // Pass 2: decide each Hog's run. A moving Hog claims the footprint one step ahead
+  // every tick (the per-tick `claimed` set keeps two Hogs off the same tile — GDD:
+  // Hogs never overlap) and keeps gliding write-free unless that step is blocked or
+  // a HOG_TURN_CHANCE roll ends the run; then it settles to its tile and picks a
+  // fresh 8-way heading (or idles). While the zone is empty, everything settles to rest.
   const claimedByZone = new Map<string, Set<string>>();
   for (const s of settled) {
     const hogTiles = hogTilesByZone.get(s.hog.zoneId)!;
@@ -392,11 +481,23 @@ export const wanderHogs = spacetimedb.reducer({ timer: hogWander.rowType }, (ctx
     const own = new Set(footprintTiles(s.x, s.y, s.size).map((t) => tileKey(t.x, t.y)));
     const bounds = zoneBounds(s.zone, (x, y) => {
       const k = tileKey(x, y);
+      if (!isDryFloor(s.zone, x, y)) return true;
       return !own.has(k) && (s.blockers.has(k) || hogTiles.has(k) || claimed!.has(k));
     });
-    const dir = online ? pickWanderDir(ctx, bounds, s.hog, { x: s.x, y: s.y }, s.size) : { dirX: 0, dirY: 0 };
-    // Claim the whole footprint the Hog steps into, so no other Hog this tick heads
-    // onto any tile of it (GDD: Hogs never overlap).
+    const moving = s.hog.dirX !== 0 || s.hog.dirY !== 0;
+
+    if (online && moving) {
+      const stepX = Math.sign(s.hog.dirX);
+      const stepY = Math.sign(s.hog.dirY);
+      const aheadClear = footprintWalkable(bounds, s.x + stepX, s.y + stepY, s.size);
+      if (aheadClear && ctx.random() > HOG_TURN_CHANCE) {
+        // the run continues: claim the step so nobody else takes it, write nothing
+        for (const t of footprintTiles(s.x + stepX, s.y + stepY, s.size)) claimed.add(tileKey(t.x, t.y));
+        continue;
+      }
+    }
+
+    const dir = online ? pickWanderDir(ctx, bounds, { x: s.x, y: s.y }, s.size) : { dirX: 0, dirY: 0 };
     if (dir.dirX !== 0 || dir.dirY !== 0) {
       for (const t of footprintTiles(s.x + dir.dirX, s.y + dir.dirY, s.size)) claimed.add(tileKey(t.x, t.y));
     }
@@ -412,6 +513,38 @@ export const wanderHogs = spacetimedb.reducer({ timer: hogWander.rowType }, (ctx
   // row was auto-deleted, then re-arm only while someone is watching.
   ctx.db.hogWander.clear();
   if (online) armWander(ctx);
+});
+
+/**
+ * Out-of-combat regeneration (GDD "Combat"): any creature untouched for
+ * `HEALTH_REGEN_DELAY_MS` heals a fraction of its max per sweep. The sweep
+ * re-arms only while a player is online (the `wanderHogs` pattern), writes only
+ * rows that actually heal, and never revives the dead — respawn does that.
+ */
+export const regenCreatures = spacetimedb.reducer({ timer: creatureRegen.rowType }, (ctx) => {
+  const online = anyPlayerOnline(ctx);
+  const now = ctx.timestamp;
+  if (online) {
+    const rested = (lastDamagedAt: { microsSinceUnixEpoch: bigint } | undefined) =>
+      !lastDamagedAt || elapsedMs(lastDamagedAt, now) >= HEALTH_REGEN_DELAY_MS;
+    for (const p of ctx.db.player.iter()) {
+      if (p.dead || p.health >= PLAYER_MAX_HEALTH || !rested(p.lastDamagedAt)) continue;
+      const heal = Math.ceil(PLAYER_MAX_HEALTH * HEALTH_REGEN_FRACTION);
+      ctx.db.player.identity.update({ ...p, health: Math.min(PLAYER_MAX_HEALTH, p.health + heal) });
+    }
+    for (const h of ctx.db.hog.iter()) {
+      if (h.health <= 0) {
+        // a corpse never heals; it lies for NPC_CORPSE_MS, then the sweep reaps it
+        if (elapsedMs(h.lastDamagedAt, now) >= NPC_CORPSE_MS) ctx.db.hog.id.delete(h.id);
+        continue;
+      }
+      const max = hogMaxHealth(h.style);
+      if (h.health >= max || !rested(h.lastDamagedAt)) continue;
+      ctx.db.hog.id.update({ ...h, health: Math.min(max, h.health + Math.ceil(max * HEALTH_REGEN_FRACTION)) });
+    }
+  }
+  ctx.db.creatureRegen.clear();
+  if (online) armRegen(ctx);
 });
 
 /** Respawn a dead trogg whose one-shot death timer has elapsed. */

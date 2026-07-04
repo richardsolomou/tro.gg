@@ -1,591 +1,653 @@
-import Phaser from "phaser";
-import { ANCHOR, attackArmStyle, FRAME_H, FRAME_W, forward, hasArmOverlay, hasChopOverlay, hasHogBall, HOG_MAX_HEALTH, hogBallFrameName, ITEM_ART_W, PLAYER_MAX_HEALTH, hogSize, timestampMs, type EquipSlot, type Facing, type FrameName, type Kind, type ProjectedMotion, type Stamp } from "@trogg/shared";
-import type { Boulder, GroundItem, Hog, Player } from "../net/module_bindings/types";
-import { attackFrame, AVATAR_ARM_TEX, AVATAR_BALL_TEX, AVATAR_CHOP_ARM_TEX, AVATAR_TEX, avatarFrame, avatarFrameName, facingFromDir, GHOST_FRAME, GHOST_TEX } from "./avatars.js";
-import { hasItemArt, ITEM_TEX } from "./items.js";
-import { ART, attackEase, flinchPose, heldTransform } from "./equipment.js";
-import { cssColor, TEXT_RESOLUTION } from "../ui_text.js";
+import * as THREE from "three";
+import { EQUIPMENT_ACTION_MS, forward, HOG_HIT_RADIUS, hogMaxHealth, hogSize, MELEE_ARC_RAD, MELEE_RANGE_TILES, PLAYER_HIT_RADIUS, PLAYER_MAX_HEALTH, RUN_SPEED_TILES_PER_SEC, timestampMs, wieldOf, type EquipSlot, type Facing, type ProjectedMotion, type Stamp } from "@trogg/shared";
+import type { Player } from "../net/module_bindings/types";
 import { audio } from "../audio.js";
-
-export { ART };
-/** Carried tile-sized objects stay full tile size; pickup changes position, not scale. */
-const CARRY_SCALE = 1;
-/** How long a visible equipment use impulse lasts — a quick strike plus a recovery tail. */
-const EQUIPMENT_ACTION_MS = 300;
-/** How long the apparition spends materialising. */
-const GHOST_FADE_IN_MS = 900;
-/** How long the apparition lingers at full presence. */
-const GHOST_HOLD_MS = 2400;
-/** How long the apparition spends dissolving. */
-const GHOST_FADE_OUT_MS = 1200;
-/** Peak opacity for the ghost sheet. */
-const GHOST_PEAK_ALPHA = 0.82;
-/** How far the ghost can drift from its summoned tile, as a tile fraction. */
-const GHOST_DRIFT_TILES = 0.44;
-/** Anything `place` can drop on a tile — a marker, a sprite, a stray graphic. */
-type Positionable = { setPosition(x: number, y: number): unknown };
-
-/** A live equipped-item overlay and the item/facing it currently shows, so it rebuilds only on change. */
-interface EquipOverlay {
-  glyph: Phaser.GameObjects.Container;
-  kind: string;
-  facing: Facing;
-}
-
-/** The equip slots rendered as hand overlays, paired with how to read each from a player row. */
-const EQUIP_SLOTS: { slot: EquipSlot; item: (p: Player) => string }[] = [
-  { slot: "mainHand", item: (p) => p.equippedMainHand },
-  { slot: "offHand", item: (p) => p.equippedOffHand },
-];
-
-function ghostSeed(id: bigint | undefined, x: number, y: number): number {
-  const idPart = id === undefined ? 0 : Number(id % 2_147_483_647n);
-  return (idPart ^ Math.imul(x + 1, 374_761_393) ^ Math.imul(y + 1, 668_265_263)) >>> 0;
-}
-
-/** A player's sprite plus the client-clock instant its current intent arrived. */
-export interface Tracked {
-  marker: Phaser.GameObjects.Container;
-  /** The trogg sprite, or undefined when the `avatar-sprites` flag is off. */
-  sprite?: Phaser.GameObjects.Sprite;
-  player: Player;
-  baseMs: number;
-  /** Last facing, kept so an idle trogg holds its heading rather than snapping. */
-  facing: Facing;
-  /** The chosen/derived body style, baked into the marker; rebuilt when it changes. */
-  style: string;
-  /** The player's stable tint colour, kept so a hit flash can restore it after flashing. */
-  baseColor: number;
-  /** Local monotonic start of the current hit-flinch (recoil + flash), or undefined when none. */
-  flinchBaseMs?: number;
-  /** The near-arm overlay redrawn over a held main-hand item so the hand grips the weapon. */
-  armOverlay?: Phaser.GameObjects.Sprite;
-  /** The frame key currently on the sprite, so the ticker only swaps on change. */
-  frameKey: string;
-  /** Current avatar animation frame, used to keep equipment anchored to the hand. */
-  frameName?: FrameName;
-  bubble?: Phaser.GameObjects.Container;
-  bubbleTimer?: ReturnType<typeof setTimeout>;
-  /** The overlay sprite for what the trogg carries (GDD "Interacting"), if any. */
-  carried?: Phaser.GameObjects.Container;
-  /** Which kind the overlay shows ("" = none), so it only rebuilds on change. */
-  carriedKind: string;
-  /** Which style the carried overlay shows (only Hogs use it). */
-  carriedStyle: string;
-  /** Equipped hand overlays keyed by slot, drawn near the hand rather than above the head. */
-  equip: Partial<Record<EquipSlot, EquipOverlay>>;
-  /** Local monotonic start for the latest synced equipment-use impulse. */
-  equipmentActionBaseMs?: number;
-  /** Visible countdown while dead, refreshed from `respawnAt` each frame. */
-  respawnText?: Phaser.GameObjects.Text;
-}
-
-/** A boulder's live row plus its sprite. */
-export interface BoulderView {
-  row: Boulder;
-  sprite: Phaser.GameObjects.Container;
-}
-
-/** A ground item pickup plus its sprite. */
-export interface GroundItemView {
-  row: GroundItem;
-  sprite: Phaser.GameObjects.Container;
-}
-
-/** A roaming Hog's sprite plus the client-clock instant its current intent arrived. */
-export interface HogView {
-  marker: Phaser.GameObjects.Container;
-  sprite: Phaser.GameObjects.Sprite;
-  row: Hog;
-  baseMs: number;
-  facing: Facing;
-  /** The hedgehog skin, derived from the Hog's id so a zone reads as a varied crowd. */
-  style: string;
-  frameKey: string;
-  /** Local monotonic start of the current hit-flinch (recoil + flash), or undefined when none. */
-  flinchBaseMs?: number;
-}
+import { buildGhost, buildHog, buildHogBall, buildTrogg } from "./creatures.js";
+import { buildBoulder, buildGroundItem, buildHeldItem, updateHeldFx, wireHeldFx, type HeldFx } from "./items.js";
+import { makeBubble, makeDamageText, makeHealthBar, makeLabel, makeStatusText, type Overlay } from "./overlays.js";
+import { ATTACK_PERIOD, type CreatureModel } from "./rig.js";
+import { UI_3D } from "./palette.js";
 
 /**
- * Avatar/scenery builders and tile-space placement, all sized off the live `TILE`
- * metric (`getTile`, which the world resizes in its layout). They build Phaser
- * display objects from game state — no netcode or prediction — so the world and
- * chat layers share one rig. `feetY`/`headTopY` give the in-cell anchor points
- * labels and bubbles hang off of. All objects are created on `scene`.
+ * Entity builders and per-frame drivers — the renderer half of the world: it
+ * builds display objects from game state (no netcode or prediction) and the
+ * world scene places and animates them.
+ * All positions are in tile units on the XZ plane; `place` pins an object's tile
+ * anchor, and each creature group centres its own footprint.
  */
-export function createEntities(scene: Phaser.Scene, getTile: () => number) {
-  /**
-   * Screen-space y of a trogg's feet within its tile cell, relative to the cell's
-   * top-left (where `place` anchors the marker). The feet sit at the cell's vertical
-   * centre so the trogg stands in the middle of its tile, not on the bottom-edge seam.
-   */
-  const feetY = () => getTile() / 2;
-  const avatarScale = () => getTile() / FRAME_W;
 
-  /** Screen-space y of the top of a trogg's head, for placing labels and bubbles. */
-  const headTopY = () => feetY() - FRAME_H * avatarScale();
+/** How fast a render-position correction closes (per second): ~120 ms to glide out. */
+const CORRECTION_DECAY = 9;
+/** Corrections beyond this are genuine teleports (respawn, zone snap) — don't glide. */
+const CORRECTION_MAX = 2.5;
+/** How long a hit-flinch (recoil + flash) plays. */
+export const FLINCH_MS = 240;
+/** The flinch recoil distance, in tiles. */
+const FLINCH_SHOVE = 0.1;
+const GHOST_FADE_IN_MS = 900;
+const GHOST_HOLD_MS = 2400;
+const GHOST_FADE_OUT_MS = 1200;
+const GHOST_PEAK_ALPHA = 0.82;
+const GHOST_DRIFT_TILES = 0.44;
 
-  const place = (marker: Positionable, x: number, y: number) => {
-    const tile = getTile();
-    marker.setPosition(x * tile, y * tile);
+type Gait = "idle" | "walk" | "run";
+
+/** A player's live display state plus the fields the prediction controller drives
+ *  (`player`/`baseMs`/`facing` — see `MotionEntry` in movement.ts). */
+export interface Tracked {
+  marker: THREE.Group;
+  model: CreatureModel;
+  player: Player;
+  baseMs: number;
+  facing: Facing;
+  style: string;
+  baseColor: number;
+  gait: Gait;
+  /** The in-flight attack action, so the same one fades out when the impulse ends. */
+  attacking?: THREE.AnimationAction;
+  /** The impulse the in-flight attack was started for — a fresh stamp mid-swing
+   *  (chained attacks) restarts the strike. */
+  attackingBaseMs?: number;
+  /** The tile last stepped on, for distance-faded footsteps of OTHER troggs. */
+  lastStepTile?: string;
+  flashOn: boolean;
+  /** Render-position correction state (`smoothPlace`). */
+  shownX?: number;
+  shownY?: number;
+  corrX: number;
+  corrY: number;
+  flinchBaseMs?: number;
+  equipmentActionBaseMs?: number;
+  equip: Partial<Record<EquipSlot, { kind: string; fx?: HeldFx; arm?: THREE.Object3D }>>;
+  /** The equipped torch's firelight, when one is held (world budgets which are lit). */
+  torchLight?: THREE.PointLight;
+  carried?: THREE.Group;
+  carriedKind: string;
+  carriedStyle: string;
+  bubble?: Overlay;
+  bubbleTimer?: ReturnType<typeof setTimeout>;
+  respawn?: { overlay: Overlay; text: string; at: Stamp };
+  overlays: Overlay[];
+}
+
+/** A roaming Hog's display state. */
+export interface HogView {
+  /** The tile last stepped on, for the distance-faded patter of nearby Hogs. */
+  lastStepTile?: string;
+  marker: THREE.Group;
+  model: CreatureModel;
+  row: import("../net/module_bindings/types").Hog;
+  baseMs: number;
+  facing: Facing;
+  style: string;
+  gait: Gait;
+  flashOn: boolean;
+  /** Render-position correction state (`smoothPlace`). */
+  shownX?: number;
+  shownY?: number;
+  corrX: number;
+  corrY: number;
+  flinchBaseMs?: number;
+  overlays: Overlay[];
+}
+
+/** Recursively free an object's GPU resources and detach it. Pooled resources
+ *  (`userData.shared`) stay alive — other instances still render from them. */
+export function disposeObject(obj: THREE.Object3D): void {
+  obj.removeFromParent();
+  obj.traverse((child) => {
+    const mesh = child as THREE.Mesh;
+    if (mesh.geometry && !mesh.geometry.userData.shared) mesh.geometry.dispose();
+    const material = mesh.material as THREE.Material | THREE.Material[] | undefined;
+    for (const m of Array.isArray(material) ? material : material ? [material] : []) {
+      if (!m.userData.shared) m.dispose();
+    }
+  });
+}
+
+function yawFor(dirX: number, dirY: number): number {
+  return Math.atan2(dirX, dirY);
+}
+
+function facingYaw(facing: Facing): number {
+  const f = forward(facing);
+  return yawFor(f.x, f.y);
+}
+
+/** Steer `obj` toward a heading, shortest way round, with a snappy exponential ease. */
+function steer(obj: THREE.Object3D, targetYaw: number, dt: number): void {
+  const delta = THREE.MathUtils.euclideanModulo(targetYaw - obj.rotation.y + Math.PI, Math.PI * 2) - Math.PI;
+  obj.rotation.y += delta * Math.min(1, dt * 14);
+}
+
+/** Crossfade to a gait. While an attack holds the upper body, only the legs layer
+ *  follows the gait change — the arms layer rejoins when the attack releases it. */
+function setGait(model: CreatureModel, state: { gait: Gait }, next: Gait, armsHeld = false): void {
+  if (next === state.gait) return;
+  const from = model.actions[state.gait];
+  const to = model.actions[next];
+  from.legs.fadeOut(0.12);
+  to.legs.reset().fadeIn(0.12).play();
+  from.arms.fadeOut(armsHeld ? 0.05 : 0.12);
+  if (!armsHeld) to.arms.reset().fadeIn(0.12).play();
+  state.gait = next;
+}
+
+/** Fade a model's whole body to the downed translucency (or back). */
+export function setDowned(model: CreatureModel, downed: boolean): void {
+  for (const m of model.materials) {
+    m.transparent = downed;
+    m.opacity = downed ? 0.45 : 1;
+  }
+}
+
+/** Lay a creature on its side — the dead stance. Tipping about the roll axis
+ *  works with the rig's rest pose (legs stay in the body plane instead of
+ *  dangling), so every creature reads as keeled over. The pose holds because
+ *  dead creatures skip their per-frame drive (no steer, no gait). Shared with
+ *  the dev preview's "dead" mode, so the stance is authored once. */
+export function poseDead(model: CreatureModel, centre: number, lift: number): void {
+  model.root.rotation.z = Math.PI / 2;
+  model.root.position.set(centre, lift, centre);
+}
+
+/** The hit flinch: recoil the body opposite its facing and flash it white. Shared
+ *  with the art preview, so the flinch there is exactly the in-game one. */
+export function applyFlinch(view: { model: CreatureModel; facing: Facing; flinchBaseMs?: number; flashOn: boolean }, now: number, centre: number): void {
+  const root = view.model.root;
+  if (view.flinchBaseMs === undefined) return;
+  const t = (now - view.flinchBaseMs) / FLINCH_MS;
+  if (t >= 1) {
+    view.flinchBaseMs = undefined;
+    root.position.set(centre, 0, centre);
+    if (view.flashOn) {
+      view.model.flash(false);
+      view.flashOn = false;
+    }
+    return;
+  }
+  const f = forward(view.facing);
+  const k = FLINCH_SHOVE * Math.sin(Math.max(0, t) * Math.PI);
+  root.position.set(centre - f.x * k, 0, centre - f.y * k);
+  const flash = t < 0.35;
+  if (flash !== view.flashOn) {
+    view.model.flash(flash);
+    view.flashOn = flash;
+  }
+}
+
+/** Motes in the pickup sparkle every ground item carries. */
+const PICKUP_MOTES = 4;
+
+/** How long a floating damage number lives, rising and fading. */
+const DAMAGE_FLOAT_MS = 900;
+const DAMAGE_FLOAT_RISE = 0.9;
+
+export function createEntities(scene: THREE.Scene) {
+  /** Live ghost apparitions, advanced by `updateGhosts` each frame. */
+  const ghosts: { root: THREE.Group; materials: THREE.Material[]; bornMs: number; from: THREE.Vector3; drift: THREE.Vector3 }[] = [];
+  /** Live damage numbers. Scene-anchored (not parented) so one outlives its target. */
+  const damageFloats: { overlay: Overlay; bornMs: number; from: THREE.Vector3 }[] = [];
+
+  const place = (obj: THREE.Object3D, x: number, y: number) => {
+    obj.position.set(x, 0, y);
   };
 
-  const centre = (stage: Phaser.GameObjects.Container, viewW: number, viewH: number, cols: number, rows: number) => {
-    const tile = getTile();
-    stage.setPosition((viewW - cols * tile) / 2, (viewH - rows * tile) / 2);
-  };
-
-  /**
-   * A trogg. With the `avatar-sprites` flag on, it's the layered avatar sprite
-   * (GDD "Avatars and equipment") tinted by the player's stable colour (so the same
-   * trogg reads the same colour for everyone), feet at the centre of the tile cell and
-   * head extending up out of it. With the flag off it's the placeholder colour marker
-   * (a tile-filling rect). Both carry a name label.
-   */
-  const makeMarker = (name: string, color: number, style: string, self: boolean, facing: Facing, sprites: boolean, health: number, dead: boolean, respawnAt?: Stamp) => {
-    const tile = getTile();
-    const marker = scene.add.container(0, 0);
-    let sprite: Phaser.GameObjects.Sprite | undefined;
-    let frameKey = "";
-
-    if (sprites) {
-      const frame = avatarFrame(false, false, 0);
-      // Self gets a bright ground ring under the feet so you can pick yourself out.
-      if (self) {
-        const ring = scene.add.graphics();
-        ring.lineStyle(2, 0xe8dcc4).strokeEllipse(tile / 2, feetY(), tile * 0.34 * 2, tile * 0.16 * 2);
-        marker.add(ring);
-      }
-      sprite = scene.make.sprite({ x: tile / 2, y: feetY(), key: AVATAR_TEX, frame: avatarFrameName("trogg", style, facing, frame), add: false });
-      // Anchor on the art's feet point (ANCHOR), not the frame's bottom edge, so the
-      // feet — not the empty pixels below them — land on the tile centre.
-      sprite.setOrigin(ANCHOR.x / FRAME_W, ANCHOR.y / FRAME_H);
-      sprite.setScale(avatarScale());
-      sprite.setTint(color);
-      if (dead) sprite.setAlpha(0.45);
-      marker.add(sprite);
-      frameKey = `${facing}_${frame}`;
+  /** Place a creature with correction smoothing: projected positions can jump when
+   *  collision state changes under a live intent (a Hog claims the tile ahead and the
+   *  clamp rewinds the projection; an authority snap lands) — instead of popping, the
+   *  rendered marker absorbs the jump into an offset that glides out over ~120 ms.
+   *  Prediction and game logic keep using the raw projection; only the render eases. */
+  const smoothPlace = (view: { marker: THREE.Group; shownX?: number; shownY?: number; corrX: number; corrY: number; running?: boolean }, x: number, y: number, dt: number) => {
+    if (view.shownX === undefined || view.shownY === undefined) {
+      view.corrX = 0;
+      view.corrY = 0;
     } else {
-      const body = scene.add.graphics();
-      body.fillStyle(color, dead ? 0.45 : 1).fillRect(2, 2, tile - 4, tile - 4);
-      // Your own trogg keeps its colour but gets an outline so you can pick it out.
-      if (self) body.lineStyle(2, 0xe8dcc4).strokeRect(2, 2, tile - 4, tile - 4);
-      marker.add(body);
+      const jump = Math.hypot(view.shownX - x, view.shownY - y);
+      // Anything the entity couldn't have walked this frame is a correction to absorb.
+      const maxStep = RUN_SPEED_TILES_PER_SEC * dt + 0.06;
+      if (jump > CORRECTION_MAX) {
+        view.corrX = 0; // a real teleport — snap
+        view.corrY = 0;
+      } else if (jump > maxStep) {
+        view.corrX = view.shownX - x;
+        view.corrY = view.shownY - y;
+      }
+      const decay = Math.exp(-CORRECTION_DECAY * dt);
+      view.corrX *= decay;
+      view.corrY *= decay;
+    }
+    view.shownX = x + view.corrX;
+    view.shownY = y + view.corrY;
+    place(view.marker, view.shownX, view.shownY);
+  };
+
+  /** Top of a trogg's head in world units — where labels and bubbles hang. */
+  const headTop = () => 1.75;
+
+  // ── debug hitboxes (Commands panel toggle) ────────────────────────────────────
+  // Every creature and boulder carries a hidden ground ring at its combat hit
+  // radius; the local trogg also carries its melee reach — range ring plus the
+  // swing cone, yawed to the live aim and brightened while a use is in flight.
+  const hitboxes: THREE.Object3D[] = [];
+  let hitboxesOn = false;
+  let selfReach: { group: THREE.Group; wedge: THREE.Mesh } | undefined;
+
+  const hitRing = (radius: number, colour: number): THREE.Object3D => {
+    const points: THREE.Vector3[] = [];
+    for (let i = 0; i < 48; i++) {
+      const a = (i / 48) * Math.PI * 2;
+      points.push(new THREE.Vector3(Math.cos(a) * radius, 0, Math.sin(a) * radius));
+    }
+    return new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(points), new THREE.LineBasicMaterial({ color: colour }));
+  };
+
+  const addHitbox = (marker: THREE.Group, obj: THREE.Object3D, c: number) => {
+    obj.position.set(c, 0.035, c);
+    obj.visible = hitboxesOn;
+    marker.add(obj);
+    hitboxes.push(obj);
+  };
+
+  const addReach = (marker: THREE.Group) => {
+    const group = new THREE.Group();
+    group.add(hitRing(MELEE_RANGE_TILES, 0xff8c2e));
+    const cone = new THREE.CircleGeometry(MELEE_RANGE_TILES, 32, -MELEE_ARC_RAD, MELEE_ARC_RAD * 2);
+    cone.rotateX(-Math.PI / 2);
+    const wedge = new THREE.Mesh(cone, new THREE.MeshBasicMaterial({ color: 0xff8c2e, transparent: true, opacity: 0.12, side: THREE.DoubleSide, depthWrite: false }));
+    group.add(wedge);
+    addHitbox(marker, group, 0.5);
+    selfReach = { group, wedge };
+  };
+
+  const setHitboxes = (on: boolean) => {
+    hitboxesOn = on;
+    for (const obj of hitboxes) obj.visible = on;
+  };
+
+  /** Point the reach cone along the live aim; a use in flight glows brighter. */
+  const updateReach = (dirX: number, dirY: number, attacking: boolean) => {
+    if (!selfReach) return;
+    if (dirX !== 0 || dirY !== 0) selfReach.wedge.rotation.y = Math.atan2(-dirY, dirX);
+    (selfReach.wedge.material as THREE.MeshBasicMaterial).opacity = attacking ? 0.35 : 0.12;
+  };
+
+  const makeMarker = (name: string, color: number, style: string, self: boolean, facing: Facing, health: number, dead: boolean, respawnAt?: Stamp) => {
+    const marker = new THREE.Group();
+    const model = buildTrogg(style, color);
+    model.root.position.set(0.5, 0, 0.5);
+    model.root.rotation.y = facingYaw(facing);
+    marker.add(model.root);
+    model.actions.idle.legs.play();
+    model.actions.idle.arms.play();
+    if (dead) {
+      setDowned(model, true);
+      poseDead(model, 0.5, 0.24);
     }
 
-    const labelY = sprites ? headTopY() - 8 : -8;
-    const label = scene.make.text({
-      x: tile / 2,
-      y: labelY,
-      text: name,
-      style: { fontFamily: "monospace", fontSize: "11px", color: cssColor(dead ? 0x9b8a6c : 0xe8dcc4) },
-      add: false,
-    });
-    label.setOrigin(0.5, 1);
-    label.setResolution(TEXT_RESOLUTION);
-    marker.add(label);
+    const overlays: Overlay[] = [];
+    if (self) {
+      // a bright ground ring under the feet so you can pick yourself out
+      const ring = new THREE.Mesh(new THREE.RingGeometry(0.3, 0.36, 24), new THREE.MeshBasicMaterial({ color: UI_3D.parchment, transparent: true, opacity: 0.85 }));
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.set(0.5, 0.015, 0.5);
+      marker.add(ring);
+    }
+    addHitbox(marker, hitRing(PLAYER_HIT_RADIUS, 0x6fdc9c), 0.5);
+    if (self) addReach(marker);
+    const label = makeLabel(name, dead ? UI_3D.deadName : UI_3D.parchment);
+    label.sprite.position.set(0.5, model.height + 0.5, 0.5);
+    marker.add(label.sprite);
+    overlays.push(label);
 
-    const hp = Math.max(0, Math.min(PLAYER_MAX_HEALTH, health));
-    const ratio = PLAYER_MAX_HEALTH <= 0 ? 0 : hp / PLAYER_MAX_HEALTH;
-    const barW = Math.max(16, Math.round(tile * 0.68));
-    const barH = Math.max(3, Math.round(tile * 0.09));
-    const bar = scene.add.graphics();
-    const bx = Math.round((tile - barW) / 2);
-    const by = Math.round(labelY + 3);
-    bar.fillStyle(0x0a0806, 0.75).fillRect(bx - 1, by - 1, barW + 2, barH + 2);
-    bar.fillStyle(dead ? 0x4a3826 : ratio > 0.5 ? 0x76c26a : ratio > 0.25 ? 0xf2c94c : 0xc75c52, 1).fillRect(bx, by, Math.max(0, Math.round(barW * ratio)), barH);
-    marker.add(bar);
+    const ratio = PLAYER_MAX_HEALTH <= 0 ? 0 : Math.max(0, Math.min(PLAYER_MAX_HEALTH, health)) / PLAYER_MAX_HEALTH;
+    const bar = makeHealthBar(ratio, dead);
+    bar.sprite.position.set(0.5, model.height + 0.32, 0.5);
+    marker.add(bar.sprite);
+    overlays.push(bar);
 
-    let respawnText: Phaser.GameObjects.Text | undefined;
+    let respawn: Tracked["respawn"];
     if (dead && respawnAt) {
-      respawnText = scene.make.text({
-        x: tile / 2,
-        y: by + barH + 11,
-        text: respawnCountdown(respawnAt),
-        style: { fontFamily: "monospace", fontSize: "10px", color: cssColor(0xf2c94c) },
-        add: false,
-      });
-      respawnText.setOrigin(0.5, 0.5);
-      respawnText.setResolution(TEXT_RESOLUTION);
-      marker.add(respawnText);
+      const text = respawnCountdown(respawnAt);
+      const overlay = makeStatusText(text);
+      overlay.sprite.position.set(0.5, model.height + 0.14, 0.5);
+      marker.add(overlay.sprite);
+      overlays.push(overlay);
+      respawn = { overlay, text, at: respawnAt };
     }
-
-    return { marker, sprite, frameKey, respawnText };
+    return { marker, model, overlays, respawn };
   };
 
-  /** Drive a trogg's facing and walk cycle from synced motion plus standing facing.
-   *  No-op for the placeholder marker (no sprite to swap). */
-  const animate = (entry: Tracked, now: number, motion: ProjectedMotion) => {
-    const moving = motion.dirX !== 0 || motion.dirY !== 0;
-    const faceX = moving ? motion.dirX : entry.player.faceX;
-    const faceY = moving ? motion.dirY : entry.player.faceY;
-    if (entry.sprite) driveSprite(entry.sprite, "trogg", entry.style, faceX, faceY, entry.player.running, entry, now, moving, attackPhase(entry, now));
-    if (entry.respawnText && entry.player.respawnAt) entry.respawnText.setText(respawnCountdown(entry.player.respawnAt));
-    applyEquipment(entry);
-    animateEquipment(entry, now);
-    applyFlinch(entry, now);
-    syncArmOverlay(entry, now);
-  };
+  const respawnCountdown = (respawnAt: Stamp): string => `Respawn ${Math.ceil(Math.max(0, timestampMs(respawnAt) - Date.now()) / 1000)}`;
 
-  /** Redraw the near (main-hand) arm over the held item so the hand grips the weapon instead of
-   *  the weapon covering the arm. The overlay is a full-frame sprite that mirrors the body — same
-   *  frame, transform, and tint (so it rides the walk cycle and the hit-flinch) — drawn on top of
-   *  the item. It exists only for the front facings that have an overlay frame and while the main
-   *  hand holds something; facing up needs none (the arm and item are both behind the body). */
-  const syncArmOverlay = (entry: Tracked, now: number): void => {
-    const sprite = entry.sprite;
-    const frame = entry.frameName ?? "idle";
-    const name = avatarFrameName("trogg", entry.style, entry.facing, frame);
-    const main = entry.player.equippedMainHand;
-    const isAttack = frame === "attack_a" || frame === "attack_b";
-    // a chop weapon (pickaxe) on an attack frame uses the overhead chop arm; everything else the
-    // neutral arm. The attack base omits the in-front arm, so the overlay supplies it even unarmed.
-    const chop = main !== "" && isAttack && attackArmStyle(main) === "chop" && hasChopOverlay(name);
-    const tex = chop ? AVATAR_CHOP_ARM_TEX : AVATAR_ARM_TEX;
-    const want = sprite !== undefined && (main !== "" || isAttack) && (chop ? hasChopOverlay(name) : hasArmOverlay(name));
-    if (!want) {
-      entry.armOverlay?.setVisible(false);
-      return;
-    }
-    let ov = entry.armOverlay;
-    if (!ov) {
-      ov = scene.add.sprite(0, 0, tex, name);
-      ov.setOrigin(ANCHOR.x / FRAME_W, ANCHOR.y / FRAME_H);
-      ov.setScale(avatarScale());
-      entry.marker.add(ov);
-      entry.armOverlay = ov;
-    }
-    ov.setVisible(true);
-    ov.setTexture(tex, name);
-    ov.setPosition(sprite!.x, sprite!.y); // after applyFlinch, so the arm rides the recoil too
-    const fl = entry.flinchBaseMs === undefined ? null : flinchPose(now - entry.flinchBaseMs);
-    if (fl?.flash) ov.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
-    else ov.setTint(entry.baseColor).setTintMode(Phaser.TintModes.MULTIPLY);
-    entry.marker.bringToTop(ov);
-  };
-
-  /** Play the hit-flinch on a damaged trogg: a brief recoil away from its facing plus a white
-   *  flash, the held item recoiling with it, restored to rest when the flinch ends. */
-  const applyFlinch = (entry: Tracked, now: number): void => {
-    if (!entry.sprite || entry.flinchBaseMs === undefined) return;
-    const tile = getTile();
-    const fl = flinchPose(now - entry.flinchBaseMs);
-    if (!fl) {
-      entry.flinchBaseMs = undefined;
-      entry.sprite.setPosition(tile / 2, feetY());
-      entry.sprite.setTint(entry.baseColor).setTintMode(Phaser.TintModes.MULTIPLY);
-      return;
-    }
-    const f = forward(entry.facing); // recoil opposite the facing
-    const k = tile * 0.1 * fl.shove;
-    entry.sprite.setPosition(tile / 2 - f.x * k, feetY() - f.y * k);
-    // a solid white fill on the flash beats, the player tint (multiply) otherwise
-    if (fl.flash) entry.sprite.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
-    else entry.sprite.setTint(entry.baseColor).setTintMode(Phaser.TintModes.MULTIPLY);
-    for (const ov of Object.values(entry.equip)) if (ov) ov.glyph.setPosition(ov.glyph.x - f.x * k, ov.glyph.y - f.y * k);
-  };
-
-  /** The same hit-flinch for a Hog: recoil opposite its facing plus a white flash. Hogs carry no
-   *  tint, so the flash clears back to none. The sprite rests at the centre of its footprint. */
-  const applyHogFlinch = (view: HogView, now: number): void => {
-    if (view.flinchBaseMs === undefined) return;
-    const c = (getTile() * hogSize(view.style)) / 2;
-    const fl = flinchPose(now - view.flinchBaseMs);
-    if (!fl) {
-      view.flinchBaseMs = undefined;
-      view.sprite.setPosition(c, c);
-      view.sprite.setTint(0xffffff).setTintMode(Phaser.TintModes.MULTIPLY);
-      return;
-    }
-    const f = forward(view.facing);
-    const k = getTile() * 0.1 * fl.shove;
-    view.sprite.setPosition(c - f.x * k, c - f.y * k);
-    if (fl.flash) view.sprite.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
-    else view.sprite.setTint(0xffffff).setTintMode(Phaser.TintModes.MULTIPLY);
-  };
-
-  /** Progress [0,1) through the current equipment-use action, or undefined when none is
-   *  live — drives the wind-up/strike body pose so the trogg's arm actually extends. */
+  /** Progress [0,1) through the current equipment-use action, or undefined when idle. */
   const attackPhase = (entry: Tracked, now: number): number | undefined => {
     if (entry.equipmentActionBaseMs === undefined || !entry.player.equipmentAction) return undefined;
     const age = now - entry.equipmentActionBaseMs;
     return age >= 0 && age < EQUIPMENT_ACTION_MS ? age / EQUIPMENT_ACTION_MS : undefined;
   };
 
-  const respawnCountdown = (respawnAt: Stamp): string => {
-    const remaining = Math.max(0, timestampMs(respawnAt) - Date.now());
-    return `Respawn ${Math.ceil(remaining / 1000)}`;
-  };
-
-  /**
-   * Point a sprite's facing and stride frame at its motion intent, mutating the
-   * caller's `facing`/`frameKey` so the next frame compares against it. Shared by
-   * troggs and Hogs (one rig); `running` picks the faster hunched run cycle (troggs
-   * only — Hogs always walk). Only touches the GPU when the frame actually changes.
-   */
-  const driveSprite = (
-    sprite: Phaser.GameObjects.Sprite,
-    kind: Kind,
-    style: string,
+  /** Point a creature at its motion and pick the gait action; shared by troggs and
+   *  Hogs. The attack action overrides the gait for its duration, then hands back. */
+  const driveCreature = (
+    model: CreatureModel,
+    state: { facing: Facing; gait: Gait },
     dirX: number,
     dirY: number,
     running: boolean,
-    state: { facing: Facing; frameKey: string; frameName?: FrameName },
-    now: number,
-    moving = dirX !== 0 || dirY !== 0,
-    attack?: number,
+    dt: number,
+    moving: boolean,
+    attack: boolean,
   ) => {
-    state.facing = facingFromDir(dirX, dirY, state.facing);
-    const frame = attack !== undefined ? attackFrame(attack) : avatarFrame(moving, running, now);
-    state.frameName = frame;
-    const key = `${state.facing}_${frame}`;
-    if (key === state.frameKey) return;
-    sprite.setFrame(avatarFrameName(kind, style, state.facing, frame));
-    state.frameKey = key;
-  };
-
-  /** A pushable boulder: the chunky pixel-art rock, scaled to fill its tile. */
-  const makeBoulder = () => {
-    const tile = getTile();
-    const wrap = scene.add.container(0, 0);
-    const sprite = scene.make.sprite({ x: tile / 2, y: tile / 2, key: ITEM_TEX, frame: "boulder", add: false });
-    sprite.setOrigin(0.5, 0.5);
-    sprite.setScale(tile / ITEM_ART_W);
-    wrap.add(sprite);
-    return wrap;
-  };
-
-  /**
-   * The pixel-art glyph for a prop, used both on the floor and in hand. The
-   * sprite is shrunk into `ART` local units so the existing anchor/scale maths
-   * (which works in `tile / ART` terms) keeps placing and rotating it unchanged.
-   */
-  const makeItemGlyph = (item: string, scale = 1): Phaser.GameObjects.Container | undefined => {
-    if (!hasItemArt(item)) return undefined;
-    const wrap = scene.add.container(0, 0);
-    const sprite = scene.make.sprite({ x: 0, y: 0, key: ITEM_TEX, frame: item, add: false });
-    sprite.setOrigin(0.5, 0.5);
-    sprite.setScale(ART / ITEM_ART_W);
-    wrap.add(sprite);
-    wrap.setScale(scale);
-    return wrap;
-  };
-
-  /** A pickup item lying on the floor, distinct from an equipped hand overlay. */
-  const makeGroundItem = (item: string): Phaser.GameObjects.Container => {
-    const tile = getTile();
-    const wrap = scene.add.container(0, 0);
-    const shadow = scene.add.graphics();
-    shadow.fillStyle(0x0a0806, 0.35).fillEllipse(tile / 2, tile * 0.68, tile * 0.42, tile * 0.18);
-    wrap.add(shadow);
-    const glyph = makeItemGlyph(item, Math.max(1.2, tile / ART));
-    if (glyph) {
-      glyph.setPosition(tile / 2, tile * 0.56);
-      glyph.setRotation(item === "sword" ? Math.PI / 4 : item === "pickaxe" ? -Math.PI / 4 : 0.2);
-      wrap.add(glyph);
-    }
-    return wrap;
-  };
-
-  /**
-   * The overlay for what a trogg carries (GDD "Interacting"): the held object drawn
-   * at full tile size on the trogg's person above its head — a boulder, a hog, and
-   * (later) any tile-sized thing all read the same held way. `topY` is the head top in sprite
-   * mode, the cell top for the placeholder marker. Unknown kind → no overlay.
-   */
-  const makeCarried = (kind: string, style: string, topY: number): Phaser.GameObjects.Container | undefined => {
-    const tile = getTile();
-    const wrap = scene.add.container(0, 0);
-    if (kind === "boulder") {
-      const b = makeBoulder();
-      // The boulder spans [0, tile]; shift so its centre — not its corner — sits on
-      // the wrap origin (Phaser containers transform about (0, 0)).
-      b.setScale(CARRY_SCALE);
-      b.setPosition((-tile * CARRY_SCALE) / 2, (-tile * CARRY_SCALE) / 2);
-      wrap.add(b);
-    } else if (kind === "hog") {
-      // a picked-up hog curls into its defensive ball (GDD "Hog ball form"); styles without a ball
-      // (the chicken easter egg) fall back to the upright idle frame
-      const ball = hasHogBall(style);
-      const sprite = scene.make.sprite({
-        x: 0,
-        y: 0,
-        key: ball ? AVATAR_BALL_TEX : AVATAR_TEX,
-        frame: ball ? hogBallFrameName(style) : avatarFrameName("hog", style, "down", "idle"),
-        add: false,
-      });
-      sprite.setOrigin(ANCHOR.x / FRAME_W, ANCHOR.y / FRAME_H);
-      sprite.setScale(avatarScale() * CARRY_SCALE);
-      wrap.add(sprite);
+    if (dirX !== 0 || dirY !== 0) {
+      state.facing = Math.abs(dirX) >= Math.abs(dirY) ? (dirX < 0 ? "left" : "right") : dirY < 0 ? "up" : "down";
+      steer(model.root, yawFor(dirX, dirY), dt);
     } else {
-      wrap.destroy();
-      return undefined;
+      steer(model.root, facingYaw(state.facing), dt);
     }
-    wrap.setPosition(tile / 2, topY - 2);
-    return wrap;
+    setGait(model, state, moving ? (running ? "run" : "walk") : "idle", attack);
   };
 
-  /** Sync a trogg's carried overlay to its `carrying` kind, rebuilding only on change. */
-  const applyCarry = (entry: Tracked): void => {
+  /** Start (or continue) the one-shot attack action alongside the gait. The clip
+   *  is the wield class of whatever the main hand holds — stab, chop, scoop, or
+   *  the bare-fisted swing. */
+  const driveAttack = (entry: Tracked, now: number) => {
+    const phase = attackPhase(entry, now);
+    if (phase !== undefined && entry.attackingBaseMs !== entry.equipmentActionBaseMs) {
+      if (!entry.attacking) entry.model.actions[entry.gait].arms.fadeOut(0.05);
+      entry.attacking?.stop();
+      entry.attacking = entry.model.actions.attacks[wieldOf(entry.player.equippedMainHand)];
+      entry.attackingBaseMs = entry.equipmentActionBaseMs;
+      entry.attacking.reset().setDuration(ATTACK_PERIOD).fadeIn(0.05).play();
+    } else if (phase === undefined && entry.attacking) {
+      entry.attacking.fadeOut(0.1);
+      entry.attacking = undefined;
+      entry.attackingBaseMs = undefined;
+      entry.model.actions[entry.gait].arms.reset().fadeIn(0.1).play();
+    }
+  };
+
+  /** Per-frame trogg driver: gait + attack + flinch + respawn countdown + mixer. */
+  const animate = (entry: Tracked, now: number, dt: number, motion: ProjectedMotion) => {
+    if (entry.player.dead) {
+      // a corpse lies still (poseDead holds — no steer, no gait, no flinch);
+      // only the respawn countdown keeps ticking
+      if (entry.respawn && entry.player.respawnAt) {
+        const text = respawnCountdown(entry.player.respawnAt);
+        if (text !== entry.respawn.text) {
+          const next = makeStatusText(text);
+          next.sprite.position.copy(entry.respawn.overlay.sprite.position);
+          entry.marker.add(next.sprite);
+          entry.marker.remove(entry.respawn.overlay.sprite);
+          entry.respawn.overlay.dispose();
+          entry.respawn = { overlay: next, text, at: entry.player.respawnAt };
+        }
+      }
+      return;
+    }
+    const moving = motion.dirX !== 0 || motion.dirY !== 0;
+    const faceX = moving ? motion.dirX : entry.player.faceX;
+    const faceY = moving ? motion.dirY : entry.player.faceY;
+    driveCreature(entry.model, entry, faceX, faceY, entry.player.running, dt, moving, entry.attacking !== undefined);
+    driveAttack(entry, now);
+    applyFlinch(entry, now, 0.5);
+    if (entry.respawn && entry.player.respawnAt) {
+      const text = respawnCountdown(entry.player.respawnAt);
+      if (text !== entry.respawn.text) {
+        const next = makeStatusText(text);
+        next.sprite.position.copy(entry.respawn.overlay.sprite.position);
+        entry.marker.add(next.sprite);
+        entry.marker.remove(entry.respawn.overlay.sprite);
+        entry.respawn.overlay.dispose();
+        entry.respawn = { overlay: next, text, at: entry.player.respawnAt };
+      }
+    }
+    for (const held of [entry.equip.mainHand, entry.equip.offHand]) {
+      if (held?.fx) updateHeldFx(held.fx, now);
+    }
+    entry.model.mixer.update(dt);
+    // Held-item arm poses (a torch carried aloft) land after the mixer has posed
+    // the gait, so the pose wins over the swing for that arm.
+    for (const held of [entry.equip.mainHand, entry.equip.offHand]) {
+      if (held?.arm && held.fx?.armPitch !== undefined) held.arm.rotation.x = held.fx.armPitch;
+    }
+  };
+
+  const makeHog = (style: string, facing: Facing, health: number) => {
+    const size = hogSize(style);
+    const dead = health <= 0;
+    const marker = new THREE.Group();
+    const model = buildHog(style);
+    const c = size / 2;
+    model.root.position.set(c, 0, c);
+    model.root.scale.setScalar(size);
+    model.root.rotation.y = facingYaw(facing);
+    marker.add(model.root);
+    model.actions.idle.legs.play();
+    model.actions.idle.arms.play();
+    if (dead) poseDead(model, c, 0.2 * size);
+    if (!dead) addHitbox(marker, hitRing(HOG_HIT_RADIUS * size, 0x6fdc9c), c);
+    const overlays: Overlay[] = [];
+    const max = hogMaxHealth(style);
+    const hp = dead ? max : Math.max(0, Math.min(max, health));
+    if (hp < max) {
+      const bar = makeHealthBar(max <= 0 ? 0 : hp / max, false);
+      bar.sprite.position.set(c, model.height * size + 0.24, c);
+      marker.add(bar.sprite);
+      overlays.push(bar);
+    }
+    return { marker, model, overlays };
+  };
+
+  /** Per-frame Hog driver (Hogs always walk; no attack). */
+  const animateHog = (view: HogView, now: number, dt: number, motion: ProjectedMotion) => {
+    driveCreature(view.model, view, motion.dirX, motion.dirY, false, dt, motion.dirX !== 0 || motion.dirY !== 0, false);
+    applyFlinch(view, now, hogSize(view.style) / 2);
+    view.model.mixer.update(dt);
+  };
+
+  const makeGroundItem = (item: string) => {
+    const marker = new THREE.Group();
+    const glyph = buildGroundItem(item);
+    if (glyph) {
+      glyph.position.set(0.5, 0, 0.5);
+      marker.add(glyph);
+    }
+    // The pickup sparkle: gold motes circling up over anything liftable — loot,
+    // gathered yields, player drops alike — the "you can E this" signal. One
+    // Points draw per item; animatePickupMotes drives it while visible.
+    const positions = new Float32Array(PICKUP_MOTES * 3);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    // depthTest off + a high renderOrder: the sparkle reads through the item
+    // model, trees, and floor relief from any camera angle — visibility is its
+    // entire job. Overlays (renderOrder 10) still draw above it.
+    const material = new THREE.PointsMaterial({ color: UI_3D.gold, size: 0.12, transparent: true, opacity: 0.9, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending });
+    const motes = new THREE.Points(geo, material);
+    motes.frustumCulled = false; // the buffer mutates per frame; the marker's visibility governs
+    motes.renderOrder = 9;
+    motes.userData.phase = Math.random() * 10;
+    marker.add(motes);
+    marker.userData.motes = motes;
+    return marker;
+  };
+
+  /** Drive a ground item's pickup motes; call per frame while the marker is visible. */
+  const animatePickupMotes = (marker: THREE.Group, now: number) => {
+    const motes = marker.userData.motes as THREE.Points | undefined;
+    if (!motes) return;
+    const attr = motes.geometry.getAttribute("position") as THREE.BufferAttribute;
+    const phase = motes.userData.phase as number;
+    for (let i = 0; i < PICKUP_MOTES; i++) {
+      const t = ((now / 1000) * 0.4 + phase + i / PICKUP_MOTES) % 1;
+      const angle = phase * 7 + i * 2.4 + t * 2.5;
+      attr.setXYZ(i, 0.5 + Math.cos(angle) * 0.17, 0.12 + t * 0.6, 0.5 + Math.sin(angle) * 0.17);
+    }
+    attr.needsUpdate = true;
+    (motes.material as THREE.PointsMaterial).opacity = 0.75 + 0.2 * Math.sin(now * 0.004 + phase);
+  };
+
+  /** Sync the carried overlay (boulder / curled hog) to the player row. */
+  const applyCarry = (entry: Tracked) => {
     const kind = entry.player.carrying;
     const style = kind === "hog" ? entry.player.carryingStyle || "classic" : "";
     if (kind === entry.carriedKind && style === entry.carriedStyle) return;
-    entry.carried?.destroy();
+    if (entry.carried) disposeObject(entry.carried);
     entry.carried = undefined;
     entry.carriedKind = "";
     entry.carriedStyle = "";
-    const overlay = makeCarried(kind, style, entry.sprite ? headTopY() : 0);
-    if (overlay) {
-      entry.marker.add(overlay);
-      entry.carried = overlay;
-      entry.carriedKind = kind;
-      entry.carriedStyle = style;
+    let overlay: THREE.Group | undefined;
+    if (kind === "boulder") {
+      overlay = buildBoulder();
+      overlay.scale.setScalar(0.7);
+    } else if (kind === "hog") {
+      // a picked-up hog curls into its defensive ball; the chicken has no ball and
+      // rides upright instead (GDD "Hog ball form")
+      if (style === "chicken") {
+        overlay = buildHog("chicken").root;
+        overlay.scale.setScalar(0.8);
+      } else {
+        overlay = buildHogBall(style);
+      }
     }
+    if (!overlay) return;
+    overlay.position.set(0, entry.model.height + 0.18, 0);
+    // ride the body (not the marker) so the carry recoils with the flinch
+    entry.model.root.add(overlay);
+    entry.carried = overlay;
+    entry.carriedKind = kind;
+    entry.carriedStyle = style;
   };
 
-  /** Sync the main-hand equipment overlay to `player.equippedMainHand`, rebuilding only
-   *  on item or facing change (the directional frame and z-order both depend on facing).
-   *  All placement comes from the shared `heldTransform`, so the overlay rides the rig
-   *  exactly the way the preview shows it. */
-  const applyEquipment = (entry: Tracked): void => {
-    for (const { slot, item: pick } of EQUIP_SLOTS) {
-      const item = pick(entry.player);
+  /** Sync held items to the equipped rows: parent each item model to the rig's hand
+   *  node, so it rides the animated (swinging, striking) arm with no placement math. */
+  const applyEquipment = (entry: Tracked) => {
+    const slots: { slot: EquipSlot; item: string; hand: THREE.Group; armName: string }[] = [
+      { slot: "mainHand", item: entry.player.equippedMainHand, hand: entry.model.handR, armName: "ArmR" },
+      { slot: "offHand", item: entry.player.equippedOffHand, hand: entry.model.handL, armName: "ArmL" },
+    ];
+    for (const { slot, item, hand, armName } of slots) {
       const cur = entry.equip[slot];
-      if (item === (cur?.kind ?? "") && entry.facing === cur?.facing) continue;
-      cur?.glyph.destroy();
+      if (item === (cur?.kind ?? "")) continue;
+      for (const child of [...hand.children]) disposeObject(child);
       delete entry.equip[slot];
       if (!item) continue;
-      const t = heldTransform({ kind: "trogg", item, facing: entry.facing, frameName: entry.frameName ?? "idle", tile: getTile(), attack: 0, slot });
-      const glyph = makeItemGlyph(t.frame, t.scale);
-      if (!glyph) continue;
-      if (t.flipX) glyph.scaleX = -glyph.scaleX;
-      glyph.setPosition(t.x, t.y);
-      glyph.setRotation(t.rotation);
-      if (t.behind && entry.sprite) entry.marker.addAt(glyph, Math.max(0, entry.marker.getIndex(entry.sprite)));
-      else entry.marker.add(glyph);
-      entry.equip[slot] = { glyph, kind: item, facing: entry.facing };
+      const model = buildHeldItem(item);
+      if (!model) continue;
+      model.scale.setScalar(entry.model.fit);
+      hand.add(model);
+      // Live behavior (light, flame cels, arm pose) comes from the item's own
+      // HeldFx definition, shared verbatim with the dev preview.
+      const fx = wireHeldFx(item, model);
+      const arm = fx?.armPitch !== undefined ? (entry.model.root.getObjectByName(armName) ?? undefined) : undefined;
+      entry.equip[slot] = { kind: item, fx, arm };
     }
+    entry.torchLight = entry.equip.mainHand?.fx?.light ?? entry.equip.offHand?.fx?.light;
   };
 
-  /** Each frame, pin the item to the hand and apply the item's wield pose — eased from
-   *  its held pose into its use pose across the attack — so a pickaxe rests low and chops,
-   *  and a shovel digs downward, on top of the arm's reach. The placeholder marker (no
-   *  sprite, `avatar-sprites` off) has no rig, so the item just sits mid-cell. */
-  const animateEquipment = (entry: Tracked, now: number): void => {
-    const tile = getTile();
-    const phase = attackPhase(entry, now);
-    for (const { slot, item: pick } of EQUIP_SLOTS) {
-      const ov = entry.equip[slot];
-      if (!ov) continue;
-      if (!entry.sprite) {
-        ov.glyph.setPosition(tile * 0.5, tile * 0.5);
+  /** Pop a speech bubble over a trogg's head, replacing any current one. */
+  const showBubble = (entry: Tracked, text: string, ttlMs: number) => {
+    if (entry.bubbleTimer) clearTimeout(entry.bubbleTimer);
+    if (entry.bubble) {
+      entry.marker.remove(entry.bubble.sprite);
+      entry.bubble.dispose();
+    }
+    const bubble = makeBubble(text);
+    bubble.sprite.position.set(0.5, headTop() + 0.85, 0.5);
+    entry.marker.add(bubble.sprite);
+    entry.bubble = bubble;
+    entry.bubbleTimer = setTimeout(() => {
+      if (entry.bubble === bubble) {
+        entry.marker.remove(bubble.sprite);
+        bubble.dispose();
+        entry.bubble = undefined;
+        entry.bubbleTimer = undefined;
+      }
+    }, ttlMs);
+  };
+
+  /** Tear down a tracked trogg (or hog view): timers, overlays, GPU resources. */
+  const destroy = (entry: { marker: THREE.Group; overlays: Overlay[]; bubbleTimer?: ReturnType<typeof setTimeout>; bubble?: Overlay; respawn?: Tracked["respawn"] }) => {
+    if (entry.bubbleTimer) clearTimeout(entry.bubbleTimer);
+    entry.bubble?.dispose();
+    entry.respawn?.overlay.dispose();
+    for (const o of entry.overlays) o.dispose();
+    disposeObject(entry.marker);
+  };
+
+  /** Cosmetic ghost apparition: materialise, drift, linger, dissolve (GDD easter egg). */
+  const hauntGhost = (tile: { x: number; y: number; id?: bigint }) => {
+    audio.playGhost();
+    const root = buildGhost();
+    const materials: THREE.Material[] = [];
+    root.traverse((child) => {
+      const m = (child as THREE.Mesh).material as THREE.Material | undefined;
+      if (m) {
+        m.transparent = true;
+        m.opacity = 0;
+        materials.push(m);
+      }
+    });
+    const idPart = tile.id === undefined ? 0 : Number(tile.id % 2_147_483_647n);
+    const seed = (idPart ^ Math.imul(tile.x + 1, 374_761_393) ^ Math.imul(tile.y + 1, 668_265_263)) >>> 0;
+    const angle = ((seed % 360) * Math.PI) / 180;
+    const from = new THREE.Vector3(tile.x + 0.5, 0, tile.y + 0.5);
+    const drift = new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle) * 0.72).multiplyScalar(GHOST_DRIFT_TILES);
+    root.position.copy(from);
+    scene.add(root);
+    ghosts.push({ root, materials, bornMs: performance.now(), from, drift });
+  };
+
+  /** Pop a floating damage number over a tile anchor (GDD "Combat"). The number
+   *  anchors to the world, not the target, so a killing blow's number survives the
+   *  target's row (and marker) vanishing. */
+  const showDamage = (at: { x: number; z: number }, amount: number, headY: number) => {
+    if (amount <= 0) return;
+    const overlay = makeDamageText(amount);
+    const jitter = (Math.random() - 0.5) * 0.5;
+    overlay.sprite.position.set(at.x + 0.5 + jitter, headY + 0.45, at.z + 0.5);
+    scene.add(overlay.sprite);
+    damageFloats.push({ overlay, bornMs: performance.now(), from: overlay.sprite.position.clone() });
+  };
+
+  /** Advance ghost and damage-number timelines; call once per frame. */
+  const updateGhosts = (now: number) => {
+    for (let i = damageFloats.length - 1; i >= 0; i--) {
+      const f = damageFloats[i]!;
+      const t = (now - f.bornMs) / DAMAGE_FLOAT_MS;
+      if (t >= 1) {
+        scene.remove(f.overlay.sprite);
+        f.overlay.dispose();
+        damageFloats.splice(i, 1);
         continue;
       }
-      const t = heldTransform({
-        kind: "trogg",
-        item: pick(entry.player),
-        facing: entry.facing,
-        frameName: entry.frameName ?? "idle",
-        tile,
-        attack: phase === undefined ? 0 : attackEase(phase),
-        slot,
-      });
-      ov.glyph.setScale(t.flipX ? -t.scale : t.scale, t.scale);
-      ov.glyph.setPosition(t.x, t.y);
-      ov.glyph.setRotation(t.rotation);
+      const rise = 1 - (1 - t) * (1 - t); // ease-out: fast pop, slowing drift
+      f.overlay.sprite.position.y = f.from.y + rise * DAMAGE_FLOAT_RISE;
+      (f.overlay.sprite.material as THREE.SpriteMaterial).opacity = t < 0.45 ? 1 : 1 - (t - 0.45) / 0.55;
+    }
+    for (let i = ghosts.length - 1; i >= 0; i--) {
+      const g = ghosts[i]!;
+      const age = now - g.bornMs;
+      const lifetime = GHOST_FADE_IN_MS + GHOST_HOLD_MS + GHOST_FADE_OUT_MS;
+      if (age >= lifetime) {
+        disposeObject(g.root);
+        ghosts.splice(i, 1);
+        continue;
+      }
+      const alpha =
+        age < GHOST_FADE_IN_MS
+          ? (age / GHOST_FADE_IN_MS) * GHOST_PEAK_ALPHA
+          : age < GHOST_FADE_IN_MS + GHOST_HOLD_MS
+            ? GHOST_PEAK_ALPHA
+            : GHOST_PEAK_ALPHA * (1 - (age - GHOST_FADE_IN_MS - GHOST_HOLD_MS) / GHOST_FADE_OUT_MS);
+      for (const m of g.materials) m.opacity = alpha * ((m as THREE.MeshStandardMaterial).userData.baseOpacity ?? 1);
+      const ease = Math.sin(Math.min(1, age / lifetime) * Math.PI * 0.5);
+      g.root.position.copy(g.from).addScaledVector(g.drift, ease);
+      g.root.position.y = Math.sin(age / 700) * 0.05;
     }
   };
 
-  /** A roaming Hog: the shared avatar sprite in its hedgehog skin, feet centred on the
-   *  tile (like a trogg). No name label, tint, or ground ring — Hogs are ambient
-   *  scenery, not players. */
-  const makeHog = (style: string, facing: Facing, health: number): { marker: Phaser.GameObjects.Container; sprite: Phaser.GameObjects.Sprite; frameKey: string } => {
-    const tile = getTile();
-    const size = hogSize(style);
-    const marker = scene.add.container(0, 0);
-    const frame = avatarFrame(false, false, 0);
-    // A big (2×2) hog renders at `size`× scale, feet centred in its `size`-tile
-    // footprint (the marker sits on the footprint's top-left tile), head reaching up
-    // out of it — the same feet-centred placement a common hog gets in its one tile.
-    const sprite = scene.make.sprite({ x: (tile * size) / 2, y: (tile * size) / 2, key: AVATAR_TEX, frame: avatarFrameName("hog", style, facing, frame), add: false });
-    sprite.setOrigin(ANCHOR.x / FRAME_W, ANCHOR.y / FRAME_H);
-    sprite.setScale(size * avatarScale());
-    marker.add(sprite);
-    const hp = Math.max(0, Math.min(HOG_MAX_HEALTH, health));
-    if (hp < HOG_MAX_HEALTH) {
-      const ratio = HOG_MAX_HEALTH <= 0 ? 0 : hp / HOG_MAX_HEALTH;
-      const barW = Math.max(14, Math.round(tile * 0.58));
-      const barH = Math.max(3, Math.round(tile * 0.08));
-      const bx = Math.round((tile - barW) / 2);
-      const by = Math.round(headTopY() - 7);
-      const bar = scene.add.graphics();
-      bar.fillStyle(0x0a0806, 0.72).fillRect(bx - 1, by - 1, barW + 2, barH + 2);
-      bar.fillStyle(ratio > 0.5 ? 0x76c26a : ratio > 0.25 ? 0xf2c94c : 0xc75c52, 1).fillRect(bx, by, Math.max(0, Math.round(barW * ratio)), barH);
-      marker.add(bar);
-    }
-    return { marker, sprite, frameKey: `${facing}_${frame}` };
-  };
-
-  /**
-   * Cosmetic easter egg (behind `ghost-trogg`): a pale draped ghost materialises on
-   * the given tile, drifts gently, lingers, then fades. The Commands panel requests
-   * `hauntGhost`; every live client in the zone renders the resulting `ghost_haunt`
-   * insert.
-   */
-  const hauntGhost = (stage: Phaser.GameObjects.Container, tile: { x: number; y: number; id?: bigint }) => {
-    audio.playGhost();
-    const ghost = scene.add.container(0, 0);
-    const sprite = scene.make.sprite({ x: getTile() / 2, y: feetY(), key: GHOST_TEX, frame: GHOST_FRAME, add: false });
-    sprite.setOrigin(ANCHOR.x / FRAME_W, ANCHOR.y / FRAME_H);
-    sprite.setScale(avatarScale());
-    ghost.add(sprite);
-    ghost.setAlpha(0);
-    place(ghost, tile.x, tile.y);
-    stage.add(ghost);
-
-    const seed = ghostSeed(tile.id, tile.x, tile.y);
-    const angle = ((seed % 360) * Math.PI) / 180;
-    const drift = getTile() * GHOST_DRIFT_TILES;
-    const dx = Math.cos(angle) * drift;
-    const dy = Math.sin(angle) * drift * 0.72;
-    const fadeOutDelayMs = GHOST_FADE_IN_MS + GHOST_HOLD_MS;
-    const lifetimeMs = fadeOutDelayMs + GHOST_FADE_OUT_MS;
-
-    scene.tweens.add({ targets: ghost, alpha: GHOST_PEAK_ALPHA, duration: GHOST_FADE_IN_MS, ease: "Sine.easeInOut" });
-    scene.tweens.add({ targets: ghost, x: ghost.x + dx, y: ghost.y + dy, duration: lifetimeMs, ease: "Sine.easeInOut" });
-    scene.tweens.add({
-      targets: ghost,
-      alpha: 0,
-      duration: GHOST_FADE_OUT_MS,
-      delay: fadeOutDelayMs,
-      ease: "Sine.easeInOut",
-      onComplete: () => ghost.destroy(),
-    });
-  };
-
-  /** Build a speech bubble floating just above a head — `topY` is the head top in sprite
-   *  mode, the cell top for the placeholder marker. */
-  const makeBubble = (text: string, topY: number): Phaser.GameObjects.Container => {
-    const bubble = scene.add.container(0, 0);
-    const label = scene.make.text({
-      x: 0,
-      y: 3,
-      text,
-      style: { fontFamily: "monospace", fontSize: "11px", color: cssColor(0x0a0806), align: "center", wordWrap: { width: 150 } },
-      add: false,
-    });
-    label.setOrigin(0.5, 1);
-    label.setResolution(TEXT_RESOLUTION);
-    const padX = 5;
-    const padY = 3;
-    const bg = scene.add.graphics();
-    bg.fillStyle(0xe8dcc4, 1).fillRoundedRect(-label.width / 2 - padX, -label.height - padY, label.width + padX * 2, label.height + padY * 2, 4);
-    bubble.add([bg, label]);
-    bubble.setPosition(getTile() / 2, topY - 16);
-    return bubble;
-  };
-
-  return { headTopY, place, centre, makeMarker, animate, driveSprite, makeBoulder, makeGroundItem, applyCarry, applyEquipment, makeHog, applyHogFlinch, hauntGhost, makeBubble };
+  return { place, smoothPlace, headTop, makeMarker, animate, makeHog, animateHog, makeGroundItem, animatePickupMotes, applyCarry, applyEquipment, showBubble, showDamage, destroy, hauntGhost, updateGhosts, setHitboxes, updateReach };
 }
 
 export type Entities = ReturnType<typeof createEntities>;

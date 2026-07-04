@@ -4,6 +4,7 @@ import { ScheduleAt, Timestamp } from "spacetimedb";
 import {
   getZone,
   isItemId,
+  ITEM_PICKUP_RADIUS,
 } from "../../../shared/index";
 import {
   captureProcedureEvents,
@@ -14,6 +15,7 @@ import {
   solidTiles,
   addInventory,
   pickupTarget,
+  nearestGroundItem,
   effectiveHogStyle,
   placeCarried,
   cardinal,
@@ -22,8 +24,8 @@ import {
 /**
  * Interact with nearby things (GDD "Interacting") — a generic action key (client
  * `E`). Empty-handed, pick up an adjacent ground item into inventory or lift an
- * adjacent boulder / hog onto the trogg (delete its world row, stamp `carrying`);
- * already carrying, set it back down on the faced tile. The faced direction is
+ * adjacent Hog onto the trogg (delete its world row, stamp `carrying`); already
+ * carrying, set it back down on the faced tile. The faced direction is
  * passed in because an idle trogg's standing facing isn't synced (GDD "Movement");
  * the server still re-derives the trogg's tile and only acts on adjacent targets,
  * preferring the faced tile when there are multiple candidates, so the client can't
@@ -53,19 +55,18 @@ function runInteract(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; dirY
     return [{ distinctId: distinctId(ctx), event: "object_dropped", properties }];
   }
 
+  // Ground items are lifted by radius, not facing — the nearest one within
+  // reach wins, so loot at your feet is always liftable (GDD "Interacting").
+  const item = nearestGroundItem(ctx, p.zoneId, pos.x + 0.5, pos.y + 0.5, ITEM_PICKUP_RADIUS);
+  if (item) {
+    if (!isItemId(item.item)) return [];
+    const qty = item.qty ?? 1;
+    if (!addInventory(ctx, p.identity, item.item, qty)) return [];
+    ctx.db.groundItem.id.delete(item.id);
+    return [{ distinctId: distinctId(ctx), event: "inventory_item_acquired", properties: { ...props, item: item.item, qty } }];
+  }
+
   const target = pickupTarget(ctx, p.zoneId, Math.round(pos.x), Math.round(pos.y), dir, ctx.timestamp);
-  if (target?.kind === "item") {
-    if (!isItemId(target.row.item)) return [];
-    const qty = target.row.qty ?? 1;
-    if (!addInventory(ctx, p.identity, target.row.item, qty)) return [];
-    ctx.db.groundItem.id.delete(target.row.id);
-    return [{ distinctId: distinctId(ctx), event: "inventory_item_acquired", properties: { ...props, item: target.row.item, qty } }];
-  }
-  if (target?.kind === "boulder") {
-    ctx.db.boulder.id.delete(target.row.id);
-    ctx.db.player.identity.update({ ...p, carrying: "boulder", carryingStyle: "" });
-    return [{ distinctId: distinctId(ctx), event: "object_picked_up", properties: { ...props, kind: "boulder" } }];
-  }
   if (target?.kind === "hog") {
     const carryingStyle = effectiveHogStyle(target.row);
     ctx.db.hog.id.delete(target.row.id);

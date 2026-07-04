@@ -18,6 +18,7 @@ function col(): any {
 
 export const t = {
   i32: col,
+  u32: col,
   u64: col,
   i64: col,
   f32: col,

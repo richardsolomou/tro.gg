@@ -8,10 +8,21 @@
       html, body { margin: 0; height: 100%; background: #0a0806; overflow: hidden; }
       #game { width: 100vw; height: 100vh; }
       canvas { display: block; image-rendering: pixelated; }
+      /* The boot screen paints with the HTML itself, before any script arrives,
+         so navigation never sits on a blank page. main.ts narrates the boot
+         stages into #boot-stage; the world removes the whole screen when the
+         canvas fades in (world.ts reveal). */
+      #boot-screen { position: absolute; inset: 0; display: grid; place-items: center; text-align: center;
+                     color: #e8dcc4; font-family: ui-monospace, monospace; z-index: 1; }
+      #boot-screen .ember { width: 10px; height: 10px; margin: 0 auto; background: #ff8c2e;
+                            box-shadow: 0 0 18px #ff8c2e; animation: boot-pulse 1.1s steps(2) infinite; }
+      #boot-stage { margin-top: 14px; font-size: 15px; color: #9b8a6c; letter-spacing: 1px; }
+      @keyframes boot-pulse { 50% { opacity: 0.35; } }
     </style>
   </head>
   <body>
     <div id="game"></div>
+    <div id="boot-screen"><div><div class="ember"></div><div id="boot-stage">waking the cave…</div></div></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

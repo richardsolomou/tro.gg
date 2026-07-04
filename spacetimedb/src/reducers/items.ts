@@ -2,12 +2,16 @@ import spacetimedb, { type Ctx, type AnalyticsEvent } from "../schema";
 import { t } from "spacetimedb/server";
 import { ScheduleAt, Timestamp } from "spacetimedb";
 import {
+  elapsedMs,
+  EQUIPMENT_USE_COOLDOWN_MS,
   equipSlotOf,
   getZone,
   isEquippableItem,
   MAX_GROUND_ITEMS_PER_ZONE,
   spawnTile,
-  SWORD_DAMAGE,
+  weaponDamageRange,
+  OFF_TOOL_NODE_FACTOR,
+  UNARMED_DAMAGE,
   tileKey,
 } from "../../../shared/index";
 import {
@@ -19,19 +23,20 @@ import {
   countRows,
   solidTiles,
   addGroundItemTiles,
-  boulderAt,
+  meleeBoulderTarget,
+  meleeTreeTarget,
+  meleeHogTarget,
+  meleePlayerTarget,
   ownedInventoryRow,
   equippedInventoryRow,
   removeInventoryUnit,
-  addInventory,
-  hogAt,
-  playerAt,
   playerDiedEvent,
+  dropLoot,
   damageHog,
   damagePlayer,
   throwCarried,
   facingDir,
-  cardinal,
+  directionVector,
 } from "../helpers";
 
 /**
@@ -175,16 +180,20 @@ export const discardItemAction = spacetimedb.procedure(
  * Use the equipped main-hand item (GDD "Avatars and equipment"). The row update
  * is a visible, low-volume impulse every client can animate. It preserves the
  * current movement intent — using a tool never turns into a stop. If the trogg is
- * carrying a boulder or Hog, `F` throws it as a tile-based impact weapon. Otherwise
- * pickaxes mine the faced boulder into one Stone inventory item, and swords damage
- * the faced adjacent online trogg or Hog; at zero health the target dies.
+ * carrying a Hog, `F` throws it as a tile-based impact weapon. Otherwise the swing
+ * resolves in order: the weapon's own gathering node at full damage, a creature,
+ * then any node at a fraction of the roll; at zero health the target dies or the
+ * node breaks and grants its resource.
  */
 function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; dirY: number; source?: string }): AnalyticsEvent[] {
   const p = ctx.db.player.identity.find(ctx.sender);
   if (!p) return [];
   if (p.dead) return [];
-  const dir = cardinal(dirX, dirY);
-  if (!dir || (dir.dirX === 0 && dir.dirY === 0)) return [];
+  // The client sends its exact aim. A throw travels along it (free-direction);
+  // the tile mechanics (melee, gathering, facing) take its dominant cardinal.
+  const aim = directionVector(dirX, dirY);
+  if (aim.dirX === 0 && aim.dirY === 0) return [];
+  const dir = Math.abs(aim.dirX) >= Math.abs(aim.dirY) ? { dirX: Math.sign(aim.dirX), dirY: 0 } : { dirX: 0, dirY: Math.sign(aim.dirY) };
 
   const zone = getZone(p.zoneId);
   if (!zone) return [];
@@ -193,7 +202,7 @@ function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; d
   const events: AnalyticsEvent[] = [];
 
   if (p.carrying !== "") {
-    const thrown = throwCarried(ctx, p, zone, pos, dir);
+    const thrown = throwCarried(ctx, p, zone, pos, aim);
     if (!thrown) return [];
     const throwProps: Record<string, string | number | boolean> = { ...props, kind: thrown.kind, range: thrown.range };
     if (thrown.hitTarget) throwProps.hit_target = thrown.hitTarget;
@@ -209,44 +218,90 @@ function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; d
     return events;
   }
 
+  // Empty-handed, `F` still swings: bare fists, the weakest weapon, stored as
+  // the "fists" action impulse so every client animates the bare swing.
   const equipped = equippedInventoryRow(ctx, p);
-  if (!equipped) return [];
+  const item = equipped?.item ?? "fists";
+  // a fresh use inside the previous swing's cooldown is dropped (invariant 3)
+  if (p.equipmentAction !== "" && elapsedMs(p.equipmentActionAt, ctx.timestamp) < EQUIPMENT_USE_COOLDOWN_MS) return [];
 
-  if (equipped.item === "pickaxe") {
-    const ax = Math.round(pos.x) + dir.dirX;
-    const ay = Math.round(pos.y) + dir.dirY;
-    const b = boulderAt(ctx, p.zoneId, ax, ay);
-    if (b) {
-      if (addInventory(ctx, p.identity, "stone", 1)) {
-        ctx.db.boulder.id.delete(b.id);
-        events.push({ distinctId: distinctId(ctx), event: "inventory_item_acquired", properties: { zone: p.zoneId, item: "stone", qty: 1, ...sourceProp(source) } });
+  // Melee resolves by reach and swing arc around the exact aim vector (shared
+  // meleeHit), not tile adjacency — free movement means the eye judges reach in
+  // world units. The server re-derives every position; nearest hit wins.
+  //
+  // A swing lands on the first of: the weapon's own gathering node at full
+  // damage (pickaxe → boulder, axe → tree), a creature, then any node at
+  // OFF_TOOL_NODE_FACTOR of the roll — a sword can whittle a tree down for the
+  // first wood, it's just a terrible saw. Each node hit rolls into the node's
+  // health; the breaking hit drops the yield on the floor whatever weapon dealt it.
+  const cx = pos.x + 0.5;
+  const cy = pos.y + 0.5;
+  const range = equipped ? weaponDamageRange(item) : UNARMED_DAMAGE;
+
+  // A breaking hit never fills the inventory directly: the yield lands on the
+  // floor by the node (dropLoot), and picking it up is a conscious `E`.
+  const strikeBoulder = (b: NonNullable<ReturnType<typeof meleeBoulderTarget>>["target"], damage: number): boolean => {
+    if (b.health > damage) {
+      ctx.db.boulder.id.update({ ...b, health: b.health - damage });
+      return true;
+    }
+    ctx.db.boulder.id.delete(b.id);
+    dropLoot(ctx, p.zoneId, [{ item: "stone", min: 1, max: 1 }], { x: b.x, y: b.y });
+    return true;
+  };
+  const strikeTree = (tr: NonNullable<ReturnType<typeof meleeTreeTarget>>["target"], damage: number): boolean => {
+    if (tr.health > damage) {
+      ctx.db.tree.id.update({ ...tr, health: tr.health - damage });
+      return true;
+    }
+    ctx.db.tree.id.delete(tr.id);
+    dropLoot(ctx, p.zoneId, [{ item: "wood", min: 1, max: 1 }], { x: tr.x, y: tr.y });
+    return true;
+  };
+
+  let landed = false;
+  if (range) {
+    const roll = () => ctx.random.integerInRange(range[0], range[1]);
+    if (item === "pickaxe") {
+      const b = meleeBoulderTarget(ctx, p.zoneId, cx, cy, aim);
+      if (b) landed = strikeBoulder(b.target, roll());
+    } else if (item === "axe") {
+      const tr = meleeTreeTarget(ctx, p.zoneId, cx, cy, aim);
+      if (tr) landed = strikeTree(tr.target, roll());
+    }
+    if (!landed) {
+      const damage = roll();
+      const trogg = meleePlayerTarget(ctx, p.zoneId, cx, cy, aim, ctx.timestamp, p.identity);
+      const hog = meleeHogTarget(ctx, p.zoneId, cx, cy, aim, ctx.timestamp);
+      if (trogg && (!hog || trogg.dist <= hog.dist)) {
+        const result = damagePlayer(ctx, trogg.target, damage);
+        events.push({ distinctId: distinctId(ctx), event: "combat_hit", properties: { ...props, weapon: item, target: "trogg", damage, killed: result.killed } });
+        if (result.killed) events.push(playerDiedEvent(trogg.target.identity.toHexString(), props, item, result));
+        landed = true;
+      } else if (hog) {
+        const result = damageHog(ctx, hog.target, damage);
+        events.push({ distinctId: distinctId(ctx), event: "combat_hit", properties: { ...props, weapon: item, target: "hog", damage, killed: result.killed } });
+        landed = true;
       }
     }
-  } else if (equipped.item === "sword") {
-    const ax = Math.round(pos.x) + dir.dirX;
-    const ay = Math.round(pos.y) + dir.dirY;
-    const target = playerAt(ctx, p.zoneId, ax, ay, ctx.timestamp, p.identity);
-    if (target) {
-      const result = damagePlayer(ctx, target, SWORD_DAMAGE);
-      events.push({ distinctId: distinctId(ctx), event: "combat_hit", properties: { ...props, weapon: "sword", target: "trogg", damage: SWORD_DAMAGE, killed: result.killed } });
-      if (result.killed) events.push(playerDiedEvent(target.identity.toHexString(), props, "sword", result));
-    } else {
-      const h = hogAt(ctx, p.zoneId, ax, ay, ctx.timestamp);
-      if (h) {
-        const result = damageHog(ctx, h, SWORD_DAMAGE);
-        events.push({ distinctId: distinctId(ctx), event: "combat_hit", properties: { ...props, weapon: "sword", target: "hog", damage: SWORD_DAMAGE, killed: result.killed } });
-      }
+    if (!landed) {
+      // no creature and no matching node in the swing: any node takes a scratch
+      const b = item === "pickaxe" ? undefined : meleeBoulderTarget(ctx, p.zoneId, cx, cy, aim);
+      const tr = item === "axe" ? undefined : meleeTreeTarget(ctx, p.zoneId, cx, cy, aim);
+      const chip = Math.max(1, Math.round(roll() * OFF_TOOL_NODE_FACTOR));
+      if (b && (!tr || b.dist <= tr.dist)) strikeBoulder(b.target, chip);
+      else if (tr) strikeTree(tr.target, chip);
     }
   }
 
   ctx.db.player.identity.update({
     ...p,
-    equippedMainHand: equipped.item,
-    equippedMainHandInventoryId: equipped.id,
-    equipmentAction: equipped.item,
+    equippedMainHand: equipped?.item ?? "",
+    equippedMainHandInventoryId: equipped?.id ?? 0n,
+    equipmentAction: item,
     equipmentActionAt: ctx.timestamp,
   });
-  events.unshift({ distinctId: distinctId(ctx), event: "equipped_item_used", properties: { zone: p.zoneId, item: equipped.item, ...sourceProp(source) } });
+  events.unshift({ distinctId: distinctId(ctx), event: "equipped_item_used", properties: { zone: p.zoneId, item, ...sourceProp(source) } });
   return events;
 }
 

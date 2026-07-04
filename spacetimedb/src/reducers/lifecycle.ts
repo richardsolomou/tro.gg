@@ -1,6 +1,9 @@
 import spacetimedb from "../schema";
 import { Timestamp } from "spacetimedb";
 import {
+  CAVE_DOOR,
+  EMERGE_ARRIVAL,
+  nearestSafeTile,
   COLOR_UNSET,
   getZone,
   STYLE_UNSET,
@@ -10,13 +13,17 @@ import {
 } from "../../../shared/index";
 import {
   spawnAt,
+  healStaleWorld,
   seedBoulders,
+  seedTrees,
   seedHogs,
   seedGroundItems,
+  seedBirthInstance,
   playerConnectionCount,
   rememberPlayerConnection,
   forgetPlayerConnection,
   armWander,
+  armRegen,
   isSpacetimeAuthCaller,
   claimProviderName,
   settle,
@@ -36,16 +43,26 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
   // init runs first-publish only, so it can't seed a table added to an already-published
   // module; seed lazily on connect, idempotently.
   const startingZone = getZone(STARTING_ZONE_SLUG)!;
+  healStaleWorld(ctx, startingZone);
   seedBoulders(ctx, startingZone);
+  seedTrees(ctx, startingZone);
   seedHogs(ctx, startingZone);
   seedGroundItems(ctx, startingZone);
   // A player is here, so make sure the Hogs are roaming (no-op if already armed).
   armWander(ctx);
+  armRegen(ctx);
 
   const hadLiveConnection = playerConnectionCount(ctx, ctx.sender) > 0;
   rememberPlayerConnection(ctx);
 
-  const existing = ctx.db.player.identity.find(ctx.sender);
+  let existing = ctx.db.player.identity.find(ctx.sender);
+  // Rows from the retired zone-instanced world carry old slugs; fold them into
+  // the seamless world at spawn.
+  if (existing && !getZone(existing.zoneId)) {
+    const at = spawnAt(startingZone);
+    existing = { ...existing, zoneId: STARTING_ZONE_SLUG, x: at.x, y: at.y, dirX: 0, dirY: 0, running: false, path: "" };
+    ctx.db.player.identity.update(existing);
+  }
   if (existing) {
     // The same account can have several live sockets (two tabs, or two devices).
     // They all control and observe one trogg row. Only the first live connection
@@ -57,8 +74,11 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
     // a tilemap edit could leave its resting tile inside a new wall; nudge it back
     // to spawn so it never resumes embedded in an obstacle (invariant 6).
     const zone = getZone(existing.zoneId);
+    // A map regen can strand a returning trogg inside new rock or a river: relocate
+    // to the nearest safe tile beside where it logged out, spawn as the last resort.
+    // (A trogg mid-birth resumes inside its own private cave, untouched.)
     const stuck = zone && !isWalkable(zone, Math.round(existing.x), Math.round(existing.y));
-    const pos = stuck ? spawnAt(zone) : { x: existing.x, y: existing.y };
+    const pos = stuck ? (nearestSafeTile(zone, existing.x, existing.y) ?? spawnAt(zone)) : { x: existing.x, y: existing.y };
     ctx.db.player.identity.update({ ...existing, x: pos.x, y: pos.y, dirX: 0, dirY: 0, running: false, path: "", online: true, movedAt: ctx.timestamp });
     return;
   }
@@ -68,8 +88,12 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
   // including SpacetimeDB's own self-issued anonymous one — is a guest.
   const isAccount = isSpacetimeAuthCaller(ctx);
 
-  const zone = getZone(STARTING_ZONE_SLUG)!;
-  const at = spawnAt(zone);
+  // A newborn is born alone in its own instanced birth cave (GDD "Onboarding:
+  // the Warren"): a private zone id scoping a copy of the shared template.
+  const birthZone = `birth:${ctx.sender.toHexString()}`;
+  const cave = getZone(birthZone)!;
+  seedBirthInstance(ctx, birthZone);
+  const at = cave.spawn ?? { x: 0, y: 0 };
   // Identity hex starts with a fixed `c200` tag, so name from the variable tail.
   const hex = ctx.sender.toHexString();
   const generated = `trogg-${hex.slice(-4)}`;
@@ -81,7 +105,7 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
     identity: ctx.sender,
     name,
     isGuest: !isAccount,
-    zoneId: zone.slug,
+    zoneId: birthZone,
     x: at.x,
     y: at.y,
     dirX: 0,
@@ -96,7 +120,8 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
     path: "",
     style: STYLE_UNSET,
     faceX: 0,
-    faceY: 1,
+    faceY: -1, // facing the corridor
+
     equippedMainHand: "",
     equipmentAction: "",
     equipmentActionAt: Timestamp.UNIX_EPOCH,
@@ -106,6 +131,13 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
     health: PLAYER_MAX_HEALTH,
     dead: false,
     respawnAt: undefined,
+    lastDamagedAt: Timestamp.UNIX_EPOCH,
+    cheatSpeed: 1,
+    cheatFly: false,
+    cheatInvulnerable: false,
+    cheatNoclip: false,
+    z: 0,
+    dirZ: 0,
   });
 });
 
@@ -135,6 +167,75 @@ export const onDisconnect = spacetimedb.clientDisconnected((ctx) => {
       carryingStyle = "";
     }
   }
-  ctx.db.player.identity.update({ ...p, x: settled.x, y: settled.y, dirX: 0, dirY: 0, running: false, path: "", online: false, carrying, carryingStyle });
+  ctx.db.player.identity.update({ ...p, x: settled.x, y: settled.y, z: settled.z, dirZ: 0, dirX: 0, dirY: 0, running: false, path: "", online: false, carrying, carryingStyle });
 });
 
+
+/**
+ * Step out of the birth cave (GDD "Onboarding: the Warren"): fired by the
+ * client as the trogg walks onto the exit landing — no keypress; the walk IS
+ * the door. The server re-derives the position and only emerges a caller
+ * actually at the exit (invariant 3). The instance's rows persist: it is the
+ * trogg's own cave, kept exactly as it left it, and `enterCave` leads back.
+ */
+export const emerge = spacetimedb.reducer((ctx) => {
+  const p = ctx.db.player.identity.find(ctx.sender);
+  if (!p || p.dead) return;
+  if (!p.zoneId.startsWith("birth:")) return;
+  const cave = getZone(p.zoneId);
+  const exit = cave?.exit;
+  if (!cave || !exit) return;
+  const settled = settle(ctx, p, ctx.timestamp);
+  if (Math.hypot(settled.x - exit.x, settled.y - exit.y) > 2.5) return;
+  ctx.db.player.identity.update({
+    ...p,
+    zoneId: STARTING_ZONE_SLUG,
+    x: EMERGE_ARRIVAL.x,
+    y: EMERGE_ARRIVAL.y,
+    z: 0,
+    dirZ: 0,
+    dirX: 0,
+    dirY: 0,
+    running: false,
+    path: "",
+    faceX: 0,
+    faceY: -1, // facing out of the cave mouth, toward the world
+    movedAt: ctx.timestamp,
+  });
+});
+
+/**
+ * Walk back down into your own cave (GDD "Onboarding: the Warren"): fired by
+ * the client as the trogg pushes into the alcove's deep end. Position is
+ * re-derived and verified (invariant 3); the destination is always the
+ * caller's own `birth:<identity>` instance — nobody else's cave is reachable —
+ * landing on the exit ledge facing the cavern.
+ */
+export const enterCave = spacetimedb.reducer((ctx) => {
+  const p = ctx.db.player.identity.find(ctx.sender);
+  if (!p || p.dead) return;
+  if (p.zoneId !== STARTING_ZONE_SLUG) return;
+  const settled = settle(ctx, p, ctx.timestamp);
+  if (Math.hypot(settled.x - CAVE_DOOR.x, settled.y - CAVE_DOOR.y) > 2) return;
+  const birthZone = `birth:${ctx.sender.toHexString()}`;
+  const cave = getZone(birthZone);
+  const exit = cave?.exit;
+  if (!cave || !exit) return;
+  ctx.db.player.identity.update({
+    ...p,
+    zoneId: birthZone,
+    x: exit.x,
+    // land below the neck, clear of the emerge threshold — arriving in the
+    // cave must not immediately walk you back out
+    y: exit.y + 3,
+    z: 0,
+    dirZ: 0,
+    dirX: 0,
+    dirY: 0,
+    running: false,
+    path: "",
+    faceX: 0,
+    faceY: 1, // facing down into the cavern
+    movedAt: ctx.timestamp,
+  });
+});

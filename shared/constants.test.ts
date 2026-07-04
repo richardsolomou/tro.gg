@@ -3,9 +3,11 @@ import { test } from "node:test";
 import {
   assertZones,
   getZone,
+  wieldOf,
   isGeneratedName,
   isValidName,
   isWalkable,
+  SOLID_GLYPHS,
   STARTING_ZONE_SLUG,
   TILE_GLYPHS,
   WALL_TILE,
@@ -51,11 +53,11 @@ test("every zone's tilemap matches its declared dimensions", () => {
   assert.doesNotThrow(assertZones);
 });
 
-test("only the wall glyph is unwalkable; decorative floor glyphs stay walkable", () => {
+test("only the solid glyphs (rock, deep water) are unwalkable", () => {
   const zone = getZone(STARTING_ZONE_SLUG)!;
   for (const [y, row] of zone.tiles.entries()) {
     for (let x = 0; x < row.length; x++) {
-      assert.equal(isWalkable(zone, x, y), row[x] !== WALL_TILE, `tile (${x}, ${y}) glyph ${row[x]}`);
+      assert.equal(isWalkable(zone, x, y), !SOLID_GLYPHS.has(row[x]!), `tile (${x}, ${y}) glyph ${row[x]}`);
     }
   }
 });
@@ -82,7 +84,7 @@ test("assertZones rejects an unknown tile glyph", () => {
 test("the zone rim is walled and the interior is floor", () => {
   const zone = getZone(STARTING_ZONE_SLUG)!;
   assert.equal(isWalkable(zone, 0, 0), false); // corner rim
-  assert.equal(isWalkable(zone, 12, 8), true); // spawn (zone centre)
+  assert.equal(isWalkable(zone, zone.spawn!.x, zone.spawn!.y), true); // the spawn plaza
   assert.equal(isWalkable(zone, -1, 5), false); // out of bounds is unwalkable
   assert.equal(isWalkable(zone, zone.width, 5), false);
 });
@@ -90,7 +92,7 @@ test("the zone rim is walled and the interior is floor", () => {
 test("the starting zone seeds boulders on floor, clear of the spawn", () => {
   const zone = getZone(STARTING_ZONE_SLUG)!;
   assert.ok(zone.boulders.length > 0);
-  const spawn = { x: Math.floor(zone.width / 2), y: Math.floor(zone.height / 2) };
+  const spawn = zone.spawn ?? { x: Math.floor(zone.width / 2), y: Math.floor(zone.height / 2) };
   for (const b of zone.boulders) {
     assert.equal(isWalkable(zone, b.x, b.y), true);
     assert.ok(b.x !== spawn.x || b.y !== spawn.y, "boulder must not sit on the spawn tile");
@@ -107,4 +109,13 @@ test("the starting zone seeds pickup items on walkable floor", () => {
   const zone = getZone(STARTING_ZONE_SLUG)!;
   assert.ok(zone.items.length > 0);
   for (const item of zone.items) assert.equal(isWalkable(zone, item.x, item.y), true);
+});
+
+test("wieldOf maps weapons to their attack class and everything else to the bare swing", () => {
+  assert.equal(wieldOf("sword"), "stab");
+  assert.equal(wieldOf("pickaxe"), "chop");
+  assert.equal(wieldOf("shovel"), "scoop");
+  assert.equal(wieldOf("shield"), "swing");
+  assert.equal(wieldOf(""), "swing");
+  assert.equal(wieldOf("not-an-item"), "swing");
 });

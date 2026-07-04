@@ -1,9 +1,14 @@
 import { ScheduleAt, Timestamp } from "spacetimedb";
 import {
   elapsedMs,
+  EMERGE_ARRIVAL,
   getZone,
+  hogLoot,
+  type LootRoll,
   isWalkable,
+  STARTING_ZONE_SLUG,
   HOG_MAX_HEALTH,
+  MAX_GROUND_ITEMS_PER_ZONE,
   PLAYER_MAX_HEALTH,
   PLAYER_RESPAWN_MS,
   snapToTile,
@@ -11,14 +16,16 @@ import {
   spawnTiles,
   THROWN_OBJECT_DAMAGE,
   THROWN_OBJECT_RANGE,
+  THROWN_HOG_SETTLE_MS,
   type Stamp,
   tileKey,
   type Zone,
 } from "../../shared/index";
 import {
-  spawnAt,
   settle,
   solidTiles,
+  addGroundItemTiles,
+  countRows,
   hogAt,
   hogTile,
   playerAt,
@@ -43,17 +50,23 @@ export function respawnDue(p: { respawnAt?: Stamp }, now: Stamp): boolean {
 export function respawnPlayer(ctx: Ctx, p: { identity: Ctx["sender"]; zoneId: string }): void {
   const current = ctx.db.player.identity.find(p.identity);
   if (!current || !current.dead) return;
-  const zone = getZone(current.zoneId);
-  if (!zone) return;
-  const at = spawnAt(zone);
+  // Always respawn just outside your cave: the coast alcove in the world, where
+  // you first emerged and where you descend back down (GDD "Onboarding"). A
+  // trogg that died inside its birth cave is pulled out here too — the cave is
+  // for births, not a spawn room — which reads as a zone transfer to the client.
   ctx.db.player.identity.update({
     ...current,
-    x: at.x,
-    y: at.y,
+    zoneId: STARTING_ZONE_SLUG,
+    x: EMERGE_ARRIVAL.x,
+    y: EMERGE_ARRIVAL.y,
+    z: 0,
+    dirZ: 0,
     dirX: 0,
     dirY: 0,
     running: false,
     path: "",
+    faceX: 0,
+    faceY: -1, // facing out from the cave mouth, toward the world
     health: PLAYER_MAX_HEALTH,
     dead: false,
     respawnAt: undefined,
@@ -85,11 +98,37 @@ export function hogHealth(h: { health?: number }): number {
 export function damageHog(ctx: Ctx, target: NonNullable<ReturnType<typeof hogAt>>, amount: number): DamageResult {
   const health = Math.max(0, hogHealth(target) - amount);
   if (health > 0) {
-    ctx.db.hog.id.update({ ...target, health });
+    ctx.db.hog.id.update({ ...target, health, lastDamagedAt: ctx.timestamp });
     return { health, killed: false };
   }
-  ctx.db.hog.id.delete(target.id);
+  // The killing blow leaves a corpse where the Hog actually was (its stored
+  // origin can be a whole run behind under the gliding wander): settled, stopped,
+  // health 0. The regen sweep reaps it after NPC_CORPSE_MS.
+  const at = hogTile(ctx, target, ctx.timestamp);
+  ctx.db.hog.id.update({ ...target, x: at.x, y: at.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, health: 0, lastDamagedAt: ctx.timestamp });
+  dropLoot(ctx, target.zoneId, hogLoot(target.style), at);
   return { health: 0, killed: true };
+}
+
+/** Lay loot down as ground items on the nearest free tiles around where its
+ *  source fell — a corpse, a broken boulder, a felled tree (none are solid once
+ *  gone, so the source tile itself counts) — honouring the per-zone ground-item
+ *  cap: a full zone just drops less. Nothing enters an inventory here; picking
+ *  loot up is a conscious `E` (GDD "Interacting"). */
+export function dropLoot(ctx: Ctx, zoneId: string, loot: readonly LootRoll[], at: { x: number; y: number }): void {
+  const zone = getZone(zoneId);
+  if (!zone) return;
+  const occupied = solidTiles(ctx, zoneId, ctx.timestamp);
+  addGroundItemTiles(ctx, zoneId, occupied);
+  for (const roll of loot) {
+    if (countRows(ctx.db.groundItem.zoneId.filter(zoneId)) >= MAX_GROUND_ITEMS_PER_ZONE) return;
+    const qty = ctx.random.integerInRange(roll.min, roll.max);
+    if (qty <= 0) continue;
+    const tile = spawnTile(zone, (tx, ty) => occupied.has(tileKey(tx, ty)), at.x, at.y, 0, 0);
+    if (!tile) return;
+    occupied.add(tileKey(tile.x, tile.y));
+    ctx.db.groundItem.insert({ id: 0n, zoneId, item: roll.item, x: tile.x, y: tile.y, qty });
+  }
 }
 
 export function dropInventory(ctx: Ctx, target: NonNullable<ReturnType<typeof playerAt>>, x: number, y: number): { rows: number; qty: number } {
@@ -114,9 +153,11 @@ export function dropInventory(ctx: Ctx, target: NonNullable<ReturnType<typeof pl
 
 /** Apply weapon damage to a trogg; zero health kills, drops inventory, and starts respawn. */
 export function damagePlayer(ctx: Ctx, target: NonNullable<ReturnType<typeof playerAt>>, amount: number): PlayerDamageResult {
+  // the invulnerability cheat (GDD "Commands panel"): the swing lands, nothing changes
+  if (target.cheatInvulnerable) return { health: target.health, killed: false, droppedItemRows: 0, droppedItemQty: 0, respawnMs: 0 };
   const health = Math.max(0, target.health - amount);
   if (health > 0) {
-    ctx.db.player.identity.update({ ...target, health });
+    ctx.db.player.identity.update({ ...target, health, lastDamagedAt: ctx.timestamp });
     return { health, killed: false, droppedItemRows: 0, droppedItemQty: 0, respawnMs: 0 };
   }
 
@@ -139,6 +180,8 @@ export function damagePlayer(ctx: Ctx, target: NonNullable<ReturnType<typeof pla
   ctx.db.player.identity.update({
     ...target,
     x: settled.x,
+    z: 0,
+    dirZ: 0,
     y: settled.y,
     dirX: 0,
     dirY: 0,
@@ -156,13 +199,15 @@ export function damagePlayer(ctx: Ctx, target: NonNullable<ReturnType<typeof pla
   return { health: 0, killed: true, droppedItemRows: dropped.rows, droppedItemQty: dropped.qty, respawnMs: PLAYER_RESPAWN_MS };
 }
 
-/** Throw a carried boulder or Hog in a straight cardinal line, damaging the first character hit. */
+/** Throw a carried boulder or Hog along the exact aim (free-direction, not the
+ *  four cardinals), damaging the first character hit and landing on the tile the
+ *  throw reaches. */
 export function throwCarried(
   ctx: Ctx,
   p: NonNullable<ReturnType<typeof playerAt>>,
   zone: Zone,
   pos: { x: number; y: number },
-  dir: { dirX: number; dirY: number },
+  aim: { dirX: number; dirY: number },
 ):
   | {
       kind: "boulder" | "hog";
@@ -175,6 +220,11 @@ export function throwCarried(
   | undefined {
   if (p.carrying !== "boulder" && p.carrying !== "hog") return undefined;
 
+  const len = Math.hypot(aim.dirX, aim.dirY);
+  if (len === 0) return undefined;
+  const ux = aim.dirX / len;
+  const uy = aim.dirY / len;
+
   const sx = Math.round(pos.x);
   const sy = Math.round(pos.y);
   const pathOccupied = solidTiles(ctx, p.zoneId, ctx.timestamp, p.identity);
@@ -182,9 +232,16 @@ export function throwCarried(
   let hit: NonNullable<ReturnType<typeof playerAt>> | undefined;
   let hogHit: NonNullable<ReturnType<typeof hogAt>> | undefined;
 
-  for (let step = 1; step <= THROWN_OBJECT_RANGE; step++) {
-    const tx = sx + dir.dirX * step;
-    const ty = sy + dir.dirY * step;
+  // Walk the aim ray tile by tile out to range: sample every half tile and act
+  // on each new tile the ray enters, so a diagonal throw travels diagonally
+  // instead of snapping to an axis.
+  let prevKey = tileKey(sx, sy);
+  for (let d = 0.5; d <= THROWN_OBJECT_RANGE + 1e-6; d += 0.5) {
+    const tx = Math.round(sx + ux * d);
+    const ty = Math.round(sy + uy * d);
+    const key = tileKey(tx, ty);
+    if (key === prevKey) continue;
+    prevKey = key;
     if (!isWalkable(zone, tx, ty)) break;
 
     hit = playerAt(ctx, p.zoneId, tx, ty, ctx.timestamp, p.identity);
@@ -192,7 +249,7 @@ export function throwCarried(
     hogHit = hogAt(ctx, p.zoneId, tx, ty, ctx.timestamp);
     if (hogHit) break;
 
-    if (pathOccupied.has(tileKey(tx, ty))) break;
+    if (pathOccupied.has(key)) break;
     lastFree = { x: tx, y: ty };
   }
 
@@ -200,11 +257,16 @@ export function throwCarried(
   if (hit || hogHit) {
     const targetTile = hit ? snapToTile(settle(ctx, hit, ctx.timestamp)) : hogTile(ctx, hogHit!, ctx.timestamp);
     const landingOccupied = solidTiles(ctx, p.zoneId, ctx.timestamp);
-    landing = spawnTile(zone, (tx, ty) => landingOccupied.has(tileKey(tx, ty)), targetTile.x, targetTile.y, dir.dirX, dir.dirY) ?? lastFree;
+    landing = spawnTile(zone, (tx, ty) => landingOccupied.has(tileKey(tx, ty)), targetTile.x, targetTile.y, ux, uy) ?? lastFree;
   }
 
-  if (!landing || !placeCarriedAt(ctx, zone, p.carrying, p.carryingStyle, landing)) return undefined;
-  const range = Math.abs(dir.dirX !== 0 ? landing.x - sx : landing.y - sy);
+  const dist = landing ? Math.hypot(landing.x - sx, landing.y - sy) : 0;
+  // A thrown Hog can't move for a fixed settle after it lands, so it never
+  // strides off before the client's arc sets it down; a boulder never roams, so
+  // it rests immediately and the client arc alone carries the throw.
+  const landingAt = p.carrying === "hog" ? addMs(ctx.timestamp, THROWN_HOG_SETTLE_MS) : Timestamp.UNIX_EPOCH;
+  if (!landing || !placeCarriedAt(ctx, zone, p.carrying, p.carryingStyle, landing, landingAt)) return undefined;
+  const range = Math.round(dist);
   const result: {
     kind: "boulder" | "hog";
     range: number;

@@ -1,15 +1,24 @@
-import { STARTING_ZONE_SLUG } from "@trogg/shared";
+import { getZone, STARTING_ZONE_SLUG } from "@trogg/shared";
 import { accountSubject, authConfigured, completeSignIn, currentIdToken } from "./auth.js";
 import { captureEvent, identifyUser, initAnalytics, isFeatureEnabled, logError, logInfo } from "./analytics.js";
+import { theme } from "./theme.js";
 import { clearStoredToken, clearPendingClaim, getPendingClaim } from "./identity.js";
 import { connect } from "./net/net.js";
-import { mountAccount } from "./ui/account.js";
 import { mountAppearance } from "./ui/appearance.js";
-import { mountHelp } from "./ui/help.js";
+import { mountCoach } from "./ui/coach.js";
+import { mountGameMenu } from "./ui/menu.js";
+import { mountWorldMap } from "./ui/worldmap.js";
 import { mountInventory } from "./ui/inventory.js";
 import { startReconnect } from "./net/reconnect.js";
 import { watchForUpdate } from "./version.js";
 import { StartGame } from "./game/main.js";
+
+/** Narrate boot progress onto the play page's boot screen — when the game feels
+ *  slow to open, the stage on screen names which phase is eating the time. */
+function bootStage(text: string): void {
+  const stage = document.getElementById("boot-stage");
+  if (stage) stage.textContent = text;
+}
 
 async function main() {
   initAnalytics();
@@ -17,6 +26,7 @@ async function main() {
   try {
     // If this load is the redirect back from SpacetimeAuth, finish the exchange
     // before connecting so we can present the account's ID token (GDD "Identity").
+    bootStage("checking identity…");
     const signInReturn = await completeSignIn();
     const idToken = await currentIdToken();
 
@@ -33,14 +43,12 @@ async function main() {
 
     // A redeploy closes every live socket at once; recover automatically instead
     // of leaving players frozen on stale state until they refresh (reconnect.ts).
+    bootStage("connecting…");
     const conn = await connect(idToken ?? undefined, () => startReconnect(idToken ?? undefined));
     const signedIn = idToken !== null;
 
     // Session lifecycle events are client-side; accepted gameplay actions emit from
     // SpacetimeDB procedure wrappers where server state is available (docs/analytics.md).
-    captureEvent("player_joined", { zone: STARTING_ZONE_SLUG, is_guest: !signedIn });
-    logInfo("Player joined world", { zone: STARTING_ZONE_SLUG, is_guest: !signedIn });
-
     if (signedIn) {
       // Complete a pending claim: we signed in to upgrade a guest, so redeem the nonce now
       // that we're connected as the account. This folds the guest trogg in and marks the
@@ -59,27 +67,54 @@ async function main() {
       if (subject) identifyUser(subject);
     }
 
-    // Phaser owns the canvas and the world render loop; StartGame boots the scene
-    // with the live connection (game/main.ts, GDD "Camera and rendering").
-    StartGame("game", { conn });
+    // A newborn boots into its own instanced birth cave; everyone else into the
+    // world (GDD "Onboarding: the Warren"). The player row's zone decides.
+    bootStage("finding your cave…");
+    let slug = STARTING_ZONE_SLUG;
+    if (conn.identity) {
+      const identity = conn.identity;
+      await new Promise<void>((resolve) => {
+        conn
+          .subscriptionBuilder()
+          .onApplied(() => resolve())
+          .subscribe([`SELECT * FROM player WHERE identity = 0x${identity.toHexString()}`]);
+      });
+      slug = conn.db.player.identity.find(identity)?.zoneId ?? STARTING_ZONE_SLUG;
+    }
 
-    // HUD chrome (help, appearance, account) is HTML overlaid on the canvas (hud.css);
-    // chat is mounted by the scene since its speech bubbles live in the world.
-    mountHelp();
-    // Appearance (name/colour/style) is for every player, no auth needed; it sits in the
-    // top-left stack beside Help.
-    mountAppearance(conn);
+    captureEvent("player_joined", { zone: slug, is_guest: !signedIn });
+    logInfo("Player joined world", { zone: slug, is_guest: !signedIn });
+
+    // The coach listens for onboarding milestones; mount it before the world so
+    // the first one (a newborn's "find the pickaxe", fired during world boot)
+    // isn't dispatched into the void before its listener exists.
+    mountCoach();
+
+    // Three.js owns the canvas and the world render loop; StartGame boots the 3D
+    // world with the live connection (game/main.ts, GDD "Camera and rendering").
+    bootStage("entering the world…");
+    const world = StartGame("game", { conn, slug });
+    theme.start(); // the generative game theme (starts on the first user gesture)
+    mountWorldMap({ zone: getZone(slug)!, selfPosition: () => world.selfPosition() });
+
+    const authAvailable = isFeatureEnabled("auth-enabled") && authConfigured();
+
+    // HUD chrome is HTML overlaid on the canvas (hud.css); chat is mounted by
+    // the scene since its speech bubbles live in the world. The game menu
+    // (Escape) folds Help, Settings, and Log out into one modal.
+    mountGameMenu({ signedIn, authAvailable });
+    // Appearance (name/colour/style) sits in the top-left stack, and carries the
+    // guest "Claim account with Discord" button beside the rest of "who your
+    // trogg is".
+    mountAppearance(conn, { signedIn, authAvailable, claimFailed: signInReturn === "error" });
     if (conn.identity) mountInventory(conn, conn.identity.toHexString());
-    // The account panel is only the claim/sign-out control, so it's mounted only when
-    // SpacetimeAuth is configured for this build.
-    if (isFeatureEnabled("auth-enabled"))
-      mountAccount(conn, { signedIn, authAvailable: authConfigured(), claimFailed: signInReturn === "error" });
 
     // The frontend deploys separately from the backend (Cloudflare vs the VPS), so
     // a client-only deploy fires no socket disconnect — poll for it instead and
     // offer a refresh when newer assets ship (version.ts).
     watchForUpdate();
   } catch (err) {
+    bootStage("couldn't reach the world — is the server up?");
     logError("Failed to connect to SpacetimeDB", { surface: "startup", action: "connect_spacetimedb", error: err });
   }
 }

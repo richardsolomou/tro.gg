@@ -1,10 +1,15 @@
-import { blitArt, equipSlotOf, INVENTORY_SLOT_COUNT, ITEM_ART, ITEM_ART_H, ITEM_ART_W, ITEMS, isEquippableItem, rgbaSink } from "@trogg/shared";
+import { equipSlotOf, INVENTORY_SLOT_COUNT, ITEMS, isEquippableItem } from "@trogg/shared";
+import { hudIcon, itemIcon } from "../game/icons.js";
+import { audio } from "../audio.js";
 import { logError } from "../analytics.js";
 import type { DbConnection } from "../net/module_bindings";
 import type { Inventory, Player } from "../net/module_bindings/types";
 import { discardItem, dropItem, equipItem } from "../net/procedures.js";
-import { hudLeft } from "./hud.js";
+import { hudLeft, hudRoot } from "./hud.js";
 import { registerKeybind } from "./keybinds.js";
+import { pickupToast } from "./toasts.js";
+import { attachTip, hideTip } from "./tooltip.js";
+import { coachHit } from "./coach.js";
 
 /** Mount the compact inventory/equipment panel. Rows are driven by subscribed inventory state. */
 export function mountInventory(conn: DbConnection, playerId: string): void {
@@ -19,8 +24,8 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
   toggle.className = "hud-icon-button inventory-toggle";
   toggle.setAttribute("aria-label", "Inventory");
   toggle.setAttribute("aria-keyshortcuts", "I");
-  toggle.title = "Inventory (I)";
-  toggle.appendChild(inventoryIcon());
+  attachTip(toggle, "Inventory (I)", "Your pack and equipped hands", "below");
+  toggle.appendChild(hudIcon("inventory"));
 
   const body = document.createElement("div");
   body.className = "inventory-body";
@@ -32,21 +37,85 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
   const list = document.createElement("div");
   list.className = "inventory-list";
 
-  const actions = document.createElement("div");
-  actions.className = "inventory-actions";
-  actions.hidden = true;
-
-  body.append(equipped, list, actions);
+  body.append(equipped, list);
   root.append(toggle, body);
   hudLeft().appendChild(root);
+
+  // The right-click menu: a tile's actions (equip/drop/delete) open at the
+  // cursor instead of a persistent selection row — left-clicking a tile does
+  // nothing. One menu, shared by every tile, floating in the HUD root (the
+  // panel's stacking context would clip it) and clamped to the viewport.
+  const menu = document.createElement("div");
+  menu.className = "ctx-menu";
+  menu.hidden = true;
+  hudRoot().appendChild(menu);
+
+  const closeMenu = () => {
+    menu.hidden = true;
+  };
+  window.addEventListener("pointerdown", (event) => {
+    if (!menu.contains(event.target as Node)) closeMenu();
+  });
+  window.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeMenu();
+  });
+
+  const menuButton = (label: string, onPick: (button: HTMLButtonElement) => void): HTMLButtonElement => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "ctx-menu-item";
+    button.textContent = label;
+    button.addEventListener("click", () => onPick(button));
+    menu.appendChild(button);
+    return button;
+  };
+
+  const openMenuFor = (row: Inventory, x: number, y: number) => {
+    hideTip();
+    menu.replaceChildren();
+    const name = document.createElement("span");
+    name.className = "ctx-menu-name";
+    name.textContent = ITEMS[row.item as keyof typeof ITEMS]?.name ?? row.item;
+    menu.appendChild(name);
+
+    if (isEquippableItem(row.item)) {
+      const equippedNow = row.id === equippedSlotId(row.item);
+      menuButton(equippedNow ? "Unequip" : "Equip", () => {
+        run("Equip item", row.item, () => equipItem(conn, row.id), "equip_item");
+        closeMenu();
+      });
+    }
+    menuButton("Drop", () => {
+      run("Drop item", row.item, () => dropItem(conn, row.id), "drop_item");
+      closeMenu();
+    });
+    // delete arms itself in place: the first click turns the entry into the
+    // confirm, the second destroys one unit
+    menuButton("Delete", (button) => {
+      if (button.classList.contains("is-danger")) {
+        run("Discard item", row.item, () => discardItem(conn, row.id), "discard_item");
+        closeMenu();
+        return;
+      }
+      button.classList.add("is-danger");
+      button.textContent = "Confirm delete";
+    });
+
+    // measure, then clamp fully on-screen (like the tooltip)
+    menu.style.visibility = "hidden";
+    menu.hidden = false;
+    const w = menu.offsetWidth;
+    const h = menu.offsetHeight;
+    menu.style.left = `${Math.round(Math.max(8, Math.min(x, window.innerWidth - w - 8)))}px`;
+    menu.style.top = `${Math.round(Math.max(8, Math.min(y, window.innerHeight - h - 8)))}px`;
+    menu.style.visibility = "";
+  };
 
   const rows = new Map<string, Inventory>();
   let mainHand = "";
   let mainHandInventoryId = 0n;
   let offHand = "";
   let offHandInventoryId = 0n;
-  let selectedId: bigint | null = null;
-  let confirmDelete = false;
 
   /** The inventory id equipped in the slot this item belongs to (off hand for shields, else main). */
   const equippedSlotId = (item: string): bigint => (equipSlotOf(item) === "offHand" ? offHandInventoryId : mainHandInventoryId);
@@ -55,10 +124,7 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
     const opening = open && body.hidden;
     body.hidden = !open;
     toggle.setAttribute("aria-expanded", String(!body.hidden));
-    if (!open) {
-      selectedId = null;
-      confirmDelete = false;
-    }
+    if (!open) closeMenu();
     if (opening) window.dispatchEvent(new CustomEvent("hud-menu-open", { detail: "inventory" }));
   };
   const toggleOpen = () => setOpen(body.hidden === true);
@@ -75,24 +141,24 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
     text.textContent = label;
     const slot = document.createElement("span");
     slot.className = "inventory-equipped-slot";
-    slot.title = item ? (ITEMS[item as keyof typeof ITEMS]?.name ?? item) : "Empty";
-    slot.setAttribute("aria-label", `${label}: ${slot.title}`);
+    const def = item ? ITEMS[item as keyof typeof ITEMS] : undefined;
+    const itemName = item ? (def?.name ?? item) : "Empty";
+    slot.setAttribute("aria-label", `${label}: ${itemName}`);
+    if (item) attachTip(slot, itemName, def?.blurb ?? "");
+    else slot.title = "Empty";
     slot.appendChild(itemIcon(item || "empty"));
     group.append(text, slot);
     return group;
   };
 
   const render = () => {
+    hideTip(); // the hovered tile may not survive the rebuild
+    closeMenu(); // nor may the menu's row
     equipped.replaceChildren(equippedGroup("Main hand", mainHand), equippedGroup("Off hand", offHand));
 
     list.replaceChildren();
 
     const sorted = [...rows.values()].sort((a, b) => a.item.localeCompare(b.item) || Number(a.id - b.id));
-
-    if (selectedId !== null && !rows.has(selectedId.toString())) {
-      selectedId = null;
-      confirmDelete = false;
-    }
 
     for (const row of sorted) {
       const def = ITEMS[row.item as keyof typeof ITEMS];
@@ -101,13 +167,10 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
       item.type = "button";
       item.className = "inventory-item";
       const equippedNow = row.id === equippedSlotId(row.item);
-      const selectedNow = row.id === selectedId;
       item.setAttribute("aria-label", `${name}${equippedNow ? ", equipped" : ""}`);
       item.setAttribute("aria-pressed", String(equippedNow));
-      item.setAttribute("aria-haspopup", "true");
-      item.setAttribute("aria-expanded", String(selectedNow));
-      if (selectedNow) item.classList.add("is-selected");
-      item.title = name;
+      item.setAttribute("aria-haspopup", "menu");
+      attachTip(item, name, def?.blurb ?? "");
       item.appendChild(itemIcon(row.item));
 
       if (row.qty > 1) {
@@ -116,10 +179,10 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
         qty.textContent = `x${row.qty}`;
         item.appendChild(qty);
       }
-      item.addEventListener("click", () => {
-        selectedId = selectedNow ? null : row.id;
-        confirmDelete = false;
-        render();
+      item.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        openMenuFor(row, event.clientX, event.clientY);
       });
 
       list.appendChild(item);
@@ -133,17 +196,6 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
       empty.title = "Empty";
       list.appendChild(empty);
     }
-
-    renderActions();
-  };
-
-  const action = (label: string, onClick: () => void): HTMLButtonElement => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "inventory-action";
-    button.textContent = label;
-    button.addEventListener("click", onClick);
-    return button;
   };
 
   const run = (label: string, item: string, op: () => Promise<unknown>, analyticsAction: string) => {
@@ -152,62 +204,27 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
     });
   };
 
-  const renderActions = () => {
-    actions.replaceChildren();
-    const row = selectedId !== null ? rows.get(selectedId.toString()) : undefined;
-    if (!row) {
-      actions.hidden = true;
-      return;
-    }
-    actions.hidden = false;
-    const def = ITEMS[row.item as keyof typeof ITEMS];
-
-    const name = document.createElement("span");
-    name.className = "inventory-action-name";
-    name.textContent = def?.name ?? row.item;
-    actions.appendChild(name);
-
-    const buttons = document.createElement("div");
-    buttons.className = "inventory-action-buttons";
-
-    if (confirmDelete) {
-      const confirm = action("Confirm delete", () => run("Discard item", row.item, () => discardItem(conn, row.id), "discard_item"));
-      confirm.classList.add("is-danger");
-      const cancel = action("Cancel", () => {
-        confirmDelete = false;
-        render();
-      });
-      buttons.append(confirm, cancel);
-      actions.appendChild(buttons);
-      return;
-    }
-
-    if (isEquippableItem(row.item)) {
-      const equippedNow = row.id === equippedSlotId(row.item);
-      buttons.appendChild(
-        action(equippedNow ? "Unequip" : "Equip", () => run("Equip item", row.item, () => equipItem(conn, row.id), "equip_item")),
-      );
-    }
-    buttons.appendChild(action("Drop", () => run("Drop item", row.item, () => dropItem(conn, row.id), "drop_item")));
-    buttons.appendChild(
-      action("Delete", () => {
-        confirmDelete = true;
-        render();
-      }),
-    );
-    actions.appendChild(buttons);
-  };
-
   const mine = (row: Inventory) => row.playerId.toHexString() === playerId;
-  conn.db.inventory.onInsert((_ctx, row) => {
+  // Toast (and sound) live pickups only: rows the initial subscription
+  // delivers are what the trogg already held, not something just picked up.
+  const announcePickup = (item: string, qty: number) => {
+    pickupToast(item, qty);
+    audio.playPickup(item);
+    coachHit("first-pickup");
+    if (item === "stone") coachHit("mined-stone");
+    if (item === "wood") coachHit("chopped-wood");
+  };
+  conn.db.inventory.onInsert((ctx, row) => {
     if (!mine(row)) return;
     rows.set(row.id.toString(), row);
     render();
+    if (ctx.event.tag !== "SubscribeApplied") announcePickup(row.item, row.qty);
   });
-  conn.db.inventory.onUpdate((_ctx, _old, row) => {
+  conn.db.inventory.onUpdate((ctx, old, row) => {
     if (!mine(row)) return;
     rows.set(row.id.toString(), row);
     render();
+    if (ctx.event.tag !== "SubscribeApplied" && row.qty > old.qty) announcePickup(row.item, row.qty - old.qty);
   });
   conn.db.inventory.onDelete((_ctx, row) => {
     if (!mine(row)) return;
@@ -217,6 +234,8 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
 
   const applyPlayer = (p: Player) => {
     if (p.identity.toHexString() !== playerId) return;
+    // first time either hand goes from empty to holding something
+    if (!mainHand && !offHand && (p.equippedMainHand || p.equippedOffHand)) coachHit("first-equip");
     mainHand = p.equippedMainHand;
     mainHandInventoryId = p.equippedMainHandInventoryId;
     offHand = p.equippedOffHand;
@@ -229,44 +248,6 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
   render();
 }
 
-function svg(width: number, height: number): SVGSVGElement {
-  const node = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  node.setAttribute("viewBox", `0 0 ${width} ${height}`);
-  node.setAttribute("aria-hidden", "true");
-  node.setAttribute("focusable", "false");
-  return node;
-}
-
-function el(name: string, attrs: Record<string, string | number>): SVGElement {
-  const node = document.createElementNS("http://www.w3.org/2000/svg", name);
-  for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, String(value));
-  return node;
-}
-
-function inventoryIcon(): SVGSVGElement {
-  const icon = svg(24, 24);
-  icon.append(
-    el("path", { d: "M8 8V6c0-2.2 1.6-4 4-4s4 1.8 4 4v2", fill: "none", stroke: "#0a0806", "stroke-width": 2, "stroke-linecap": "round" }),
-    el("path", { d: "M5 8h14l-1 13H6L5 8Z", fill: "#e8dcc4", stroke: "#0a0806", "stroke-width": 2, "stroke-linejoin": "round" }),
-    el("path", { d: "M8 12h8", fill: "none", stroke: "#0a0806", "stroke-width": 2, "stroke-linecap": "round" }),
-  );
-  return icon;
-}
-
-/** The item's pixel art (the same `ITEM_ART` drawn in the world) rendered into a small
- *  canvas, so the inventory, equipped slot, and spawn buttons show the exact world
- *  sprite — one drawing per item, not a separate icon. Unknown ids render blank. */
-export function itemIcon(item: string): HTMLCanvasElement {
-  const canvas = document.createElement("canvas");
-  canvas.width = ITEM_ART_W;
-  canvas.height = ITEM_ART_H;
-  canvas.className = "item-icon";
-  const art = ITEM_ART[item];
-  if (art) {
-    const ctx = canvas.getContext("2d")!;
-    const img = ctx.createImageData(ITEM_ART_W, ITEM_ART_H);
-    blitArt(rgbaSink(img.data, ITEM_ART_W, ITEM_ART_H), art, 0, 0);
-    ctx.putImageData(img, 0, 0);
-  }
-  return canvas;
-}
+// Item icons render from the real 3D models (game/icons.ts) so the inventory,
+// equipped slot, and spawn buttons show the exact object the world renders.
+export { itemIcon } from "../game/icons.js";

@@ -1,3 +1,5 @@
+import { soundLevel, type SoundCategory } from "./sound-settings.js";
+
 type CueOptions = {
   volume?: number;
   minGapMs?: number;
@@ -19,11 +21,6 @@ const cues = {
     asset(new URL("../assets/audio/footsteps/gbox-footsteps/01-footstep.ogg", import.meta.url)),
     asset(new URL("../assets/audio/footsteps/gbox-footsteps/02-footstep.ogg", import.meta.url)),
   ],
-  boulderPush: [
-    asset(new URL("../assets/audio/boulders/sfx-100-v2/sfx100v2_stones_01.ogg", import.meta.url)),
-    asset(new URL("../assets/audio/boulders/sfx-100-v2/sfx100v2_stones_02.ogg", import.meta.url)),
-    asset(new URL("../assets/audio/boulders/sfx-100-v2/sfx100v2_stones_03.ogg", import.meta.url)),
-  ],
   boulderSettle: [
     asset(new URL("../assets/audio/boulders/breaking-falling-hit/bfh1_rock_hit_01.ogg", import.meta.url)),
     asset(new URL("../assets/audio/boulders/breaking-falling-hit/bfh1_rock_falling_01.ogg", import.meta.url)),
@@ -44,10 +41,45 @@ const cues = {
     asset(new URL("../assets/audio/ui/kenney-ui-audio/Audio/switch2.ogg", import.meta.url)),
   ],
   error: [asset(new URL("../assets/audio/ui/assorted-menu-level-up/Menu Error.mp3", import.meta.url))],
+  itemStone: [
+    asset(new URL("../assets/audio/future/mining/cc0-rpg-sfx/item_stone_01.ogg", import.meta.url)),
+    asset(new URL("../assets/audio/future/mining/cc0-rpg-sfx/item_stone_02.ogg", import.meta.url)),
+    asset(new URL("../assets/audio/future/mining/cc0-rpg-sfx/item_stone_03.ogg", import.meta.url)),
+    asset(new URL("../assets/audio/future/mining/cc0-rpg-sfx/item_stone_04.ogg", import.meta.url)),
+  ],
+  itemWood: [
+    asset(new URL("../assets/audio/future/mining/cc0-rpg-sfx/item_wood_01.ogg", import.meta.url)),
+    asset(new URL("../assets/audio/future/mining/cc0-rpg-sfx/item_wood_02.ogg", import.meta.url)),
+    asset(new URL("../assets/audio/future/mining/cc0-rpg-sfx/item_wood_03.ogg", import.meta.url)),
+  ],
+  itemMisc: [
+    asset(new URL("../assets/audio/future/mining/cc0-rpg-sfx/item_misc_01.ogg", import.meta.url)),
+    asset(new URL("../assets/audio/future/mining/cc0-rpg-sfx/item_misc_02.ogg", import.meta.url)),
+    asset(new URL("../assets/audio/future/mining/cc0-rpg-sfx/item_misc_03.ogg", import.meta.url)),
+    asset(new URL("../assets/audio/future/mining/cc0-rpg-sfx/item_misc_04.ogg", import.meta.url)),
+    asset(new URL("../assets/audio/future/mining/cc0-rpg-sfx/item_misc_05.ogg", import.meta.url)),
+    asset(new URL("../assets/audio/future/mining/cc0-rpg-sfx/item_misc_06.ogg", import.meta.url)),
+  ],
   ghost: [
     asset(new URL("../assets/audio/ghost/opengameart-ghost/ghost.wav", import.meta.url)),
     asset(new URL("../assets/audio/ghost/opengameart-ghost/qubodup-GhostMoans/mp3/qubodup-GhostMoan05.mp3", import.meta.url)),
   ],
+};
+
+/** Which Settings slider governs each cue — every cue belongs to exactly one. */
+const CUE_CATEGORY: Record<keyof typeof cues, SoundCategory> = {
+  footstepsWalk: "footsteps",
+  footstepsRun: "footsteps",
+  boulderSettle: "world",
+  hog: "world",
+  ghost: "world",
+  chatSend: "interface",
+  chatReceive: "interface",
+  command: "interface",
+  error: "interface",
+  itemStone: "interface",
+  itemWood: "interface",
+  itemMisc: "interface",
 };
 
 class AudioCues {
@@ -56,22 +88,63 @@ class AudioCues {
 
   playFootstep(running: boolean) {
     this.play(running ? "footstepsRun" : "footstepsWalk", {
-      volume: running ? 0.16 : 0.13,
+      volume: running ? 0.022 : 0.017,
       minGapMs: running ? 95 : 140,
       rate: running ? [1.04, 1.14] : [0.94, 1.04],
     });
   }
 
-  playBoulderPush() {
-    this.play("boulderPush", { volume: 0.22, minGapMs: 140, rate: [0.88, 1.03] });
+  /** How far world sounds carry, in tiles: beyond this they simply don't play. */
+  static readonly EARSHOT = 14;
+
+  /** Linear distance falloff for a world sound; <= 0 means out of earshot. */
+  private static falloff(distance: number): number {
+    return Math.max(0, 1 - distance / AudioCues.EARSHOT);
+  }
+
+  /** Another trogg's footstep nearby — the same stone strides, faded by distance. */
+  playFootstepAt(running: boolean, distance: number) {
+    const gain = AudioCues.falloff(distance);
+    if (gain <= 0.02) return;
+    this.play(running ? "footstepsRun" : "footstepsWalk", {
+      volume: (running ? 0.017 : 0.013) * gain,
+      minGapMs: 110,
+      rate: running ? [1.04, 1.14] : [0.94, 1.04],
+    });
+  }
+
+  /** A Hog stepping nearby: the little ones patter (small and quick), the 2×2
+   *  giants thud (slow and deep) — the same strides, a different gait by pitch. */
+  playHogStepAt(distance: number, size = 1) {
+    const gain = AudioCues.falloff(distance);
+    if (gain <= 0.02) return;
+    if (size > 1) this.play("footstepsWalk", { volume: 0.025 * gain, minGapMs: 260, rate: [0.55, 0.68] });
+    else this.play("footstepsWalk", { volume: 0.008 * gain, minGapMs: 150, rate: [1.7, 1.95] });
+  }
+
+  /** A boulder shoved or settling somewhere nearby. */
+  playBoulderSettleAt(distance: number) {
+    const gain = AudioCues.falloff(distance);
+    if (gain <= 0.02) return;
+    this.play("boulderSettle", { volume: 0.16 * gain, minGapMs: 120, rate: [0.86, 1.02] });
   }
 
   playBoulderSettle() {
     this.play("boulderSettle", { volume: 0.16, minGapMs: 120, rate: [0.86, 1.02] });
   }
 
-  playHog() {
-    this.play("hog", { volume: 0.08, minGapMs: 2200, rate: [0.92, 1.08] });
+  /** A Hog snuffling somewhere nearby — silent beyond earshot like every world sound. */
+  playHogAt(distance: number) {
+    const gain = AudioCues.falloff(distance);
+    if (gain <= 0.02) return;
+    this.play("hog", { volume: 0.08 * gain, minGapMs: 2200, rate: [0.92, 1.08] });
+  }
+
+  /** Something entered the pack — a different voice per material: stone
+   *  rattles, wood knocks, everything else lands with the soft item thump. */
+  playPickup(item: string) {
+    const cue = item === "stone" ? "itemStone" : item === "wood" ? "itemWood" : "itemMisc";
+    this.play(cue, { volume: 0.16, minGapMs: 90, rate: [0.96, 1.08] });
   }
 
   playChatSend() {
@@ -95,6 +168,8 @@ class AudioCues {
   }
 
   private play(name: keyof typeof cues, options: CueOptions = {}) {
+    const level = soundLevel(CUE_CATEGORY[name]);
+    if (level <= 0) return;
     const urls = cues[name];
     const now = performance.now();
     const minGapMs = options.minGapMs ?? 0;
@@ -104,7 +179,7 @@ class AudioCues {
     const url = urls[Math.floor(Math.random() * urls.length)]!;
     const base = this.base(url);
     const sound = base.cloneNode(true) as HTMLAudioElement;
-    sound.volume = options.volume ?? 0.2;
+    sound.volume = Math.min(1, (options.volume ?? 0.2) * level);
     sound.playbackRate = randomBetween(options.rate ?? [1, 1]);
     void sound.play().catch(() => {
       // Browsers can reject before the first user gesture; the next cue will retry.
@@ -125,5 +200,6 @@ class AudioCues {
 function randomBetween([min, max]: [number, number]) {
   return min + Math.random() * (max - min);
 }
+
 
 export const audio = new AudioCues();

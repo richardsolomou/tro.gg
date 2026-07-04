@@ -1,41 +1,65 @@
 /*
- * HUD chrome — HTML/CSS overlays above the Phaser canvas (chat, account, help,
+ * HUD chrome — HTML/CSS overlays above the game canvas (chat, account, help,
  * appearance, inventory, commands).
- * GSC-inspired pixel HUD: solid ink panels, high-contrast cream text, amber
- * active states, and bevels built from crisp 1px/2px shadows rather than soft UI
- * chrome. The world (troggs, bubbles, terrain) is drawn by Phaser; everything
- * here is DOM, so the browser owns layout, text input, focus, and resize.
+ * The HUD is built from the world's own materials: deep timber slabs with
+ * chamfered facet corners (the low-poly cut translated to DOM), bone text, ember
+ * hover states, and glowmoss for anything selected or live. Depth comes from one
+ * hard torch-light drop shadow and a faint top light — flat fills, no gradients,
+ * no pixel bevels. The world (troggs, bubbles, terrain) is drawn by the 3D
+ * renderer; everything here is DOM, so the browser owns layout, text input,
+ * focus, and resize.
  */
 
+@font-face {
+  font-family: "Baloo 2";
+  src: url("./fonts/baloo2-latin.woff2") format("woff2");
+  font-weight: 400 800;
+  font-display: swap;
+}
+
 #hud {
-  --hud-ink: #0a0806;
-  --hud-ink-2: #15100b;
-  --hud-ink-3: #241a11;
-  --hud-stone-light: #6f6047;
-  --hud-cream: #f0e4c7;
-  --hud-cream-dim: #b8a98a;
-  --hud-amber: #f2c94c;
-  --hud-amber-dark: #9b6d20;
-  --hud-danger-dark: #5b211b;
-  --hud-panel-bg: #15100b;
-  --hud-panel-border: #3b2d1e;
-  --hud-panel-shadow:
-    0 0 0 1px var(--hud-ink),
-    1px 1px 0 1px var(--hud-stone-light) inset,
-    -2px -2px 0 0 #070504 inset,
-    0 4px 0 rgba(0, 0, 0, 0.45);
-  --hud-tile-shadow:
-    1px 1px 0 0 rgba(240, 228, 199, 0.22) inset,
-    -2px -2px 0 0 rgba(0, 0, 0, 0.55) inset;
-  --hud-tile-pressed:
-    2px 2px 0 0 rgba(0, 0, 0, 0.58) inset,
-    -1px -1px 0 0 rgba(240, 228, 199, 0.18) inset;
+  --hud-bone: #e8dcc4;
+  --hud-bone-dim: #a8977a;
+  --hud-ink: #241708;
+  --hud-timber: rgba(46, 33, 19, 0.78);
+  --hud-well: rgba(24, 16, 8, 0.72);
+  --hud-well-lite: rgba(43, 30, 16, 0.78);
+  --hud-ember: #ff8c2e;
+  --hud-moss: #6fdc9c;
+  --hud-clay: #d94f1e;
+  /* The facet: every slab and control is an octagon, like a cut plank. */
+  --cut: 9px;
+  --facet: polygon(
+    var(--cut) 0,
+    calc(100% - var(--cut)) 0,
+    100% var(--cut),
+    100% calc(100% - var(--cut)),
+    calc(100% - var(--cut)) 100%,
+    var(--cut) 100%,
+    0 calc(100% - var(--cut)),
+    0 var(--cut)
+  );
+  --slab-light: inset 0 2px 0 rgba(232, 220, 196, 0.08), inset 0 -3px 0 rgba(0, 0, 0, 0.35);
+  --well-shade: inset 0 3px 0 rgba(0, 0, 0, 0.45), inset 0 -1px 0 rgba(232, 220, 196, 0.06);
   position: fixed;
   inset: 0;
   pointer-events: none; /* clicks fall through to the canvas… */
-  font-family: monospace;
-  color: var(--hud-cream);
+  font-family: "Baloo 2", "Trebuchet MS", system-ui, sans-serif;
+  font-weight: 500;
+  color: var(--hud-bone);
   z-index: 100;
+}
+
+/* A game surface, not a document: nothing highlights or selects like web text.
+   Real text entry (chat, rename) opts back in. */
+body {
+  user-select: none;
+  -webkit-user-select: none;
+}
+input,
+textarea {
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 #hud .panel {
@@ -47,8 +71,9 @@
 /* Shared controls */
 #hud input,
 #hud button {
-  font-family: monospace;
-  color: var(--hud-cream);
+  font-family: inherit;
+  font-weight: 500;
+  color: var(--hud-bone);
   box-sizing: border-box;
 }
 
@@ -58,55 +83,47 @@
 }
 
 #hud button:focus-visible {
-  outline: 2px solid var(--hud-cream);
+  outline: 2px solid var(--hud-moss);
   outline-offset: 2px;
-  box-shadow:
-    0 0 0 4px var(--hud-ink),
-    var(--hud-tile-shadow);
 }
 
 #hud .field {
   width: 100%;
   height: 30px;
-  padding: 0 8px;
-  font-size: 13px;
-  background: var(--hud-ink);
-  border: 2px solid var(--hud-panel-border);
-  border-radius: 2px;
-  box-shadow:
-    2px 2px 0 0 rgba(0, 0, 0, 0.7) inset,
-    -1px -1px 0 0 rgba(240, 228, 199, 0.16) inset;
+  padding: 0 10px;
+  font-size: 14px;
+  background: var(--hud-well);
+  border: 0;
+  clip-path: var(--facet);
+  --cut: 6px;
+  box-shadow: var(--well-shade);
   outline: none;
 }
 #hud .field::placeholder {
-  color: var(--hud-cream-dim);
+  color: var(--hud-bone-dim);
 }
 #hud .field:focus {
-  background: #0d0a07;
-  border-color: var(--hud-cream);
+  box-shadow: var(--well-shade), inset 0 -2px 0 var(--hud-moss);
 }
 
 #hud .btn {
   width: 100%;
   height: 30px;
-  font-size: 13px;
+  font-size: 14px;
+  font-weight: 700;
   color: var(--hud-ink);
-  background: var(--hud-cream);
-  border: 2px solid var(--hud-ink);
-  border-radius: 2px;
-  box-shadow:
-    1px 1px 0 0 #fff6d8 inset,
-    -2px -2px 0 0 #8f805f inset,
-    0 0 0 1px var(--hud-panel-border);
+  background: var(--hud-bone);
+  border: 0;
+  clip-path: var(--facet);
+  --cut: 6px;
+  box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.18), inset 0 2px 0 rgba(255, 255, 255, 0.35);
   cursor: pointer;
 }
 #hud .btn:hover:not(:disabled) {
-  background: var(--hud-amber);
+  background: var(--hud-ember);
 }
 #hud .btn:active:not(:disabled) {
-  box-shadow:
-    2px 2px 0 0 rgba(0, 0, 0, 0.38) inset,
-    0 0 0 1px var(--hud-panel-border);
+  box-shadow: inset 0 3px 0 rgba(0, 0, 0, 0.25);
 }
 #hud .btn:disabled {
   opacity: 0.45;
@@ -122,45 +139,43 @@
   flex-direction: column;
   gap: 6px;
 }
+/* The log itself is invisible — no empty slab in the corner when nobody talks;
+   each sent line carries its own translucent backing instead. */
 #hud .chat-log {
   height: min(30vh, 220px);
-  padding: 6px 8px;
+  padding: 0;
   overflow-y: auto;
-  background: var(--hud-panel-bg);
-  border: 2px solid var(--hud-panel-border);
-  border-radius: 2px;
-  box-shadow: var(--hud-panel-shadow);
-  font-size: 13px;
-  line-height: 19px;
+  scrollbar-width: none;
+  font-size: 14px;
+  line-height: 20px;
   word-break: break-word;
   display: flex;
   flex-direction: column;
-  justify-content: flex-end;
+  align-items: flex-start;
+  gap: 3px;
+}
+/* Pins a short history to the bottom while keeping the log scrollable — unlike
+   justify-content: flex-end, which puts overflow above the scroll origin where
+   no amount of scrolling can reach it. */
+#hud .chat-line:first-child {
+  margin-top: auto;
 }
 #hud .chat-line {
   white-space: pre-wrap;
+  max-width: 100%;
+  padding: 2px 10px;
+  background: rgba(30, 21, 12, 0.62);
+  clip-path: var(--facet);
+  --cut: 6px;
 }
 #hud .chat-name {
-  font-weight: bold;
+  font-weight: 700;
 }
 
 /* ── Account (top-right) ─────────────────────────────────────────────────── */
-#hud .account {
-  top: 12px;
-  right: 12px;
-  width: min(280px, calc(100vw - 24px));
-  padding: 8px 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  background: var(--hud-panel-bg);
-  border: 2px solid var(--hud-panel-border);
-  border-radius: 2px;
-  box-shadow: var(--hud-panel-shadow);
-}
 #hud .account-status {
-  font-size: 12px;
-  color: var(--hud-cream-dim);
+  font-size: 13px;
+  color: var(--hud-bone-dim);
   min-height: 14px;
 }
 #hud .swatches {
@@ -172,25 +187,29 @@
   width: 22px;
   height: 22px;
   padding: 0;
-  border: 2px solid var(--hud-ink);
-  border-radius: 2px;
-  box-shadow:
-    1px 1px 0 0 rgba(255, 255, 255, 0.22) inset,
-    -2px -2px 0 0 rgba(0, 0, 0, 0.48) inset,
-    0 0 0 1px var(--hud-panel-border);
+  border: 0;
+  clip-path: var(--facet);
+  --cut: 5px;
+  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.18);
   cursor: pointer;
 }
-#hud .swatch:hover {
-  box-shadow:
-    1px 1px 0 0 rgba(255, 255, 255, 0.26) inset,
-    -2px -2px 0 0 rgba(0, 0, 0, 0.55) inset,
-    0 0 0 2px var(--hud-amber);
+#hud .swatch {
+  position: relative;
 }
-#hud .swatch[aria-pressed="true"] {
-  border-color: var(--hud-cream);
-  box-shadow:
-    0 0 0 2px var(--hud-amber),
-    2px 2px 0 0 rgba(0, 0, 0, 0.34) inset;
+#hud .swatch:hover {
+  filter: brightness(1.2);
+}
+#hud .swatch[aria-pressed="true"]::after {
+  content: "";
+  position: absolute;
+  inset: 50% auto auto 50%;
+  width: 8px;
+  height: 8px;
+  translate: -50% -50%;
+  background: var(--hud-moss);
+  clip-path: var(--facet);
+  --cut: 2px;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.4);
 }
 
 /* ── Top-left toggle bar (Help, Appearance, Inventory, Commands) ──────────── */
@@ -215,83 +234,115 @@
 #hud .help-body,
 #hud .inventory-body,
 #hud .command-body {
+  filter: drop-shadow(0 4px 0 rgba(0, 0, 0, 0.35));
   position: absolute;
   top: 100%;
   left: 0;
-  margin-top: 6px;
+  margin-top: 8px;
+}
+/* Framed facet controls: the element paints the frame colour across the whole
+   octagon and a clipped ::before paints the face as a smaller octagon inside it,
+   so highlights follow the chamfer at full thickness — background layers can't
+   do this because a content-box layer keeps square corners, and an inset
+   box-shadow ring gets its corners clipped into brackets. Children sit above
+   the face via z-index. */
+#hud :is(.hud-icon-button, .inventory-item, .command-spawn-button)::before {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  background: var(--face);
+  clip-path: var(--facet);
+  --cut: 5px;
+  z-index: 0;
+}
+#hud :is(.hud-icon-button, .inventory-item, .command-spawn-button) > * {
+  position: relative;
+  z-index: 1;
 }
 #hud .hud-icon-button {
-  width: 32px;
-  height: 28px;
-  padding: 2px 5px;
+  position: relative;
+  width: 36px;
+  height: 34px;
+  padding: 2px;
   display: grid;
   place-items: center;
-  color: var(--hud-ink);
-  background: var(--hud-amber);
-  border: 2px solid var(--hud-ink);
-  border-radius: 2px;
-  box-shadow:
-    1px 1px 0 0 #fff0a8 inset,
-    -2px -2px 0 0 var(--hud-amber-dark) inset,
-    0 0 0 1px var(--hud-panel-border);
+  --face: var(--hud-timber);
+  --frame: var(--hud-timber);
+  background: var(--frame);
+  border: 0;
+  clip-path: var(--facet);
+  --cut: 7px;
   cursor: pointer;
 }
 #hud .hud-icon-button:hover {
-  filter: brightness(1.08);
+  --frame: var(--hud-ember);
 }
 #hud .hud-icon-button:active,
 #hud .hud-icon-button[aria-expanded="true"] {
-  box-shadow:
-    2px 2px 0 0 rgba(0, 0, 0, 0.42) inset,
-    -1px -1px 0 0 rgba(255, 255, 255, 0.28) inset,
-    0 0 0 1px var(--hud-panel-border);
+  --frame: var(--hud-ember);
+  --face: var(--hud-well-lite);
+  box-shadow: inset 0 3px 0 rgba(0, 0, 0, 0.2);
 }
 #hud .hud-icon-button svg {
   width: 20px;
   height: 20px;
   display: block;
 }
-#hud .help-toggle {
-  font-size: 16px;
-  font-weight: bold;
-  line-height: 1;
-}
 #hud .help-body {
+  filter: drop-shadow(0 4px 0 rgba(0, 0, 0, 0.35));
   width: max-content;
   max-width: calc(100vw - 24px);
-  padding: 12px;
-  background: var(--hud-panel-bg);
-  border: 2px solid var(--hud-panel-border);
-  border-radius: 2px;
-  box-shadow: var(--hud-panel-shadow);
-  font-size: 13px;
+  padding: 14px;
+  background: var(--hud-timber);
+  clip-path: var(--facet);
+  box-shadow: var(--slab-light);
+  font-size: 14px;
 }
 #hud .help-body[hidden] {
   display: none;
 }
 #hud .help-section-title {
-  color: var(--hud-cream-dim);
-  font-size: 12px;
+  color: var(--hud-bone-dim);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
   margin: 0 0 4px;
   text-transform: uppercase;
 }
-#hud .help-section + .help-section {
-  margin-top: 10px;
-}
-#hud .help-rows {
+#hud .menu-controls {
   display: grid;
-  grid-template-columns: auto auto;
-  gap: 2px 14px;
+  grid-template-columns: auto 1fr;
+  gap: 3px 16px;
+  font-size: 14px;
 }
 #hud .help-key {
-  color: var(--hud-amber);
+  color: var(--hud-ember);
+  font-weight: 700;
   white-space: nowrap;
 }
 
-/* ── Appearance ──────────────────────────────────────────────────────────── */
-#hud .appearance-toggle {
-  background: var(--hud-cream); /* set apart from Help's amber toggle */
+/* ── Settings ────────────────────────────────────────────────────────────── */
+#hud .settings-rows {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 6px 10px;
+  align-items: center;
 }
+#hud .settings-rows input[type="range"] {
+  width: 150px;
+  accent-color: var(--hud-ember);
+}
+#hud .settings-label {
+  cursor: pointer;
+}
+#hud .settings-value {
+  color: var(--hud-bone-dim);
+  font-variant-numeric: tabular-nums;
+  min-width: 3.2em;
+  text-align: right;
+}
+
+/* ── Appearance ──────────────────────────────────────────────────────────── */
 #hud .appearance-body {
   width: min(248px, calc(100vw - 24px));
   display: flex;
@@ -309,38 +360,36 @@
   gap: 6px;
 }
 #hud .style-option {
-  padding: 4px 10px;
+  padding: 4px 12px;
   height: 26px;
-  font-size: 12px;
-  color: var(--hud-cream);
-  background: var(--hud-ink-2);
-  border: 2px solid var(--hud-panel-border);
-  border-radius: 2px;
-  box-shadow: var(--hud-tile-shadow);
+  font-size: 13px;
+  color: var(--hud-bone);
+  background: var(--hud-well);
+  border: 0;
+  clip-path: var(--facet);
+  --cut: 5px;
+  box-shadow: var(--well-shade);
   cursor: pointer;
 }
 #hud .style-option:hover {
-  border-color: var(--hud-amber);
-  background: var(--hud-ink-3);
+  background: var(--hud-well-lite);
+  color: var(--hud-ember);
 }
 #hud .style-option[aria-pressed="true"] {
   color: var(--hud-ink);
-  background: var(--hud-cream);
-  border-color: var(--hud-ink);
-  box-shadow:
-    1px 1px 0 0 #fff6d8 inset,
-    -2px -2px 0 0 #8f805f inset,
-    0 0 0 1px var(--hud-amber);
+  font-weight: 700;
+  background: var(--hud-moss);
+  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.25);
 }
 
 /* ── Inventory ───────────────────────────────────────────────────────────── */
 #hud .inventory-body {
-  width: 244px;
-  padding: 10px;
-  background: var(--hud-panel-bg);
-  border: 2px solid var(--hud-panel-border);
-  border-radius: 2px;
-  box-shadow: var(--hud-panel-shadow);
+  filter: drop-shadow(0 4px 0 rgba(0, 0, 0, 0.35));
+  width: max-content;
+  padding: 12px;
+  background: var(--hud-timber);
+  clip-path: var(--facet);
+  box-shadow: var(--slab-light);
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -353,8 +402,8 @@
   justify-content: space-between;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
-  color: var(--hud-cream-dim);
+  font-size: 13px;
+  color: var(--hud-bone-dim);
 }
 #hud .inventory-equipped-group {
   display: flex;
@@ -366,14 +415,18 @@
   height: 34px;
   display: grid;
   place-items: center;
-  background: var(--hud-ink);
-  border: 2px solid var(--hud-panel-border);
-  border-radius: 2px;
-  box-shadow: var(--hud-tile-pressed);
+  background: var(--hud-well);
+  clip-path: var(--facet);
+  --cut: 6px;
+  box-shadow: var(--well-shade);
 }
-/* Item icons are the world pixel art on a small canvas — keep the pixels crisp. */
+/* Item icons are small renders of the world's 3D models (src/game/icons.ts). */
 #hud canvas.item-icon {
-  image-rendering: pixelated;
+  image-rendering: auto;
+}
+#hud .hud-icon-button .item-icon {
+  width: 26px;
+  height: 26px;
 }
 #hud .inventory-equipped-slot .item-icon {
   width: 28px;
@@ -389,29 +442,24 @@
   box-sizing: border-box;
   width: 40px;
   height: 40px;
-  padding: 3px;
+  padding: 2px;
   display: grid;
   place-items: center;
-  color: var(--hud-cream);
-  background: var(--hud-ink-2);
-  border: 2px solid var(--hud-panel-border);
-  border-radius: 2px;
-  box-shadow: var(--hud-tile-shadow);
+  color: var(--hud-bone);
+  --face: var(--hud-well);
+  --frame: var(--hud-well);
+  background: var(--frame);
+  border: 0;
+  clip-path: var(--facet);
+  --cut: 7px;
   cursor: pointer;
 }
 #hud .inventory-item:hover:not(:disabled) {
-  border-color: var(--hud-amber);
-  background: var(--hud-ink-3);
+  --frame: var(--hud-ember);
+  --face: var(--hud-well-lite);
 }
 #hud .inventory-item[aria-pressed="true"] {
-  border-color: var(--hud-amber);
-  background: #2a2112;
-}
-#hud .inventory-item.is-selected {
-  border-color: var(--hud-cream);
-  box-shadow:
-    0 0 0 2px var(--hud-amber),
-    var(--hud-tile-pressed);
+  --frame: var(--hud-ember);
 }
 #hud .inventory-item:disabled {
   opacity: 0.9;
@@ -423,8 +471,7 @@
   padding: 0;
   place-self: center;
   cursor: default;
-  opacity: 0.65;
-  background: #100c08;
+  opacity: 0.6;
 }
 #hud .inventory-item .item-icon {
   width: 32px;
@@ -433,72 +480,177 @@
 #hud .inventory-qty {
   position: absolute;
   right: 2px;
-  bottom: 1px;
-  min-width: 12px;
-  height: 12px;
-  padding: 0 2px;
+  bottom: 2px;
+  min-width: 13px;
+  height: 13px;
+  padding: 0 3px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 9px;
-  line-height: 12px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 13px;
   color: var(--hud-ink);
-  background: var(--hud-amber);
-  border: 1px solid var(--hud-ink);
-  border-radius: 1px;
-  box-shadow: -1px -1px 0 0 var(--hud-amber-dark) inset;
+  background: var(--hud-ember);
+  border: 0;
+  border-radius: 3px;
 }
-#hud .inventory-actions {
+/* The shared HUD tooltip: name + blurb beside the hovered control. It lives in
+   the HUD root (a control's facet clip-path would crop a child) and is placed —
+   position and transform — from the anchor's rect by tooltip.ts. */
+#hud .hud-tip {
+  position: fixed;
+  z-index: 20;
+  /* fixed + width:auto shrinks against the viewport edge before the placement
+     transform applies; max-content keeps short names on one line anywhere */
+  width: max-content;
+  max-width: 220px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding-top: 8px;
-  border-top: 2px solid var(--hud-panel-border);
+  gap: 2px;
+  padding: 8px 14px;
+  background: var(--hud-timber);
+  clip-path: var(--facet);
+  --cut: 7px;
+  box-shadow: var(--slab-light);
+  pointer-events: none;
 }
-#hud .inventory-actions[hidden] {
+#hud .hud-tip[hidden] {
   display: none;
 }
-#hud .inventory-action-name {
-  font-size: 12px;
-  color: var(--hud-cream);
+#hud .hud-tip-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--hud-bone);
 }
-#hud .inventory-action-buttons {
+#hud .hud-tip-blurb {
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--hud-bone-dim);
+}
+#hud .hud-tip-blurb[hidden] {
+  display: none;
+}
+
+/* Pickup toasts: what just entered the pack — icon, name, coalesced count —
+   bottom centre, fading after a beat (toasts.ts). */
+#hud .pickup-toasts {
+  position: absolute;
+  left: 50%;
+  bottom: 92px;
+  transform: translateX(-50%);
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
+  align-items: center;
   gap: 6px;
+  pointer-events: none;
 }
-#hud .inventory-action {
-  padding: 4px 10px;
-  font-size: 12px;
-  color: var(--hud-cream);
-  background: var(--hud-ink-2);
-  border: 2px solid var(--hud-panel-border);
-  border-radius: 2px;
-  box-shadow: var(--hud-tile-shadow);
+#hud .pickup-toast {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  background: var(--hud-timber);
+  clip-path: var(--facet);
+  --cut: 7px;
+  box-shadow: var(--slab-light);
+  animation: pickup-toast-in 0.16s ease-out;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+#hud .pickup-toast.is-leaving {
+  opacity: 0;
+  transform: translateY(8px);
+}
+#hud .pickup-toast .item-icon {
+  width: 26px;
+  height: 26px;
+}
+#hud .pickup-toast-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--hud-bone);
+}
+#hud .pickup-toast-qty {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--hud-ember);
+}
+#hud .pickup-toast-qty[hidden] {
+  display: none;
+}
+@keyframes pickup-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  #hud .pickup-toast {
+    animation: none;
+    transition: opacity 0.25s ease;
+  }
+}
+
+/* The right-click menu: an item tile's actions at the cursor. Floats in the
+   HUD root, placed and viewport-clamped by inventory.ts. */
+#hud .ctx-menu {
+  position: fixed;
+  z-index: 25;
+  min-width: 130px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  background: var(--hud-timber);
+  clip-path: var(--facet);
+  --cut: 7px;
+  box-shadow: var(--slab-light);
+  pointer-events: auto;
+}
+#hud .ctx-menu[hidden] {
+  display: none;
+}
+#hud .ctx-menu-name {
+  padding: 0 4px 2px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--hud-bone);
+}
+#hud .ctx-menu-item {
+  padding: 4px 12px;
+  font-size: 13px;
+  text-align: left;
+  color: var(--hud-bone);
+  background: var(--hud-well);
+  border: 0;
+  clip-path: var(--facet);
+  --cut: 5px;
+  box-shadow: var(--well-shade);
   cursor: pointer;
 }
-#hud .inventory-action:hover {
-  background: var(--hud-ink-3);
-  border-color: var(--hud-amber);
+#hud .ctx-menu-item:hover {
+  background: var(--hud-well-lite);
+  color: var(--hud-ember);
 }
-#hud .inventory-action:active {
-  box-shadow: var(--hud-tile-pressed);
+#hud .ctx-menu-item:active {
+  box-shadow: var(--well-shade), inset 0 3px 0 rgba(0, 0, 0, 0.35);
 }
-#hud .inventory-action.is-danger {
-  color: #f3c3b4;
-  border-color: var(--hud-danger-dark);
-  background: #2c100c;
+#hud .ctx-menu-item.is-danger {
+  color: #ffb49a;
+}
+#hud .ctx-menu-item.is-danger:hover {
+  background: var(--hud-clay);
+  color: var(--hud-bone);
 }
 
 /* ── Commands ────────────────────────────────────────────────────────────── */
 #hud .command-body {
   width: min(330px, calc(100vw - 24px));
-  padding: 12px;
-  background: var(--hud-panel-bg);
-  border: 2px solid var(--hud-panel-border);
-  border-radius: 2px;
-  box-shadow: var(--hud-panel-shadow);
-  font-size: 13px;
+  padding: 14px;
+  background: var(--hud-timber);
+  clip-path: var(--facet);
+  box-shadow: var(--slab-light);
+  font-size: 14px;
 }
 #hud .command-body[hidden] {
   display: none;
@@ -515,7 +667,7 @@
 }
 #hud .command-spawn-grid {
   display: grid;
-  grid-template-columns: repeat(4, 48px);
+  grid-template-columns: repeat(5, 56px);
   gap: 6px;
   align-items: center;
   margin-top: 6px;
@@ -523,57 +675,306 @@
 #hud .command-button {
   min-width: 0;
   height: 30px;
-  padding: 0 8px;
+  padding: 0 10px;
   overflow: hidden;
-  color: var(--hud-cream);
+  color: var(--hud-bone);
   text-overflow: ellipsis;
   white-space: nowrap;
-  background: var(--hud-ink-2);
-  border: 2px solid var(--hud-panel-border);
-  border-radius: 2px;
-  box-shadow: var(--hud-tile-shadow);
+  background: var(--hud-well);
+  border: 0;
+  clip-path: var(--facet);
+  --cut: 5px;
+  box-shadow: var(--well-shade);
   cursor: pointer;
 }
 #hud .command-button[aria-pressed="true"] {
   color: var(--hud-ink);
-  background: var(--hud-amber);
-  border-color: var(--hud-ink);
-  box-shadow:
-    1px 1px 0 0 #fff0a8 inset,
-    -2px -2px 0 0 var(--hud-amber-dark) inset,
-    0 0 0 1px var(--hud-panel-border);
+  font-weight: 700;
+  background: var(--hud-moss);
+  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.25);
 }
 #hud .command-spawn-button {
   display: grid;
   place-items: center;
-  width: 48px;
-  height: 48px;
-  padding: 0;
+  width: 56px;
+  height: 56px;
+  padding: 2px;
   overflow: hidden;
-  background: var(--hud-ink-2);
-  border: 2px solid var(--hud-panel-border);
-  border-radius: 2px;
-  box-shadow: var(--hud-tile-shadow);
+  position: relative;
+  --face: var(--hud-well);
+  --frame: var(--hud-well);
+  background: var(--frame);
+  border: 0;
+  clip-path: var(--facet);
+  --cut: 7px;
   cursor: pointer;
 }
-#hud .command-spawn-button:hover,
+#hud .command-spawn-button:hover {
+  --frame: var(--hud-ember);
+  --face: var(--hud-well-lite);
+}
 #hud .command-button:hover {
-  background: var(--hud-ink-3);
-  border-color: var(--hud-amber);
+  background: var(--hud-well-lite);
+  color: var(--hud-ember);
 }
 #hud .command-spawn-button:active,
 #hud .command-button:active {
-  box-shadow: var(--hud-tile-pressed);
+  box-shadow: var(--well-shade), inset 0 3px 0 rgba(0, 0, 0, 0.35);
 }
 #hud .command-spawn-button .item-icon {
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
 }
 #hud .command-avatar-icon {
   display: block;
-  image-rendering: pixelated;
 }
 #hud .command-status {
-  color: var(--hud-cream-dim);
+  color: var(--hud-bone-dim);
+  font-size: 13px;
+}
+
+/* ── Coach (first-time hints) ─────────────────────────────────────────────────
+   A single hint card above the chat line, bottom-centre, shown once per
+   milestone (coach.ts). Click to dismiss; auto-fades after a few seconds. */
+#hud .coach {
+  position: absolute;
+  left: 50%;
+  bottom: 132px;
+  transform: translateX(-50%);
+  z-index: 12;
+  max-width: min(440px, calc(100vw - 32px));
+  padding: 12px 20px;
+  text-align: center;
+  font-size: 15px;
+  line-height: 1.35;
+  color: var(--hud-bone);
+  background: var(--hud-timber);
+  clip-path: var(--facet);
+  box-shadow: var(--slab-light), 0 0 18px rgba(255, 140, 46, 0.25);
+  pointer-events: auto;
+  cursor: pointer;
+  animation: coach-in 0.22s ease-out;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+#hud .coach[hidden] {
+  display: none;
+}
+#hud .coach.is-leaving {
+  opacity: 0;
+  transform: translate(-50%, 8px);
+}
+@keyframes coach-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 12px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  #hud .coach {
+    animation: none;
+    transition: opacity 0.25s ease;
+  }
+}
+
+/* ── Game menu (Esc) ─────────────────────────────────────────────────────────
+   A centred modal like the world map: a dim full-screen backdrop that closes on
+   click, with the menu panel floating above it. */
+#hud .game-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 15;
+  display: grid;
+  place-items: center;
+  background: rgba(6, 4, 2, 0.55);
+  pointer-events: auto;
+}
+#hud .game-menu-backdrop[hidden] {
+  display: none;
+}
+#hud .game-menu {
+  position: relative;
+  width: min(420px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  padding: 20px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  background: var(--hud-timber);
+  clip-path: var(--facet);
+  box-shadow: var(--slab-light);
+  filter: drop-shadow(0 5px 0 rgba(0, 0, 0, 0.4));
+  scrollbar-width: thin;
+  scrollbar-color: var(--hud-moss) transparent;
+}
+#hud .game-menu-title {
+  font-size: 15px;
+  color: var(--hud-bone);
+  letter-spacing: 0.12em;
+}
+#hud .game-menu > .game-menu-title {
+  text-align: center;
+}
+#hud .game-menu-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+#hud .game-menu-nav-item {
+  padding: 12px 16px;
+  font-size: 16px;
+  font-weight: 700;
+  text-align: center;
+  color: var(--hud-bone);
+  background: var(--hud-well);
+  border: 0;
+  clip-path: var(--facet);
+  --cut: 7px;
+  box-shadow: var(--well-shade);
+  cursor: pointer;
+}
+#hud .game-menu-nav-item:hover {
+  background: var(--hud-well-lite);
+  color: var(--hud-ember);
+}
+#hud .game-menu-nav-item:active {
+  box-shadow: var(--well-shade), inset 0 3px 0 rgba(0, 0, 0, 0.35);
+}
+#hud .game-menu-nav-item.is-danger:hover {
+  background: var(--hud-clay);
+  color: var(--hud-bone);
+}
+#hud .game-menu-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+#hud .game-menu-back {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--hud-bone);
+  background: var(--hud-well);
+  border: 0;
+  clip-path: var(--facet);
+  --cut: 6px;
+  box-shadow: var(--well-shade);
+  cursor: pointer;
+}
+#hud .game-menu-back:hover {
+  background: var(--hud-well-lite);
+  color: var(--hud-ember);
+}
+
+/* ── World map (M) ───────────────────────────────────────────────────────────── */
+#hud .worldmap {
+  inset: 0;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 10px;
+  background: rgba(6, 4, 2, 0.55);
+  cursor: pointer;
+}
+#hud .worldmap[hidden] {
+  display: none;
+}
+#hud .worldmap-frame {
+  position: relative;
+  padding: 14px;
+  background: var(--hud-timber);
+  clip-path: var(--facet);
+  box-shadow: var(--slab-light);
+  filter: drop-shadow(0 5px 0 rgba(0, 0, 0, 0.4));
+}
+#hud .worldmap-canvas {
+  display: block;
+  max-width: min(80vw, 620px);
+  max-height: 74vh;
+  image-rendering: pixelated;
+}
+#hud .worldmap-marker {
+  position: absolute;
+  /* the frame's padding offsets the canvas; the marker positions within it */
+  width: 10px;
+  height: 10px;
+  margin: 9px 0 0 9px;
+  border-radius: 50%;
+  background: #ffe08a;
+  box-shadow: 0 0 8px #ff8c2e, 0 0 0 2px rgba(10, 8, 6, 0.7);
+  animation: worldmap-pulse 1.2s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes worldmap-pulse {
+  50% {
+    transform: scale(1.35);
+  }
+}
+
+/* ── Commands drawer (right edge) ────────────────────────────────────────────
+   Debug tools live on the opposite side from the player-facing top-left menus:
+   a lone toggle pinned to the top-right corner, and an inset drawer panel that
+   slides in beneath it — the toggle is never covered, so the same button always
+   closes it, and the panel's own scrollbar makes it obvious the drawer (not the
+   page) is what scrolls. */
+#hud .command-drawer .command-toggle {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  pointer-events: auto;
+  filter: drop-shadow(0 3px 0 rgba(0, 0, 0, 0.35));
+}
+#hud .command-drawer .command-body {
+  position: fixed;
+  top: 64px;
+  right: 12px;
+  bottom: 12px;
+  left: auto; /* the shared drop-down rule pins left: 0; right must win here */
+  box-sizing: border-box;
+  pointer-events: auto;
+  width: min(340px, calc(100vw - 24px));
+  margin: 0;
+  padding: 14px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--hud-moss) transparent;
+  filter: none;
+  clip-path: none;
+  background: var(--hud-timber);
+  box-shadow: var(--slab-light), 0 6px 0 rgba(0, 0, 0, 0.35);
+  transform: translateX(calc(100% + 24px));
+  transition: transform 0.18s ease-out;
+}
+#hud .command-drawer.is-open .command-body {
+  transform: translateX(0);
+}
+#hud .command-drawer .command-body::-webkit-scrollbar {
+  width: 8px;
+}
+#hud .command-drawer .command-body::-webkit-scrollbar-thumb {
+  background: var(--hud-moss);
+}
+#hud .command-hint {
+  margin-top: 8px;
   font-size: 12px;
+  color: var(--hud-bone);
+  opacity: 0.65;
+}
+#hud .command-daylight {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 6px;
+}
+#hud .command-daylight input[type="range"] {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--hud-moss);
+}
+#hud .command-daylight .command-button {
+  flex: 0 0 auto;
+  width: 64px;
 }

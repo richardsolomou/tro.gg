@@ -27,7 +27,7 @@ All assets currently in this folder are listed as Creative Commons Zero (CC0) by
 
 | Folder | Intended use | Source | Author | License |
 | --- | --- | --- | --- | --- |
-| `future/mining/cc0-rpg-sfx/` | Mining, item pickup, stone, metal, tool, and reward candidates for future gathering/inventory work. | https://opengameart.org/content/80-cc0-rpg-sfx | rubberduck | CC0 |
+| `future/mining/cc0-rpg-sfx/` | Item pickup cues (`item_stone`/`item_wood`/`item_misc`, wired in `src/audio.ts`); mining, metal, tool, and reward candidates for future gathering work. | https://opengameart.org/content/80-cc0-rpg-sfx | rubberduck | CC0 |
 | `future/foraging/dry-leaf-rustles/` | Foraging, glowcap, bush/leaf, and vegetation rustle candidates for future gathering work. | https://opengameart.org/content/20-rustles-dry-leaves | qubodup | CC0 |
 
 ## Notes

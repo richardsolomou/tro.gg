@@ -57,6 +57,19 @@ export default defineConfig({
         play: fileURLToPath(new URL("./play/index.html", import.meta.url)),
         preview: fileURLToPath(new URL("./preview/index.html", import.meta.url)),
       },
+      output: {
+        // Big third-party libraries get their own stable chunks: they download
+        // in parallel instead of inside one page-sized bundle, the landing's
+        // idle prefetch and /play share the same cached files, and a game-code
+        // change no longer invalidates the three.js megabyte.
+        advancedChunks: {
+          groups: [
+            { name: "three", test: /node_modules[\\/]three/ },
+            { name: "spacetimedb", test: /node_modules[\\/]spacetimedb/ },
+            { name: "posthog", test: /node_modules[\\/]posthog-js/ },
+          ],
+        },
+      },
     },
   },
 });

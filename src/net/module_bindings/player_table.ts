@@ -39,4 +39,11 @@ export default __t.row({
   respawnAt: __t.option(__t.timestamp()).name("respawn_at"),
   equippedOffHand: __t.string().name("equipped_off_hand"),
   equippedOffHandInventoryId: __t.u64().name("equipped_off_hand_inventory_id"),
+  lastDamagedAt: __t.timestamp().name("last_damaged_at"),
+  cheatSpeed: __t.f64().name("cheat_speed"),
+  cheatFly: __t.bool().name("cheat_fly"),
+  cheatInvulnerable: __t.bool().name("cheat_invulnerable"),
+  cheatNoclip: __t.bool().name("cheat_noclip"),
+  z: __t.f64(),
+  dirZ: __t.i32().name("dir_z"),
 });

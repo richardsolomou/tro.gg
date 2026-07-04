@@ -14,7 +14,7 @@ import {
   troggStyleFor,
   troggStyleIndexFor,
 } from "./avatar";
-import { HOG_STYLES, TROGG_STYLES } from "./sprites";
+import { HOG_STYLES, TROGG_STYLES } from "./creatures";
 
 test("a trogg's colour is stable for the same id", () => {
   assert.equal(troggColor("abcd1234"), troggColor("abcd1234"));

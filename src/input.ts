@@ -1,4 +1,6 @@
-/** A cardinal direction: one axis at a time; (0, 0) = stop. No diagonals. */
+import { EQUIPMENT_ACTION_MS } from "@trogg/shared";
+
+/** A movement direction: each axis −1/0/1, diagonals allowed; (0, 0) = stop. */
 interface Dir {
   dirX: number;
   dirY: number;
@@ -35,8 +37,9 @@ const KEY_VECTORS: Record<string, Dir> = {
  * where it is. Reports only on transitions (invariant 2: input-driven, never per-frame).
  * `onInteract` fires on the interact key (`E`) — a discrete press (auto-repeat ignored),
  * the generic action key the world layer uses to pick up / put down (GDD "Interacting").
- * `onUseEquipped` fires on `F`, a discrete use of the currently equipped main-hand
- * item (GDD "Avatars and equipment").
+ * `onUseEquipped` fires on `F` and repeats at the swing cadence while `F` stays
+ * held, so chained attacks are a hold, not a tap-per-swing (GDD "Avatars and
+ * equipment"). The server's use cooldown stays the authority on rate.
  * Returns a teardown that detaches the listeners.
  */
 export function attachKeyboard(
@@ -47,22 +50,24 @@ export function attachKeyboard(
 ): () => void {
   const held = new Set<string>();
   let shiftHeld = false;
+  let useRepeat: number | undefined;
   let current: MoveIntent = { dirX: 0, dirY: 0, running: false };
 
-  // Last key still held wins — pure 4-directional movement, no diagonals, like
-  // Pokémon/Zelda. A Set keeps insertion order, so the newest held key is the last
-  // one we see; holding right then tapping up goes up, releasing up resumes right.
-  // Each KEY_VECTORS entry is a single cardinal axis, so the intent is always
-  // cardinal by construction. Running only matters while moving, so a lone shift
-  // tap never produces a move.
+  // Free 8-directional movement: the axes combine, so holding W+D walks the
+  // diagonal. Within one axis the newest held key wins (a Set keeps insertion
+  // order): holding right then tapping left goes left, releasing left resumes
+  // right. Running only matters while moving, so a lone shift tap never moves.
   const compute = (): MoveIntent => {
-    let dir: Dir = { dirX: 0, dirY: 0 };
+    let dirX = 0;
+    let dirY = 0;
     for (const code of held) {
       const vector = KEY_VECTORS[code];
-      if (vector) dir = vector;
+      if (!vector) continue;
+      if (vector.dirX !== 0) dirX = vector.dirX;
+      if (vector.dirY !== 0) dirY = vector.dirY;
     }
-    const moving = dir.dirX !== 0 || dir.dirY !== 0;
-    return { ...dir, running: canRun && shiftHeld && moving };
+    const moving = dirX !== 0 || dirY !== 0;
+    return { dirX, dirY, running: canRun && shiftHeld && moving };
   };
 
   const emit = (immediate?: boolean) => {
@@ -84,6 +89,7 @@ export function attachKeyboard(
       if (e.repeat) return;
       e.preventDefault();
       onUseEquipped();
+      useRepeat ??= window.setInterval(onUseEquipped, EQUIPMENT_ACTION_MS);
       return;
     }
     if (SHIFT_CODES.has(e.code)) {
@@ -100,6 +106,11 @@ export function attachKeyboard(
   };
 
   const onKeyUp = (e: KeyboardEvent) => {
+    if (e.code === "KeyF") {
+      window.clearInterval(useRepeat);
+      useRepeat = undefined;
+      return;
+    }
     if (SHIFT_CODES.has(e.code)) {
       if (!shiftHeld) return;
       shiftHeld = false;
@@ -112,6 +123,8 @@ export function attachKeyboard(
 
   // A lost focus (tab switch, alt-tab) strands held keys; release them and stop now.
   const onBlur = () => {
+    window.clearInterval(useRepeat);
+    useRepeat = undefined;
     if (held.size === 0 && !shiftHeld) return;
     held.clear();
     shiftHeld = false;
@@ -123,13 +136,14 @@ export function attachKeyboard(
   window.addEventListener("blur", onBlur);
 
   return () => {
+    window.clearInterval(useRepeat);
     window.removeEventListener("keydown", onKeyDown);
     window.removeEventListener("keyup", onKeyUp);
     window.removeEventListener("blur", onBlur);
   };
 }
 
-function isTyping(target: EventTarget | null): boolean {
+export function isTyping(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null;
   return el?.tagName === "INPUT" || el?.tagName === "TEXTAREA" || el?.isContentEditable === true;
 }
