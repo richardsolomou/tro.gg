@@ -502,13 +502,15 @@
   border: 0;
   border-radius: 3px;
 }
-/* The floating item tooltip: name + blurb beside the hovered tile. It lives in
-   the HUD root (the tiles' facet clip-path would crop a child) and is placed
-   from the tile's rect by inventory.ts. */
-#hud .item-tip {
+/* The shared HUD tooltip: name + blurb beside the hovered control. It lives in
+   the HUD root (a control's facet clip-path would crop a child) and is placed —
+   position and transform — from the anchor's rect by tooltip.ts. */
+#hud .hud-tip {
   position: fixed;
-  transform: translateY(-50%);
   z-index: 20;
+  /* fixed + width:auto shrinks against the viewport edge before the placement
+     transform applies; max-content keeps short names on one line anywhere */
+  width: max-content;
   max-width: 220px;
   display: flex;
   flex-direction: column;
@@ -520,20 +522,20 @@
   box-shadow: var(--slab-light);
   pointer-events: none;
 }
-#hud .item-tip[hidden] {
+#hud .hud-tip[hidden] {
   display: none;
 }
-#hud .item-tip-name {
+#hud .hud-tip-name {
   font-size: 13px;
   font-weight: 700;
   color: var(--hud-bone);
 }
-#hud .item-tip-blurb {
+#hud .hud-tip-blurb {
   font-size: 12px;
   line-height: 1.35;
   color: var(--hud-bone-dim);
 }
-#hud .item-tip-blurb[hidden] {
+#hud .hud-tip-blurb[hidden] {
   display: none;
 }
 
@@ -666,7 +668,7 @@
 }
 #hud .command-spawn-grid {
   display: grid;
-  grid-template-columns: repeat(4, 48px);
+  grid-template-columns: repeat(5, 56px);
   gap: 6px;
   align-items: center;
   margin-top: 6px;
@@ -695,8 +697,8 @@
 #hud .command-spawn-button {
   display: grid;
   place-items: center;
-  width: 48px;
-  height: 48px;
+  width: 56px;
+  height: 56px;
   padding: 2px;
   overflow: hidden;
   position: relative;
@@ -721,8 +723,8 @@
   box-shadow: var(--well-shade), inset 0 3px 0 rgba(0, 0, 0, 0.35);
 }
 #hud .command-spawn-button .item-icon {
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
 }
 #hud .command-avatar-icon {
   display: block;

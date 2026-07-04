@@ -10,6 +10,7 @@ import {
 } from "@trogg/shared";
 import type { DbConnection } from "../net/module_bindings";
 import { isFeatureEnabled, logError, logWarn } from "../analytics.js";
+import { attachTip } from "./tooltip.js";
 import { cssColor } from "../ui_text.js";
 import { hudIcon } from "../game/icons.js";
 import { hudLeft } from "./hud.js";
@@ -42,7 +43,7 @@ export function mountAppearance(conn: DbConnection): void {
   toggle.className = "hud-icon-button appearance-toggle";
   toggle.setAttribute("aria-label", "Appearance");
   toggle.setAttribute("aria-keyshortcuts", "P");
-  toggle.title = "Appearance (P)";
+  attachTip(toggle, "Appearance (P)", "Your name, colour, and build", "below");
   toggle.appendChild(hudIcon("appearance"));
 
   const body = document.createElement("div");

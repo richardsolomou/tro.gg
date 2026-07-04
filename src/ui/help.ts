@@ -2,6 +2,7 @@ import { hudIcon } from "../game/icons.js";
 import { isFeatureEnabled } from "../analytics.js";
 import { closeHudMenus, hudLeft } from "./hud.js";
 import { registerKeybind } from "./keybinds.js";
+import { attachTip } from "./tooltip.js";
 import { currentCommandFlags } from "./chat_commands.js";
 
 /** One control line: the key/control and what it does. */
@@ -32,7 +33,7 @@ export function mountHelp(): void {
   toggle.appendChild(hudIcon("help"));
   toggle.setAttribute("aria-label", "Help");
   toggle.setAttribute("aria-keyshortcuts", "H ?");
-  toggle.title = "Help (? / H)";
+  attachTip(toggle, "Help (? / H)", "Controls and keybinds", "below");
 
   const body = document.createElement("div");
   body.className = "help-body";

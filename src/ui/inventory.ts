@@ -5,9 +5,10 @@ import { logError } from "../analytics.js";
 import type { DbConnection } from "../net/module_bindings";
 import type { Inventory, Player } from "../net/module_bindings/types";
 import { discardItem, dropItem, equipItem } from "../net/procedures.js";
-import { hudLeft, hudRoot } from "./hud.js";
+import { hudLeft } from "./hud.js";
 import { registerKeybind } from "./keybinds.js";
 import { pickupToast } from "./toasts.js";
+import { attachTip, hideTip } from "./tooltip.js";
 
 /** Mount the compact inventory/equipment panel. Rows are driven by subscribed inventory state. */
 export function mountInventory(conn: DbConnection, playerId: string): void {
@@ -22,7 +23,7 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
   toggle.className = "hud-icon-button inventory-toggle";
   toggle.setAttribute("aria-label", "Inventory");
   toggle.setAttribute("aria-keyshortcuts", "I");
-  toggle.title = "Inventory (I)";
+  attachTip(toggle, "Inventory (I)", "Your pack and equipped hands", "below");
   toggle.appendChild(hudIcon("inventory"));
 
   const body = document.createElement("div");
@@ -42,43 +43,6 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
   body.append(equipped, list, actions);
   root.append(toggle, body);
   hudLeft().appendChild(root);
-
-  // The one floating tooltip (name + blurb) every tile shares. It can't live
-  // inside the tiles — their facet clip-path would crop it — so it floats in
-  // the HUD root, placed beside whichever tile is hovered or focused.
-  document.getElementById("item-tip")?.remove();
-  const tip = document.createElement("div");
-  tip.id = "item-tip";
-  tip.className = "item-tip";
-  tip.setAttribute("role", "tooltip");
-  tip.hidden = true;
-  const tipName = document.createElement("span");
-  tipName.className = "item-tip-name";
-  const tipBlurb = document.createElement("span");
-  tipBlurb.className = "item-tip-blurb";
-  tip.append(tipName, tipBlurb);
-  hudRoot().appendChild(tip);
-
-  const attachTip = (el: HTMLElement, name: string, blurb: string) => {
-    el.removeAttribute("title"); // the rich tooltip replaces the native one
-    el.setAttribute("aria-describedby", "item-tip");
-    const show = () => {
-      tipName.textContent = name;
-      tipBlurb.textContent = blurb;
-      tipBlurb.hidden = blurb === "";
-      const rect = el.getBoundingClientRect();
-      tip.style.left = `${Math.round(rect.right + 10)}px`;
-      tip.style.top = `${Math.round(rect.top + rect.height / 2)}px`;
-      tip.hidden = false;
-    };
-    const hide = () => {
-      tip.hidden = true;
-    };
-    el.addEventListener("mouseenter", show);
-    el.addEventListener("mouseleave", hide);
-    el.addEventListener("focus", show);
-    el.addEventListener("blur", hide);
-  };
 
   const rows = new Map<string, Inventory>();
   let mainHand = "";
@@ -126,7 +90,7 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
   };
 
   const render = () => {
-    tip.hidden = true; // the hovered tile may not survive the rebuild
+    hideTip(); // the hovered tile may not survive the rebuild
     equipped.replaceChildren(equippedGroup("Main hand", mainHand), equippedGroup("Off hand", offHand));
 
     list.replaceChildren();
@@ -164,6 +128,23 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
         selectedId = selectedNow ? null : row.id;
         confirmDelete = false;
         render();
+      });
+
+      // Dragging a tile off the panel and letting go over the world throws
+      // one unit away for good (the Delete action; the drag out is the
+      // deliberate gesture the confirm step exists for). Releasing over any
+      // HUD panel does nothing, and a cancelled drag reports (0,0).
+      item.draggable = true;
+      item.addEventListener("dragstart", (event) => {
+        hideTip();
+        event.dataTransfer?.setData("text/plain", row.item);
+        if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+      });
+      item.addEventListener("dragend", (event) => {
+        if (event.clientX === 0 && event.clientY === 0) return;
+        const over = document.elementFromPoint(event.clientX, event.clientY);
+        if (over?.closest("#hud")) return;
+        run("Discard item", row.item, () => discardItem(conn, row.id), "discard_item");
       });
 
       list.appendChild(item);

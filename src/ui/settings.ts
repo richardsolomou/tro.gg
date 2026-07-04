@@ -2,6 +2,7 @@ import { hudIcon } from "../game/icons.js";
 import { SOUND_CATEGORIES, setSoundLevel, soundLevel } from "../sound-settings.js";
 import { hudLeft } from "./hud.js";
 import { registerKeybind } from "./keybinds.js";
+import { attachTip } from "./tooltip.js";
 
 /**
  * The Settings panel: a top-left toggle beside Help holding global preferences.
@@ -20,7 +21,7 @@ export function mountSettings(): void {
   toggle.appendChild(hudIcon("settings"));
   toggle.setAttribute("aria-label", "Settings");
   toggle.setAttribute("aria-keyshortcuts", "O");
-  toggle.title = "Settings (O)";
+  attachTip(toggle, "Settings (O)", "Sound sliders, per category", "below");
 
   const body = document.createElement("div");
   body.className = "help-body settings-body";

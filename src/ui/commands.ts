@@ -8,6 +8,7 @@ import { registerKeybind } from "./keybinds.js";
 import { currentCommandFlags, type ChatCommandFlags } from "./chat_commands.js";
 import { hauntGhost, resetBoulders, resetHogs, spawnDebugEntity } from "../net/procedures.js";
 import { itemIcon } from "./inventory.js";
+import { attachTip } from "./tooltip.js";
 
 type SpawnRequest = { kind: "boulder" } | { kind: "tree" } | { kind: "hog"; style: HogStyle } | { kind: "item"; item: SpawnableItemId };
 
@@ -30,9 +31,9 @@ export function mountCommands({ conn, zone }: CommandPanelContext): void {
   const toggle = document.createElement("button");
   toggle.type = "button";
   toggle.className = "hud-icon-button command-toggle";
-  toggle.setAttribute("aria-label", "Commands");
+  toggle.setAttribute("aria-label", "Debug Tools");
   toggle.setAttribute("aria-keyshortcuts", "`");
-  toggle.title = "Commands (`)";
+  attachTip(toggle, "Debug Tools (`)", "", "left");
   toggle.appendChild(hudIcon("commands"));
 
   const body = document.createElement("div");
@@ -378,7 +379,8 @@ function spawnButton(label: string, icon: HTMLElement | SVGSVGElement, onClick: 
   button.type = "button";
   button.className = "command-spawn-button";
   button.setAttribute("aria-label", `Spawn ${label}`);
-  button.title = `Spawn ${label}`;
+  // the tooltip skips the verb — the tile sits under the "Spawn" heading
+  attachTip(button, label, "", "left");
   button.appendChild(icon);
   button.addEventListener("click", onClick);
   return button;
