@@ -93,6 +93,19 @@ test("the committed world map is valid, connected, and spawn-safe", () => {
   assert.ok(walkable > 11 * 64 * 44 * 0.3, `only ${walkable} open tiles`);
 });
 
+test("the committed world lays court plates on dry town floor", () => {
+  const world = ZONES["world"]!;
+  // three courts: the 3×3 grid, the 8-plate ring, and the 2-pad dash
+  assert.equal(world.plates.length, 19);
+  const seen = new Set<string>();
+  for (const p of world.plates) {
+    assert.ok(isDryFloor(world, p.x, p.y), `plate at ${p.x},${p.y} is wet or in rock`);
+    assert.equal(regionAt(p.x, p.y)?.slug, WORLD_REGIONS[0]!.slug, `plate at ${p.x},${p.y} left Hog Town`);
+    assert.ok(!seen.has(`${p.x},${p.y}`), `duplicate plate at ${p.x},${p.y}`);
+    seen.add(`${p.x},${p.y}`);
+  }
+});
+
 test("every region contributes open, seeded ground", () => {
   const world = ZONES["world"]!;
   for (const region of WORLD_REGIONS) {

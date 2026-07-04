@@ -257,6 +257,7 @@ export function generateCaveZone(opts: CaveOptions): Zone {
     items,
     bigHogs,
     cells: [],
+    plates: [],
   };
 }
 
@@ -408,6 +409,7 @@ export function generateBirthCave(): Zone {
     hogs: [],
     items: [],
     bigHogs: [],
+    plates: [],
     cells: [{ x: spawn.x, y: spawn.y, corridor, pickaxe }],
   };
 }
@@ -490,6 +492,8 @@ export interface GeneratedWorld {
   items: GroundItemSeed[];
   bigHogs: BigHog[];
   cells: BirthCellSeed[];
+  /** Court pressure plates (GDD "Courts and play props"), on dry open town floor. */
+  plates: Coord[];
   /** Where an emerging trogg lands: inside the coast's cave-mouth alcove. */
   arrival: Coord;
   /** The alcove's deep end — walk into it to descend into your own cave. */
@@ -800,5 +804,63 @@ export function generateWorld(): GeneratedWorld {
   const caveDoor: Coord = { x: MOUTH_X, y: Math.min(mouthY + ARRIVAL_DEPTH, H - 2) };
   const cells: BirthCellSeed[] = [];
 
-  return { tiles: glyphs.map((row) => row.join("")), regions: regionGrid.map((row) => row.join("")), boulders, trees, hogs, items, bigHogs, cells, arrival, caveDoor, spawn };
+  // 11. courts (GDD "Courts and play props"): pressure-plate layouts on Hog
+  // Town's open floor — a 3×3 grid, a ring, and a two-pad dash, each a court the
+  // community invents games on. Plates are cosmetic props: they never carve
+  // terrain, and this stage draws after every other one, so re-tuning courts
+  // leaves the committed tiles and all existing seeds byte-identical.
+  // Placement is a deterministic first-fit: anchors scan outward from the
+  // spawn plaza (nearest first), and a layout lands on the first anchor whose
+  // whole clearance area — the plates plus the floor a game needs around and
+  // between them — is dry open town floor no other seed has taken, so a court
+  // reads as a court instead of threading plates through rock crannies.
+  const plates: Coord[] = [];
+  const clearFloor = (x: number, y: number): boolean =>
+    x > 0 && y > 0 && x < W - 1 && y < H - 1 && regionOf[idx(x, y)] === 0 && DRY.has(glyphs[y]![x]!) && !taken.has(`${x},${y}`);
+  const anchors: Coord[] = [];
+  for (let y = 1; y < H - 1; y++) {
+    for (let x = 1; x < W - 1; x++) {
+      const d = Math.hypot(x - spawn.x, y - spawn.y);
+      if (d >= 7 && d <= 30) anchors.push({ x, y });
+    }
+  }
+  anchors.sort((a, b) => Math.hypot(a.x - spawn.x, a.y - spawn.y) - Math.hypot(b.x - spawn.x, b.y - spawn.y) || a.y - b.y || a.x - b.x);
+  const disc = (radius: number): Coord[] => {
+    const out: Coord[] = [];
+    const r = Math.ceil(radius);
+    for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) if (Math.hypot(dx, dy) <= radius) out.push({ x: dx, y: dy });
+    return out;
+  };
+  // Each court is its variant list, tried in order (the dash falls back to vertical).
+  interface CourtLayout { plates: Coord[]; clear: Coord[] }
+  const grid: Coord[] = [];
+  for (let dy = -2; dy <= 2; dy += 2) for (let dx = -2; dx <= 2; dx += 2) grid.push({ x: dx, y: dy });
+  const ring: Coord[] = [{ x: 3, y: 0 }, { x: 2, y: 2 }, { x: 0, y: 3 }, { x: -2, y: 2 }, { x: -3, y: 0 }, { x: -2, y: -2 }, { x: 0, y: -3 }, { x: 2, y: -2 }];
+  const lane = (dx: number, dy: number): Coord[] => {
+    const out: Coord[] = [];
+    for (let i = -1; i <= 13; i++) for (let s = -1; s <= 1; s++) out.push({ x: i * dx + s * dy, y: i * dy + s * dx });
+    return out;
+  };
+  const courts: CourtLayout[][] = [
+    [{ plates: grid, clear: disc(3.7) }],
+    [{ plates: ring, clear: disc(4.3) }],
+    [
+      { plates: [{ x: 0, y: 0 }, { x: 12, y: 0 }], clear: lane(1, 0) },
+      { plates: [{ x: 0, y: 0 }, { x: 0, y: 12 }], clear: lane(0, 1) },
+    ],
+  ];
+  for (const variants of courts) {
+    placed: for (const layout of variants) {
+      for (const anchor of anchors) {
+        if (!layout.clear.every((o) => clearFloor(anchor.x + o.x, anchor.y + o.y))) continue;
+        for (const o of layout.plates) {
+          taken.add(`${anchor.x + o.x},${anchor.y + o.y}`);
+          plates.push({ x: anchor.x + o.x, y: anchor.y + o.y });
+        }
+        break placed;
+      }
+    }
+  }
+
+  return { tiles: glyphs.map((row) => row.join("")), regions: regionGrid.map((row) => row.join("")), boulders, trees, hogs, items, bigHogs, cells, plates, arrival, caveDoor, spawn };
 }

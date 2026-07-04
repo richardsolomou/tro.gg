@@ -1,7 +1,7 @@
 export * from "./glyphs";
 import { SOLID_GLYPHS, TILE_GLYPHS, WATER_TILE } from "./glyphs";
 import { generateBirthCave, setRegionRows, WORLD_H, WORLD_W } from "./worldgen";
-import { WORLD_ARRIVAL, WORLD_CAVE_DOOR, WORLD_BIG_HOGS, WORLD_BOULDERS, WORLD_CELLS, WORLD_HOGS, WORLD_ITEMS, WORLD_REGION_ROWS, WORLD_SPAWN, WORLD_TILES, WORLD_TREES } from "./world-map";
+import { WORLD_ARRIVAL, WORLD_CAVE_DOOR, WORLD_BIG_HOGS, WORLD_BOULDERS, WORLD_CELLS, WORLD_HOGS, WORLD_ITEMS, WORLD_PLATES, WORLD_REGION_ROWS, WORLD_SPAWN, WORLD_TILES, WORLD_TREES } from "./world-map";
 
 // regionAt() reads the committed grid on both client and module
 setRegionRows(WORLD_REGION_ROWS);
@@ -462,6 +462,10 @@ export interface Zone {
   hogs: readonly Coord[];
   items: readonly GroundItemSeed[];
   bigHogs: readonly BigHog[];
+  /** Court pressure plates (GDD "Courts and play props"): cosmetic floor props
+   *  that light client-side while a trogg or Hog rests on them. On dry open
+   *  floor; they never change collision or server state. */
+  plates: readonly Coord[];
   /** The birth warren's cells; empty for zones without one. */
   cells: readonly BirthCellSeed[];
   /** Where `E` emerges from an instanced birth cave (GDD "Onboarding"). */
@@ -492,6 +496,7 @@ export const ZONES: Record<string, Zone> = {
     hogs: WORLD_HOGS,
     items: WORLD_ITEMS,
     bigHogs: WORLD_BIG_HOGS,
+    plates: WORLD_PLATES,
     cells: WORLD_CELLS,
   },
   birthcave: generateBirthCave(),
@@ -583,6 +588,11 @@ export function assertZones(zones: Record<string, Zone> = ZONES): void {
     for (const h of zone.hogs) {
       if (!isWalkable(zone, h.x, h.y)) {
         throw new Error(`zone ${zone.slug}: hog at (${h.x}, ${h.y}) is not on walkable floor`);
+      }
+    }
+    for (const p of zone.plates) {
+      if (!isDryFloor(zone, p.x, p.y)) {
+        throw new Error(`zone ${zone.slug}: plate at (${p.x}, ${p.y}) is not on dry open floor`);
       }
     }
     for (const item of zone.items) {

@@ -440,6 +440,9 @@ export const WORLD_ITEMS: readonly GroundItemSeed[] = [{"item":"pickaxe","x":110
 
 export const WORLD_BIG_HOGS: readonly BigHog[] = [{"x":138,"y":116,"style":"buff"},{"x":107,"y":97,"style":"dino"}];
 
+/** Court pressure plates (GDD "Courts and play props"). */
+export const WORLD_PLATES: readonly Coord[] = [{"x":117,"y":99},{"x":119,"y":99},{"x":121,"y":99},{"x":117,"y":101},{"x":119,"y":101},{"x":121,"y":101},{"x":117,"y":103},{"x":119,"y":103},{"x":121,"y":103},{"x":125,"y":85},{"x":124,"y":87},{"x":122,"y":88},{"x":120,"y":87},{"x":119,"y":85},{"x":120,"y":83},{"x":122,"y":82},{"x":124,"y":83},{"x":105,"y":105},{"x":117,"y":105}];
+
 /** The birth warren's cells (GDD "Onboarding: the Warren"). */
 export const WORLD_CELLS: readonly BirthCellSeed[] = [
 

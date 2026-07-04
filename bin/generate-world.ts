@@ -36,6 +36,9 @@ export const WORLD_ITEMS: readonly GroundItemSeed[] = ${JSON.stringify(world.ite
 
 export const WORLD_BIG_HOGS: readonly BigHog[] = ${JSON.stringify(world.bigHogs)};
 
+/** Court pressure plates (GDD "Courts and play props"). */
+export const WORLD_PLATES: readonly Coord[] = ${JSON.stringify(world.plates)};
+
 /** The birth warren's cells (GDD "Onboarding: the Warren"). */
 export const WORLD_CELLS: readonly BirthCellSeed[] = [
 ${world.cells.map((cell) => `  ${JSON.stringify(cell)},`).join("\n")}
@@ -48,4 +51,4 @@ export const WORLD_ARRIVAL: Coord = ${JSON.stringify(world.arrival)};
 export const WORLD_CAVE_DOOR: Coord = ${JSON.stringify(world.caveDoor)};
 `;
 writeFileSync(fileURLToPath(new URL("../shared/world-map.ts", import.meta.url)), out);
-console.log(`world committed: ${world.tiles.length} rows, ${world.boulders.length} boulders, ${world.trees.length} trees, ${world.hogs.length} hogs, ${world.cells.length} birth cells`);
+console.log(`world committed: ${world.tiles.length} rows, ${world.boulders.length} boulders, ${world.trees.length} trees, ${world.hogs.length} hogs, ${world.plates.length} plates, ${world.cells.length} birth cells`);

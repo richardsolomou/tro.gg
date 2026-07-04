@@ -53,6 +53,7 @@ import { FarCrowd } from "./crowd.js";
 import { createEntities, disposeObject, type Entities, type HogView, type Tracked } from "./entities.js";
 import { buildBoulder, buildTree } from "./items.js";
 import { NodeField } from "./nodes.js";
+import { PlateField } from "./plates.js";
 import { buildTerrain, type Terrain3D } from "./terrain.js";
 import { biomePalette, DAYLIGHT_3D, UI_3D } from "./palette.js";
 
@@ -129,6 +130,7 @@ export class World3D {
   /** All trees (and, separately, boulders) draw as a handful of instanced meshes. */
   private treeField!: NodeField;
   private boulderField!: NodeField;
+  private plateField!: PlateField;
   /** Creatures beyond the full-rig budget render as moving silhouettes, not nothing. */
   private crowd!: FarCrowd;
   /** Render-time camera occlusion: the extra upward pitch (radians) currently
@@ -214,6 +216,9 @@ export class World3D {
   private readonly boulderTiles = new Set<string>();
   private readonly treeTiles = new Set<string>();
   private readonly hogTiles = new Set<string>();
+  // Tiles living, grounded troggs stand on — rebuilt each frame like hogTiles,
+  // read only by the court plates (troggs never collide with each other).
+  private readonly playerTiles = new Set<string>();
   private keyLight!: THREE.DirectionalLight;
   private hemi!: THREE.HemisphereLight;
   private sun!: THREE.Sprite;
@@ -400,6 +405,7 @@ export class World3D {
     this.entities = createEntities(this.scene);
     this.treeField = new NodeField(this.scene, buildTree(), MAX_TREES_PER_ZONE);
     this.boulderField = new NodeField(this.scene, buildBoulder(), MAX_BOULDERS_PER_ZONE);
+    this.plateField = new PlateField(this.scene, this.zone.plates);
     this.crowd = new FarCrowd(this.scene);
 
     // The click-to-move destination marker: a flat gold-edged tile highlight.
@@ -660,10 +666,13 @@ export class World3D {
       for (const t of footprintTiles(tile.x, tile.y, size)) this.hogTiles.add(tileKey(t.x, t.y));
     }
 
+    this.playerTiles.clear();
     for (const entry of this.tracked.values()) {
       const isSelf = entry.player.identity.toHexString() === this.myId;
       const motion = projectMotionState(entry.player, now - entry.baseMs, this.troggBounds);
       this.entities.smoothPlace(entry, motion.x, motion.y, dt);
+      // corpses and airborne flyers hold no plate; anyone standing does
+      if (!entry.player.dead && motion.z < 0.25) this.playerTiles.add(tileKey(Math.round(motion.x), Math.round(motion.y)));
       // Altitude is derived from the synced intent like x/y, so every client
       // (and the flyer itself) renders the same height.
       entry.marker.position.y = motion.z;
@@ -792,6 +801,10 @@ export class World3D {
         };
       };
     }
+
+    // Court plates light under whoever rests on them, derived from the same
+    // projected tiles as collision — synced by construction, no server state.
+    this.plateField.update((key) => this.hogTiles.has(key) || this.playerTiles.has(key));
 
     // A held key steers relative to the camera: while the orbit turns, re-map the
     // raw intent and re-deliver when the world heading actually changed (the 15°
