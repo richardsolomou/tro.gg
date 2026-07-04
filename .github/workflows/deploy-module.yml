@@ -5,6 +5,12 @@ name: Deploy module
 # without disconnecting clients; breaking changes are NOT forced here (no
 # --delete-data / --break-clients), so they fail loudly instead of losing data.
 #
+# Go-live reset: for a release that changes everything for everyone, run this
+# workflow manually (Actions → Deploy module → Run workflow) with
+# `clear_database` checked. That publish passes --delete-data, DESTROYING all
+# production data and re-seeding fresh. A normal merge NEVER clears — the box
+# only exists on the manual trigger, so an ordinary deploy can't wipe players.
+#
 # Required secret: SPACETIME_TOKEN — a token for the identity that owns the
 # `trogg` database. Get it with `spacetime login show --token`.
 
@@ -16,6 +22,11 @@ on:
       - "shared/**"
       - ".github/workflows/deploy-module.yml"
   workflow_dispatch:
+    inputs:
+      clear_database:
+        description: "DESTROY all production data on this publish (go-live reset)"
+        type: boolean
+        default: false
 
 concurrency:
   group: deploy-module
@@ -62,4 +73,10 @@ jobs:
           fi
 
       - name: Publish to production
-        run: spacetime publish --server trogg-prod --module-path spacetimedb trogg -y
+        run: |
+          if [ "${{ inputs.clear_database }}" = "true" ]; then
+            echo "::warning::clear_database is set — publishing with --delete-data. All production data will be DESTROYED."
+            spacetime publish --server trogg-prod --module-path spacetimedb trogg --delete-data -y
+          else
+            spacetime publish --server trogg-prod --module-path spacetimedb trogg -y
+          fi
