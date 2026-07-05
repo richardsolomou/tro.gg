@@ -47,6 +47,7 @@ snake_case. Low-volume by design — anything that could fire more than ~once/se
 | `boulders_reset` | `zone, source` | Player resets boulders via the Commands panel |
 | `dark_creatures_reset` | `zone, source` | Player resets dark creatures via the Commands panel (replaces the retired `hedgehogs_reset`) |
 | `region_revealed` | `region, source` | Player claims one currently-penumbra region directly via the Commands panel debug tool, skipping the usual clear-the-zone requirement (see gdd.md "Generation: only as far as the light reaches") |
+| `frontier_jumped` | `regions, final_region, source` | Player claims a chain of `regions` regions directly outward from the frontier via the Commands panel debug tool, for testing generation at distance; `final_region` is the last one claimed |
 | `frontier_reset` | `source` | Player clears every claimed region back to just the Hearth via the Commands panel debug tool |
 | `debug_entity_spawned` | `zone, kind, count, source, item?, style?` | Player requests a Commands panel spawn for a supported debug entity — `kind` is `boulder`, `tree`, `dark_creature`, or `item`; `style` is present for exact species spawns and `item` for spawned pickup items |
 | `ghost_summoned` | `zone, source, count` | Player requests one or more synced cosmetic ghost haunts via the Commands panel |
