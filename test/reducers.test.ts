@@ -38,6 +38,10 @@ import {
   HEALTH_REGEN_DELAY_MS,
   HEALTH_REGEN_FRACTION,
   STOCKPILE_CAP,
+  BRAZIER_UPKEEP_ITEM,
+  BRAZIER_UPKEEP_RATE,
+  BRAZIER_RADIUS,
+  FIRST_FIRE_RADIUS,
 } from "@trogg/shared";
 import {
   chat,
@@ -65,6 +69,7 @@ import {
   rescue,
   respawnPlayers,
   regenCreatures,
+  maintainBraziers,
   spawn,
   startClaim,
   useEquipped,
@@ -851,6 +856,71 @@ test("connecting purges retired Hog state and migrates personal raw resources", 
   assert.deepEqual(ctx.db.stockpile.rows().map((row: any) => [row.item, row.qty]).sort(), [["stone", 4], ["wood", 2]]);
   assert.deepEqual(ctx.db.stockpileContribution.rows().map((row: any) => [row.item, row.qty]).sort(), [["stone", 4], ["wood", 2]]);
   assert.equal(ctx.db.groundItem.rows().some((row: any) => row.item === "quill"), false);
+});
+
+test("connecting seeds one eternal First Fire at the Hearth", () => {
+  const me = id("firekeeper");
+  const ctx = makeCtx({ sender: me });
+
+  onConnect(ctx);
+  onConnect(ctx);
+
+  const fires = ctx.db.brazier.rows();
+  assert.equal(fires.length, 1);
+  assert.deepEqual(fires[0], {
+    id: 1n,
+    zoneId: ZONE,
+    x: getZone(ZONE)!.spawn!.x,
+    y: getZone(ZONE)!.spawn!.y,
+    radius: FIRST_FIRE_RADIUS,
+    lit: true,
+    isEternal: true,
+  });
+});
+
+test("brazier upkeep burns Wood while every lit frontier fire is funded", () => {
+  const ctx = makeCtx({ sender: id("system") });
+  const spawn = getZone(ZONE)!.spawn!;
+  ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, ...spawn, radius: FIRST_FIRE_RADIUS, lit: true, isEternal: true });
+  ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: spawn.x + 6, y: spawn.y, radius: BRAZIER_RADIUS, lit: true, isEternal: false });
+  ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: spawn.x + 12, y: spawn.y, radius: BRAZIER_RADIUS, lit: true, isEternal: false });
+  ctx.db.stockpile.insert({ item: BRAZIER_UPKEEP_ITEM, qty: 5 });
+
+  maintainBraziers(ctx, {});
+
+  assert.equal(ctx.db.stockpile.item.find(BRAZIER_UPKEEP_ITEM)?.qty, 5 - 2 * BRAZIER_UPKEEP_RATE);
+  assert.equal(ctx.db.brazier.rows().filter((row: any) => row.lit && !row.isEternal).length, 2);
+  assert.equal(ctx.db.brazierUpkeep.rows().length, 1);
+});
+
+test("unfunded brazier upkeep gutters the outermost fires first", () => {
+  const ctx = makeCtx({ sender: id("system") });
+  const spawn = getZone(ZONE)!.spawn!;
+  const first = ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, ...spawn, radius: FIRST_FIRE_RADIUS, lit: true, isEternal: true });
+  const near = ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: spawn.x + 5, y: spawn.y, radius: BRAZIER_RADIUS, lit: true, isEternal: false });
+  const far = ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: spawn.x + 20, y: spawn.y, radius: BRAZIER_RADIUS, lit: true, isEternal: false });
+  ctx.db.stockpile.insert({ item: BRAZIER_UPKEEP_ITEM, qty: BRAZIER_UPKEEP_RATE });
+
+  maintainBraziers(ctx, {});
+
+  assert.equal(ctx.db.brazier.id.find(first.id)?.lit, true);
+  assert.equal(ctx.db.brazier.id.find(near.id)?.lit, true);
+  assert.equal(ctx.db.brazier.id.find(far.id)?.lit, false);
+  assert.equal(ctx.db.stockpile.item.find(BRAZIER_UPKEEP_ITEM), undefined);
+  assert.equal(ctx.db.brazierUpkeep.rows().length, 1);
+});
+
+test("upkeep never gutters the First Fire and stops scheduling when the frontier is dark", () => {
+  const ctx = makeCtx({ sender: id("system") });
+  const spawn = getZone(ZONE)!.spawn!;
+  const first = ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, ...spawn, radius: FIRST_FIRE_RADIUS, lit: true, isEternal: true });
+  const frontier = ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: spawn.x + 8, y: spawn.y, radius: BRAZIER_RADIUS, lit: true, isEternal: false });
+
+  maintainBraziers(ctx, {});
+
+  assert.equal(ctx.db.brazier.id.find(first.id)?.lit, true);
+  assert.equal(ctx.db.brazier.id.find(frontier.id)?.lit, false);
+  assert.equal(ctx.db.brazierUpkeep.rows().length, 0);
 });
 
 test("connecting a second tab for the same account does not reset active movement", () => {

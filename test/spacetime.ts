@@ -92,6 +92,7 @@ export function makeCtx(opts: FakeCtxOpts) {
       inventory: makeTable({ pk: "id", autoInc: true, indexes: ["playerId"] }),
       stockpile: makeTable({ pk: "item" }),
       stockpileContribution: makeTable({ pk: "id", autoInc: true, indexes: ["playerId"] }),
+      brazier: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
       playerConnection: makeTable({ pk: "connectionId", indexes: ["playerId"] }),
       chatMessage: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
       ghostHaunt: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
@@ -99,6 +100,7 @@ export function makeCtx(opts: FakeCtxOpts) {
       playerRespawn: makeTable({ pk: "scheduledId", autoInc: true, indexes: ["playerId"] }),
       worldState: makeTable({ pk: "id" }),
       creatureRegen: makeTable({ pk: "scheduledId", autoInc: true }),
+      brazierUpkeep: makeTable({ pk: "scheduledId", autoInc: true }),
     },
   };
 }

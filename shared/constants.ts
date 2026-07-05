@@ -70,6 +70,13 @@ export type SpawnableItemId = (typeof SPAWNABLE_ITEM_IDS)[number];
 /** Total raw-resource units the shared stockpile can hold across every item. (initial) */
 export const STOCKPILE_CAP = 10_000;
 
+/** Hearth light and upkeep. The First Fire is larger and never pays upkeep. (initial) */
+export const FIRST_FIRE_RADIUS = 12;
+export const BRAZIER_RADIUS = 8;
+export const BRAZIER_UPKEEP_ITEM: StockpileItemId = "wood";
+export const BRAZIER_UPKEEP_RATE = 1;
+export const BRAZIER_UPKEEP_INTERVAL_MS = 5 * 60_000;
+
 /** Inventory capacity (GDD "Inventory"): each row occupies one visible carry slot. (initial) */
 export const INVENTORY_SLOT_COUNT = 20;
 

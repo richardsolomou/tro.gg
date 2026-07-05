@@ -21,7 +21,7 @@ You're a trogg in a shared world. Gather to feed the tribe's one fire, hold the 
 
 Playable shared-world foundation: SpacetimeDB module + client wired, one zone with presence, grid movement, boulders and trees, account claiming, 3D avatars, recolouring, and zone chat. State lives in durable SpacetimeDB tables, so players and chat resume across reconnects and restarts.
 
-The game design has since pivoted to a fire-and-dark direction (see [docs/gdd.md](docs/gdd.md)): gathered Stone and Wood now feed a capped communal stockpile, while hearths holding back a hostile dark and troggs working on instinct remain the next migration slices. Hog retirement is complete; progress is tracked in the GDD's Roadmap section.
+The game design has since pivoted to a fire-and-dark direction (see [docs/gdd.md](docs/gdd.md)): gathered Stone and Wood feed a capped communal stockpile, and the eternal First Fire now holds a visible lit radius at the Hearth. Presence states, dark creatures, and ignition remain the next migration slices. Hog retirement is complete; progress is tracked in the GDD's Roadmap section.
 
 ## Development
 

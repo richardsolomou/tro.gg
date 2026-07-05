@@ -33,7 +33,7 @@ import {
   type Zone,
 } from "@trogg/shared";
 import type { DbConnection } from "../net/module_bindings";
-import type { Boulder, GroundItem, Player, Tree } from "../net/module_bindings/types";
+import type { Boulder, Brazier, GroundItem, Player, Tree } from "../net/module_bindings/types";
 import { attachKeyboard, isTyping, type MoveIntent } from "../input.js";
 import { setupChat } from "../ui/chat.js";
 import { coachHit } from "../ui/coach.js";
@@ -49,6 +49,7 @@ import { buildBoulder, buildTree } from "./items.js";
 import { NodeField } from "./nodes.js";
 import { buildTerrain, type Terrain3D } from "./terrain.js";
 import { biomePalette, DAYLIGHT_3D, UI_3D } from "./palette.js";
+import { buildBrazier, updateBrazier, type BrazierView } from "./hearths.js";
 
 /** Fraction of the viewport the zone fills, leaving a rim of cave around it. */
 const ZONE_FILL = 0.92;
@@ -120,6 +121,7 @@ export class World3D {
   private readonly tracked = new Map<string, Tracked>();
   private readonly boulders = new Map<string, Boulder>();
   private readonly trees = new Map<string, Tree>();
+  private readonly braziers = new Map<string, { row: Brazier; view: BrazierView }>();
   /** All trees (and, separately, boulders) draw as a handful of instanced meshes. */
   private treeField!: NodeField;
   private boulderField!: NodeField;
@@ -188,6 +190,7 @@ export class World3D {
     });
     // trees and boulders are instanced whole-zone draws — nothing to cull per node
     for (const view of this.groundItems.values()) view.group.visible = inRange(view.group);
+    for (const { view } of this.braziers.values()) view.root.visible = inRange(view.root);
   }
 
   /** Fade the world in — held black until the camera sits on the local trogg, so a
@@ -462,6 +465,7 @@ export class World3D {
     this.wireGroundItems();
     this.wireBoulders();
     this.wireTrees();
+    this.wireBraziers();
     if (this.useGhost) this.wireGhostHaunts();
 
     attachKeyboard(
@@ -587,6 +591,7 @@ export class World3D {
       `SELECT * FROM ground_item WHERE zone_id = '${this.slug}'`,
       `SELECT * FROM boulder WHERE zone_id = '${this.slug}'`,
       `SELECT * FROM tree WHERE zone_id = '${this.slug}'`,
+      `SELECT * FROM brazier WHERE zone_id = '${this.slug}'`,
       "SELECT * FROM stockpile",
       "SELECT * FROM world_state",
     ];
@@ -622,6 +627,7 @@ export class World3D {
     this.lastMs = now;
 
     this.crowd.begin();
+    for (const { view } of this.braziers.values()) updateBrazier(view, now);
     for (const entry of this.tracked.values()) {
       const isSelf = entry.player.identity.toHexString() === this.myId;
       const motion = projectMotionState(entry.player, now - entry.baseMs, this.troggBounds);
@@ -1243,6 +1249,29 @@ export class World3D {
     conn.db.groundItem.onInsert((_ctx, row) => this.upsertGroundItem(row));
     conn.db.groundItem.onUpdate((_ctx, _old, row) => this.upsertGroundItem(row));
     conn.db.groundItem.onDelete((_ctx, row) => this.removeGroundItem(row));
+  }
+
+  private upsertBrazier(row: Brazier): void {
+    const key = row.id.toString();
+    const existing = this.braziers.get(key);
+    if (existing) disposeObject(existing.view.root);
+    const view = buildBrazier(row);
+    view.root.position.set(row.x + 0.5, 0, row.y + 0.5);
+    this.scene.add(view.root);
+    this.braziers.set(key, { row, view });
+  }
+
+  private removeBrazier(row: Brazier): void {
+    const existing = this.braziers.get(row.id.toString());
+    if (existing) disposeObject(existing.view.root);
+    this.braziers.delete(row.id.toString());
+  }
+
+  private wireBraziers(): void {
+    const conn = this.conn;
+    conn.db.brazier.onInsert((_ctx, row) => this.upsertBrazier(row));
+    conn.db.brazier.onUpdate((_ctx, _old, row) => this.upsertBrazier(row));
+    conn.db.brazier.onDelete((_ctx, row) => this.removeBrazier(row));
   }
 
   private wireGhostHaunts(): void {

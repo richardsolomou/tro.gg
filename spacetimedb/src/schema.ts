@@ -14,7 +14,9 @@ import {
 } from "../../shared/index";
 import {
   anyPlayerOnline,
+  armBrazierUpkeep,
   armRegen,
+  runBrazierUpkeep,
   respawnDue,
   scheduleRespawnAt,
   respawnPlayer,
@@ -271,6 +273,19 @@ const stockpileContribution = table(
   },
 );
 
+const brazier = table(
+  { name: "brazier", public: true },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    zoneId: t.string().index("btree"),
+    x: t.i32(),
+    y: t.i32(),
+    radius: t.i32(),
+    lit: t.bool(),
+    isEternal: t.bool(),
+  },
+);
+
 /**
  * Live socket presence per trogg (private). A player row is keyed by Identity, so
  * two tabs signed into the same account share one durable trogg. This table tracks
@@ -314,6 +329,14 @@ const creatureRegen = table(
   },
 );
 
+const brazierUpkeep = table(
+  { name: "brazier_upkeep", scheduled: (): any => maintainBraziers },
+  {
+    scheduledId: t.u64().primaryKey().autoInc(),
+    scheduledAt: t.scheduleAt(),
+  },
+);
+
 /**
  * Shared world dials (GDD "Debug cheats") — one public singleton row (id 0).
  * `skyLocked`/`skyPhase` pin the day-night cycle for EVERYONE: the cycle is
@@ -330,7 +353,7 @@ const worldState = table(
   },
 );
 
-const spacetimedb = schema({ player, chatMessage, ghostHaunt, claimCode, boulder, tree, groundItem, inventory, stockpile, stockpileContribution, playerConnection, playerRespawn, creatureRegen, worldState });
+const spacetimedb = schema({ player, chatMessage, ghostHaunt, claimCode, boulder, tree, groundItem, inventory, stockpile, stockpileContribution, brazier, playerConnection, playerRespawn, creatureRegen, brazierUpkeep, worldState });
 export default spacetimedb;
 
 /** The reducer context, typed against this module's schema (db view + sender). */
@@ -358,6 +381,12 @@ export const regenCreatures = spacetimedb.reducer({ timer: creatureRegen.rowType
   }
   ctx.db.creatureRegen.clear();
   if (online) armRegen(ctx);
+});
+
+export const maintainBraziers = spacetimedb.reducer({ timer: brazierUpkeep.rowType }, (ctx) => {
+  ctx.db.brazierUpkeep.clear();
+  runBrazierUpkeep(ctx);
+  armBrazierUpkeep(ctx);
 });
 
 /** Respawn a dead trogg whose one-shot death timer has elapsed. */

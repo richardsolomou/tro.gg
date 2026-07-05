@@ -75,6 +75,7 @@ import * as UseEquippedActionProcedure from "./use_equipped_action_procedure";
 
 // Import all table schema definitions
 import BoulderRow from "./boulder_table";
+import BrazierRow from "./brazier_table";
 import ChatMessageRow from "./chat_message_table";
 import GhostHauntRow from "./ghost_haunt_table";
 import GroundItemRow from "./ground_item_table";
@@ -103,6 +104,20 @@ const tablesSchema = __schema({
       { name: 'boulder_id_key', constraint: 'unique', columns: ['id'] },
     ],
   }, BoulderRow),
+  brazier: __table({
+    name: 'brazier',
+    indexes: [
+      { accessor: 'id', name: 'brazier_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+      { accessor: 'zoneId', name: 'brazier_zone_id_idx_btree', algorithm: 'btree', columns: [
+        'zoneId',
+      ] },
+    ],
+    constraints: [
+      { name: 'brazier_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, BrazierRow),
   chatMessage: __table({
     name: 'chat_message',
     indexes: [

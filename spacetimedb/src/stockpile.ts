@@ -36,6 +36,16 @@ export function depositStockpile(ctx: Ctx, playerId: Ctx["sender"], item: string
   return { accepted, itemQty, total, full: total >= STOCKPILE_CAP };
 }
 
+export function consumeStockpileItem(ctx: Ctx, item: string, qty: number): number {
+  const row = ctx.db.stockpile.item.find(item);
+  const consumed = Math.min(Math.max(0, Math.floor(qty)), Math.max(0, row?.qty ?? 0));
+  if (!row || consumed === 0) return 0;
+  const remaining = row.qty - consumed;
+  if (remaining > 0) ctx.db.stockpile.item.update({ ...row, qty: remaining });
+  else ctx.db.stockpile.item.delete(item);
+  return consumed;
+}
+
 export function migrateInventoryResources(ctx: Ctx): void {
   for (const row of [...ctx.db.inventory.iter()]) {
     if (!isStockpileItemId(row.item)) continue;

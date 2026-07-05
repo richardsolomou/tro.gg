@@ -29,6 +29,8 @@ import {
   placeCarried,
   facingDir,
   migrateInventoryResources,
+  ensureFirstFire,
+  armBrazierUpkeep,
 } from "../helpers";
 
 export const init = spacetimedb.init(() => {});
@@ -61,6 +63,8 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
   seedBoulders(ctx, startingZone);
   seedTrees(ctx, startingZone);
   seedGroundItems(ctx, startingZone);
+  ensureFirstFire(ctx);
+  armBrazierUpkeep(ctx);
   armRegen(ctx);
 
   const hadLiveConnection = playerConnectionCount(ctx, ctx.sender) > 0;
