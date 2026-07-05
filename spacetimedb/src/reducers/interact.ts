@@ -18,6 +18,9 @@ import {
   placeCarried,
   cardinal,
   depositStockpile,
+  recordBrightActivity,
+  nearestEmberHeart,
+  beginIgnition,
 } from "../helpers";
 
 /**
@@ -30,15 +33,28 @@ import {
  * reach past its neighbours (invariant 3).
  */
 function runInteract(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; dirY: number; source?: string }): AnalyticsEvent[] {
-  const p = ctx.db.player.identity.find(ctx.sender);
+  let p = ctx.db.player.identity.find(ctx.sender);
   if (!p) return [];
   if (p.dead) return [];
+  p = recordBrightActivity(ctx, p);
   const zone = getZone(p.zoneId);
   if (!zone) return [];
 
   const dir = cardinal(dirX, dirY);
   const pos = settle(ctx, p, ctx.timestamp);
   const props = { zone: p.zoneId, ...sourceProp(source) };
+
+  if (p.carrying === "ember_heart") {
+    const siteX = Math.round(pos.x) + (dir?.dirX ?? 0);
+    const siteY = Math.round(pos.y) + (dir?.dirY ?? 0);
+    const ignition = beginIgnition(ctx, p, siteX, siteY);
+    if (ignition) {
+      return [
+        { distinctId: distinctId(ctx), event: "project_contributed", properties: { ...props, project: ignition.slug, item: "wood", qty: ignition.fuel } },
+        { distinctId: distinctId(ctx), event: "project_contributed", properties: { ...props, project: ignition.slug, item: "ember_heart", qty: 1 } },
+      ];
+    }
+  }
 
   if (p.carrying !== "") {
     // Put down: place the held entity on the faced tile, or the nearest free
@@ -49,6 +65,13 @@ function runInteract(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; dirY
     if (place) ctx.db.player.identity.update({ ...p, carrying: "", carryingStyle: "" });
     if (!place) return [];
     return [{ distinctId: distinctId(ctx), event: "object_dropped", properties: { ...props, kind } }];
+  }
+
+  const heart = nearestEmberHeart(ctx, p.zoneId, pos.x, pos.y, dir?.dirX ?? 0, dir?.dirY ?? 0);
+  if (heart) {
+    ctx.db.emberHeart.id.delete(heart.id);
+    ctx.db.player.identity.update({ ...p, carrying: "ember_heart", carryingStyle: "" });
+    return [{ distinctId: distinctId(ctx), event: "object_picked_up", properties: { ...props, kind: "ember_heart" } }];
   }
 
   // Ground items are lifted by radius, not facing — the nearest one within

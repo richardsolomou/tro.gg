@@ -191,7 +191,28 @@ function wood(): THREE.Group {
   return g;
 }
 
-const BUILDERS: Record<string, () => THREE.Group> = { pickaxe, shovel, axe, sword, shield, torch, stone, wood, quill };
+const BUILDERS: Record<string, () => THREE.Group> = { pickaxe, shovel, axe, sword, shield, torch, stone, wood, quill, ember_heart: buildEmberHeart };
+
+export function buildEmberHeart(): THREE.Group {
+  const g = new THREE.Group();
+  const coreMat = poolMaterial("ember-heart:core", () => new THREE.MeshStandardMaterial({ color: 0x351019, emissive: 0xff4d22, emissiveIntensity: 2.4, roughness: 0.5, flatShading: true }));
+  const core = new THREE.Mesh(ico(0.28, 1), coreMat);
+  core.scale.set(0.9, 1.2, 0.8);
+  core.castShadow = true;
+  g.add(core);
+  for (let i = 0; i < 5; i++) {
+    const shard = new THREE.Mesh(cone(0.06, 0.28, 5), mat(ITEM_3D.rockDk));
+    const angle = (i / 5) * Math.PI * 2;
+    shard.position.set(Math.cos(angle) * 0.17, 0.03, Math.sin(angle) * 0.17);
+    shard.rotation.z = Math.PI + 0.35;
+    shard.rotation.y = -angle;
+    g.add(shard);
+  }
+  const light = new THREE.PointLight(0xff4d22, 4, 5, 1.5);
+  light.position.y = 0.2;
+  g.add(light);
+  return g;
+}
 
 export function hasItem3D(item: string): boolean {
   return BUILDERS[item] !== undefined;
@@ -209,6 +230,7 @@ const HELD_PITCH: Record<string, number> = {
   stone: Math.PI / 2,
   wood: Math.PI / 2,
   quill: Math.PI / 2,
+  ember_heart: Math.PI / 2,
 };
 
 /**

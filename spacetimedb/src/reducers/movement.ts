@@ -13,9 +13,11 @@ import {
 } from "../../../shared/index";
 import {
   settle,
+  generatedTile,
   troggBlockers,
   cardinal,
   directionVector,
+  recordBrightActivity,
 } from "../helpers";
 
 /**
@@ -32,9 +34,10 @@ import {
  * (invariant 3).
  */
 export const move = spacetimedb.reducer({ dirX: t.i32(), dirY: t.i32(), running: t.bool() }, (ctx, { dirX, dirY, running }) => {
-  const p = ctx.db.player.identity.find(ctx.sender);
+  let p = ctx.db.player.identity.find(ctx.sender);
   if (!p) return;
   if (p.dead) return;
+  p = recordBrightActivity(ctx, p);
   const dir = directionVector(dirX, dirY);
   const idle = dir.dirX === 0 && dir.dirY === 0;
   const dominant = Math.abs(dir.dirX) >= Math.abs(dir.dirY) ? { x: Math.sign(dir.dirX), y: 0 } : { x: 0, y: Math.sign(dir.dirY) };
@@ -61,9 +64,10 @@ export const move = spacetimedb.reducer({ dirX: t.i32(), dirY: t.i32(), running:
  * `face` call can't make the trogg glide sideways (invariant 3).
  */
 export const face = spacetimedb.reducer({ dirX: t.i32(), dirY: t.i32() }, (ctx, { dirX, dirY }) => {
-  const p = ctx.db.player.identity.find(ctx.sender);
+  let p = ctx.db.player.identity.find(ctx.sender);
   if (!p) return;
   if (p.dead) return;
+  p = recordBrightActivity(ctx, p);
   const dir = cardinal(dirX, dirY);
   if (!dir || (dir.dirX === 0 && dir.dirY === 0)) return;
   const settled = settle(ctx, p, ctx.timestamp);
@@ -89,14 +93,15 @@ export const face = spacetimedb.reducer({ dirX: t.i32(), dirY: t.i32() }, (ctx, 
  * tile is blocked, `findPath` routes to the nearest reachable cardinal neighbour.
  */
 export const moveTo = spacetimedb.reducer({ x: t.i32(), y: t.i32(), running: t.bool() }, (ctx, target) => {
-  const p = ctx.db.player.identity.find(ctx.sender);
+  let p = ctx.db.player.identity.find(ctx.sender);
   if (!p) return;
   if (p.dead) return;
+  p = recordBrightActivity(ctx, p);
   const zone = getZone(p.zoneId);
   if (!zone) return;
 
   const blockers = troggBlockers(ctx, p.zoneId, ctx.timestamp);
-  const bounds = zoneBounds(zone, (x, y) => blockers.has(tileKey(x, y)));
+  const bounds = zoneBounds(zone, (x, y) => !generatedTile(ctx, p.zoneId, x, y) || blockers.has(tileKey(x, y)));
   const start = settle(ctx, p, ctx.timestamp);
   // A* finds the route; string-pulling collapses it to the fewest straight hops, so
   // open floor is one direct glide and only genuine corners keep bends (free movement).
@@ -123,5 +128,3 @@ export const moveTo = spacetimedb.reducer({ x: t.i32(), y: t.i32(), running: t.b
     movedAt: ctx.timestamp,
   });
 });
-
-

@@ -1,9 +1,9 @@
 import * as THREE from "three";
-import { EQUIPMENT_ACTION_MS, forward, MELEE_ARC_RAD, MELEE_RANGE_TILES, PLAYER_HIT_RADIUS, PLAYER_MAX_HEALTH, RUN_SPEED_TILES_PER_SEC, timestampMs, wieldOf, type EquipSlot, type Facing, type ProjectedMotion, type Stamp } from "@trogg/shared";
-import type { Player } from "../net/module_bindings/types";
+import { DARK_CREATURE_HIT_RADIUS, DARK_CREATURE_MAX_HEALTH, EQUIPMENT_ACTION_MS, forward, MELEE_ARC_RAD, MELEE_RANGE_TILES, PLAYER_HIT_RADIUS, PLAYER_MAX_HEALTH, RUN_SPEED_TILES_PER_SEC, timestampMs, wieldOf, type EquipSlot, type Facing, type PresenceState, type ProjectedMotion, type Stamp } from "@trogg/shared";
+import type { DarkCreature, Player } from "../net/module_bindings/types";
 import { audio } from "../audio.js";
-import { buildGhost, buildTrogg } from "./creatures.js";
-import { buildBoulder, buildGroundItem, buildHeldItem, updateHeldFx, wireHeldFx, type HeldFx } from "./items.js";
+import { buildDarkCreature, buildGhost, buildTrogg } from "./creatures.js";
+import { buildBoulder, buildEmberHeart, buildGroundItem, buildHeldItem, updateHeldFx, wireHeldFx, type HeldFx } from "./items.js";
 import { makeBubble, makeDamageText, makeHealthBar, makeLabel, makeStatusText, type Overlay } from "./overlays.js";
 import { ATTACK_PERIOD, type CreatureModel } from "./rig.js";
 import { UI_3D } from "./palette.js";
@@ -67,6 +67,25 @@ export interface Tracked {
   bubble?: Overlay;
   bubbleTimer?: ReturnType<typeof setTimeout>;
   respawn?: { overlay: Overlay; text: string; at: Stamp };
+  overlays: Overlay[];
+}
+
+export interface DarkCreatureView {
+  marker: THREE.Group;
+  model: CreatureModel;
+  row: DarkCreature;
+  baseMs: number;
+  facing: Facing;
+  gait: Gait;
+  flashOn: boolean;
+  corrX: number;
+  corrY: number;
+  shownX?: number;
+  shownY?: number;
+  flinchBaseMs?: number;
+  attackBaseMs?: number;
+  attackingBaseMs?: number;
+  attacking?: THREE.AnimationAction;
   overlays: Overlay[];
 }
 
@@ -251,7 +270,7 @@ export function createEntities(scene: THREE.Scene) {
     (selfReach.wedge.material as THREE.MeshBasicMaterial).opacity = attacking ? 0.35 : 0.12;
   };
 
-  const makeMarker = (name: string, color: number, style: string, self: boolean, facing: Facing, health: number, dead: boolean, respawnAt?: Stamp) => {
+  const makeMarker = (name: string, color: number, style: string, self: boolean, facing: Facing, health: number, dead: boolean, respawnAt?: Stamp, presence: PresenceState = "bright") => {
     const marker = new THREE.Group();
     const model = buildTrogg(style, color);
     model.root.position.set(0.5, 0, 0.5);
@@ -262,6 +281,11 @@ export function createEntities(scene: THREE.Scene) {
     if (dead) {
       setDowned(model, true);
       poseDead(model, 0.5, 0.24);
+    } else if (presence === "dormant") {
+      for (const material of model.materials) {
+        material.transparent = true;
+        material.opacity = 0.58;
+      }
     }
 
     const overlays: Overlay[] = [];
@@ -274,7 +298,8 @@ export function createEntities(scene: THREE.Scene) {
     }
     addHitbox(marker, hitRing(PLAYER_HIT_RADIUS, 0x6fdc9c), 0.5);
     if (self) addReach(marker);
-    const label = makeLabel(name, dead ? UI_3D.deadName : UI_3D.parchment);
+    const labelText = presence === "bright" ? name : `${name} · ${presence}`;
+    const label = makeLabel(labelText, dead || presence === "dormant" ? UI_3D.deadName : UI_3D.parchment);
     label.sprite.position.set(0.5, model.height + 0.5, 0.5);
     marker.add(label.sprite);
     overlays.push(label);
@@ -284,6 +309,12 @@ export function createEntities(scene: THREE.Scene) {
     bar.sprite.position.set(0.5, model.height + 0.32, 0.5);
     marker.add(bar.sprite);
     overlays.push(bar);
+
+    if (presence === "ember") {
+      const spark = new THREE.PointLight(0xff6b2e, 2.8, 4, 1.6);
+      spark.position.set(0.5, 0.9, 0.5);
+      marker.add(spark);
+    }
 
     let respawn: Tracked["respawn"];
     if (dead && respawnAt) {
@@ -295,6 +326,29 @@ export function createEntities(scene: THREE.Scene) {
       respawn = { overlay, text, at: respawnAt };
     }
     return { marker, model, overlays, respawn };
+  };
+
+  const makeDarkCreature = (species: string, facing: Facing, health: number) => {
+    const marker = new THREE.Group();
+    const model = buildDarkCreature(species);
+    model.root.position.set(0.5, 0, 0.5);
+    model.root.rotation.y = facingYaw(facing);
+    marker.add(model.root);
+    model.actions.idle.legs.play();
+    model.actions.idle.arms.play();
+    if (health <= 0) {
+      setDowned(model, true);
+      poseDead(model, 0.5, 0.2);
+    }
+    addHitbox(marker, hitRing(DARK_CREATURE_HIT_RADIUS, 0xff5a2e), 0.5);
+    const overlays: Overlay[] = [];
+    if (health < DARK_CREATURE_MAX_HEALTH) {
+      const bar = makeHealthBar(Math.max(0, health) / DARK_CREATURE_MAX_HEALTH, health <= 0);
+      bar.sprite.position.set(0.5, model.height + 0.22, 0.5);
+      marker.add(bar.sprite);
+      overlays.push(bar);
+    }
+    return { marker, model, overlays };
   };
 
   const respawnCountdown = (respawnAt: Stamp): string => `Respawn ${Math.ceil(Math.max(0, timestampMs(respawnAt) - Date.now()) / 1000)}`;
@@ -391,6 +445,29 @@ export function createEntities(scene: THREE.Scene) {
     }
   };
 
+  const animateDarkCreature = (entry: DarkCreatureView, now: number, dt: number, motion: ProjectedMotion) => {
+    if (entry.row.health <= 0) return;
+    const moving = motion.dirX !== 0 || motion.dirY !== 0;
+    const attackAge = entry.attackBaseMs === undefined ? Infinity : now - entry.attackBaseMs;
+    const attack = attackAge >= 0 && attackAge < EQUIPMENT_ACTION_MS;
+    if (attack && entry.attackingBaseMs !== entry.attackBaseMs) {
+      if (!entry.attacking) entry.model.actions[entry.gait].arms.fadeOut(0.05);
+      entry.attacking?.stop();
+      const action = entry.model.actions.attacks[wieldOf("")];
+      entry.attacking = action;
+      entry.attackingBaseMs = entry.attackBaseMs;
+      action.reset().setDuration(ATTACK_PERIOD).fadeIn(0.05).play();
+    } else if (!attack && entry.attacking) {
+      entry.attacking.fadeOut(0.1);
+      entry.attacking = undefined;
+      entry.attackingBaseMs = undefined;
+      entry.model.actions[entry.gait].arms.reset().fadeIn(0.1).play();
+    }
+    driveCreature(entry.model, entry, motion.dirX, motion.dirY, false, dt, moving, entry.attacking !== undefined);
+    applyFlinch(entry, now, 0.5);
+    entry.model.mixer.update(dt);
+  };
+
   const makeGroundItem = (item: string) => {
     const marker = new THREE.Group();
     const glyph = buildGroundItem(item);
@@ -445,6 +522,9 @@ export function createEntities(scene: THREE.Scene) {
     if (kind === "boulder") {
       overlay = buildBoulder();
       overlay.scale.setScalar(0.7);
+    } else if (kind === "ember_heart") {
+      overlay = buildEmberHeart();
+      overlay.scale.setScalar(0.78);
     }
     if (!overlay) return;
     overlay.position.set(0, entry.model.height + 0.18, 0);
@@ -583,7 +663,7 @@ export function createEntities(scene: THREE.Scene) {
     }
   };
 
-  return { place, smoothPlace, headTop, makeMarker, animate, makeGroundItem, animatePickupMotes, applyCarry, applyEquipment, showBubble, showDamage, destroy, hauntGhost, updateGhosts, setHitboxes, updateReach };
+  return { place, smoothPlace, headTop, makeMarker, makeDarkCreature, animate, animateDarkCreature, makeGroundItem, animatePickupMotes, applyCarry, applyEquipment, showBubble, showDamage, destroy, hauntGhost, updateGhosts, setHitboxes, updateReach };
 }
 
 export type Entities = ReturnType<typeof createEntities>;

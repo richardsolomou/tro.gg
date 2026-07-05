@@ -197,3 +197,7 @@ export * from "./inventory";
 export * from "./combat";
 export * from "./stockpile";
 export * from "./braziers";
+export * from "./presence";
+export * from "./dark-creatures";
+export * from "./ignition";
+export * from "./world-rings";

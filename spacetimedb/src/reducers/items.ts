@@ -25,15 +25,18 @@ import {
   meleeBoulderTarget,
   meleeTreeTarget,
   meleePlayerTarget,
+  meleeDarkCreatureTarget,
   ownedInventoryRow,
   equippedInventoryRow,
   removeInventoryUnit,
   playerDiedEvent,
   damagePlayer,
+  damageDarkCreature,
   throwCarried,
   facingDir,
   directionVector,
   depositStockpile,
+  recordBrightActivity,
 } from "../helpers";
 
 /**
@@ -43,8 +46,9 @@ import {
  * ownership and routes to the item's slot (main or off hand) server-side.
  */
 function runEquipItem(ctx: Ctx, { inventoryId, source = "" }: { inventoryId: bigint; source?: string }): AnalyticsEvent[] {
-  const p = ctx.db.player.identity.find(ctx.sender);
+  let p = ctx.db.player.identity.find(ctx.sender);
   if (!p) return [];
+  p = recordBrightActivity(ctx, p);
   const unequipped = (item: string): AnalyticsEvent[] => [
     { distinctId: distinctId(ctx), event: "item_equipped", properties: { zone: p.zoneId, item, equipped: false, ...sourceProp(source) } },
   ];
@@ -110,8 +114,9 @@ function unequipIfHeld(ctx: Ctx, inventoryId: bigint): void {
  * the item is never lost. Removing the equipped row unequips it.
  */
 function runDropItem(ctx: Ctx, { inventoryId, source = "" }: { inventoryId: bigint; source?: string }): AnalyticsEvent[] {
-  const p = ctx.db.player.identity.find(ctx.sender);
+  let p = ctx.db.player.identity.find(ctx.sender);
   if (!p) return [];
+  p = recordBrightActivity(ctx, p);
   const row = ownedInventoryRow(ctx, p.identity, inventoryId);
   if (!row || row.qty <= 0) return [];
   const zone = getZone(p.zoneId);
@@ -151,8 +156,9 @@ export const dropItemAction = spacetimedb.procedure(
  * `ground_item` is created. Removing the equipped row unequips it.
  */
 function runDiscardItem(ctx: Ctx, { inventoryId, source = "" }: { inventoryId: bigint; source?: string }): AnalyticsEvent[] {
-  const p = ctx.db.player.identity.find(ctx.sender);
+  let p = ctx.db.player.identity.find(ctx.sender);
   if (!p) return [];
+  p = recordBrightActivity(ctx, p);
   const removed = removeInventoryUnit(ctx, p.identity, inventoryId);
   if (!removed) return [];
   if (removed.removedLastUnit) unequipIfHeld(ctx, inventoryId);
@@ -183,9 +189,10 @@ export const discardItemAction = spacetimedb.procedure(
  * node breaks and grants its resource.
  */
 function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; dirY: number; source?: string }): AnalyticsEvent[] {
-  const p = ctx.db.player.identity.find(ctx.sender);
+  let p = ctx.db.player.identity.find(ctx.sender);
   if (!p) return [];
   if (p.dead) return [];
+  p = recordBrightActivity(ctx, p);
   // The client sends its exact aim. A throw travels along it (free-direction);
   // the tile mechanics (melee, gathering, facing) take its dominant cardinal.
   const aim = directionVector(dirX, dirY);
@@ -273,12 +280,19 @@ function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; d
     }
     if (!landed) {
       const damage = roll();
-      const trogg = meleePlayerTarget(ctx, p.zoneId, cx, cy, aim, ctx.timestamp, p.identity);
-      if (trogg) {
+      const creature = meleeDarkCreatureTarget(ctx, p.zoneId, cx, cy, aim, ctx.timestamp);
+      if (creature) {
+        const result = damageDarkCreature(ctx, creature.target, damage);
+        events.push({ distinctId: distinctId(ctx), event: "combat_hit", properties: { ...props, weapon: item, target: "dark_creature", damage: result.dealt, killed: result.killed } });
+        landed = true;
+      } else {
+        const trogg = meleePlayerTarget(ctx, p.zoneId, cx, cy, aim, ctx.timestamp, p.identity);
+        if (trogg) {
         const result = damagePlayer(ctx, trogg.target, damage);
         events.push({ distinctId: distinctId(ctx), event: "combat_hit", properties: { ...props, weapon: item, target: "trogg", damage: result.dealt, killed: result.killed } });
         if (result.killed) events.push(playerDiedEvent(trogg.target.identity.toHexString(), props, item, result));
         landed = true;
+        }
       }
     }
     if (!landed) {

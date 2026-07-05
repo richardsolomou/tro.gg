@@ -19,9 +19,9 @@ You're a trogg in a shared world. Gather to feed the tribe's one fire, hold the 
 
 ## Status
 
-Playable shared-world foundation: SpacetimeDB module + client wired, one zone with presence, grid movement, boulders and trees, account claiming, 3D avatars, recolouring, and zone chat. State lives in durable SpacetimeDB tables, so players and chat resume across reconnects and restarts.
+Playable fire-and-dark foundation: gathered Stone and Wood feed a capped communal stockpile; the First Fire and paid braziers hold territory; bright play banks offline ember time; Gloams stalk the dark but cannot cross into light; and recovered ember-hearts start defended ignition projects that advance the frontier one deterministic ring at a time. The shared world also includes the Warren onboarding cave, equipment and combat, account claiming, 3D avatars, appearance controls, and zone chat.
 
-The game design has since pivoted to a fire-and-dark direction (see [docs/gdd.md](docs/gdd.md)): gathered Stone and Wood feed a capped communal stockpile, and the eternal First Fire now holds a visible lit radius at the Hearth. Presence states, dark creatures, and ignition remain the next migration slices. Hog retirement is complete; progress is tracked in the GDD's Roadmap section.
+State lives in durable SpacetimeDB tables, so players, creatures, fires, projects, and frontier history resume across reconnects and restarts. Progress and exact rules are tracked in the GDD's Roadmap and current-state sections.
 
 ## Development
 

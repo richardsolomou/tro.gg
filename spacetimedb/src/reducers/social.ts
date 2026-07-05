@@ -20,6 +20,7 @@ import {
   randomWalkableTile,
   trimGhostHaunts,
   nameTaken,
+  recordBrightActivity,
 } from "../helpers";
 
 /**
@@ -28,8 +29,9 @@ import {
  * history to its cap.
  */
 function runChat(ctx: Ctx, { text, source = "" }: { text: string; source?: string }): AnalyticsEvent[] {
-  const p = ctx.db.player.identity.find(ctx.sender);
+  let p = ctx.db.player.identity.find(ctx.sender);
   if (!p) return [];
+  p = recordBrightActivity(ctx, p);
 
   const trimmed = text.trim().slice(0, CHAT_MAX_CHARS);
   if (!trimmed) return [];
@@ -79,8 +81,9 @@ export const chatAction = spacetimedb.procedure(
  * the same haunt. It has no collision or durable gameplay effect.
  */
 function runHauntGhostOnce(ctx: Ctx): string | undefined {
-  const p = ctx.db.player.identity.find(ctx.sender);
+  let p = ctx.db.player.identity.find(ctx.sender);
   if (!p || !p.online) return undefined;
+  p = recordBrightActivity(ctx, p);
   const zone = getZone(p.zoneId);
   if (!zone) return undefined;
 
@@ -130,8 +133,9 @@ export const hauntGhostAction = spacetimedb.procedure(
  * name rather than whatever they were called when each line was sent.
  */
 function runRename(ctx: Ctx, { name, source = "" }: { name: string; source?: string }): AnalyticsEvent[] {
-  const p = ctx.db.player.identity.find(ctx.sender);
+  let p = ctx.db.player.identity.find(ctx.sender);
   if (!p) return [];
+  p = recordBrightActivity(ctx, p);
 
   const trimmed = name.trim();
   if (trimmed === p.name || !isValidName(trimmed) || nameTaken(ctx, trimmed, ctx.sender)) return [];
@@ -166,8 +170,9 @@ export const renameAction = spacetimedb.procedure(
  * same row, so no denormalised copy needs rewriting.
  */
 function runRecolor(ctx: Ctx, { color, source = "" }: { color: number; source?: string }): AnalyticsEvent[] {
-  const p = ctx.db.player.identity.find(ctx.sender);
+  let p = ctx.db.player.identity.find(ctx.sender);
   if (!p) return [];
+  p = recordBrightActivity(ctx, p);
   if (color === p.color || !isColorIndex(color)) return [];
   ctx.db.player.identity.update({ ...p, color });
   return [{ distinctId: distinctId(ctx), event: "trogg_recolored", properties: { color, ...sourceProp(source) } }];
@@ -196,8 +201,9 @@ export const recolorAction = spacetimedb.procedure(
  * everyone.
  */
 function runRestyle(ctx: Ctx, { style, source = "" }: { style: number; source?: string }): AnalyticsEvent[] {
-  const p = ctx.db.player.identity.find(ctx.sender);
+  let p = ctx.db.player.identity.find(ctx.sender);
   if (!p) return [];
+  p = recordBrightActivity(ctx, p);
   if (style === p.style || !isTroggStyleIndex(style)) return [];
   ctx.db.player.identity.update({ ...p, style });
   return [{ distinctId: distinctId(ctx), event: "trogg_restyled", properties: { style: TROGG_STYLES[style] ?? String(style), ...sourceProp(source) } }];
@@ -216,4 +222,3 @@ export const restyleAction = spacetimedb.procedure(
     return unit();
   },
 );
-

@@ -60,6 +60,37 @@ export const CreatureRegen = __t.object("CreatureRegen", {
 });
 export type CreatureRegen = __Infer<typeof CreatureRegen>;
 
+export const DarkCreature = __t.object("DarkCreature", {
+  id: __t.u64(),
+  zoneId: __t.string(),
+  x: __t.f64(),
+  y: __t.f64(),
+  dirX: __t.i32(),
+  dirY: __t.i32(),
+  movedAt: __t.timestamp(),
+  path: __t.string(),
+  species: __t.string(),
+  health: __t.i32(),
+  lastDamagedAt: __t.timestamp(),
+  aggroTargetId: __t.string(),
+  lastAttackAt: __t.timestamp(),
+});
+export type DarkCreature = __Infer<typeof DarkCreature>;
+
+export const EmberHeart = __t.object("EmberHeart", {
+  id: __t.u64(),
+  zoneId: __t.string(),
+  x: __t.i32(),
+  y: __t.i32(),
+});
+export type EmberHeart = __Infer<typeof EmberHeart>;
+
+export const EmberWander = __t.object("EmberWander", {
+  scheduledId: __t.u64(),
+  scheduledAt: __t.scheduleAt(),
+});
+export type EmberWander = __Infer<typeof EmberWander>;
+
 export const GhostHaunt = __t.object("GhostHaunt", {
   id: __t.u64(),
   zoneId: __t.string(),
@@ -78,6 +109,12 @@ export const GroundItem = __t.object("GroundItem", {
   qty: __t.i32(),
 });
 export type GroundItem = __Infer<typeof GroundItem>;
+
+export const IgnitionEvent = __t.object("IgnitionEvent", {
+  scheduledId: __t.u64(),
+  scheduledAt: __t.scheduleAt(),
+});
+export type IgnitionEvent = __Infer<typeof IgnitionEvent>;
 
 export const Inventory = __t.object("Inventory", {
   id: __t.u64(),
@@ -123,6 +160,8 @@ export const Player = __t.object("Player", {
   cheatNoclip: __t.bool(),
   z: __t.f64(),
   dirZ: __t.i32(),
+  kindlingCharge: __t.f64(),
+  kindlingChargeAt: __t.timestamp(),
 });
 export type Player = __Infer<typeof Player>;
 
@@ -139,6 +178,21 @@ export const PlayerRespawn = __t.object("PlayerRespawn", {
   scheduledAt: __t.scheduleAt(),
 });
 export type PlayerRespawn = __Infer<typeof PlayerRespawn>;
+
+export const Project = __t.object("Project", {
+  id: __t.u64(),
+  slug: __t.string(),
+  zoneId: __t.string(),
+  x: __t.i32(),
+  y: __t.i32(),
+  status: __t.string(),
+  requirements: __t.string(),
+  contributed: __t.string(),
+  startedBy: __t.identity(),
+  startedAt: __t.timestamp(),
+  endsAt: __t.timestamp(),
+});
+export type Project = __Infer<typeof Project>;
 
 export const Stockpile = __t.object("Stockpile", {
   item: __t.string(),
@@ -162,6 +216,14 @@ export const Tree = __t.object("Tree", {
   health: __t.i32(),
 });
 export type Tree = __Infer<typeof Tree>;
+
+export const WorldRing = __t.object("WorldRing", {
+  ring: __t.u32(),
+  seed: __t.u32(),
+  generatorVersion: __t.u32(),
+  generatedAt: __t.timestamp(),
+});
+export type WorldRing = __Infer<typeof WorldRing>;
 
 export const WorldState = __t.object("WorldState", {
   id: __t.u32(),

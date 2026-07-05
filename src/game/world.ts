@@ -11,6 +11,9 @@ import {
   getZone,
   GHOST_HAUNT_FRESH_MS,
   GLOWMOSS_TILE,
+  litTileKeys,
+  presenceState,
+  WORLD_RING_WIDTH,
   PLAYER_RESPAWN_MS,
   BOULDER_MAX_HEALTH,
   TREE_MAX_HEALTH,
@@ -33,7 +36,7 @@ import {
   type Zone,
 } from "@trogg/shared";
 import type { DbConnection } from "../net/module_bindings";
-import type { Boulder, Brazier, GroundItem, Player, Tree } from "../net/module_bindings/types";
+import type { Boulder, Brazier, DarkCreature, EmberHeart, GroundItem, Player, Project, Tree, WorldRing } from "../net/module_bindings/types";
 import { attachKeyboard, isTyping, type MoveIntent } from "../input.js";
 import { setupChat } from "../ui/chat.js";
 import { coachHit } from "../ui/coach.js";
@@ -44,8 +47,8 @@ import { audio } from "../audio.js";
 import { interact, useEquipped } from "../net/procedures.js";
 import { isOlderPlayerMotion, playerMotionChanged, withPlayerMotion } from "../motion_sync.js";
 import { FarCrowd } from "./crowd.js";
-import { createEntities, disposeObject, type Entities, type Tracked } from "./entities.js";
-import { buildBoulder, buildTree } from "./items.js";
+import { createEntities, disposeObject, type DarkCreatureView, type Entities, type Tracked } from "./entities.js";
+import { buildBoulder, buildEmberHeart, buildTree } from "./items.js";
 import { NodeField } from "./nodes.js";
 import { buildTerrain, type Terrain3D } from "./terrain.js";
 import { biomePalette, DAYLIGHT_3D, UI_3D } from "./palette.js";
@@ -63,6 +66,10 @@ function timestampBaseMs(movedAt: Stamp): number {
 
 function playerFacing(p: Pick<Player, "dirX" | "dirY" | "faceX" | "faceY">): { dirX: number; dirY: number } {
   return p.dirX !== 0 || p.dirY !== 0 ? { dirX: p.dirX, dirY: p.dirY } : { dirX: p.faceX, dirY: p.faceY };
+}
+
+function playerPresence(p: Player) {
+  return presenceState(p, { microsSinceUnixEpoch: BigInt(Date.now()) * 1000n });
 }
 
 export interface WorldData {
@@ -122,6 +129,10 @@ export class World3D {
   private readonly boulders = new Map<string, Boulder>();
   private readonly trees = new Map<string, Tree>();
   private readonly braziers = new Map<string, { row: Brazier; view: BrazierView }>();
+  private readonly darkCreatures = new Map<string, DarkCreatureView>();
+  private readonly emberHearts = new Map<string, { row: EmberHeart; group: THREE.Group; phase: number }>();
+  private readonly projects = new Map<string, { row: Project; view: BrazierView }>();
+  private readonly worldRings = new Map<number, WorldRing>();
   /** All trees (and, separately, boulders) draw as a handful of instanced meshes. */
   private treeField!: NodeField;
   private boulderField!: NodeField;
@@ -178,6 +189,7 @@ export class World3D {
       });
     };
     budget([...this.tracked.entries()].map(([id, entry]) => ({ marker: entry.marker, keep: id === this.myId })));
+    budget([...this.darkCreatures.values()].map((entry) => ({ marker: entry.marker })));
     // Torch firelight has its own, tighter budget: point lights cost every
     // fragment in a forward renderer (the glowmoss budget's reasoning), so only
     // the nearest few visible torch-bearers actually shed light — the rest still
@@ -191,6 +203,8 @@ export class World3D {
     // trees and boulders are instanced whole-zone draws — nothing to cull per node
     for (const view of this.groundItems.values()) view.group.visible = inRange(view.group);
     for (const { view } of this.braziers.values()) view.root.visible = inRange(view.root);
+    for (const { view } of this.projects.values()) view.root.visible = inRange(view.root);
+    for (const heart of this.emberHearts.values()) heart.group.visible = inRange(heart.group);
   }
 
   /** Fade the world in — held black until the camera sits on the local trogg, so a
@@ -205,6 +219,8 @@ export class World3D {
 
   private readonly boulderTiles = new Set<string>();
   private readonly treeTiles = new Set<string>();
+  private readonly darkCreatureTiles = new Set<string>();
+  private readonly litTiles = new Set<string>();
   private keyLight!: THREE.DirectionalLight;
   private hemi!: THREE.HemisphereLight;
   private sun!: THREE.Sprite;
@@ -299,6 +315,14 @@ export class World3D {
   }
   private selfPos?: { x: number; y: number };
   private troggBounds!: ZoneBounds;
+  private darkCreatureBounds!: ZoneBounds;
+  private ringBoundary?: THREE.Mesh;
+
+  private generatedTile(x: number, y: number): boolean {
+    if (this.slug !== STARTING_ZONE_SLUG || this.worldRings.size === 0 || !this.zone.spawn) return true;
+    const generatedThrough = Math.max(...this.worldRings.keys());
+    return Math.hypot(x - this.zone.spawn.x, y - this.zone.spawn.y) < (generatedThrough + 1) * WORLD_RING_WIDTH;
+  }
 
   private destinationTile?: Coord;
   private readonly sub = { live: false };
@@ -352,7 +376,8 @@ export class World3D {
     });
 
     const obstructed = (x: number, y: number) => this.boulderTiles.has(tileKey(x, y)) || this.treeTiles.has(tileKey(x, y));
-    this.troggBounds = zoneBounds(this.zone, obstructed);
+    this.troggBounds = zoneBounds(this.zone, (x, y) => !this.generatedTile(x, y) || obstructed(x, y) || this.darkCreatureTiles.has(tileKey(x, y)));
+    this.darkCreatureBounds = zoneBounds(this.zone, (x, y) => !this.generatedTile(x, y) || obstructed(x, y) || this.litTiles.has(tileKey(x, y)));
 
     // Torch-lit cave: dim warm ambient, one shadowing key light, dark fog closing in
     // past the zone. Glowmoss tiles add their own teal point lights (terrain3d).
@@ -466,6 +491,10 @@ export class World3D {
     this.wireBoulders();
     this.wireTrees();
     this.wireBraziers();
+    this.wireDarkCreatures();
+    this.wireEmberHearts();
+    this.wireProjects();
+    this.wireWorldRings();
     if (this.useGhost) this.wireGhostHaunts();
 
     attachKeyboard(
@@ -586,12 +615,16 @@ export class World3D {
     mountCommands({ conn, zone: this.zone });
 
     const queries = [
-      `SELECT * FROM player WHERE zone_id = '${this.slug}' AND online = true`,
+      `SELECT * FROM player WHERE zone_id = '${this.slug}'`,
       `SELECT * FROM chat_message WHERE zone_id = '${this.slug}'`,
       `SELECT * FROM ground_item WHERE zone_id = '${this.slug}'`,
       `SELECT * FROM boulder WHERE zone_id = '${this.slug}'`,
       `SELECT * FROM tree WHERE zone_id = '${this.slug}'`,
       `SELECT * FROM brazier WHERE zone_id = '${this.slug}'`,
+      `SELECT * FROM dark_creature WHERE zone_id = '${this.slug}'`,
+      `SELECT * FROM ember_heart WHERE zone_id = '${this.slug}'`,
+      `SELECT * FROM project WHERE zone_id = '${this.slug}'`,
+      "SELECT * FROM world_ring",
       "SELECT * FROM stockpile",
       "SELECT * FROM world_state",
     ];
@@ -628,6 +661,18 @@ export class World3D {
 
     this.crowd.begin();
     for (const { view } of this.braziers.values()) updateBrazier(view, now);
+    for (const { view } of this.projects.values()) updateBrazier(view, now);
+    for (const heart of this.emberHearts.values()) {
+      heart.group.rotation.y = now * 0.001 + heart.phase;
+      heart.group.position.y = 0.35 + Math.sin(now * 0.003 + heart.phase) * 0.08;
+    }
+    this.darkCreatureTiles.clear();
+    for (const entry of this.darkCreatures.values()) {
+      const motion = projectMotionState({ ...entry.row, running: false }, now - entry.baseMs, this.darkCreatureBounds);
+      this.entities.smoothPlace(entry, motion.x, motion.y, dt);
+      if (entry.marker.visible) this.entities.animateDarkCreature(entry, now, dt, motion);
+      if (entry.row.health > 0) this.darkCreatureTiles.add(tileKey(Math.round(motion.x), Math.round(motion.y)));
+    }
     for (const entry of this.tracked.values()) {
       const isSelf = entry.player.identity.toHexString() === this.myId;
       const motion = projectMotionState(entry.player, now - entry.baseMs, this.troggBounds);
@@ -756,6 +801,8 @@ export class World3D {
           trees: this.trees.size,
           boulders: this.boulders.size,
           groundItems: this.groundItems.size,
+          darkCreatures: this.darkCreatures.size,
+          emberHearts: this.emberHearts.size,
         };
       };
     }
@@ -994,7 +1041,7 @@ export class World3D {
     this.entities.destroy(entry);
     entry.style = troggStyleFor(entry.player.style, id);
     entry.baseColor = troggColorFor(entry.player.color, id);
-    const built = this.entities.makeMarker(entry.player.name, entry.baseColor, entry.style, id === this.myId, entry.facing, entry.player.health, entry.player.dead, entry.player.respawnAt);
+    const built = this.entities.makeMarker(entry.player.name, entry.baseColor, entry.style, id === this.myId, entry.facing, entry.player.health, entry.player.dead, entry.player.respawnAt, playerPresence(entry.player));
     entry.marker = built.marker;
     entry.model = built.model;
     entry.overlays = built.overlays;
@@ -1022,7 +1069,7 @@ export class World3D {
     // The boot's own-row subscription (main.ts) may have delivered rows before
     // these callbacks existed; adopt anything already cached for this zone.
     for (const p of conn.db.player.iter()) {
-      if (p.zoneId === this.slug && p.online) this.addPlayer(p);
+      if (p.zoneId === this.slug) this.addPlayer(p);
     }
     conn.db.player.onInsert((_ctx, p) => this.addPlayer(p));
     conn.db.player.onUpdate((_ctx, _old, p) => {
@@ -1067,7 +1114,7 @@ export class World3D {
         this.pendingThrows.push({ kind: _old.carrying, from: entry.marker.position.clone().setY(1.3), ms: performance.now() });
       }
 
-      if (_old.name !== p.name || _old.color !== p.color || _old.style !== p.style || _old.health !== p.health || _old.dead !== p.dead || _old.respawnAt !== p.respawnAt) this.rebuildMarker(id, entry);
+      if (_old.name !== p.name || _old.color !== p.color || _old.style !== p.style || _old.health !== p.health || _old.dead !== p.dead || _old.respawnAt !== p.respawnAt || _old.online !== p.online || _old.kindlingCharge !== p.kindlingCharge) this.rebuildMarker(id, entry);
       else if (_old.carrying !== p.carrying || _old.carryingStyle !== p.carryingStyle) this.entities.applyCarry(entry);
 
       const equipmentChanged =
@@ -1097,7 +1144,7 @@ export class World3D {
     const facing = facingFromDir(face.dirX, face.dirY, "down");
     const style = troggStyleFor(p.style, id);
     const color = troggColorFor(p.color, id);
-    const built = this.entities.makeMarker(p.name, color, style, id === this.myId, facing, p.health, p.dead, p.respawnAt);
+    const built = this.entities.makeMarker(p.name, color, style, id === this.myId, facing, p.health, p.dead, p.respawnAt, playerPresence(p));
     const entry: Tracked = {
       marker: built.marker,
       model: built.model,
@@ -1259,12 +1306,21 @@ export class World3D {
     view.root.position.set(row.x + 0.5, 0, row.y + 0.5);
     this.scene.add(view.root);
     this.braziers.set(key, { row, view });
+    this.syncLitTiles();
   }
 
   private removeBrazier(row: Brazier): void {
     const existing = this.braziers.get(row.id.toString());
     if (existing) disposeObject(existing.view.root);
     this.braziers.delete(row.id.toString());
+    this.syncLitTiles();
+  }
+
+  private syncLitTiles(): void {
+    this.litTiles.clear();
+    for (const key of litTileKeys([...this.braziers.values()].map((entry) => entry.row), this.slug, this.zone.width, this.zone.height)) {
+      this.litTiles.add(key);
+    }
   }
 
   private wireBraziers(): void {
@@ -1272,6 +1328,165 @@ export class World3D {
     conn.db.brazier.onInsert((_ctx, row) => this.upsertBrazier(row));
     conn.db.brazier.onUpdate((_ctx, _old, row) => this.upsertBrazier(row));
     conn.db.brazier.onDelete((_ctx, row) => this.removeBrazier(row));
+  }
+
+  private addDarkCreature(row: DarkCreature): void {
+    const id = row.id.toString();
+    if (this.darkCreatures.has(id)) return;
+    const facing = facingFromDir(row.dirX, row.dirY, "down");
+    const built = this.entities.makeDarkCreature(row.species, facing, row.health);
+    const entry: DarkCreatureView = {
+      marker: built.marker,
+      model: built.model,
+      overlays: built.overlays,
+      row,
+      baseMs: timestampBaseMs(row.movedAt),
+      facing,
+      gait: "idle",
+      flashOn: false,
+      corrX: 0,
+      corrY: 0,
+    };
+    const pos = projectMotion({ ...row, running: false }, performance.now() - entry.baseMs, this.darkCreatureBounds);
+    this.entities.place(entry.marker, pos.x, pos.y);
+    this.darkCreatures.set(id, entry);
+    this.scene.add(entry.marker);
+  }
+
+  private updateDarkCreature(old: DarkCreature, row: DarkCreature): void {
+    const id = row.id.toString();
+    const entry = this.darkCreatures.get(id);
+    if (!entry) return this.addDarkCreature(row);
+    const motionChanged = old.x !== row.x || old.y !== row.y || old.dirX !== row.dirX || old.dirY !== row.dirY || old.path !== row.path || old.movedAt.microsSinceUnixEpoch !== row.movedAt.microsSinceUnixEpoch;
+    if (old.health !== row.health) {
+      const pos = projectMotion({ ...old, running: false }, performance.now() - entry.baseMs, this.darkCreatureBounds);
+      if (row.health < old.health) {
+        entry.flinchBaseMs = performance.now();
+        this.entities.showDamage({ x: pos.x, z: pos.y }, old.health - row.health, entry.model.height);
+      }
+      this.entities.destroy(entry);
+      const built = this.entities.makeDarkCreature(row.species, entry.facing, row.health);
+      entry.marker = built.marker;
+      entry.model = built.model;
+      entry.overlays = built.overlays;
+      entry.gait = "idle";
+      entry.flashOn = false;
+      entry.attacking = undefined;
+      entry.attackingBaseMs = undefined;
+      this.entities.place(entry.marker, pos.x, pos.y);
+      this.scene.add(entry.marker);
+    }
+    if (old.lastAttackAt.microsSinceUnixEpoch !== row.lastAttackAt.microsSinceUnixEpoch) {
+      entry.attackBaseMs = performance.now();
+    }
+    entry.row = row;
+    if (motionChanged) entry.baseMs = timestampBaseMs(row.movedAt);
+  }
+
+  private removeDarkCreature(row: DarkCreature): void {
+    const entry = this.darkCreatures.get(row.id.toString());
+    if (entry) this.entities.destroy(entry);
+    this.darkCreatures.delete(row.id.toString());
+  }
+
+  private wireDarkCreatures(): void {
+    const table = this.conn.db.darkCreature;
+    table.onInsert((_ctx, row) => this.addDarkCreature(row));
+    table.onUpdate((_ctx, old, row) => this.updateDarkCreature(old, row));
+    table.onDelete((_ctx, row) => this.removeDarkCreature(row));
+  }
+
+  private upsertEmberHeart(row: EmberHeart): void {
+    const key = row.id.toString();
+    let entry = this.emberHearts.get(key);
+    if (!entry) {
+      const group = buildEmberHeart();
+      entry = { row, group, phase: Number(row.id % 101n) };
+      this.emberHearts.set(key, entry);
+      this.scene.add(group);
+    }
+    entry.row = row;
+    entry.group.position.set(row.x + 0.5, 0.35, row.y + 0.5);
+  }
+
+  private removeEmberHeart(row: EmberHeart): void {
+    const entry = this.emberHearts.get(row.id.toString());
+    if (entry) disposeObject(entry.group);
+    this.emberHearts.delete(row.id.toString());
+  }
+
+  private wireEmberHearts(): void {
+    const table = this.conn.db.emberHeart;
+    table.onInsert((_ctx, row) => this.upsertEmberHeart(row));
+    table.onUpdate((_ctx, _old, row) => this.upsertEmberHeart(row));
+    table.onDelete((_ctx, row) => this.removeEmberHeart(row));
+  }
+
+  private upsertProject(row: Project): void {
+    const key = row.id.toString();
+    const existing = this.projects.get(key);
+    if (existing) disposeObject(existing.view.root);
+    if (row.status !== "active") {
+      this.projects.delete(key);
+      return;
+    }
+    const view = buildBrazier({
+      id: row.id,
+      zoneId: row.zoneId,
+      x: row.x,
+      y: row.y,
+      radius: 2,
+      lit: true,
+      isEternal: false,
+    });
+    view.root.scale.setScalar(0.72);
+    view.root.position.set(row.x + 0.5, 0, row.y + 0.5);
+    this.scene.add(view.root);
+    this.projects.set(key, { row, view });
+  }
+
+  private removeProject(row: Project): void {
+    const entry = this.projects.get(row.id.toString());
+    if (entry) disposeObject(entry.view.root);
+    this.projects.delete(row.id.toString());
+  }
+
+  private wireProjects(): void {
+    const table = this.conn.db.project;
+    table.onInsert((_ctx, row) => this.upsertProject(row));
+    table.onUpdate((_ctx, _old, row) => this.upsertProject(row));
+    table.onDelete((_ctx, row) => this.removeProject(row));
+  }
+
+  private redrawRingBoundary(): void {
+    if (this.ringBoundary) disposeObject(this.ringBoundary);
+    const max = Math.max(-1, ...this.worldRings.keys());
+    const origin = this.zone.spawn;
+    if (max < 0 || !origin || this.slug !== STARTING_ZONE_SLUG) return;
+    const radius = (max + 1) * WORLD_RING_WIDTH;
+    const geometry = new THREE.RingGeometry(Math.max(0, radius - 0.12), radius + 0.12, 128);
+    const material = new THREE.MeshBasicMaterial({ color: 0x34243f, transparent: true, opacity: 0.45, depthWrite: false, side: THREE.DoubleSide });
+    const ring = new THREE.Mesh(geometry, material);
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.set(origin.x + 0.5, 0.018, origin.y + 0.5);
+    this.scene.add(ring);
+    this.ringBoundary = ring;
+  }
+
+  private wireWorldRings(): void {
+    const table = this.conn.db.worldRing;
+    table.onInsert((_ctx, row) => {
+      this.worldRings.set(row.ring, row);
+      this.redrawRingBoundary();
+    });
+    table.onUpdate((_ctx, _old, row) => {
+      this.worldRings.set(row.ring, row);
+      this.redrawRingBoundary();
+    });
+    table.onDelete((_ctx, row) => {
+      this.worldRings.delete(row.ring);
+      this.redrawRingBoundary();
+    });
   }
 
   private wireGhostHaunts(): void {

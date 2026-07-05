@@ -6,11 +6,11 @@ import { audio } from "../audio.js";
 import { hudRoot } from "./hud.js";
 import { registerKeybind } from "./keybinds.js";
 import { currentCommandFlags, type ChatCommandFlags } from "./chat_commands.js";
-import { hauntGhost, resetBoulders, spawnDebugEntity } from "../net/procedures.js";
+import { hauntGhost, resetBoulders, resetDarkCreatures, spawnDebugEntity } from "../net/procedures.js";
 import { itemIcon } from "./inventory.js";
 import { attachTip } from "./tooltip.js";
 
-type SpawnRequest = { kind: "boulder" } | { kind: "tree" } | { kind: "item"; item: SpawnableItemId };
+type SpawnRequest = { kind: "boulder" } | { kind: "tree" } | { kind: "dark_creature"; item: "gloam" } | { kind: "item"; item: SpawnableItemId };
 
 export interface CommandPanelContext {
   conn: DbConnection;
@@ -126,6 +126,7 @@ function spawnSection(conn: DbConnection, zone: string, status: HTMLElement): HT
 
   grid.appendChild(spawnButton("Boulder", itemIcon("boulder"), () => requestSpawn(conn, zone, status, { kind: "boulder" })));
   grid.appendChild(spawnButton("Tree", itemIcon("tree"), () => requestSpawn(conn, zone, status, { kind: "tree" })));
+  grid.appendChild(spawnButton("Gloam", itemIcon("sword"), () => requestSpawn(conn, zone, status, { kind: "dark_creature", item: "gloam" })));
   for (const item of SPAWNABLE_ITEM_IDS) {
     grid.appendChild(spawnButton(ITEMS[item].name, itemIcon(item), () => requestSpawn(conn, zone, status, { kind: "item", item })));
   }
@@ -135,8 +136,8 @@ function spawnSection(conn: DbConnection, zone: string, status: HTMLElement): HT
 }
 
 function requestSpawn(conn: DbConnection, zone: string, status: HTMLElement, request: SpawnRequest) {
-  const item = request.kind === "item" ? request.item : "";
-  const label = request.kind === "item" ? ITEMS[request.item].name : request.kind;
+  const item = request.kind === "item" || request.kind === "dark_creature" ? request.item : "";
+  const label = request.kind === "item" ? ITEMS[request.item].name : request.kind === "dark_creature" ? "Gloam" : request.kind;
   void spawnDebugEntity(conn, request.kind, item, "commands").catch((err) => {
     logError("Command spawn request failed", { surface: "commands", action: "spawn", zone, kind: request.kind, item, error: err });
     audio.playError();
@@ -164,6 +165,19 @@ function resetSection(conn: DbConnection, zone: string, status: HTMLElement): HT
     status.textContent = "reset boulders";
   });
   grid.appendChild(button);
+
+  const creatures = commandButton("Reset dark creatures");
+  creatures.addEventListener("click", () => {
+    void resetDarkCreatures(conn, "commands").catch((err) => {
+      logError("Command reset request failed", { surface: "commands", action: "reset_dark_creatures", zone, error: err });
+      audio.playError();
+      status.textContent = "couldn't reset dark creatures";
+    });
+    logInfo("Command reset requested", { surface: "commands", action: "reset_dark_creatures", zone, source: "commands" });
+    audio.playCommand();
+    status.textContent = "reset dark creatures";
+  });
+  grid.appendChild(creatures);
 
   section.appendChild(grid);
   return section;

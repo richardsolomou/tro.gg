@@ -6,4 +6,6 @@ export * from "./heights";
 export * from "./light";
 export * from "./motion";
 export * from "./creatures";
+export * from "./presence";
+export * from "./rings";
 export * from "./time";

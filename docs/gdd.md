@@ -116,9 +116,9 @@ Hostile inhabitants of the dark and the penumbra beyond the frontline — the sa
 - **Same motion model as troggs.** A dark creature carries an intent — origin `(x, y)`, a direction, `movedAt` — and clients derive its position with `projectMotion`, so it's never per-frame synced (invariant 2). Chasing swaps the wander tick's random turn for a turn-toward-target — still one write per state change, not a tick.
 - **Territory-linked respawn** (full rule under "The fire and the dark" → Territory and permanence): a dark creature killed on ground the dark still owns respawns — the dark replenishes what's its own. A dark creature killed on lit, claimed ground stays dead — nothing dark returns where the tribe holds the light.
 - **Server-owned, no identity**, like the roaming Hogs they replace: no player-facing name or persistence beyond the row, seeded and wandered by the same scheduled-reducer pattern (re-arming only while a player is online, so an empty world produces no diffs and no work — invariant 1).
-- **Species are open.** The first bestiary entries, their names, stats, and any Umbra-touched (harsher, frontline-warped) variants of the same base models are unspecced — see Roadmap. Whatever ships reuses the jointed rig (Avatars and equipment) and the crowd/instancing/budget machinery Hogs proved out, so a new species is a model builder and a stat row, not a new engine.
-- **Loot.** A killed dark creature drops its loot — species-specific, scaled by size — as ground items near the corpse, the same drop/decay/cap mechanics as before.
-- **Resetting:** the Commands panel can snap the player's current zone dark creatures back to their registry population, the mirror of `resetBoulders`. Behind a flag, like every other Commands panel action.
+- **The first species is the Gloam.** A Gloam is a low, jointed dark creature with `DARK_CREATURE_MAX_HEALTH` (80 *(initial)*), a 9-tile aggro radius, a 1.55-tile attack range, and an 8–14 damage bite every 1.5 seconds. It is authored in `src/game/creatures.ts` on the shared rig, so it uses the same projected motion, walk/attack/death clips, health bars, and damage feedback as every other creature.
+- **Loot.** A killed Gloam has `EMBER_HEART_DROP_CHANCE` (25% *(initial)*) to leave one ember-heart on a nearby free tile, subject to `MAX_EMBER_HEARTS_PER_ZONE`. The corpse itself remains for `NPC_CORPSE_MS` (30s) before territory-linked reaping or respawn.
+- **Resetting:** the Commands panel can snap the player's current zone dark creatures back to the deterministic populations of every generated `world_ring`, the mirror of `resetBoulders`. It uses the existing Commands visibility controls rather than adding a feature-specific rollout flag.
 
 ### Camera and rendering
 
@@ -273,7 +273,7 @@ The game's central system: the tribe holds back an encroaching dark by keeping f
 - **Bright** is the state of a trogg whose player is connected and playing: full judgment, full combat, full access to the frontline and the dark beyond it. Everything a trogg can do today, it does at this state.
 - **Ember** begins the moment a player disconnects, provided the trogg has `kindlingCharge` remaining. An ember trogg does not leave the world (it isn't dropped from view the way a plain disconnect works today) — it keeps working, driven by the same scheduled-reducer wander pattern that moved the retired Hogs: ambling between safe interior nodes, gathering on instinct, depositing into the stockpile at `EMBER_EFFICIENCY_FRACTION` *(initial)*, roughly 25–35%, of a bright trogg's rate. An ember trogg earns no XP (Skills and XP) — instinct isn't judgment. It cannot leave lit territory, cannot fight, and — because dark creatures can't cross into light (Dark creatures) — is safe by construction rather than by a special-cased invulnerability flag.
 - **Dormant** begins when kindling charge reaches zero. The trogg settles at the nearest hearth, stops moving and stops contributing, and simply waits — present, visible, a quiet fixture proving someone once played here, exactly the texture that keeps the world from reading empty even at the game's real scale of a handful of concurrent players. Reconnecting returns a trogg to bright instantly, wherever it settled, the same identity-resumes-on-reconnect guarantee the game already gives every player (Identity).
-- **Kindling charge** is what a trogg earns for going ember at all, and it's the whole answer to "why can't someone just script a thousand guests to graze forever": charge accrues only from genuine bright play — real input over real time (invariant 2's grammar, not a connected-but-idle socket) — at `CHARGE_ACCRUAL_RATE` *(initial)* per minute played, capped at `CHARGE_MAX` *(initial)*, and decays at `CHARGE_DECAY_RATE` *(initial)* per hour once ember. A trogg nobody actually plays runs dry and goes dormant quickly; keeping a trogg productive costs the same thing it always should — showing up. This is also literally what design pillar 6 is describing.
+- **Kindling charge** is what a trogg earns for going ember at all, and it's the whole answer to "why can't someone just script a thousand guests to graze forever": accepted bright inputs settle at most `KINDLING_ACTIVITY_WINDOW_MS` (30s *(initial)*) of elapsed activity at `KINDLING_CHARGE_ACCRUAL_RATE` (1 ms per active ms), capped at `KINDLING_CHARGE_MAX_MS` (four hours *(initial)*). A late input cannot claim an entire idle socket lifetime. Offline charge decays at `KINDLING_CHARGE_DECAY_RATE` (1 ms per elapsed ms). A trogg nobody actually plays runs dry and goes dormant quickly; keeping a trogg productive costs the same thing it always should — showing up.
 - **Recall on disconnect from unclaimed ground.** A bright trogg that disconnects while out past the frontline or in the penumbra doesn't get to linger there — it's recalled to the nearest hearth before going ember, the same `nearestSafeTile`-style rescue the game already does for a trogg stranded by a world regen (Zones). Ember troggs only ever exist on lit, safe ground.
 
 #### Territory and permanence
@@ -288,17 +288,17 @@ The game's central system: the tribe holds back an encroaching dark by keeping f
 
 Pushing the frontline outward is a deliberate, active event, not a threshold quietly crossed:
 
-- **Two keys, one door.** Igniting a new brazier costs (1) a lump of fuel hauled from the stockpile — `IGNITION_FUEL_COST` *(initial)*, sized well above ordinary upkeep — and (2) an ember-heart, a component that exists nowhere in the stockpile and can only be recovered by a bright trogg scouting the dark beyond the frontline (below). Fuel is what the sleeping tribe provided; the ember-heart is what someone awake went and got. Every push is jointly authored by both halves of the game.
-- **The event itself is hold-the-point, not full-clear.** Bright troggs carry the fuel and ember-heart to the chosen site and light a nascent flame; this uses the same `projects` row shape the game already has (slug, zoneId, status, requirements, contributed), just pointed at a brazier site instead of an abstract goal. For a fixed window (`IGNITION_WINDOW_MS` *(initial)*, on the order of minutes, not an hour — a mandatory hour-long event doesn't suit a handful of concurrent players) the dark answers with waves at the nascent flame, and the defenders hold rather than hunt down every last creature on the map — a full-clear objective dies on one hidden straggler, and this design avoids that failure mode on purpose.
+- **Two keys, one door.** Igniting a virgin site costs `IGNITION_FUEL_COST` (25 Wood *(initial)*) directly from the shared stockpile and one carried ember-heart. Relighting a cold brazier costs `IGNITION_RELIGHT_FUEL_COST` (10 Wood *(initial)*) plus another heart. The site must be dry, empty, unlit, inside the generated penumbra, and within `IGNITION_SITE_MAX_DISTANCE` (18 tiles) of a lit hearth. Only one ignition may be active in the world at once.
+- **The event itself is hold-the-point, not full-clear.** Pressing `E` while facing a valid site with an ember-heart starts a durable `project`. A virgin ignition lasts `IGNITION_WINDOW_MS` (60s *(initial)*); a relight lasts `IGNITION_RELIGHT_WINDOW_MS` (30s). Every `IGNITION_TICK_MS` (10s) the dark sends `IGNITION_WAVE_COUNT` (2) Gloams around the site. At the deadline, success requires at least one living bright trogg inside `IGNITION_DEFENSE_RADIUS` (4 tiles) and no living dark creature inside that radius. Creatures elsewhere do not block success.
 - **Success ignites the brazier**: the site becomes a lit hearth, the ground around it is claimed, and every dark creature killed there from now on stays dead (Territory and permanence).
 - **Failure consumes the stake.** If the nascent flame goes out before the window ends, the fuel and the ember-heart are spent for nothing — the tribe re-gathers and re-scouts before trying again. The cost of failure is the resources and the scouting effort, never a player's progress or a corpse's loot.
 
 #### Generation: only as far as the light reaches
 
-- **The world is seed plus frontline, not a pre-built map.** Worldgen stays the deterministic, seeded function it already is (Zones) — what changes is when it runs. A ring of terrain is generated the moment it becomes *scoutable* (one ring past the current frontline — the penumbra), not before, and not for the whole continent up front. The durable truth committed to storage is the seed and how far the light has reached; any given ring's terrain is derivable on demand by the same shared generator on both client and server.
-- **The penumbra is exactly one ring deep**, always populated with terrain, dark creatures, and ember-hearts to find, so scouting always has fresh ground to work — generation triggers on reachability, and a successful ignition simply advances which ring counts as "current."
-- **Revealed ground is frozen.** Once a ring has been generated and lived in — braziers lit on it, corpses left on it, a tribe's history on it — it's pinned (committed as data or a fixed seed+generator version), the same pattern `healStaleWorld` already protects the shipped map with (Zones). Future generator changes reshape only ground nobody's reached yet; nothing with history on it is ever silently regenerated out from under a player.
-- **This is also the cosmology.** The world doesn't hide beyond the light — it doesn't yet exist there. The tribe's fire isn't illuminating a landscape that was always there; it's the thing that calls it into being.
+- **The durable world is seed plus frontline.** `world_ring` pins each activated radial band using `WORLD_SEED`, its derived per-ring seed, and `WORLD_GENERATOR_VERSION`. `ensureWorldRings` activates through exactly one ring beyond the furthest lit reach. A successful ignition advances that reach and activates the next ring.
+- **The penumbra is exactly one ring deep**, populated deterministically with Gloams when its row is first inserted. Unactivated rings are outside movement/pathing authority, so a trogg cannot walk past the active edge even though the client may have a committed tilemap beyond it. Ember-hearts are not pre-seeded collectibles: they enter that ring through Gloam loot, so scouting and combat are the source of every heart.
+- **Revealed ground is frozen.** A `world_ring` row is append-only activation history: existing rings keep their original seed and generator version. The current finite continent's terrain is still the committed `world-map` grid shared by client and server; ring activation controls frontier population and eligibility without rewriting lived terrain. Extending physical terrain beyond that committed grid must use the same pinned rows rather than regenerating an existing ring.
+- **This is also the cosmology.** Unactivated rings are implementation terrain but not yet part of the lived world: they carry no frontier population, project eligibility, or durable history. The tribe's fire is what calls a ring into gameplay.
 
 ### Onboarding: the Warren
 
@@ -385,7 +385,7 @@ tree           id (PK, auto-inc), zoneId, x, y, health     (tile coords)
                collision, seeded from the ZONES registry, felled into Wood by an axe (deleting the
                row, depositing straight into the stockpile). Not carryable.
                index: by_zone (zoneId)
-dark_creature  id (PK, auto-inc), zoneId, x, y, dirX, dirY, movedAt, species, health, lastDamagedAt, aggroTargetId
+dark_creature  id (PK, auto-inc), zoneId, x, y, dirX, dirY, movedAt, path, species, health, lastDamagedAt, aggroTargetId, lastAttackAt
                a hostile inhabitant of the dark and the penumbra (see "Dark creatures"). Intent-based
                motion like a player or the retired `hog` row (position derived with projectMotion);
                server-owned, no identity. aggroTargetId is the trogg identity it's currently chasing,
@@ -395,6 +395,10 @@ dark_creature  id (PK, auto-inc), zoneId, x, y, dirX, dirY, movedAt, species, he
                Whether it respawns after death depends on whether the tile it died on is lit at the
                time (Territory and permanence) rather than anything stored on the row itself.
                index: by_zone (zoneId)
+ember_heart    id (PK, auto-inc), zoneId, x, y
+               a Gloam loot component lying on a tile. `interact` removes the row and stores
+               `carrying="ember_heart"` on the trogg; put-down or disconnect re-inserts it.
+               It is not inventory and never enters the stockpile. index: by_zone (zoneId)
 ground_item    id (PK, auto-inc), zoneId, item, x, y, qty
                a pickup item lying on the floor — now scoped to equipment, rare frontier finds, and a
                dead trogg's dropped gear; bulk raw resources no longer pass through ground items on the
@@ -443,6 +447,9 @@ ember_wander   scheduledId (PK, auto-inc), scheduledAt     (scheduled table)
                (invariant 1), the direct successor of the retired `hog_wander`. Fires the reducers that
                move ember troggs across safe interior ground and dark creatures across the dark and
                penumbra, re-arming only while a player is online. Private (no client reads it).
+ignition_event scheduledId (PK, auto-inc), scheduledAt     (scheduled table)
+               one shared timer for active ignition projects. Each run resolves an expired project or
+               spawns its next Gloam wave, then re-arms while an active project remains. Private.
 ghost_haunt    id (PK, auto-inc), zoneId, x, y, createdAt
                a zone-scoped cosmetic fanout event for the ghost. `hauntGhost` chooses a random
                walkable tile server-side, inserts the row, and trims each zone to
@@ -462,12 +469,16 @@ claim_code     code (PK), guest (Identity), createdAt
 skills         playerId, skill, xp
                XP accrues only from bright (actively played) actions — ember work feeds the stockpile
                but never a skill (see "Skills and XP"). index: by_player (playerId)
-projects       slug, zoneId, status, requirements, contributed
+project        id (PK, auto-inc), slug, zoneId, x, y, status, requirements, contributed, startedBy, startedAt, endsAt
                a communal endeavor funded from the stockpile; currently used for ignition (see "The fire
                and the dark" → Ignition), where `requirements` is the fuel + ember-heart cost of a
-               brazier site and completion inserts/lights the matching `brazier` row. `contributed` is
-               tracked per player even though the stockpile itself isn't (see "The stockpile").
+               brazier site and completion inserts/lights the matching `brazier` row. `requirements`
+               and `contributed` are JSON snapshots; `startedBy` and the timestamps bind the defense.
                index: by_zone (zoneId)
+world_ring     ring (PK), seed, generatorVersion, generatedAt
+               append-only activation record for each radial world band. The highest row is always the
+               one-ring-deep penumbra beyond current lit reach. Its seed/version pins deterministic
+               population and future terrain generation so lived rings never change.
 ```
 
 ## Multiplayer scaling stance
@@ -496,24 +507,17 @@ projects       slug, zoneId, status, requirements, contributed
 
 Roadmap notes are planning context, not permission gates. Pick work by current product need, maintainer direction, and what keeps the game playable. Do not block a task because older notes placed it later, and do not treat this section as a release checklist.
 
-**This document specs a direction the shipped code has not yet fully caught up to.** The game pivoted from a Hog-town/personal-inventory/tool-crafting design to the fire-and-dark design above. Hogs and their runtime systems are retired, the hub region is now the Hearth, direct-deposit gathering feeds the shipped stockpile, and the eternal First Fire now casts the first durable lit radius; kindling, dark creatures, and ignition remain targets. Flag any place code and doc disagree rather than silently trusting either (per "How to use this document").
+The fire-and-dark migration foundation is shipped. Hogs and their runtime systems are retired; the hub is the Hearth; gathering feeds the global capped stockpile; the First Fire and paid frontier braziers hold lit territory. Bright play banks kindling, disconnected troggs work as embers and settle dormant, Gloams inhabit generated dark rings and obey the light boundary, ember-hearts feed hold-the-point ignition projects, and successful ignition advances the durable one-ring-deep penumbra.
 
-Migrating the existing build toward this spec is the current top-level work, roughly in dependency order:
-
-Completed foundation: Hogs are retired from schema, reducers, client rendering, commands, audio, world seeds, and flags; the hub region is now `hearth` / The Hearth. The global capped stockpile, per-trogg contribution accounting, legacy resource migration, direct boulder/tree deposits, and read-only HUD are shipped. The public `brazier` table, eternal First Fire seed and renderer, shared lit-tile collision set, Wood upkeep scheduler, and outermost-first guttering are also shipped. No non-eternal brazier is created until ignition lands, so the current world pays no upkeep.
-
-1. **Presence: bright / ember / dormant.** Add `kindlingCharge`/its anchor to the player row; stop dropping a disconnected trogg from view when it has charge; extend the wander-reducer pattern to ember troggs (interior-only instinct gathering); add the recall-to-hearth behavior for a disconnect outside lit ground.
-2. **Dark creatures.** Build the first hostile species on the existing rig/motion/crowd machinery; aggro-on-sight, pass the shipped lit-tile set into collision, territory-linked respawn.
-3. **Ignition.** Repoint the existing `projects` table at brazier sites; the ember-heart as a carryable (reusing the retired carry engine); the hold-the-point event and its waves.
-4. **Lazy, ring-at-a-time worldgen.** Extend the deterministic generator to produce one ring past the current frontline on demand and freeze each ring once it's been reached, rather than committing the whole continent up front.
+Ring activation currently operates over the deterministic finite continent committed in `shared/world-map.ts`. The durable `world_ring` seed/version records, population activation, movement boundary, project eligibility, and frontier rendering are in place; physical terrain expansion beyond the current grid is not needed while the existing continent has unreached rings. If the frontier reaches that edge, extend the shared generator from those pinned records rather than replacing or regenerating lived ground.
 
 Implemented world systems that carry over unchanged: the static `ZONES`/committed-map machinery, zone-scoped subscriptions, per-tile walkability, free camera-relative WASD movement with sliding collision, boulder mining and tree felling, the jointed 3D rig and its animation/equip system, inventory/equipment mechanics for personal gear, sword/unarmed combat grammar (hit circles, swing cones, weapon damage, shield block), trogg health/death/respawn, hold-shift-to-run, recolouring/restyling, chat, the ghost easter egg, the Commands drawer, and anonymous-first identity with optional Discord claim. None of this is Hog-specific and none of it needs to change for the pivot.
 
-Likely next work areas beyond the migration list above: naming the first dark-creature species and any Umbra-touched frontline variants, the exact ignition wave/pacing design, crafting recipe specifics at Hearth stations, and how a respawning or newborn trogg might eventually choose which front to arrive near. These are intentionally fluid; implement the slice that best serves the current task.
+Likely next work areas: additional dark-creature species and Umbra-touched frontline variants, playtest-driven ignition pacing, crafting recipe specifics at Hearth stations, and how a respawning or newborn trogg might eventually choose which front to arrive near. These are intentionally fluid; implement the slice that best serves the current task.
 
 ## Open design threads
 
-- Dark-creature bestiary: species names, stats, loot tables, and Umbra-touched frontline variants of the same base models — the model/rig work reuses everything Hogs proved out (Avatars and equipment), so this is content, not engine work.
+- Dark-creature bestiary beyond the Gloam: additional species, loot tables, and Umbra-touched frontline variants of the same base models.
 - Fronts: whether the frontline eventually forks into distinct directions/biomes the tribe can choose between, each with its own hazards and materials feeding the shared stockpile — floated in design discussion, not committed.
 - Ignition pacing: exact wave design, difficulty scaling with how deep a push is, and whether a failed ignition should have any softer partial consequence beyond losing the stake.
 - Migrating spawn: whether a newborn or respawning trogg should eventually surface near the tribe's current frontier rather than always at the Hearth, so new and returning players inherit whatever ground has already been won.

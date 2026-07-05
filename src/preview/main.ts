@@ -1,8 +1,8 @@
 import "./preview.css";
 import * as THREE from "three";
 import { createOrbit } from "../game/controls.js";
-import { TROGG_STYLES, wieldOf } from "@trogg/shared";
-import { buildTrogg } from "../game/creatures.js";
+import { DARK_CREATURE_SPECIES, TROGG_STYLES, wieldOf } from "@trogg/shared";
+import { buildDarkCreature, buildTrogg } from "../game/creatures.js";
 import { buildHeldItem, hasItem3D, updateHeldFx, wireHeldFx, type HeldFx } from "../game/items.js";
 import { itemIcon, troggIcon } from "../game/icons.js";
 import { applyFlinch, disposeObject, FLINCH_MS, poseDead, setDowned } from "../game/entities.js";
@@ -19,11 +19,17 @@ import { type CreatureModel } from "../game/rig.js";
  */
 
 interface CreatureChoice {
-  style: string;
+  id: string;
+  label: string;
+  style?: string;
+  species?: string;
 }
 
-const CREATURES: CreatureChoice[] = TROGG_STYLES.map((style) => ({ style }));
-const ITEM_CHOICES = ["none", "pickaxe", "shovel", "axe", "sword", "shield", "torch", "stone", "wood"] as const;
+const CREATURES: CreatureChoice[] = [
+  ...TROGG_STYLES.map((style) => ({ id: `trogg:${style}`, label: style, style })),
+  ...DARK_CREATURE_SPECIES.map((species) => ({ id: `dark:${species}`, label: species, species })),
+];
+const ITEM_CHOICES = ["none", "pickaxe", "shovel", "axe", "sword", "shield", "torch", "stone", "wood", "ember_heart"] as const;
 const MODES = ["idle", "walk", "run", "attack", "hit", "dead"] as const;
 type Mode = (typeof MODES)[number];
 /** How often the hit flinch replays in `hit` mode. */
@@ -49,8 +55,8 @@ function parseCreature(raw: string | null): CreatureChoice {
   if (!raw) return CREATURES[0]!;
   const byIndex = CREATURES[Number(raw)];
   if (byIndex && /^\d+$/.test(raw)) return byIndex;
-  const style = raw.includes(":") ? raw.split(":")[1] : raw;
-  return CREATURES.find((c) => c.style === style) ?? CREATURES[0]!;
+  const suffix = raw.includes(":") ? raw.split(":")[1] : raw;
+  return CREATURES.find((c) => c.id === raw || c.style === suffix || c.species === suffix) ?? CREATURES[0]!;
 }
 
 function parseItem(raw: string | null, fallback: string): string {
@@ -65,7 +71,7 @@ function parseMode(raw: string | null): Mode {
 function syncUrl(): void {
   const q = new URLSearchParams({
     view: state.view,
-    creature: `trogg:${state.creature.style}`,
+    creature: state.creature.id,
     item: state.item,
     off: state.off,
     mode: state.mode,
@@ -197,7 +203,7 @@ function rebuild(): void {
     return;
   }
 
-  model = buildTrogg(state.creature.style);
+  model = state.creature.species ? buildDarkCreature(state.creature.species) : buildTrogg(state.creature.style ?? TROGG_STYLES[0]!);
   model.root.rotation.y = state.yaw;
   subject = model.root;
   scene.add(model.root);
@@ -306,7 +312,7 @@ function mountControls(): void {
   const creatures = document.createElement("div");
   creatures.className = "palette";
   for (const c of CREATURES) {
-    creatures.appendChild(slot(troggIcon(c.style), () => state.creature.style === c.style, () => (state.creature = c), true));
+    creatures.appendChild(slot(c.style ? troggIcon(c.style) : c.label, () => state.creature.id === c.id, () => (state.creature = c), true));
   }
 
   const items = document.createElement("div");

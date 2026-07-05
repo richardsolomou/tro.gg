@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { GHOST_3D, TROGG_SKINS_3D } from "./palette.js";
+import { GHOST_3D, GLOAM_3D, TROGG_SKINS_3D } from "./palette.js";
 import { finishCreature, joint, Parts, type CreatureModel, type GaitSpec } from "./rig.js";
 
 /**
@@ -9,6 +9,7 @@ import { finishCreature, joint, Parts, type CreatureModel, type GaitSpec } from 
  */
 
 const TROGG_GAIT: GaitSpec = { restTorso: 0.14, restArm: 0.08, legSwing: 0.55, armSwing: 0.45, walkDip: 0.05, runDip: 0.08, runLean: 0.16, breathe: 0.015 };
+const GLOAM_GAIT: GaitSpec = { restTorso: 0.22, restArm: 0.2, legSwing: 0.7, armSwing: 0.58, walkDip: 0.08, runDip: 0.12, runLean: 0.2, breathe: 0.02 };
 
 /** The hunched cave ogre (styles: moss/stone/ridge; `tint` is the player colour). */
 export function buildTrogg(style: string, tint?: number): CreatureModel {
@@ -58,6 +59,40 @@ export function buildTrogg(style: string, tint?: number): CreatureModel {
   p.box(head, 0.06, 0.13, 0.05, skin.tooth, 0.17, -0.05, 0.26);
 
   return finishCreature(root, p, TROGG_GAIT, 1.75);
+}
+
+export function buildDarkCreature(_species = "gloam"): CreatureModel {
+  const c = GLOAM_3D;
+  const p = new Parts();
+  const root = new THREE.Group();
+  const bob = joint(root, "Bob", 0, 0, 0);
+  for (const side of [-1, 1] as const) {
+    const leg = joint(bob, side < 0 ? "LegL" : "LegR", side * 0.22, 0.42, -0.04);
+    p.box(leg, 0.2, 0.34, 0.22, c.body, 0, -0.18);
+    p.box(leg, 0.24, 0.12, 0.34, c.shade, 0, -0.39, 0.08);
+  }
+  const torso = joint(bob, "Torso", 0, 0.42, 0, GLOAM_GAIT.restTorso);
+  p.box(torso, 0.72, 0.48, 0.56, c.body, 0, 0.24);
+  p.box(torso, 0.82, 0.18, 0.5, c.ridge, 0, 0.53, -0.05);
+  for (let i = -2; i <= 2; i++) {
+    const spike = p.cone(torso, 0.07, 0.28 + (2 - Math.abs(i)) * 0.04, c.ridge, i * 0.16, 0.72, -0.06, 5);
+    spike.rotation.x = Math.PI;
+  }
+  for (const side of [-1, 1] as const) {
+    const arm = joint(torso, side < 0 ? "ArmL" : "ArmR", side * 0.48, 0.45, 0.02, GLOAM_GAIT.restArm);
+    p.box(arm, 0.17, 0.45, 0.2, c.body, 0, -0.23);
+    p.box(arm, 0.24, 0.17, 0.28, c.shade, 0, -0.52, 0.06);
+    joint(arm, side < 0 ? "HandL" : "HandR", 0, -0.56, 0.1);
+  }
+  const head = joint(torso, "Head", 0, 0.76, 0.16, -0.2);
+  p.box(head, 0.48, 0.36, 0.46, c.body, 0, 0.12);
+  p.box(head, 0.56, 0.1, 0.5, c.ridge, 0, 0.33, -0.02);
+  p.box(head, 0.08, 0.07, 0.04, c.eye, -0.13, 0.13, 0.25, true);
+  p.box(head, 0.08, 0.07, 0.04, c.eye, 0.13, 0.13, 0.25, true);
+  p.box(head, 0.34, 0.1, 0.1, c.shade, 0, -0.02, 0.25);
+  p.box(head, 0.05, 0.12, 0.05, c.tooth, -0.1, -0.08, 0.28);
+  p.box(head, 0.05, 0.12, 0.05, c.tooth, 0.1, -0.08, 0.28);
+  return finishCreature(root, p, GLOAM_GAIT, 1.5, 0.9);
 }
 
 /** The pale draped ghost (cosmetic easter egg): a sheet dome, eye holes, stub feet. */

@@ -31,6 +31,10 @@ import {
   migrateInventoryResources,
   ensureFirstFire,
   armBrazierUpkeep,
+  armEmberWander,
+  recallToLight,
+  settleKindling,
+  ensureWorldRings,
 } from "../helpers";
 
 export const init = spacetimedb.init(() => {});
@@ -64,8 +68,8 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
   seedTrees(ctx, startingZone);
   seedGroundItems(ctx, startingZone);
   ensureFirstFire(ctx);
+  ensureWorldRings(ctx);
   armBrazierUpkeep(ctx);
-  armRegen(ctx);
 
   const hadLiveConnection = playerConnectionCount(ctx, ctx.sender) > 0;
   rememberPlayerConnection(ctx);
@@ -83,7 +87,11 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
     // They all control and observe one trogg row. Only the first live connection
     // should resume/reset presence; later connections must not stop an in-flight
     // movement intent that the already-active tab is driving.
-    if (existing.online && hadLiveConnection) return;
+    if (existing.online && hadLiveConnection) {
+      armRegen(ctx);
+      armEmberWander(ctx);
+      return;
+    }
 
     // A returning trogg is already settled (disconnect zeroes its direction), but
     // a tilemap edit could leave its resting tile inside a new wall; nudge it back
@@ -94,7 +102,10 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
     // (A trogg mid-birth resumes inside its own private cave, untouched.)
     const stuck = zone && !isWalkable(zone, Math.round(existing.x), Math.round(existing.y));
     const pos = stuck ? (nearestSafeTile(zone, existing.x, existing.y) ?? spawnAt(zone)) : { x: existing.x, y: existing.y };
-    ctx.db.player.identity.update({ ...existing, x: pos.x, y: pos.y, dirX: 0, dirY: 0, running: false, path: "", online: true, movedAt: ctx.timestamp });
+    const present = settleKindling(existing, ctx.timestamp, true);
+    ctx.db.player.identity.update({ ...present, x: pos.x, y: pos.y, dirX: 0, dirY: 0, running: false, path: "", movedAt: ctx.timestamp });
+    armRegen(ctx);
+    armEmberWander(ctx);
     return;
   }
 
@@ -153,7 +164,11 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
     cheatNoclip: false,
     z: 0,
     dirZ: 0,
+    kindlingCharge: 0,
+    kindlingChargeAt: ctx.timestamp,
   });
+  armRegen(ctx);
+  armEmberWander(ctx);
 });
 
 /**
@@ -167,6 +182,7 @@ export const onDisconnect = spacetimedb.clientDisconnected((ctx) => {
   if (forgetPlayerConnection(ctx) > 0) return;
 
   const settled = settle(ctx, p, ctx.timestamp);
+  const safe = recallToLight(ctx, p, settled.x, settled.y);
   // Drop whatever the trogg was carrying where it stops, so a carried entity is
   // never orphaned while its carrier is offline (GDD "Interacting"). If it's boxed
   // in and can't be placed, keep it on the row — it's durable and still droppable
@@ -177,12 +193,14 @@ export const onDisconnect = spacetimedb.clientDisconnected((ctx) => {
     const zone = getZone(p.zoneId);
     const occupied = solidTiles(ctx, p.zoneId, ctx.timestamp, p.identity);
     const face = facingDir(p);
-    if (zone && placeCarried(ctx, zone, carrying, carryingStyle, occupied, settled.x, settled.y, face.dirX, face.dirY)) {
+    if (zone && placeCarried(ctx, zone, carrying, carryingStyle, occupied, safe.x, safe.y, face.dirX, face.dirY)) {
       carrying = "";
       carryingStyle = "";
     }
   }
-  ctx.db.player.identity.update({ ...p, x: settled.x, y: settled.y, z: settled.z, dirZ: 0, dirX: 0, dirY: 0, running: false, path: "", online: false, carrying, carryingStyle });
+  const absent = settleKindling(p, ctx.timestamp, false);
+  ctx.db.player.identity.update({ ...absent, x: safe.x, y: safe.y, z: settled.z, dirZ: 0, dirX: 0, dirY: 0, running: false, path: "", carrying, carryingStyle, movedAt: ctx.timestamp });
+  armEmberWander(ctx);
 });
 
 
@@ -217,6 +235,8 @@ export const emerge = spacetimedb.reducer((ctx) => {
     faceY: -1, // facing out of the cave mouth, toward the world
     movedAt: ctx.timestamp,
   });
+  armRegen(ctx);
+  armEmberWander(ctx);
 });
 
 /**
@@ -253,4 +273,6 @@ export const enterCave = spacetimedb.reducer((ctx) => {
     faceY: 1, // facing down into the cavern
     movedAt: ctx.timestamp,
   });
+  armRegen(ctx);
+  armEmberWander(ctx);
 });

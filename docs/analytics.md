@@ -56,10 +56,10 @@ snake_case. Low-volume by design — anything that could fire more than ~once/se
 | `player_respawned` | `zone, respawn_ms, source` | The local player's authoritative row transitions from dead to alive after the scheduled respawn timer |
 | `warren_emerged` | Client, when a trogg's emergence from its cave lands it in the world (post-transfer boot) | `zone` |
 | `item_crafted` | `recipe, qty` | Item crafting succeeds |
-| `project_contributed` | `project, item, qty` | Player contributes to the stockpile toward a communal project — currently, an ignition site (see gdd.md "The fire and the dark") |
-| `project_completed` | `project` | A communal project completes — for an ignition project, this is the moment a brazier lights |
+| `project_contributed` | `project, item, qty, zone, source?` | An accepted ignition start consumes its stake. One event records Wood and one records the carried ember-heart, both from the initiating procedure transaction |
+| `project_completed` | `project` | Reserved for a communal project completion. Ignition completion is scheduled server work and is not emitted yet; use the durable `project.status` row until a once-only server export exists |
 
-New events anticipated by the fire-and-dark design (brazier ignition, a trogg going ember/dormant, kindling charge running out) are not yet locked down — the underlying reducers don't exist yet (see gdd.md Roadmap). Brazier upkeep and guttering are autonomous scheduled transitions, not player actions, and are intentionally not captured from subscribed browsers: every observer would duplicate the same transition. Add a durable once-only server export before registering `brazier_guttered`; reducer contexts cannot use the procedure-only HTTP telemetry path.
+Presence transitions, ignition completion/failure, dark-creature attacks, brazier upkeep, and guttering are autonomous scheduled or lifecycle transitions, not accepted browser actions. They are intentionally not captured from subscribed browsers because every observer would duplicate the same transition. Add a durable once-only server export before registering events such as `trogg_became_dormant`, `project_completed`, or `brazier_guttered`; reducer contexts cannot use the procedure-only HTTP telemetry path.
 
 Client lifecycle events use posthog-js (plus autocapture + session replay). Gameplay actions that need trusted server-side product events should use SpacetimeDB procedure wrappers rather than calling reducers directly from the browser. Each `*Action` procedure performs the authoritative mutation inside `ctx.withTx(...)`, derives event properties from server state, and then best-effort posts the accepted event to PostHog from the module with `source=spacetimedb-procedure` unless the caller supplies a narrower source such as `chat`, `commands`, `appearance`, `inventory`, or `keyboard`. Death from combat is captured by the attacking procedure as `player_died`; respawn is captured client-side from the local authoritative row transition because it is driven by a scheduled reducer, not a procedure call. Movement still generates zero events.
 
@@ -86,7 +86,7 @@ Code currently reads these flag keys:
 
 Retired by the 3D renderer port: `avatar-sprites` (trogg sprite avatars vs the placeholder colour marker) is no longer read — the 3D client always renders models. The PostHog flag stays live while the 2D client is still the deployed production build; archive it in project 314596 when this port ships. Retired with boulder pushing: `boulder-pushing` is no longer read — boulders are mining nodes, not pushable; archive alongside `avatar-sprites`.
 
-PostHog project audit (2026-07-05): all code-read flags above are configured in PostHog project 314596 and active. `roaming-hogs` and `hog-reset` are retired from code; archive them in project 314596 when authenticated PostHog access is available. Future dark-creature flags should be registered here and created in PostHog only when code starts reading them.
+PostHog project audit (2026-07-05): all code-read flags above are configured in PostHog project 314596 and active. `roaming-hogs` and `hog-reset` are retired from code; archive them in project 314596 when authenticated PostHog access is available. Presence, Gloams, ignition, and ring activation read no new flags; add one only if a later rollout or live-tuning need justifies it.
 
 ## Error tracking and logs
 

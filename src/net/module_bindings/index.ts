@@ -51,6 +51,7 @@ import RedeemClaimReducer from "./redeem_claim_reducer";
 import RenameReducer from "./rename_reducer";
 import RescueReducer from "./rescue_reducer";
 import ResetBouldersReducer from "./reset_boulders_reducer";
+import ResetDarkCreaturesReducer from "./reset_dark_creatures_reducer";
 import RestyleReducer from "./restyle_reducer";
 import SetCheatsReducer from "./set_cheats_reducer";
 import SetLiftReducer from "./set_lift_reducer";
@@ -69,6 +70,7 @@ import * as InteractActionProcedure from "./interact_action_procedure";
 import * as RecolorActionProcedure from "./recolor_action_procedure";
 import * as RenameActionProcedure from "./rename_action_procedure";
 import * as ResetBouldersActionProcedure from "./reset_boulders_action_procedure";
+import * as ResetDarkCreaturesActionProcedure from "./reset_dark_creatures_action_procedure";
 import * as RestyleActionProcedure from "./restyle_action_procedure";
 import * as SpawnActionProcedure from "./spawn_action_procedure";
 import * as UseEquippedActionProcedure from "./use_equipped_action_procedure";
@@ -77,13 +79,17 @@ import * as UseEquippedActionProcedure from "./use_equipped_action_procedure";
 import BoulderRow from "./boulder_table";
 import BrazierRow from "./brazier_table";
 import ChatMessageRow from "./chat_message_table";
+import DarkCreatureRow from "./dark_creature_table";
+import EmberHeartRow from "./ember_heart_table";
 import GhostHauntRow from "./ghost_haunt_table";
 import GroundItemRow from "./ground_item_table";
 import InventoryRow from "./inventory_table";
 import PlayerRow from "./player_table";
+import ProjectRow from "./project_table";
 import StockpileRow from "./stockpile_table";
 import StockpileContributionRow from "./stockpile_contribution_table";
 import TreeRow from "./tree_table";
+import WorldRingRow from "./world_ring_table";
 import WorldStateRow from "./world_state_table";
 
 /** Type-only namespace exports for generated type groups. */
@@ -132,6 +138,34 @@ const tablesSchema = __schema({
       { name: 'chat_message_id_key', constraint: 'unique', columns: ['id'] },
     ],
   }, ChatMessageRow),
+  darkCreature: __table({
+    name: 'dark_creature',
+    indexes: [
+      { accessor: 'id', name: 'dark_creature_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+      { accessor: 'zoneId', name: 'dark_creature_zone_id_idx_btree', algorithm: 'btree', columns: [
+        'zoneId',
+      ] },
+    ],
+    constraints: [
+      { name: 'dark_creature_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, DarkCreatureRow),
+  emberHeart: __table({
+    name: 'ember_heart',
+    indexes: [
+      { accessor: 'id', name: 'ember_heart_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+      { accessor: 'zoneId', name: 'ember_heart_zone_id_idx_btree', algorithm: 'btree', columns: [
+        'zoneId',
+      ] },
+    ],
+    constraints: [
+      { name: 'ember_heart_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, EmberHeartRow),
   ghostHaunt: __table({
     name: 'ghost_haunt',
     indexes: [
@@ -188,6 +222,20 @@ const tablesSchema = __schema({
       { name: 'player_identity_key', constraint: 'unique', columns: ['identity'] },
     ],
   }, PlayerRow),
+  project: __table({
+    name: 'project',
+    indexes: [
+      { accessor: 'id', name: 'project_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+      { accessor: 'zoneId', name: 'project_zone_id_idx_btree', algorithm: 'btree', columns: [
+        'zoneId',
+      ] },
+    ],
+    constraints: [
+      { name: 'project_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, ProjectRow),
   stockpile: __table({
     name: 'stockpile',
     indexes: [
@@ -227,6 +275,17 @@ const tablesSchema = __schema({
       { name: 'tree_id_key', constraint: 'unique', columns: ['id'] },
     ],
   }, TreeRow),
+  worldRing: __table({
+    name: 'world_ring',
+    indexes: [
+      { accessor: 'ring', name: 'world_ring_ring_idx_btree', algorithm: 'btree', columns: [
+        'ring',
+      ] },
+    ],
+    constraints: [
+      { name: 'world_ring_ring_key', constraint: 'unique', columns: ['ring'] },
+    ],
+  }, WorldRingRow),
   worldState: __table({
     name: 'world_state',
     indexes: [
@@ -259,6 +318,7 @@ const reducersSchema = __reducers(
   __reducerSchema("rename", RenameReducer),
   __reducerSchema("rescue", RescueReducer),
   __reducerSchema("reset_boulders", ResetBouldersReducer),
+  __reducerSchema("reset_dark_creatures", ResetDarkCreaturesReducer),
   __reducerSchema("restyle", RestyleReducer),
   __reducerSchema("set_cheats", SetCheatsReducer),
   __reducerSchema("set_lift", SetLiftReducer),
@@ -279,6 +339,7 @@ const proceduresSchema = __procedures(
   __procedureSchema("recolor_action", RecolorActionProcedure.params, RecolorActionProcedure.returnType),
   __procedureSchema("rename_action", RenameActionProcedure.params, RenameActionProcedure.returnType),
   __procedureSchema("reset_boulders_action", ResetBouldersActionProcedure.params, ResetBouldersActionProcedure.returnType),
+  __procedureSchema("reset_dark_creatures_action", ResetDarkCreaturesActionProcedure.params, ResetDarkCreaturesActionProcedure.returnType),
   __procedureSchema("restyle_action", RestyleActionProcedure.params, RestyleActionProcedure.returnType),
   __procedureSchema("spawn_action", SpawnActionProcedure.params, SpawnActionProcedure.returnType),
   __procedureSchema("use_equipped_action", UseEquippedActionProcedure.params, UseEquippedActionProcedure.returnType),

@@ -42,6 +42,19 @@ import {
   BRAZIER_UPKEEP_RATE,
   BRAZIER_RADIUS,
   FIRST_FIRE_RADIUS,
+  DARK_CREATURE_MAX_HEALTH,
+  MAX_DARK_CREATURES_PER_ZONE,
+  IGNITION_FUEL_COST,
+  IGNITION_SITE_MAX_DISTANCE,
+  IGNITION_WINDOW_MS,
+  KINDLING_ACTIVITY_WINDOW_MS,
+  NPC_CORPSE_MS,
+  WORLD_GENERATOR_VERSION,
+  WORLD_RING_WIDTH,
+  isDryFloor,
+  isTileLit,
+  worldRingAt,
+  worldRingSeed,
 } from "@trogg/shared";
 import {
   chat,
@@ -70,6 +83,8 @@ import {
   respawnPlayers,
   regenCreatures,
   maintainBraziers,
+  tendEmbers,
+  advanceIgnitions,
   spawn,
   startClaim,
   useEquipped,
@@ -85,6 +100,78 @@ function withPlayer(over: Record<string, unknown> = {}, ctxOver: Partial<Paramet
   const ctx = makeCtx({ sender: me, ...ctxOver });
   ctx.db.player.insert(playerRow(me, over));
   return { ctx, me };
+}
+
+function seedFirstFire(ctx: ReturnType<typeof makeCtx>) {
+  const spawn = getZone(ZONE)!.spawn!;
+  return ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, ...spawn, radius: FIRST_FIRE_RADIUS, lit: true, isEternal: true });
+}
+
+function darkCreatureRow(over: Record<string, unknown> = {}) {
+  return {
+    id: 0n,
+    zoneId: ZONE,
+    x: 5,
+    y: 5,
+    dirX: 0,
+    dirY: 0,
+    movedAt: { microsSinceUnixEpoch: 0n },
+    path: "",
+    species: "gloam",
+    health: DARK_CREATURE_MAX_HEALTH,
+    lastDamagedAt: { microsSinceUnixEpoch: 0n },
+    aggroTargetId: "",
+    lastAttackAt: { microsSinceUnixEpoch: 0n },
+    ...over,
+  };
+}
+
+function ignitionSite() {
+  const zone = getZone(ZONE)!;
+  const origin = zone.spawn!;
+  for (let y = 1; y < zone.height - 1; y++) {
+    for (let x = 2; x < zone.width - 1; x++) {
+      const distance = Math.hypot(x - origin.x, y - origin.y);
+      if (distance <= Math.max(FIRST_FIRE_RADIUS + 1, WORLD_RING_WIDTH) || distance > IGNITION_SITE_MAX_DISTANCE) continue;
+      if (isDryFloor(zone, x, y) && isDryFloor(zone, x - 1, y)) return { x, y, playerX: x - 1, playerY: y };
+    }
+  }
+  throw new Error("no ignition test site");
+}
+
+function lightBoundaryPair() {
+  const zone = getZone(ZONE)!;
+  const origin = zone.spawn!;
+  for (let y = 1; y < zone.height - 1; y++) {
+    for (let x = 1; x < zone.width - 1; x++) {
+      if (!isDryFloor(zone, x, y) || Math.hypot(x - origin.x, y - origin.y) > FIRST_FIRE_RADIUS) continue;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+        const outside = { x: x + dx, y: y + dy };
+        if (!isDryFloor(zone, outside.x, outside.y)) continue;
+        if (Math.hypot(outside.x - origin.x, outside.y - origin.y) > FIRST_FIRE_RADIUS) {
+          return { inside: { x, y }, outside, towardLight: { dirX: -dx, dirY: -dy } };
+        }
+      }
+    }
+  }
+  throw new Error("no light boundary test pair");
+}
+
+function ringBoundaryPair() {
+  const zone = getZone(ZONE)!;
+  const origin = zone.spawn!;
+  for (let y = 1; y < zone.height - 1; y++) {
+    for (let x = 1; x < zone.width - 1; x++) {
+      if (!isDryFloor(zone, x, y) || worldRingAt(origin, x, y) !== 0) continue;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+        const outside = { x: x + dx, y: y + dy };
+        if (isDryFloor(zone, outside.x, outside.y) && worldRingAt(origin, outside.x, outside.y) === 1) {
+          return { inside: { x, y }, outside, heading: { dirX: dx, dirY: dy } };
+        }
+      }
+    }
+  }
+  throw new Error("no ring boundary test pair");
 }
 
 // --- Entity caps (the unbounded-spawn DoS fix) ---
@@ -115,6 +202,32 @@ test("spawn can add a registered ground item", () => {
   spawn(ctx, { kind: "item", item: "sword" });
   assert.equal(ctx.db.groundItem.rows().length, 1);
   assert.equal(ctx.db.groundItem.rows()[0].item, "sword");
+});
+
+test("spawn adds a Gloam but respects the dark-creature cap", () => {
+  const { ctx } = withPlayer({ x: 69, y: 96 });
+  spawn(ctx, { kind: "dark_creature", item: "gloam" });
+  assert.equal(ctx.db.darkCreature.rows()[0]?.species, "gloam");
+  ctx.db.darkCreature.clear();
+  for (let i = 0; i < MAX_DARK_CREATURES_PER_ZONE; i++) {
+    ctx.db.darkCreature.insert(darkCreatureRow({ x: 5 + (i % 10), y: 5 + Math.floor(i / 10) }));
+  }
+  spawn(ctx, { kind: "dark_creature", item: "gloam" });
+  assert.equal(ctx.db.darkCreature.rows().length, MAX_DARK_CREATURES_PER_ZONE);
+});
+
+test("spawn keeps debug Gloams out of lit territory", () => {
+  const spawnPoint = getZone(ZONE)!.spawn!;
+  const { ctx } = withPlayer({ x: spawnPoint.x, y: spawnPoint.y });
+  seedFirstFire(ctx);
+  ctx.db.worldRing.insert({ ring: 0, seed: worldRingSeed(0), generatorVersion: WORLD_GENERATOR_VERSION, generatedAt: ctx.timestamp });
+  ctx.db.worldRing.insert({ ring: 1, seed: worldRingSeed(1), generatorVersion: WORLD_GENERATOR_VERSION, generatedAt: ctx.timestamp });
+
+  spawn(ctx, { kind: "dark_creature", item: "gloam" });
+
+  const creature = ctx.db.darkCreature.rows()[0];
+  assert.ok(creature);
+  assert.equal(isTileLit(ctx.db.brazier.zoneId.filter(ZONE), ZONE, Math.round(creature.x), Math.round(creature.y)), false);
 });
 
 test("spawn refuses registered items that are not exposed in the Commands panel", () => {
@@ -510,6 +623,66 @@ test("bare fists swing: unarmed damage lands and the fists impulse animates", ()
   assert.equal(p.equippedMainHand, "");
 });
 
+test("a weapon targets a Gloam before a bystanding trogg", () => {
+  const { ctx, me } = withPlayer({ x: 69, y: 96, equippedMainHand: "sword" });
+  const sword = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });
+  ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedMainHandInventoryId: sword.id });
+  const creature = ctx.db.darkCreature.insert(darkCreatureRow({ x: 70, y: 96 }));
+  const other = id("other");
+  ctx.db.player.insert(playerRow(other, { x: 70, y: 96, health: PLAYER_MAX_HEALTH }));
+
+  useEquipped(ctx, { dirX: 1, dirY: 0 });
+
+  assert.equal(ctx.db.darkCreature.id.find(creature.id)?.health, DARK_CREATURE_MAX_HEALTH - WEAPON_DAMAGE.sword![0]);
+  assert.equal(ctx.db.player.identity.find(other).health, PLAYER_MAX_HEALTH);
+});
+
+test("a killed Gloam leaves a corpse and can drop an ember-heart", () => {
+  const { ctx } = withPlayer({ x: 69, y: 96 }, { random: 0.1 });
+  const creature = ctx.db.darkCreature.insert(darkCreatureRow({ x: 70, y: 96, health: 1 }));
+
+  useEquipped(ctx, { dirX: 1, dirY: 0 });
+
+  assert.equal(ctx.db.darkCreature.id.find(creature.id)?.health, 0);
+  const heart = ctx.db.emberHeart.rows()[0];
+  assert.ok(heart);
+  assert.ok(Math.hypot(heart.x - 70, heart.y - 96) <= 1.5);
+});
+
+test("dark creatures cannot cross into the First Fire", () => {
+  const pair = lightBoundaryPair();
+  const observer = id("observer");
+  const ctx = makeCtx({ sender: observer, now: micros(2_000), random: 0.9 });
+  seedFirstFire(ctx);
+  ctx.db.player.insert(playerRow(observer, { x: pair.inside.x, y: pair.inside.y }));
+  const creature = ctx.db.darkCreature.insert(darkCreatureRow({
+    x: pair.outside.x,
+    y: pair.outside.y,
+    ...pair.towardLight,
+  }));
+
+  tendEmbers(ctx, {} as any);
+
+  const after = ctx.db.darkCreature.id.find(creature.id);
+  assert.equal(isTileLit(ctx.db.brazier.zoneId.filter(ZONE), ZONE, Math.round(after.x), Math.round(after.y)), false);
+  assert.equal(ctx.db.player.identity.find(observer).health, PLAYER_MAX_HEALTH);
+});
+
+test("Gloam corpses vanish on lit ground and reform in the dark", () => {
+  const spawn = getZone(ZONE)!.spawn!;
+  const observer = id("observer");
+  const ctx = makeCtx({ sender: observer, now: micros(NPC_CORPSE_MS + 1) });
+  seedFirstFire(ctx);
+  ctx.db.player.insert(playerRow(observer));
+  const lit = ctx.db.darkCreature.insert(darkCreatureRow({ x: spawn.x, y: spawn.y, health: 0 }));
+  const dark = ctx.db.darkCreature.insert(darkCreatureRow({ x: spawn.x + FIRST_FIRE_RADIUS + 6, y: spawn.y, health: 0 }));
+
+  regenCreatures(ctx, {});
+
+  assert.equal(ctx.db.darkCreature.id.find(lit.id), undefined);
+  assert.equal(ctx.db.darkCreature.id.find(dark.id)?.health, DARK_CREATURE_MAX_HEALTH);
+});
+
 test("out-of-combat regen: heals after the delay, never before, never the dead", () => {
   const me = id("watcher");
   const ctx = makeCtx({ sender: me, now: micros(HEALTH_REGEN_DELAY_MS + 1000) });
@@ -878,6 +1051,90 @@ test("connecting seeds one eternal First Fire at the Hearth", () => {
   });
 });
 
+test("connecting pins the lit ring and exactly one penumbra ring", () => {
+  const ctx = makeCtx({ sender: id("cartographer") });
+
+  onConnect(ctx);
+
+  assert.deepEqual(
+    ctx.db.worldRing.rows().map((row: any) => [row.ring, row.seed, row.generatorVersion]),
+    [
+      [0, worldRingSeed(0), WORLD_GENERATOR_VERSION],
+      [1, worldRingSeed(1), WORLD_GENERATOR_VERSION],
+    ],
+  );
+});
+
+test("movement cannot project past the generated world ring", () => {
+  const edge = ringBoundaryPair();
+  const { ctx, me } = withPlayer({
+    x: edge.inside.x,
+    y: edge.inside.y,
+    movedAt: { microsSinceUnixEpoch: 0n },
+  });
+  ctx.db.worldRing.insert({ ring: 0, seed: worldRingSeed(0), generatorVersion: WORLD_GENERATOR_VERSION, generatedAt: ctx.timestamp });
+
+  move(ctx, { ...edge.heading, running: true });
+  ctx.timestamp = { microsSinceUnixEpoch: micros(1_000) };
+  move(ctx, { dirX: 0, dirY: 0, running: false });
+
+  const player = ctx.db.player.identity.find(me);
+  assert.equal(worldRingAt(getZone(ZONE)!.spawn!, Math.round(player.x), Math.round(player.y)), 0);
+});
+
+test("bright input banks only the recent activity window as kindling", () => {
+  const { ctx, me } = withPlayer(
+    { kindlingCharge: 0, kindlingChargeAt: { microsSinceUnixEpoch: 0n } },
+    { now: micros(KINDLING_ACTIVITY_WINDOW_MS * 3) },
+  );
+
+  move(ctx, { dirX: 1, dirY: 0, running: false });
+
+  assert.equal(ctx.db.player.identity.find(me).kindlingCharge, KINDLING_ACTIVITY_WINDOW_MS);
+});
+
+test("disconnect recalls an unlit trogg and preserves earned ember time", () => {
+  const zone = getZone(ZONE)!;
+  const spawn = zone.spawn!;
+  const me = id("ember");
+  const ctx = makeCtx({ sender: me, now: micros(KINDLING_ACTIVITY_WINDOW_MS * 2) });
+  seedFirstFire(ctx);
+  ctx.db.player.insert(playerRow(me, {
+    x: spawn.x + FIRST_FIRE_RADIUS + 6,
+    y: spawn.y,
+    kindlingChargeAt: { microsSinceUnixEpoch: 0n },
+  }));
+
+  onDisconnect(ctx);
+
+  const player = ctx.db.player.identity.find(me);
+  assert.equal(player.online, false);
+  assert.equal(player.kindlingCharge, KINDLING_ACTIVITY_WINDOW_MS);
+  assert.equal(isTileLit(ctx.db.brazier.zoneId.filter(ZONE), ZONE, Math.round(player.x), Math.round(player.y)), true);
+});
+
+test("an ember with exhausted kindling settles dormant at a hearth", () => {
+  const spawn = getZone(ZONE)!.spawn!;
+  const observer = id("observer");
+  const ember = id("ember");
+  const ctx = makeCtx({ sender: observer, now: micros(2_000) });
+  seedFirstFire(ctx);
+  ctx.db.player.insert(playerRow(observer));
+  ctx.db.player.insert(playerRow(ember, {
+    online: false,
+    x: spawn.x + FIRST_FIRE_RADIUS + 6,
+    y: spawn.y,
+    kindlingCharge: 1_000,
+    kindlingChargeAt: { microsSinceUnixEpoch: 0n },
+  }));
+
+  tendEmbers(ctx, {} as any);
+
+  const player = ctx.db.player.identity.find(ember);
+  assert.equal(player.kindlingCharge, 0);
+  assert.deepEqual({ x: player.x, y: player.y }, spawn);
+});
+
 test("brazier upkeep burns Wood while every lit frontier fire is funded", () => {
   const ctx = makeCtx({ sender: id("system") });
   const spawn = getZone(ZONE)!.spawn!;
@@ -921,6 +1178,63 @@ test("upkeep never gutters the First Fire and stops scheduling when the frontier
   assert.equal(ctx.db.brazier.id.find(first.id)?.lit, true);
   assert.equal(ctx.db.brazier.id.find(frontier.id)?.lit, false);
   assert.equal(ctx.db.brazierUpkeep.rows().length, 0);
+});
+
+test("an ember-heart and shared Wood start an ignition in the generated penumbra", () => {
+  const site = ignitionSite();
+  const { ctx, me } = withPlayer({ x: site.playerX, y: site.playerY, carrying: "ember_heart" });
+  seedFirstFire(ctx);
+  ctx.db.worldRing.insert({ ring: 0, seed: worldRingSeed(0), generatorVersion: WORLD_GENERATOR_VERSION, generatedAt: ctx.timestamp });
+  ctx.db.worldRing.insert({ ring: 1, seed: worldRingSeed(1), generatorVersion: WORLD_GENERATOR_VERSION, generatedAt: ctx.timestamp });
+  ctx.db.stockpile.insert({ item: "wood", qty: IGNITION_FUEL_COST + 5 });
+
+  interact(ctx, { dirX: 1, dirY: 0 });
+
+  const project = ctx.db.project.rows()[0];
+  assert.equal(project.status, "active");
+  assert.deepEqual({ x: project.x, y: project.y }, { x: site.x, y: site.y });
+  assert.equal(ctx.db.stockpile.item.find("wood")?.qty, 5);
+  assert.equal(ctx.db.player.identity.find(me).carrying, "");
+  assert.equal(ctx.db.ignitionEvent.rows().length, 1);
+  assert.equal(ctx.db.darkCreature.rows().length, 2);
+});
+
+test("a defended ignition lights a brazier and advances the pinned rings", () => {
+  const site = ignitionSite();
+  const { ctx } = withPlayer({ x: site.playerX, y: site.playerY, carrying: "ember_heart" });
+  seedFirstFire(ctx);
+  ctx.db.worldRing.insert({ ring: 0, seed: worldRingSeed(0), generatorVersion: WORLD_GENERATOR_VERSION, generatedAt: ctx.timestamp });
+  ctx.db.worldRing.insert({ ring: 1, seed: worldRingSeed(1), generatorVersion: WORLD_GENERATOR_VERSION, generatedAt: ctx.timestamp });
+  ctx.db.stockpile.insert({ item: "wood", qty: IGNITION_FUEL_COST });
+  interact(ctx, { dirX: 1, dirY: 0 });
+  ctx.db.darkCreature.clear();
+  ctx.timestamp = { microsSinceUnixEpoch: micros(IGNITION_WINDOW_MS + 1) };
+
+  advanceIgnitions(ctx, {} as any);
+
+  assert.equal(ctx.db.project.rows()[0].status, "completed");
+  assert.equal(ctx.db.brazier.rows().some((row: any) => row.x === site.x && row.y === site.y && row.lit), true);
+  assert.equal(ctx.db.worldRing.rows().at(-1).ring, 2);
+  assert.equal(ctx.db.brazierUpkeep.rows().length, 1);
+});
+
+test("an undefended ignition fails and consumes its stake", () => {
+  const site = ignitionSite();
+  const { ctx, me } = withPlayer({ x: site.playerX, y: site.playerY, carrying: "ember_heart" });
+  seedFirstFire(ctx);
+  ctx.db.worldRing.insert({ ring: 0, seed: worldRingSeed(0), generatorVersion: WORLD_GENERATOR_VERSION, generatedAt: ctx.timestamp });
+  ctx.db.worldRing.insert({ ring: 1, seed: worldRingSeed(1), generatorVersion: WORLD_GENERATOR_VERSION, generatedAt: ctx.timestamp });
+  ctx.db.stockpile.insert({ item: "wood", qty: IGNITION_FUEL_COST });
+  interact(ctx, { dirX: 1, dirY: 0 });
+  ctx.db.darkCreature.clear();
+  ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), online: false });
+  ctx.timestamp = { microsSinceUnixEpoch: micros(IGNITION_WINDOW_MS + 1) };
+
+  advanceIgnitions(ctx, {} as any);
+
+  assert.equal(ctx.db.project.rows()[0].status, "failed");
+  assert.equal(ctx.db.brazier.rows().filter((row: any) => !row.isEternal).length, 0);
+  assert.equal(ctx.db.stockpile.item.find("wood"), undefined);
 });
 
 test("connecting a second tab for the same account does not reset active movement", () => {

@@ -8,6 +8,8 @@ import {
   isWalkable,
   STARTING_ZONE_SLUG,
   MAX_GROUND_ITEMS_PER_ZONE,
+  MAX_EMBER_HEARTS_PER_ZONE,
+  EMBER_HEART_DROP_CHANCE,
   PLAYER_MAX_HEALTH,
   PLAYER_RESPAWN_MS,
   snapToTile,
@@ -132,7 +134,7 @@ export function dropInventory(ctx: Ctx, target: NonNullable<ReturnType<typeof pl
 export function damagePlayer(ctx: Ctx, target: NonNullable<ReturnType<typeof playerAt>>, amount: number): PlayerDamageResult {
   // the invulnerability cheat (GDD "Commands panel"): the swing lands, nothing changes
   if (target.cheatInvulnerable) return { health: target.health, killed: false, dealt: 0, droppedItemRows: 0, droppedItemQty: 0, respawnMs: 0 };
-  const dealt = Math.round(amount * (1 - blockFractionOf(target.equippedOffHand)));
+  const dealt = Math.min(target.health, Math.round(amount * (1 - blockFractionOf(target.equippedOffHand))));
   const health = Math.max(0, target.health - dealt);
   if (health > 0) {
     ctx.db.player.identity.update({ ...target, health, lastDamagedAt: ctx.timestamp });
@@ -175,6 +177,38 @@ export function damagePlayer(ctx: Ctx, target: NonNullable<ReturnType<typeof pla
     movedAt: ctx.timestamp,
   });
   return { health: 0, killed: true, dealt, droppedItemRows: dropped.rows, droppedItemQty: dropped.qty, respawnMs: PLAYER_RESPAWN_MS };
+}
+
+export function damageDarkCreature(
+  ctx: Ctx,
+  target: NonNullable<ReturnType<Ctx["db"]["darkCreature"]["id"]["find"]>>,
+  amount: number,
+): DamageResult {
+  const dealt = Math.min(target.health, amount);
+  const health = Math.max(0, target.health - dealt);
+  if (health > 0) {
+    ctx.db.darkCreature.id.update({ ...target, health, lastDamagedAt: ctx.timestamp });
+    return { health, killed: false, dealt };
+  }
+  const zone = getZone(target.zoneId);
+  const blockers = zone ? solidTiles(ctx, target.zoneId, ctx.timestamp) : new Set<string>();
+  const drop = zone && countRows(ctx.db.emberHeart.zoneId.filter(target.zoneId)) < MAX_EMBER_HEARTS_PER_ZONE && ctx.random() < EMBER_HEART_DROP_CHANCE
+    ? spawnTile(zone, (x, y) => blockers.has(tileKey(x, y)), target.x, target.y, 0, 0)
+    : undefined;
+  if (drop) ctx.db.emberHeart.insert({ id: 0n, zoneId: target.zoneId, x: drop.x, y: drop.y });
+  ctx.db.darkCreature.id.update({
+    ...target,
+    x: Math.round(target.x),
+    y: Math.round(target.y),
+    dirX: 0,
+    dirY: 0,
+    path: "",
+    health: 0,
+    lastDamagedAt: ctx.timestamp,
+    aggroTargetId: "",
+    movedAt: ctx.timestamp,
+  });
+  return { health: 0, killed: true, dealt };
 }
 
 /** Throw a legacy carried boulder along the exact aim. */

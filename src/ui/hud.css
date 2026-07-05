@@ -404,6 +404,31 @@ textarea {
   padding-bottom: 10px;
   border-bottom: 1px solid rgba(245, 221, 177, 0.2);
 }
+
+#hud .presence-status {
+  position: fixed;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  pointer-events: none;
+  padding: 7px 12px;
+  border: 1px solid color-mix(in srgb, var(--hud-ember) 65%, transparent);
+  background: rgba(10, 8, 6, 0.78);
+  color: var(--hud-bone);
+  font-family: "Press Start 2P", monospace;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+#hud .presence-status[data-state="ember"] {
+  color: var(--hud-ember);
+}
+
+#hud .presence-status[data-state="dormant"] {
+  color: var(--hud-bone-dim);
+  border-color: rgba(155, 138, 108, 0.5);
+}
 #hud .stockpile-header {
   display: flex;
   justify-content: space-between;

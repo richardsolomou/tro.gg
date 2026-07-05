@@ -22,6 +22,7 @@ export const TROGG_SKINS_3D: Record<string, TroggSkin3D> = {
 };
 
 export const GHOST_3D = { sheet: 0xf6f4ec, sheetDk: 0xd4d4cd, eye: 0x161616, foot: 0x9c6f3f, face: 0xf0dcab, faceDk: 0xcdac72 } as const;
+export const GLOAM_3D = { body: 0x17121f, shade: 0x09070d, ridge: 0x33243f, eye: 0xff5a2e, tooth: 0xd8c9b2 } as const;
 
 /** Tool and prop materials (tools/gen-item-art.ts). */
 export const ITEM_3D = {

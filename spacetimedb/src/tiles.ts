@@ -1,5 +1,6 @@
 import {
   BOULDER_HIT_RADIUS,
+  DARK_CREATURE_HIT_RADIUS,
   TREE_HIT_RADIUS,
   CARDINALS,
   DIR_SCALE,
@@ -14,9 +15,11 @@ import {
   projectMotionState,
   snapToTile,
   spawnTile,
+  STARTING_ZONE_SLUG,
   type Stamp,
   tileKey,
   type Zone,
+  worldRingAt,
   zoneBounds,
 } from "../../shared/index";
 import type { Ctx } from "./schema";
@@ -57,7 +60,7 @@ export function settle(ctx: Ctx, p: Settleable, now: Stamp): { x: number; y: num
   const zone = getZone(p.zoneId);
   if (!zone) return { x: p.x, y: p.y, z: p.z ?? 0 };
   const blockers = troggBlockers(ctx, p.zoneId, now);
-  const bounds = zoneBounds(zone, (x, y) => blockers.has(tileKey(x, y)));
+  const bounds = zoneBounds(zone, (x, y) => !generatedTile(ctx, p.zoneId, x, y) || blockers.has(tileKey(x, y)));
   const at = projectMotionState(p, elapsedMs(p.movedAt, now), bounds);
   return { x: at.x, y: at.y, z: at.z };
 }
@@ -78,9 +81,34 @@ export function obstacleTiles(ctx: Ctx, zoneId: string): Set<string> {
   return tiles;
 }
 
+export function generatedTile(ctx: Ctx, zoneId: string, x: number, y: number): boolean {
+  if (zoneId !== STARTING_ZONE_SLUG) return true;
+  const origin = getZone(zoneId)?.spawn;
+  if (!origin) return false;
+  let generatedThrough = -1;
+  for (const row of ctx.db.worldRing.iter()) generatedThrough = Math.max(generatedThrough, row.ring);
+  return generatedThrough < 0 || worldRingAt(origin, x, y) <= generatedThrough;
+}
+
+export function darkCreatureTiles(ctx: Ctx, zoneId: string, now: Stamp): Set<string> {
+  const zone = getZone(zoneId);
+  if (!zone) return new Set();
+  const staticTiles = obstacleTiles(ctx, zoneId);
+  const bounds = zoneBounds(zone, (x, y) => !generatedTile(ctx, zoneId, x, y) || staticTiles.has(tileKey(x, y)));
+  const tiles = new Set<string>();
+  for (const creature of ctx.db.darkCreature.zoneId.filter(zoneId)) {
+    if (creature.health <= 0) continue;
+    const pos = projectMotion({ ...creature, running: false }, elapsedMs(creature.movedAt, now), bounds);
+    tiles.add(tileKey(Math.round(pos.x), Math.round(pos.y)));
+  }
+  return tiles;
+}
+
 /** Tiles solid to a trogg. Troggs do not collide with one another. */
 export function troggBlockers(ctx: Ctx, zoneId: string, _now: Stamp): Set<string> {
-  return obstacleTiles(ctx, zoneId);
+  const tiles = obstacleTiles(ctx, zoneId);
+  for (const key of darkCreatureTiles(ctx, zoneId, _now)) tiles.add(key);
+  return tiles;
 }
 
 /** Add online trogg tiles, skipping `exclude`. */
@@ -88,7 +116,7 @@ export function addPlayerTiles(ctx: Ctx, zoneId: string, now: Stamp, set: Set<st
   const zone = getZone(zoneId);
   if (!zone) return;
   const blockers = troggBlockers(ctx, zoneId, now);
-  const bounds = zoneBounds(zone, (x, y) => blockers.has(tileKey(x, y)));
+  const bounds = zoneBounds(zone, (x, y) => !generatedTile(ctx, zoneId, x, y) || blockers.has(tileKey(x, y)));
   for (const p of ctx.db.player.zoneId.filter(zoneId)) {
     if (!p.online) continue;
     if (exclude && p.identity.isEqual(exclude)) continue;
@@ -146,6 +174,20 @@ export function nearestGroundItem(ctx: Ctx, zoneId: string, cx: number, cy: numb
   return best?.row;
 }
 
+export function nearestEmberHeart(ctx: Ctx, zoneId: string, x: number, y: number, dirX: number, dirY: number) {
+  const facedX = Math.round(x) + dirX;
+  const facedY = Math.round(y) + dirY;
+  let best: { row: ReturnType<Ctx["db"]["emberHeart"]["id"]["find"]> extends infer Row ? NonNullable<Row> : never; score: number } | undefined;
+  for (const heart of ctx.db.emberHeart.zoneId.filter(zoneId)) {
+    const distance = Math.hypot(heart.x - x, heart.y - y);
+    if (distance > 1.5) continue;
+    const faced = heart.x === facedX && heart.y === facedY;
+    const score = distance - (faced ? 10 : 0);
+    if (!best || score < best.score) best = { row: heart, score };
+  }
+  return best?.row;
+}
+
 /**
  * The online, living trogg currently on a tile in a zone, or undefined. Troggs do
  * not collide with each other, but sword attacks need a server-authoritative target
@@ -156,7 +198,7 @@ export function playerAt(ctx: Ctx, zoneId: string, x: number, y: number, now: St
   const zone = getZone(zoneId);
   if (!zone) return undefined;
   const blockers = troggBlockers(ctx, zoneId, now);
-  const bounds = zoneBounds(zone, (tx, ty) => blockers.has(tileKey(tx, ty)));
+  const bounds = zoneBounds(zone, (tx, ty) => !generatedTile(ctx, zoneId, tx, ty) || blockers.has(tileKey(tx, ty)));
   for (const p of ctx.db.player.zoneId.filter(zoneId)) {
     if (!p.online || p.dead) continue;
     if (exclude && p.identity.isEqual(exclude)) continue;
@@ -177,7 +219,7 @@ export function meleePlayerTarget(ctx: Ctx, zoneId: string, cx: number, cy: numb
   const zone = getZone(zoneId);
   if (!zone) return undefined;
   const blockers = troggBlockers(ctx, zoneId, now);
-  const bounds = zoneBounds(zone, (tx, ty) => blockers.has(tileKey(tx, ty)));
+  const bounds = zoneBounds(zone, (tx, ty) => !generatedTile(ctx, zoneId, tx, ty) || blockers.has(tileKey(tx, ty)));
   let best: { target: NonNullable<ReturnType<typeof playerAt>>; dist: number } | undefined;
   for (const p of ctx.db.player.zoneId.filter(zoneId)) {
     if (!p.online || p.dead) continue;
@@ -185,6 +227,21 @@ export function meleePlayerTarget(ctx: Ctx, zoneId: string, cx: number, cy: numb
     const pos = projectMotion(p, elapsedMs(p.movedAt, now), bounds);
     const dist = meleeHit(cx, cy, aim.dirX, aim.dirY, { x: pos.x + 0.5, y: pos.y + 0.5, radius: PLAYER_HIT_RADIUS });
     if (dist !== undefined && (!best || dist < best.dist)) best = { target: p, dist };
+  }
+  return best;
+}
+
+export function meleeDarkCreatureTarget(ctx: Ctx, zoneId: string, cx: number, cy: number, aim: { dirX: number; dirY: number }, now: Stamp) {
+  const zone = getZone(zoneId);
+  if (!zone) return undefined;
+  const blockers = obstacleTiles(ctx, zoneId);
+  const bounds = zoneBounds(zone, (tx, ty) => !generatedTile(ctx, zoneId, tx, ty) || blockers.has(tileKey(tx, ty)));
+  let best: { target: ReturnType<Ctx["db"]["darkCreature"]["id"]["find"]> extends infer Row ? NonNullable<Row> : never; dist: number } | undefined;
+  for (const creature of ctx.db.darkCreature.zoneId.filter(zoneId)) {
+    if (creature.health <= 0) continue;
+    const pos = projectMotion({ ...creature, running: false }, elapsedMs(creature.movedAt, now), bounds);
+    const dist = meleeHit(cx, cy, aim.dirX, aim.dirY, { x: pos.x + 0.5, y: pos.y + 0.5, radius: DARK_CREATURE_HIT_RADIUS });
+    if (dist !== undefined && (!best || dist < best.dist)) best = { target: creature, dist };
   }
   return best;
 }
@@ -246,6 +303,8 @@ export function placeCarriedAt(ctx: Ctx, zone: Zone, kind: string, _style: strin
   if (kind === "boulder") {
     if (countRows(ctx.db.boulder.zoneId.filter(zone.slug)) >= MAX_BOULDERS_PER_ZONE) return false;
     ctx.db.boulder.insert({ id: 0n, zoneId: zone.slug, x: tile.x, y: tile.y, health: BOULDER_MAX_HEALTH, cellId: 0 });
+  } else if (kind === "ember_heart") {
+    ctx.db.emberHeart.insert({ id: 0n, zoneId: zone.slug, x: tile.x, y: tile.y });
   } else {
     return false;
   }

@@ -10,6 +10,9 @@ import {
   BOULDER_MAX_HEALTH,
   TREE_MAX_HEALTH,
   PLAYER_MAX_HEALTH,
+  DARK_CREATURE_MAX_HEALTH,
+  NPC_CORPSE_MS,
+  tileKey,
   projectMotion,
 } from "../../shared/index";
 import {
@@ -17,6 +20,12 @@ import {
   armBrazierUpkeep,
   armRegen,
   runBrazierUpkeep,
+  armEmberWander,
+  runEmberWork,
+  runDarkCreatures,
+  brazierLightTiles,
+  armIgnitions,
+  runIgnitions,
   respawnDue,
   scheduleRespawnAt,
   respawnPlayer,
@@ -123,6 +132,8 @@ const player = table(
     // ticked. Grounded rows stay 0/0.
     z: t.f64().default(0),
     dirZ: t.i32().default(0),
+    kindlingCharge: t.f64().default(0),
+    kindlingChargeAt: t.timestamp().default(Timestamp.UNIX_EPOCH),
   },
 );
 
@@ -218,6 +229,62 @@ const tree = table(
     y: t.i32(),
     // Appended with a default (see the player table's migration note).
     health: t.i32().default(TREE_MAX_HEALTH),
+  },
+);
+
+const darkCreature = table(
+  { name: "dark_creature", public: true },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    zoneId: t.string().index("btree"),
+    x: t.f64(),
+    y: t.f64(),
+    dirX: t.i32(),
+    dirY: t.i32(),
+    movedAt: t.timestamp(),
+    path: t.string().default(""),
+    species: t.string(),
+    health: t.i32().default(DARK_CREATURE_MAX_HEALTH),
+    lastDamagedAt: t.timestamp().default(Timestamp.UNIX_EPOCH),
+    aggroTargetId: t.string().default(""),
+    lastAttackAt: t.timestamp().default(Timestamp.UNIX_EPOCH),
+  },
+);
+
+const emberHeart = table(
+  { name: "ember_heart", public: true },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    zoneId: t.string().index("btree"),
+    x: t.i32(),
+    y: t.i32(),
+  },
+);
+
+const project = table(
+  { name: "project", public: true },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    slug: t.string(),
+    zoneId: t.string().index("btree"),
+    x: t.i32(),
+    y: t.i32(),
+    status: t.string(),
+    requirements: t.string(),
+    contributed: t.string(),
+    startedBy: t.identity(),
+    startedAt: t.timestamp(),
+    endsAt: t.timestamp(),
+  },
+);
+
+const worldRing = table(
+  { name: "world_ring", public: true },
+  {
+    ring: t.u32().primaryKey(),
+    seed: t.u32(),
+    generatorVersion: t.u32(),
+    generatedAt: t.timestamp(),
   },
 );
 
@@ -337,6 +404,22 @@ const brazierUpkeep = table(
   },
 );
 
+const emberWander = table(
+  { name: "ember_wander", scheduled: (): any => tendEmbers },
+  {
+    scheduledId: t.u64().primaryKey().autoInc(),
+    scheduledAt: t.scheduleAt(),
+  },
+);
+
+const ignitionEvent = table(
+  { name: "ignition_event", scheduled: (): any => advanceIgnitions },
+  {
+    scheduledId: t.u64().primaryKey().autoInc(),
+    scheduledAt: t.scheduleAt(),
+  },
+);
+
 /**
  * Shared world dials (GDD "Debug cheats") — one public singleton row (id 0).
  * `skyLocked`/`skyPhase` pin the day-night cycle for EVERYONE: the cycle is
@@ -353,7 +436,7 @@ const worldState = table(
   },
 );
 
-const spacetimedb = schema({ player, chatMessage, ghostHaunt, claimCode, boulder, tree, groundItem, inventory, stockpile, stockpileContribution, brazier, playerConnection, playerRespawn, creatureRegen, brazierUpkeep, worldState });
+const spacetimedb = schema({ player, chatMessage, ghostHaunt, claimCode, boulder, tree, darkCreature, emberHeart, project, worldRing, groundItem, inventory, stockpile, stockpileContribution, brazier, playerConnection, playerRespawn, creatureRegen, brazierUpkeep, emberWander, ignitionEvent, worldState });
 export default spacetimedb;
 
 /** The reducer context, typed against this module's schema (db view + sender). */
@@ -371,12 +454,36 @@ export const regenCreatures = spacetimedb.reducer({ timer: creatureRegen.rowType
   const online = anyPlayerOnline(ctx);
   const now = ctx.timestamp;
   if (online) {
+    const onlineZones = new Set<string>();
+    for (const p of ctx.db.player.iter()) if (p.online) onlineZones.add(p.zoneId);
     const rested = (lastDamagedAt: { microsSinceUnixEpoch: bigint } | undefined) =>
       !lastDamagedAt || elapsedMs(lastDamagedAt, now) >= HEALTH_REGEN_DELAY_MS;
     for (const p of ctx.db.player.iter()) {
       if (p.dead || p.health >= PLAYER_MAX_HEALTH || !rested(p.lastDamagedAt)) continue;
       const heal = Math.ceil(PLAYER_MAX_HEALTH * HEALTH_REGEN_FRACTION);
       ctx.db.player.identity.update({ ...p, health: Math.min(PLAYER_MAX_HEALTH, p.health + heal) });
+    }
+    for (const creature of ctx.db.darkCreature.iter()) {
+      if (!onlineZones.has(creature.zoneId)) continue;
+      if (creature.health <= 0) {
+        if (elapsedMs(creature.lastDamagedAt, now) < NPC_CORPSE_MS) continue;
+        const lit = brazierLightTiles(ctx, creature.zoneId);
+        if (lit.has(tileKey(Math.round(creature.x), Math.round(creature.y)))) {
+          ctx.db.darkCreature.id.delete(creature.id);
+        } else {
+          ctx.db.darkCreature.id.update({
+            ...creature,
+            health: DARK_CREATURE_MAX_HEALTH,
+            lastDamagedAt: Timestamp.UNIX_EPOCH,
+            lastAttackAt: Timestamp.UNIX_EPOCH,
+            movedAt: now,
+          });
+        }
+        continue;
+      }
+      if (creature.health >= DARK_CREATURE_MAX_HEALTH || !rested(creature.lastDamagedAt)) continue;
+      const heal = Math.ceil(DARK_CREATURE_MAX_HEALTH * HEALTH_REGEN_FRACTION);
+      ctx.db.darkCreature.id.update({ ...creature, health: Math.min(DARK_CREATURE_MAX_HEALTH, creature.health + heal) });
     }
   }
   ctx.db.creatureRegen.clear();
@@ -387,6 +494,19 @@ export const maintainBraziers = spacetimedb.reducer({ timer: brazierUpkeep.rowTy
   ctx.db.brazierUpkeep.clear();
   runBrazierUpkeep(ctx);
   armBrazierUpkeep(ctx);
+});
+
+export const tendEmbers = spacetimedb.reducer({ timer: emberWander.rowType }, (ctx) => {
+  ctx.db.emberWander.clear();
+  runEmberWork(ctx);
+  runDarkCreatures(ctx);
+  armEmberWander(ctx);
+});
+
+export const advanceIgnitions = spacetimedb.reducer({ timer: ignitionEvent.rowType }, (ctx) => {
+  ctx.db.ignitionEvent.clear();
+  runIgnitions(ctx);
+  armIgnitions(ctx);
 });
 
 /** Respawn a dead trogg whose one-shot death timer has elapsed. */

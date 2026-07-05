@@ -77,6 +77,47 @@ export const BRAZIER_UPKEEP_ITEM: StockpileItemId = "wood";
 export const BRAZIER_UPKEEP_RATE = 1;
 export const BRAZIER_UPKEEP_INTERVAL_MS = 5 * 60_000;
 
+/** Presence: active play banks up to four hours of equally long ember time.
+ * A single input can only claim the recent activity window, so an idle socket
+ * cannot mint charge with one late key press. (initial) */
+export const KINDLING_CHARGE_MAX_MS = 4 * 60 * 60_000;
+export const KINDLING_CHARGE_ACCRUAL_RATE = 1;
+export const KINDLING_CHARGE_DECAY_RATE = 1;
+export const KINDLING_ACTIVITY_WINDOW_MS = 30_000;
+export const EMBER_EFFICIENCY_FRACTION = 0.3;
+export const EMBER_WANDER_INTERVAL_MS = 2_000;
+export const EMBER_NODE_DAMAGE = Math.max(1, Math.round(17 * EMBER_EFFICIENCY_FRACTION));
+
+/** The first dark-creature species and its hostile cadence. (initial) */
+export const DARK_CREATURE_SPECIES = ["gloam"] as const;
+export type DarkCreatureSpecies = (typeof DARK_CREATURE_SPECIES)[number];
+export const DARK_CREATURE_MAX_HEALTH = 80;
+export const DARK_CREATURE_AGGRO_RANGE = 9;
+export const DARK_CREATURE_ATTACK_RANGE = 1.55;
+export const DARK_CREATURE_ATTACK_COOLDOWN_MS = 1_500;
+export const DARK_CREATURE_DAMAGE: readonly [number, number] = [8, 14];
+export const DARK_CREATURE_HIT_RADIUS = 0.48;
+export const DARK_CREATURE_TURN_CHANCE = 0.28;
+export const DARK_CREATURE_IDLE_CHANCE = 0.18;
+export const MAX_DARK_CREATURES_PER_ZONE = 128;
+export const MAX_EMBER_HEARTS_PER_ZONE = 128;
+export const NPC_CORPSE_MS = 30_000;
+export const EMBER_HEART_DROP_CHANCE = 0.25;
+
+/** Ignition: stake a frontier fire, then hold it through a short defence. (initial) */
+export const IGNITION_FUEL_COST = 25;
+export const IGNITION_RELIGHT_FUEL_COST = 10;
+export const IGNITION_WINDOW_MS = 60_000;
+export const IGNITION_RELIGHT_WINDOW_MS = 30_000;
+export const IGNITION_TICK_MS = 10_000;
+export const IGNITION_DEFENSE_RADIUS = 4;
+export const IGNITION_WAVE_COUNT = 2;
+export const IGNITION_SITE_MAX_DISTANCE = BRAZIER_RADIUS * 2 + 2;
+
+export function isDarkCreatureSpecies(value: string): value is DarkCreatureSpecies {
+  return (DARK_CREATURE_SPECIES as readonly string[]).includes(value);
+}
+
 /** Inventory capacity (GDD "Inventory"): each row occupies one visible carry slot. (initial) */
 export const INVENTORY_SLOT_COUNT = 20;
 

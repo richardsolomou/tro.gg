@@ -88,6 +88,10 @@ export function makeCtx(opts: FakeCtxOpts) {
       player: makeTable({ pk: "identity", indexes: ["zoneId"] }),
       boulder: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
       tree: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
+      darkCreature: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
+      emberHeart: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
+      project: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
+      worldRing: makeTable({ pk: "ring" }),
       groundItem: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
       inventory: makeTable({ pk: "id", autoInc: true, indexes: ["playerId"] }),
       stockpile: makeTable({ pk: "item" }),
@@ -101,6 +105,8 @@ export function makeCtx(opts: FakeCtxOpts) {
       worldState: makeTable({ pk: "id" }),
       creatureRegen: makeTable({ pk: "scheduledId", autoInc: true }),
       brazierUpkeep: makeTable({ pk: "scheduledId", autoInc: true }),
+      emberWander: makeTable({ pk: "scheduledId", autoInc: true }),
+      ignitionEvent: makeTable({ pk: "scheduledId", autoInc: true }),
     },
   };
 }
@@ -142,6 +148,8 @@ export function playerRow(identity: Id, over: Record<string, unknown> = {}) {
     cheatNoclip: false,
     z: 0,
     dirZ: 0,
+    kindlingCharge: 0,
+    kindlingChargeAt: { microsSinceUnixEpoch: 0n },
     ...over,
   };
 }

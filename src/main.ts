@@ -9,6 +9,7 @@ import { mountCoach } from "./ui/coach.js";
 import { mountGameMenu } from "./ui/menu.js";
 import { mountWorldMap } from "./ui/worldmap.js";
 import { mountInventory } from "./ui/inventory.js";
+import { mountPresence } from "./ui/presence.js";
 import { startReconnect } from "./net/reconnect.js";
 import { watchForUpdate } from "./version.js";
 import { StartGame } from "./game/main.js";
@@ -107,7 +108,10 @@ async function main() {
     // guest "Claim account with Discord" button beside the rest of "who your
     // trogg is".
     mountAppearance(conn, { signedIn, authAvailable, claimFailed: signInReturn === "error" });
-    if (conn.identity) mountInventory(conn, conn.identity.toHexString());
+    if (conn.identity) {
+      mountInventory(conn, conn.identity.toHexString());
+      mountPresence(conn, conn.identity.toHexString());
+    }
 
     // The frontend deploys separately from the backend (Cloudflare vs the VPS), so
     // a client-only deploy fires no socket disconnect — poll for it instead and
