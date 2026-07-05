@@ -98,7 +98,6 @@ test("findPath routes around walls using cardinal waypoints", () => {
     height: 5,
     tiles: ["#######", "#.....#", "#.###.#", "#.....#", "#######"],
     boulders: [],
-    hogs: [],
   };
   const bounds = zoneBounds(maze);
   const path = findPath(bounds, { x: 1, y: 1 }, { x: 5, y: 3 });
@@ -150,7 +149,7 @@ test("path motion stalls at the tile it's entering when that tile is blocked", (
 });
 
 test("path motion never rewinds onto a blocked tile it has already crossed", () => {
-  // A Hog wanders onto (2,1) — a tile the trogg already walked over — after the route
+  // A roaming creature wanders onto (2,1) — a tile the trogg already walked over — after the route
   // was planned. The projection must keep going forward (it's past that tile), not
   // snap back to it. At ~750ms (3 tiles) it's stepping into (4,1), still ahead.
   const passedBlock = zoneBounds(openRoom, (x, y) => x === 2 && y === 1);
@@ -304,36 +303,36 @@ test("spawnTiles skips blocked tiles and returns only unique free tiles", () => 
 
 const dirKeys = (dirs: { dirX: number; dirY: number }[]) => new Set(dirs.map((d) => `${d.dirX},${d.dirY}`));
 
-test("a hog's walkable headings exclude walls and the zone edge", () => {
+test("a sized mover's walkable headings exclude walls and the zone edge", () => {
   // (1,1) in the corner room: floor below and to the right, walls above and left.
   assert.deepEqual(dirKeys(walkableCardinals(cornered, 1, 1)), new Set(["0,1", "1,0"]));
 });
 
-test("a hog's walkable headings treat an occupied tile (boulder/hog/trogg) like a wall", () => {
+test("a sized mover's walkable headings treat an occupied tile (boulder/creature/trogg) like a wall", () => {
   // (3,1) in the 1-tile-tall corridor with the tile at (4,1) occupied: only left is open.
   assert.deepEqual(dirKeys(walkableCardinals(withBoulder, 3, 1)), new Set(["-1,0"]));
 });
 
-// --- Big (2×2) Hog footprints: a size-2 mover clamps across its whole footprint ---
+// --- Big (2×2) footprints: a size-2 mover clamps across its whole footprint ---
 
 // 6×4 open floor with a solid wall down column 4.
 const pillar: Zone = { slug: "pillar", name: "Pillar", width: 6, height: 4, tiles: ["....#.", "....#.", "....#.", "....#."] };
 const pillared = zoneBounds(pillar);
 
-test("a 2×2 hog stops its right edge flush against a wall, a tile sooner than a 1×1", () => {
+test("a 2×2 mover stops its right edge flush against a wall, a tile sooner than a 1×1", () => {
   // From x=0 on row 1: the 2×2 (cols x..x+1) halts at x=2 so cols 2,3 sit before wall col 4.
   assert.equal(projectMotion({ x: 0, y: 1, dirX: 1, dirY: 0, size: 2 }, 10_000, pillared).x, 2);
   // A 1×1 from the same spot reaches x=3, flush against the wall itself.
   assert.equal(projectMotion({ x: 0, y: 1, dirX: 1, dirY: 0 }, 10_000, pillared).x, 3);
 });
 
-test("a 2×2 hog is clamped so its whole footprint stays inside the zone", () => {
+test("a 2×2 mover is clamped so its whole footprint stays inside the zone", () => {
   // Open floor: a 2×2 can't pass width-2 / height-2 (its far edge would leave the zone).
   assert.equal(projectMotion({ x: 0, y: 2, dirX: 1, dirY: 0, size: 2 }, 10_000, open).x, open.width - 2);
   assert.equal(projectMotion({ x: 5, y: 0, dirX: 0, dirY: 1, size: 2 }, 10_000, open).y, open.height - 2);
 });
 
-test("a 2×2 hog's walkable headings test the whole leading edge", () => {
+test("a 2×2 mover's walkable headings test the whole leading edge", () => {
   // Footprint at (2,1) covers cols 2-3; stepping right would put col 3-4 onto wall col 4.
   assert.deepEqual(dirKeys(walkableCardinals(pillared, 2, 1, 2)), new Set(["-1,0", "0,-1", "0,1"]));
 });

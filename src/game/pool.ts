@@ -3,8 +3,8 @@ import * as THREE from "three";
 /**
  * Shared GPU resource pools. The models are all built from a small vocabulary
  * of parametric shapes and flat colours, but every build used to allocate its
- * own geometry and material — a hundred hogs meant thousands of identical GPU
- * buffers. Pooled resources are keyed by their parameters, marked
+ * own geometry and material — a hundred creatures meant thousands of identical
+ * GPU buffers. Pooled resources are keyed by their parameters, marked
  * `userData.shared`, and never disposed: `disposeObject` (and the icon
  * renderer) skip them, so tearing one model down can't yank a buffer out from
  * under every other instance.

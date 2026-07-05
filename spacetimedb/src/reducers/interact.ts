@@ -1,9 +1,9 @@
 import spacetimedb, { type Ctx, type AnalyticsEvent } from "../schema";
 import { t } from "spacetimedb/server";
-import { ScheduleAt, Timestamp } from "spacetimedb";
 import {
   getZone,
   isItemId,
+  isStockpileItemId,
   ITEM_PICKUP_RADIUS,
 } from "../../../shared/index";
 import {
@@ -14,22 +14,21 @@ import {
   settle,
   solidTiles,
   addInventory,
-  pickupTarget,
+  depositStockpile,
   nearestGroundItem,
-  effectiveHogStyle,
   placeCarried,
   cardinal,
 } from "../helpers";
 
 /**
  * Interact with nearby things (GDD "Interacting") — a generic action key (client
- * `E`). Empty-handed, pick up an adjacent ground item into inventory or lift an
- * adjacent Hog onto the trogg (delete its world row, stamp `carrying`); already
- * carrying, set it back down on the faced tile. The faced direction is
- * passed in because an idle trogg's standing facing isn't synced (GDD "Movement");
- * the server still re-derives the trogg's tile and only acts on adjacent targets,
- * preferring the faced tile when there are multiple candidates, so the client can't
- * reach past its neighbours (invariant 3).
+ * `E`). Empty-handed, pick up an adjacent ground item into inventory (or, for a
+ * stockpile item, straight into the shared stockpile); already carrying, set it
+ * back down on the faced tile. The faced direction is passed in because an idle
+ * trogg's standing facing isn't synced (GDD "Movement"); the server still
+ * re-derives the trogg's tile and only acts on adjacent targets, preferring the
+ * faced tile when there are multiple candidates, so the client can't reach past
+ * its neighbours (invariant 3).
  */
 function runInteract(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; dirY: number; source?: string }): AnalyticsEvent[] {
   const p = ctx.db.player.identity.find(ctx.sender);
@@ -50,9 +49,7 @@ function runInteract(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; dirY
     const place = placeCarried(ctx, zone, p.carrying, p.carryingStyle, occupied, pos.x, pos.y, dir?.dirX ?? 0, dir?.dirY ?? 0);
     if (place) ctx.db.player.identity.update({ ...p, carrying: "", carryingStyle: "" });
     if (!place) return [];
-    const properties: Record<string, string | number | boolean> = { ...props, kind };
-    if (kind === "hog" && p.carryingStyle !== "") properties.style = p.carryingStyle;
-    return [{ distinctId: distinctId(ctx), event: "object_dropped", properties }];
+    return [{ distinctId: distinctId(ctx), event: "object_dropped", properties: { ...props, kind } }];
   }
 
   // Ground items are lifted by radius, not facing — the nearest one within
@@ -61,18 +58,19 @@ function runInteract(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; dirY
   if (item) {
     if (!isItemId(item.item)) return [];
     const qty = item.qty ?? 1;
+    // A stockpile item (e.g. a debug-spawned stone) never reaches personal
+    // inventory, even via this path — it deposits straight into the shared
+    // stockpile, same as a gathered one (GDD "The fire and the dark").
+    if (isStockpileItemId(item.item)) {
+      depositStockpile(ctx, item.item, qty);
+      ctx.db.groundItem.id.delete(item.id);
+      return [];
+    }
     if (!addInventory(ctx, p.identity, item.item, qty)) return [];
     ctx.db.groundItem.id.delete(item.id);
     return [{ distinctId: distinctId(ctx), event: "inventory_item_acquired", properties: { ...props, item: item.item, qty } }];
   }
 
-  const target = pickupTarget(ctx, p.zoneId, Math.round(pos.x), Math.round(pos.y), dir, ctx.timestamp);
-  if (target?.kind === "hog") {
-    const carryingStyle = effectiveHogStyle(target.row);
-    ctx.db.hog.id.delete(target.row.id);
-    ctx.db.player.identity.update({ ...p, carrying: "hog", carryingStyle });
-    return [{ distinctId: distinctId(ctx), event: "object_picked_up", properties: { ...props, kind: "hog", style: carryingStyle } }];
-  }
   return [];
 }
 

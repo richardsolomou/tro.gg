@@ -9,6 +9,7 @@ import { mountCoach } from "./ui/coach.js";
 import { mountGameMenu } from "./ui/menu.js";
 import { mountWorldMap } from "./ui/worldmap.js";
 import { mountInventory } from "./ui/inventory.js";
+import { mountStockpile } from "./ui/stockpile.js";
 import { startReconnect } from "./net/reconnect.js";
 import { watchForUpdate } from "./version.js";
 import { StartGame } from "./game/main.js";
@@ -108,6 +109,7 @@ async function main() {
     // trogg is".
     mountAppearance(conn, { signedIn, authAvailable, claimFailed: signInReturn === "error" });
     if (conn.identity) mountInventory(conn, conn.identity.toHexString());
+    mountStockpile(conn);
 
     // The frontend deploys separately from the backend (Cloudflare vs the VPS), so
     // a client-only deploy fires no socket disconnect — poll for it instead and

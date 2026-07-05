@@ -4,7 +4,6 @@ import { CLICK_SLOP_PX, createOrbit } from "./controls.js";
 import {
   CAVE_DOOR,
   isBirthZone,
-  isDryFloor,
   EQUIPMENT_ACTION_MS,
   CHAT_BUBBLE_MS,
   DIR_SCALE,
@@ -13,8 +12,6 @@ import {
   getZone,
   GHOST_HAUNT_FRESH_MS,
   GLOWMOSS_TILE,
-  hogSize,
-  hogStyleFor,
   PLAYER_RESPAWN_MS,
   BOULDER_MAX_HEALTH,
   TREE_MAX_HEALTH,
@@ -39,7 +36,7 @@ import {
   type Zone,
 } from "@trogg/shared";
 import type { DbConnection } from "../net/module_bindings";
-import type { Boulder, GroundItem, Hog, Player, Tree } from "../net/module_bindings/types";
+import type { Boulder, GroundItem, Player, Tree } from "../net/module_bindings/types";
 import { attachKeyboard, isTyping, type MoveIntent } from "../input.js";
 import { setupChat } from "../ui/chat.js";
 import { coachHit } from "../ui/coach.js";
@@ -50,7 +47,7 @@ import { audio } from "../audio.js";
 import { interact, useEquipped } from "../net/procedures.js";
 import { isOlderPlayerMotion, playerMotionChanged, withPlayerMotion } from "../motion_sync.js";
 import { FarCrowd } from "./crowd.js";
-import { createEntities, disposeObject, type Entities, type HogView, type Tracked } from "./entities.js";
+import { createEntities, disposeObject, type Entities, type Tracked } from "./entities.js";
 import { buildBoulder, buildTree } from "./items.js";
 import { NodeField } from "./nodes.js";
 import { buildTerrain, type Terrain3D } from "./terrain.js";
@@ -88,8 +85,8 @@ const DAY_CYCLE_MS = 12 * 60 * 1000;
 /** World objects beyond this many tiles from the camera focus stop rendering. */
 const CULL_RANGE = 72;
 
-/** How many troggs (and, separately, Hogs) render at once: the nearest N within
- *  CULL_RANGE. A rig is ~20 draw calls, so an unbounded crowd is a slideshow. */
+/** How many troggs render at once: the nearest N within CULL_RANGE. A rig is
+ *  ~20 draw calls, so an unbounded crowd is a slideshow. */
 const CREATURE_BUDGET = 16;
 
 /** How many equipped torches shed real light at once (nearest first). */
@@ -143,9 +140,6 @@ export class World3D {
   /** In-flight thrown objects: a ghost model arcing from thrower to landing;
    *  on arrival the real object row is placed and the ghost disposed. */
   private throwsInFlight: { ghost: THREE.Object3D; from: THREE.Vector3; to: THREE.Vector3; arc: number; startMs: number; durMs: number; spin: number; land: () => void }[] = [];
-  /** Thrown Hog ids whose real row is held out of the scene mid-arc, so a stray
-   *  update can't reveal them before they land. */
-  private deferredHogs = new Set<string>();
   /** A threshold transfer is in flight; don't re-fire while the row updates. */
   private transferPending = false;
   /** Cleared until the camera has snapped to the local trogg once (first snapshot). */
@@ -185,7 +179,6 @@ export class World3D {
       });
     };
     budget([...this.tracked.entries()].map(([id, entry]) => ({ marker: entry.marker, keep: id === this.myId })));
-    budget([...this.hogs.values()].map((view) => ({ marker: view.marker })));
     // Torch firelight has its own, tighter budget: point lights cost every
     // fragment in a forward renderer (the glowmoss budget's reasoning), so only
     // the nearest few visible torch-bearers actually shed light — the rest still
@@ -209,11 +202,9 @@ export class World3D {
     canvas.style.opacity = "1";
   }
   private readonly groundItems = new Map<string, { row: GroundItem; group: THREE.Group }>();
-  private readonly hogs = new Map<string, HogView>();
 
   private readonly boulderTiles = new Set<string>();
   private readonly treeTiles = new Set<string>();
-  private readonly hogTiles = new Set<string>();
   private keyLight!: THREE.DirectionalLight;
   private hemi!: THREE.HemisphereLight;
   private sun!: THREE.Sprite;
@@ -307,7 +298,6 @@ export class World3D {
     fog.far = 150 - 80 * dark;
   }
   private selfPos?: { x: number; y: number };
-  private hogBounds!: ZoneBounds;
   private troggBounds!: ZoneBounds;
 
   private destinationTile?: Coord;
@@ -319,7 +309,6 @@ export class World3D {
   private rawIntent: MoveIntent = { dirX: 0, dirY: 0, running: false };
   private lastMapped: MoveIntent = { dirX: 0, dirY: 0, running: false };
 
-  private useHogs = false;
   private useGhost = false;
   private canRun = false;
   private useInteract = false;
@@ -351,23 +340,19 @@ export class World3D {
     this.parent.appendChild(this.renderer.domElement);
     this.mountVignette();
 
-    this.useHogs = isFeatureEnabled("roaming-hogs");
     this.useGhost = isFeatureEnabled("ghost-trogg");
     this.canRun = isFeatureEnabled("running");
     this.useInteract = isFeatureEnabled("interact");
     logInfo("World scene created", {
       zone: this.slug,
       renderer: "three",
-      roaming_hogs: this.useHogs,
       ghost_trogg: this.useGhost,
       running: this.canRun,
       interact: this.useInteract,
     });
 
-    // mirrors the server: water blocks a Hog like a boulder or tree (GDD "Zones")
     const obstructed = (x: number, y: number) => this.boulderTiles.has(tileKey(x, y)) || this.treeTiles.has(tileKey(x, y));
-    this.hogBounds = zoneBounds(this.zone, (x, y) => obstructed(x, y) || !isDryFloor(this.zone, x, y));
-    this.troggBounds = zoneBounds(this.zone, (x, y) => obstructed(x, y) || this.hogTiles.has(tileKey(x, y)));
+    this.troggBounds = zoneBounds(this.zone, obstructed);
 
     // Torch-lit cave: dim warm ambient, one shadowing key light, dark fog closing in
     // past the zone. Glowmoss tiles add their own teal point lights (terrain3d).
@@ -480,7 +465,6 @@ export class World3D {
     this.wireGroundItems();
     this.wireBoulders();
     this.wireTrees();
-    if (this.useHogs) this.wireHogs();
     if (this.useGhost) this.wireGhostHaunts();
 
     attachKeyboard(
@@ -607,9 +591,9 @@ export class World3D {
       `SELECT * FROM boulder WHERE zone_id = '${this.slug}'`,
       `SELECT * FROM tree WHERE zone_id = '${this.slug}'`,
       "SELECT * FROM world_state",
+      "SELECT * FROM stockpile",
     ];
     if (this.myId) queries.push(`SELECT * FROM inventory WHERE player_id = '${this.myId}'`);
-    if (this.useHogs) queries.push(`SELECT * FROM hog WHERE zone_id = '${this.slug}'`);
     if (this.useGhost) queries.push(`SELECT * FROM ghost_haunt WHERE zone_id = '${this.slug}'`);
 
     conn
@@ -637,29 +621,7 @@ export class World3D {
     const dt = Math.min(0.1, (now - this.lastMs) / 1000);
     this.lastMs = now;
 
-    // Hogs first, so trogg collision this frame sees where the Hogs actually are.
-    this.hogTiles.clear();
     this.crowd.begin();
-    for (const view of this.hogs.values()) {
-      const size = hogSize(view.style);
-      const motion = projectMotionState({ ...view.row, size }, now - view.baseMs, this.hogBounds);
-      this.entities.smoothPlace(view, motion.x, motion.y, dt);
-      // a corpse lies where it fell: no gait, no patter, and no collision
-      if (view.row.health <= 0) continue;
-      // hidden creatures (budgeted out or out of range) skip their animation
-      // mixers — position, collision, and sound still derive above; a moving
-      // silhouette stands in so a zoomed-out world still looks inhabited
-      if (view.marker.visible) this.entities.animateHog(view, now, dt, motion);
-      else this.crowd.add("hog", motion.x, motion.y, Math.atan2(motion.dirX, motion.dirY), size, view.style);
-      const tile = snapToTile({ x: motion.x, y: motion.y });
-      const stepKey = tileKey(tile.x, tile.y);
-      if (view.lastStepTile !== undefined && view.lastStepTile !== stepKey) {
-        audio.playHogStepAt(this.hearingDistance(motion.x, motion.y), size);
-      }
-      view.lastStepTile = stepKey;
-      for (const t of footprintTiles(tile.x, tile.y, size)) this.hogTiles.add(tileKey(t.x, t.y));
-    }
-
     for (const entry of this.tracked.values()) {
       const isSelf = entry.player.identity.toHexString() === this.myId;
       const motion = projectMotionState(entry.player, now - entry.baseMs, this.troggBounds);
@@ -785,7 +747,6 @@ export class World3D {
           troggMeshes,
           sceneObjects,
           totalObjects,
-          hogs: this.hogs.size,
           trees: this.trees.size,
           boulders: this.boulders.size,
           groundItems: this.groundItems.size,
@@ -1282,95 +1243,6 @@ export class World3D {
     conn.db.groundItem.onInsert((_ctx, row) => this.upsertGroundItem(row));
     conn.db.groundItem.onUpdate((_ctx, _old, row) => this.upsertGroundItem(row));
     conn.db.groundItem.onDelete((_ctx, row) => this.removeGroundItem(row));
-  }
-
-  private addHog(h: Hog): void {
-    const id = h.id.toString();
-    if (this.hogs.has(id)) return;
-    const facing = facingFromDir(h.dirX, h.dirY, "down");
-    const style = h.style || hogStyleFor(id, h.style);
-    const built = this.entities.makeHog(style, facing, h.health);
-    const baseMs = timestampBaseMs(h.movedAt);
-    const view: HogView = { marker: built.marker, model: built.model, overlays: built.overlays, row: h, baseMs, facing, style, gait: "idle", flashOn: false, corrX: 0, corrY: 0 };
-    const { x, y } = projectMotion({ ...h, size: hogSize(style) }, performance.now() - baseMs, this.hogBounds);
-    this.entities.place(view.marker, x, y);
-    this.hogs.set(id, view);
-    this.scene.add(view.marker);
-  }
-
-  private updateHog(h: Hog): void {
-    const view = this.hogs.get(h.id.toString());
-    if (!view) return this.addHog(h);
-    const style = hogStyleFor(h.id.toString(), h.style);
-    if (view.style !== style || view.row.health !== h.health) {
-      const { x, y } = projectMotion(view.row, performance.now() - view.baseMs, this.hogBounds);
-      this.entities.destroy(view);
-      const built = this.entities.makeHog(style, view.facing, h.health);
-      view.marker = built.marker;
-      view.model = built.model;
-      view.overlays = built.overlays;
-      view.style = style;
-      view.gait = "idle";
-      view.flashOn = false;
-      this.entities.place(view.marker, x, y);
-      this.scene.add(view.marker);
-    }
-    view.row = h;
-    view.baseMs = timestampBaseMs(h.movedAt);
-  }
-
-  private removeHog(h: Hog): void {
-    const view = this.hogs.get(h.id.toString());
-    if (view) this.entities.destroy(view);
-    this.hogs.delete(h.id.toString());
-  }
-
-  private wireHogs(): void {
-    const conn = this.conn;
-    conn.db.hog.onInsert((_ctx, h) => {
-      // A grounded Hog (seeded, dropped, or an ordinary roamer) just appears. A
-      // thrown one carries a future landingAt: hold it out of the scene, arc a
-      // ghost in from the thrower's hands, and reveal the real Hog when it lands.
-      // The server keeps it at rest past landingAt (THROWN_HOG_SETTLE_MS), so it
-      // can't stride off before the arc sets it down.
-      if (!h.landingAt || timestampMs(h.landingAt) - Date.now() <= 30) return this.addHog(h);
-      const id = h.id.toString();
-      this.deferredHogs.add(id);
-      // resolve on a microtask so the release is recorded first (see boulders)
-      queueMicrotask(() => {
-        const from = this.takeThrowOrigin("hog");
-        const land = () => {
-          this.deferredHogs.delete(id);
-          this.addHog(h);
-        };
-        if (from) {
-          const style = h.style || hogStyleFor(id, h.style);
-          const ghost = this.entities.makeHog(style, "down", h.health).marker;
-          this.flyGhost(ghost, from, h.x, h.y, thrownFlightMs(from.distanceTo(new THREE.Vector3(h.x, 0, h.y))), land);
-        } else {
-          // never saw the release: keep it hidden until the arc would have ended,
-          // then show it at rest (the server won't let it move yet anyway)
-          window.setTimeout(land, THROWN_FLIGHT_MAX_MS);
-        }
-      });
-    });
-    conn.db.hog.onUpdate((_ctx, _old, h) => {
-      if (this.deferredHogs.has(h.id.toString())) return; // still mid-arc; reveal on landing
-      const damaged = h.health < _old.health;
-      this.updateHog(h);
-      if (damaged) {
-        const view = this.hogs.get(h.id.toString());
-        if (view) {
-          view.flinchBaseMs = performance.now();
-          this.entities.showDamage(view.marker.position, _old.health - h.health, view.model.height * hogSize(view.style));
-        }
-      }
-      if (!this.sub.live) return;
-      // corpses don't snuffle (death zeroes the heading, which reads as a turn)
-      const changedHeading = h.health > 0 && (_old.dirX !== h.dirX || _old.dirY !== h.dirY);
-      if (changedHeading && Math.random() < 0.35) audio.playHogAt(this.hearingDistance(h.x, h.y));
-    });
-    conn.db.hog.onDelete((_ctx, h) => this.removeHog(h));
   }
 
   private wireGhostHaunts(): void {

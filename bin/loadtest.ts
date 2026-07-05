@@ -66,7 +66,7 @@ const DIRS = [
   { x: 1, y: 1 }, { x: -1, y: 1 }, { x: 1, y: -1 }, { x: -1, y: -1 },
   { x: 0, y: 0 },
 ];
-const PHRASES = ["onward", "sunny in the caves today", "hog!", "who took my pickaxe", "meet at the fords", "chop chop", "stone for sale"];
+const PHRASES = ["onward", "sunny in the caves today", "who took my pickaxe", "meet at the fords", "chop chop", "stone for sale"];
 /** Cap latency samples per worker so a big swarm can't drown the harness in bookkeeping. */
 const SAMPLE_CAP = 25_000;
 
@@ -92,7 +92,6 @@ async function runWorker(args: Args): Promise<void> {
         `SELECT * FROM ground_item WHERE zone_id = '${ZONE}'`,
         `SELECT * FROM boulder WHERE zone_id = '${ZONE}'`,
         `SELECT * FROM tree WHERE zone_id = '${ZONE}'`,
-        `SELECT * FROM hog WHERE zone_id = '${ZONE}'`,
       ];
 
   const starters: (() => () => void)[] = [];
@@ -114,7 +113,6 @@ async function runWorker(args: Args): Promise<void> {
             }
           });
           conn.db.player.onInsert(() => rowUpdates++);
-          if (!args.light) conn.db.hog.onUpdate(() => rowUpdates++);
           conn.db.chatMessage.onInsert((_ctx, row) => {
             rowUpdates++;
             const m = /@(\d{13})$/.exec(row.text);

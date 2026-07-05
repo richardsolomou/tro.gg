@@ -10,8 +10,7 @@ import {
   type Infer as __Infer,
 } from "spacetimedb";
 
-export const params = {
-  posthogKey: __t.string(),
-  source: __t.string(),
-};
-export const returnType = __t.unit()
+export default __t.row({
+  item: __t.string().primaryKey(),
+  qty: __t.i32(),
+});

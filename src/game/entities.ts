@@ -1,8 +1,8 @@
 import * as THREE from "three";
-import { EQUIPMENT_ACTION_MS, forward, HOG_HIT_RADIUS, hogMaxHealth, hogSize, MELEE_ARC_RAD, MELEE_RANGE_TILES, PLAYER_HIT_RADIUS, PLAYER_MAX_HEALTH, RUN_SPEED_TILES_PER_SEC, timestampMs, wieldOf, type EquipSlot, type Facing, type ProjectedMotion, type Stamp } from "@trogg/shared";
+import { EQUIPMENT_ACTION_MS, forward, MELEE_ARC_RAD, MELEE_RANGE_TILES, PLAYER_HIT_RADIUS, PLAYER_MAX_HEALTH, RUN_SPEED_TILES_PER_SEC, timestampMs, wieldOf, type EquipSlot, type Facing, type ProjectedMotion, type Stamp } from "@trogg/shared";
 import type { Player } from "../net/module_bindings/types";
 import { audio } from "../audio.js";
-import { buildGhost, buildHog, buildHogBall, buildTrogg } from "./creatures.js";
+import { buildGhost, buildTrogg } from "./creatures.js";
 import { buildBoulder, buildGroundItem, buildHeldItem, updateHeldFx, wireHeldFx, type HeldFx } from "./items.js";
 import { makeBubble, makeDamageText, makeHealthBar, makeLabel, makeStatusText, type Overlay } from "./overlays.js";
 import { ATTACK_PERIOD, type CreatureModel } from "./rig.js";
@@ -67,27 +67,6 @@ export interface Tracked {
   bubble?: Overlay;
   bubbleTimer?: ReturnType<typeof setTimeout>;
   respawn?: { overlay: Overlay; text: string; at: Stamp };
-  overlays: Overlay[];
-}
-
-/** A roaming Hog's display state. */
-export interface HogView {
-  /** The tile last stepped on, for the distance-faded patter of nearby Hogs. */
-  lastStepTile?: string;
-  marker: THREE.Group;
-  model: CreatureModel;
-  row: import("../net/module_bindings/types").Hog;
-  baseMs: number;
-  facing: Facing;
-  style: string;
-  gait: Gait;
-  flashOn: boolean;
-  /** Render-position correction state (`smoothPlace`). */
-  shownX?: number;
-  shownY?: number;
-  corrX: number;
-  corrY: number;
-  flinchBaseMs?: number;
   overlays: Overlay[];
 }
 
@@ -194,9 +173,10 @@ export function createEntities(scene: THREE.Scene) {
   };
 
   /** Place a creature with correction smoothing: projected positions can jump when
-   *  collision state changes under a live intent (a Hog claims the tile ahead and the
-   *  clamp rewinds the projection; an authority snap lands) — instead of popping, the
-   *  rendered marker absorbs the jump into an offset that glides out over ~120 ms.
+   *  collision state changes under a live intent (a moving obstacle claims the tile
+   *  ahead and the clamp rewinds the projection; an authority snap lands) — instead
+   *  of popping, the rendered marker absorbs the jump into an offset that glides out
+   *  over ~120 ms.
    *  Prediction and game logic keep using the raw projection; only the render eases. */
   const smoothPlace = (view: { marker: THREE.Group; shownX?: number; shownY?: number; corrX: number; corrY: number; running?: boolean }, x: number, y: number, dt: number) => {
     if (view.shownX === undefined || view.shownY === undefined) {
@@ -327,8 +307,8 @@ export function createEntities(scene: THREE.Scene) {
     return age >= 0 && age < EQUIPMENT_ACTION_MS ? age / EQUIPMENT_ACTION_MS : undefined;
   };
 
-  /** Point a creature at its motion and pick the gait action; shared by troggs and
-   *  Hogs. The attack action overrides the gait for its duration, then hands back. */
+  /** Point a creature at its motion and pick the gait action. The attack action
+   *  overrides the gait for its duration, then hands back. */
   const driveCreature = (
     model: CreatureModel,
     state: { facing: Facing; gait: Gait },
@@ -413,39 +393,6 @@ export function createEntities(scene: THREE.Scene) {
     }
   };
 
-  const makeHog = (style: string, facing: Facing, health: number) => {
-    const size = hogSize(style);
-    const dead = health <= 0;
-    const marker = new THREE.Group();
-    const model = buildHog(style);
-    const c = size / 2;
-    model.root.position.set(c, 0, c);
-    model.root.scale.setScalar(size);
-    model.root.rotation.y = facingYaw(facing);
-    marker.add(model.root);
-    model.actions.idle.legs.play();
-    model.actions.idle.arms.play();
-    if (dead) poseDead(model, c, 0.2 * size);
-    if (!dead) addHitbox(marker, hitRing(HOG_HIT_RADIUS * size, 0x6fdc9c), c);
-    const overlays: Overlay[] = [];
-    const max = hogMaxHealth(style);
-    const hp = dead ? max : Math.max(0, Math.min(max, health));
-    if (hp < max) {
-      const bar = makeHealthBar(max <= 0 ? 0 : hp / max, false);
-      bar.sprite.position.set(c, model.height * size + 0.24, c);
-      marker.add(bar.sprite);
-      overlays.push(bar);
-    }
-    return { marker, model, overlays };
-  };
-
-  /** Per-frame Hog driver (Hogs always walk; no attack). */
-  const animateHog = (view: HogView, now: number, dt: number, motion: ProjectedMotion) => {
-    driveCreature(view.model, view, motion.dirX, motion.dirY, false, dt, motion.dirX !== 0 || motion.dirY !== 0, false);
-    applyFlinch(view, now, hogSize(view.style) / 2);
-    view.model.mixer.update(dt);
-  };
-
   const makeGroundItem = (item: string) => {
     const marker = new THREE.Group();
     const glyph = buildGroundItem(item);
@@ -487,11 +434,10 @@ export function createEntities(scene: THREE.Scene) {
     (motes.material as THREE.PointsMaterial).opacity = 0.75 + 0.2 * Math.sin(now * 0.004 + phase);
   };
 
-  /** Sync the carried overlay (boulder / curled hog) to the player row. */
+  /** Sync the carried overlay (currently, a legacy boulder) to the player row. */
   const applyCarry = (entry: Tracked) => {
     const kind = entry.player.carrying;
-    const style = kind === "hog" ? entry.player.carryingStyle || "classic" : "";
-    if (kind === entry.carriedKind && style === entry.carriedStyle) return;
+    if (kind === entry.carriedKind) return;
     if (entry.carried) disposeObject(entry.carried);
     entry.carried = undefined;
     entry.carriedKind = "";
@@ -500,15 +446,6 @@ export function createEntities(scene: THREE.Scene) {
     if (kind === "boulder") {
       overlay = buildBoulder();
       overlay.scale.setScalar(0.7);
-    } else if (kind === "hog") {
-      // a picked-up hog curls into its defensive ball; the chicken has no ball and
-      // rides upright instead (GDD "Hog ball form")
-      if (style === "chicken") {
-        overlay = buildHog("chicken").root;
-        overlay.scale.setScalar(0.8);
-      } else {
-        overlay = buildHogBall(style);
-      }
     }
     if (!overlay) return;
     overlay.position.set(0, entry.model.height + 0.18, 0);
@@ -516,7 +453,6 @@ export function createEntities(scene: THREE.Scene) {
     entry.model.root.add(overlay);
     entry.carried = overlay;
     entry.carriedKind = kind;
-    entry.carriedStyle = style;
   };
 
   /** Sync held items to the equipped rows: parent each item model to the rig's hand
@@ -566,7 +502,7 @@ export function createEntities(scene: THREE.Scene) {
     }, ttlMs);
   };
 
-  /** Tear down a tracked trogg (or hog view): timers, overlays, GPU resources. */
+  /** Tear down a tracked trogg: timers, overlays, GPU resources. */
   const destroy = (entry: { marker: THREE.Group; overlays: Overlay[]; bubbleTimer?: ReturnType<typeof setTimeout>; bubble?: Overlay; respawn?: Tracked["respawn"] }) => {
     if (entry.bubbleTimer) clearTimeout(entry.bubbleTimer);
     entry.bubble?.dispose();
@@ -647,7 +583,7 @@ export function createEntities(scene: THREE.Scene) {
     }
   };
 
-  return { place, smoothPlace, headTop, makeMarker, animate, makeHog, animateHog, makeGroundItem, animatePickupMotes, applyCarry, applyEquipment, showBubble, showDamage, destroy, hauntGhost, updateGhosts, setHitboxes, updateReach };
+  return { place, smoothPlace, headTop, makeMarker, animate, makeGroundItem, animatePickupMotes, applyCarry, applyEquipment, showBubble, showDamage, destroy, hauntGhost, updateGhosts, setHitboxes, updateReach };
 }
 
 export type Entities = ReturnType<typeof createEntities>;

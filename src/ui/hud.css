@@ -532,6 +532,40 @@ textarea {
   display: none;
 }
 
+/* The tribe's shared stockpile (GDD "The fire and the dark"): a small
+   always-visible strip, top-centre — distinct from the personal top-left
+   toggle bar, since nobody owns a share of this (stockpile.ts). */
+#hud .stockpile-strip {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  pointer-events: none;
+}
+#hud .stockpile-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  background: var(--hud-timber);
+  clip-path: var(--facet);
+  --cut: 6px;
+  box-shadow: var(--slab-light);
+  pointer-events: auto;
+}
+#hud .stockpile-item .item-icon {
+  width: 22px;
+  height: 22px;
+}
+#hud .stockpile-qty {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--hud-bone);
+}
+
 /* Pickup toasts: what just entered the pack — icon, name, coalesced count —
    bottom centre, fading after a beat (toasts.ts). */
 #hud .pickup-toasts {

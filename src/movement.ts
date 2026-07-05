@@ -28,8 +28,8 @@ export interface MotionEntry {
 }
 
 /** Min gap between click-to-move route (re)issues while a path is blocked or no route
- *  exists yet, so re-routing around a Hog — or waiting for one to clear the only way —
- *  retries steadily without firing the reducer every frame. */
+ *  exists yet, so re-routing around a moving obstacle — or waiting for one to clear the
+ *  only way — retries steadily without firing the reducer every frame. */
 const MOVETO_RETRY_MS = 250;
 
 /** How far ahead the "can I move at all?" probe looks. Long enough that a blocked
@@ -110,7 +110,7 @@ export interface MovementAudio {
 
 export interface SelfControllerDeps {
   conn: DbConnection;
-  /** Trogg collision bounds (walls + boulders + trees + Hogs), for prediction and probes. */
+  /** Trogg collision bounds (walls + boulders + trees), for prediction and probes. */
   bounds: ZoneBounds;
   /** The local player's tracked entry, or undefined before it's been inserted. */
   getSelf: () => MotionEntry | undefined;
@@ -200,7 +200,7 @@ export function createSelfController(deps: SelfControllerDeps) {
   };
 
   /** Would this intent make any progress from (x, y) right now? False means flush
-   *  against a wall, boulder, or Hog with nowhere to slide. The probe carries the
+   *  against a wall or boulder with nowhere to slide. The probe carries the
    *  row's cheat flags so a noclipped trogg never reads as pinned by geometry. */
   const canProgress = (entry: MotionEntry, x: number, y: number, intent: MoveIntent): boolean => {
     const probe = projectMotionState(
@@ -277,7 +277,7 @@ export function createSelfController(deps: SelfControllerDeps) {
         return;
       }
       if (!canProgress(entry, x, y, desired)) {
-        // Flush against a wall, boulder, or Hog: stand facing it rather than store a
+        // Flush against a wall or boulder: stand facing it rather than store a
         // moving intent that banks elapsed travel (the moment the blocker cleared, a
         // stale origin would fling the trogg to wherever the uninterrupted walk had
         // reached). This re-checks every frame, so movement resumes the instant the
@@ -331,8 +331,8 @@ export function createSelfController(deps: SelfControllerDeps) {
 
   const syncDestinationFromPath = (path: string) => {
     if (path === "") {
-      // Keep the marker. An empty path can mean "no route right now" — a Hog has sealed
-      // the only way — and we keep trying toward the clicked tile rather than abandoning
+      // Keep the marker. An empty path can mean "no route right now" — a moving obstacle
+      // has sealed the only way — and we keep trying toward the clicked tile rather than abandoning
       // it. The marker clears on arrival, on a keypress, or when a new tile is clicked.
       destinationPath = "";
       return;
@@ -348,8 +348,8 @@ export function createSelfController(deps: SelfControllerDeps) {
   const update = (entry: MotionEntry, motion: ProjectedMotion, now: number) => {
     const { x, y } = motion;
     playFootstepOnCrossing(x, y, { dirX: motion.dirX, dirY: motion.dirY, running: entry.player.running });
-    // A click-to-move route stalls when a Hog (or a shoved boulder) lands on a tile
-    // ahead of it: `projectPathMotion` stops with no heading and `arrived` false.
+    // A click-to-move route stalls when an obstacle lands on a tile ahead of it:
+    // `projectPathMotion` stops with no heading and `arrived` false.
     const stalled = entry.player.path !== "" && !motion.arrived && motion.dirX === 0 && motion.dirY === 0;
     if (!pendingMoveTo && motion.arrived && entry.player.path !== "") setDestination(undefined);
     if (pendingMoveTo) {

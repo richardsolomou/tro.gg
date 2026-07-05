@@ -1,17 +1,12 @@
 import spacetimedb, { type Ctx, type AnalyticsEvent } from "../schema";
 import { t } from "spacetimedb/server";
-import { ScheduleAt, Timestamp } from "spacetimedb";
 import {
   getZone,
-  isHogStyle,
   isSpawnableItemId,
-  hogMaxHealth,
-  HOG_MAX_HEALTH,
   BOULDER_MAX_HEALTH,
   TREE_MAX_HEALTH,
   MAX_BOULDERS_PER_ZONE,
   MAX_GROUND_ITEMS_PER_ZONE,
-  MAX_HOGS_PER_ZONE,
   MAX_TREES_PER_ZONE,
   CHEAT_SPEED_MULTIPLIER,
   PLAYER_MAX_HEALTH,
@@ -22,7 +17,6 @@ import {
 import {
   spawnAt,
   seedBoulders,
-  seedHogs,
   captureProcedureEvents,
   sourceProp,
   distinctId,
@@ -44,10 +38,9 @@ import {
  * or a boxed-in trogg is a silent no-op.
  */
 function runSpawn(ctx: Ctx, { kind, item = "", source = "" }: { kind: string; item?: string; source?: string }): AnalyticsEvent[] {
-  if (kind !== "boulder" && kind !== "tree" && kind !== "hog" && kind !== "item") return [];
+  if (kind !== "boulder" && kind !== "tree" && kind !== "item") return [];
   if ((kind === "boulder" || kind === "tree") && item !== "") return [];
   if (kind === "item" && !isSpawnableItemId(item)) return [];
-  if (kind === "hog" && item !== "" && !isHogStyle(item)) return [];
 
   const p = ctx.db.player.identity.find(ctx.sender);
   if (!p) return [];
@@ -60,14 +53,12 @@ function runSpawn(ctx: Ctx, { kind, item = "", source = "" }: { kind: string; it
       ? [...ctx.db.boulder.zoneId.filter(p.zoneId)].filter((b) => !b.cellId).length
       : kind === "tree"
         ? countRows(ctx.db.tree.zoneId.filter(p.zoneId))
-        : kind === "hog"
-          ? countRows(ctx.db.hog.zoneId.filter(p.zoneId))
-          : countRows(ctx.db.groundItem.zoneId.filter(p.zoneId));
-  const cap = kind === "boulder" ? MAX_BOULDERS_PER_ZONE : kind === "tree" ? MAX_TREES_PER_ZONE : kind === "hog" ? MAX_HOGS_PER_ZONE : MAX_GROUND_ITEMS_PER_ZONE;
+        : countRows(ctx.db.groundItem.zoneId.filter(p.zoneId));
+  const cap = kind === "boulder" ? MAX_BOULDERS_PER_ZONE : kind === "tree" ? MAX_TREES_PER_ZONE : MAX_GROUND_ITEMS_PER_ZONE;
   if (existing >= cap) return [];
 
   // Drop entities on free floor — never inside a wall or on top of anything solid
-  // (a boulder, a Hog, or another trogg) or another pickup item.
+  // (a boulder or another trogg) or another pickup item.
   const occupied = solidTiles(ctx, p.zoneId, ctx.timestamp, p.identity);
   addGroundItemTiles(ctx, p.zoneId, occupied);
   const pos = settle(ctx, p, ctx.timestamp);
@@ -79,17 +70,12 @@ function runSpawn(ctx: Ctx, { kind, item = "", source = "" }: { kind: string; it
     ctx.db.boulder.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y, health: BOULDER_MAX_HEALTH, cellId: 0 });
   } else if (kind === "tree") {
     ctx.db.tree.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y, health: TREE_MAX_HEALTH });
-  } else if (kind === "hog") {
-    // A spawned Hog starts at rest and joins the roamers — the next wander tick
-    // gives it a heading like any other. `item` carries an explicit sprite style.
-    ctx.db.hog.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, path: "", homeX: tile.x, homeY: tile.y, style: item, health: hogMaxHealth(item), lastDamagedAt: Timestamp.UNIX_EPOCH, landingAt: Timestamp.UNIX_EPOCH });
   } else {
     ctx.db.groundItem.insert({ id: 0n, zoneId: p.zoneId, item, x: tile.x, y: tile.y, qty: 1 });
   }
 
   const properties: Record<string, string | number | boolean> = { zone: p.zoneId, kind, count: 1, ...sourceProp(source) };
   if (kind === "item") properties.item = item;
-  if (kind === "hog" && item !== "") properties.style = item;
   return [{ distinctId: distinctId(ctx), event: "debug_entity_spawned", properties }];
 }
 
@@ -140,40 +126,6 @@ export const resetBouldersAction = spacetimedb.procedure(
     return unit();
   },
 );
-
-/**
- * Reset the caller's zone Hogs to their `ZONES` registry population (GDD "Hogs").
- * Clears the zone's Hogs and reseeds from the registry — the single source of
- * truth — so a zone overrun with extra panel-spawned Hogs snaps back to its intended
- * count. The mirror of `resetBoulders`. A Hog a trogg is carrying lives on the
- * player row, not the `hog` table, so it survives the cull and re-materialises on
- * put-down (GDD "Interacting"). Fired by the Commands panel; open like every reducer,
- * with the optional `hog-reset` flag gating the client control.
- */
-function runResetHogs(ctx: Ctx, source = ""): AnalyticsEvent[] {
-  const p = ctx.db.player.identity.find(ctx.sender);
-  if (!p) return [];
-  const zone = getZone(p.zoneId);
-  if (!zone) return [];
-  for (const h of [...ctx.db.hog.zoneId.filter(zone.slug)]) ctx.db.hog.id.delete(h.id);
-  seedHogs(ctx, zone);
-  return [{ distinctId: distinctId(ctx), event: "hedgehogs_reset", properties: { zone: zone.slug, ...sourceProp(source) } }];
-}
-
-export const resetHogs = spacetimedb.reducer((ctx) => {
-  runResetHogs(ctx);
-});
-
-export const resetHogsAction = spacetimedb.procedure(
-  { posthogKey: t.string(), source: t.string() },
-  t.unit(),
-  (ctx, args) => {
-    const events = ctx.withTx((tx) => runResetHogs(tx, args.source));
-    captureProcedureEvents(ctx, args.posthogKey, events);
-    return unit();
-  },
-);
-
 
 /**
  * Debug cheats (GDD "Commands panel"): a move-speed multiplier, flight (hover;

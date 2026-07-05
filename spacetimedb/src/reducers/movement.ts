@@ -95,7 +95,7 @@ export const moveTo = spacetimedb.reducer({ x: t.i32(), y: t.i32(), running: t.b
   const zone = getZone(p.zoneId);
   if (!zone) return;
 
-  const blockers = troggBlockers(ctx, p.zoneId, ctx.timestamp);
+  const blockers = troggBlockers(ctx, p.zoneId);
   const bounds = zoneBounds(zone, (x, y) => blockers.has(tileKey(x, y)));
   const start = settle(ctx, p, ctx.timestamp);
   // A* finds the route; string-pulling collapses it to the fewest straight hops, so

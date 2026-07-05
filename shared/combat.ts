@@ -16,9 +16,8 @@ export const MELEE_ARC_RAD = (55 * Math.PI) / 180;
  *  length hits regardless of exact aim. */
 export const MELEE_POINT_BLANK_TILES = 0.75;
 
-/** Hit-circle radii in tiles. A big hog scales its radius by `hogSize`. */
+/** Hit-circle radii in tiles. */
 export const PLAYER_HIT_RADIUS = 0.45;
-export const HOG_HIT_RADIUS = 0.42;
 export const BOULDER_HIT_RADIUS = 0.5;
 export const TREE_HIT_RADIUS = 0.5;
 

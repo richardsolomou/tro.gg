@@ -16,13 +16,11 @@ import {
   healStaleWorld,
   seedBoulders,
   seedTrees,
-  seedHogs,
   seedGroundItems,
   seedBirthInstance,
   playerConnectionCount,
   rememberPlayerConnection,
   forgetPlayerConnection,
-  armWander,
   armRegen,
   isSpacetimeAuthCaller,
   claimProviderName,
@@ -46,10 +44,7 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
   healStaleWorld(ctx, startingZone);
   seedBoulders(ctx, startingZone);
   seedTrees(ctx, startingZone);
-  seedHogs(ctx, startingZone);
   seedGroundItems(ctx, startingZone);
-  // A player is here, so make sure the Hogs are roaming (no-op if already armed).
-  armWander(ctx);
   armRegen(ctx);
 
   const hadLiveConnection = playerConnectionCount(ctx, ctx.sender) > 0;

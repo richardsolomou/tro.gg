@@ -25,14 +25,12 @@ import {
   addGroundItemTiles,
   meleeBoulderTarget,
   meleeTreeTarget,
-  meleeHogTarget,
   meleePlayerTarget,
   ownedInventoryRow,
   equippedInventoryRow,
   removeInventoryUnit,
   playerDiedEvent,
-  dropLoot,
-  damageHog,
+  depositStockpile,
   damagePlayer,
   throwCarried,
   facingDir,
@@ -180,10 +178,10 @@ export const discardItemAction = spacetimedb.procedure(
  * Use the equipped main-hand item (GDD "Avatars and equipment"). The row update
  * is a visible, low-volume impulse every client can animate. It preserves the
  * current movement intent — using a tool never turns into a stop. If the trogg is
- * carrying a Hog, `F` throws it as a tile-based impact weapon. Otherwise the swing
- * resolves in order: the weapon's own gathering node at full damage, a creature,
- * then any node at a fraction of the roll; at zero health the target dies or the
- * node breaks and grants its resource.
+ * carrying a legacy boulder, `F` throws it as a tile-based impact weapon. Otherwise
+ * the swing resolves in order: the weapon's own gathering node at full damage, a
+ * creature, then any node at a fraction of the roll; at zero health the target dies
+ * or the node breaks and deposits its resource into the stockpile.
  */
 function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; dirY: number; source?: string }): AnalyticsEvent[] {
   const p = ctx.db.player.identity.find(ctx.sender);
@@ -238,15 +236,17 @@ function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; d
   const cy = pos.y + 0.5;
   const range = equipped ? weaponDamageRange(item) : UNARMED_DAMAGE;
 
-  // A breaking hit never fills the inventory directly: the yield lands on the
-  // floor by the node (dropLoot), and picking it up is a conscious `E`.
+  // A breaking hit never fills personal inventory: the yield deposits straight
+  // into the shared stockpile (GDD "The fire and the dark"), no ground item and
+  // no conscious pickup involved.
   const strikeBoulder = (b: NonNullable<ReturnType<typeof meleeBoulderTarget>>["target"], damage: number): boolean => {
     if (b.health > damage) {
       ctx.db.boulder.id.update({ ...b, health: b.health - damage });
       return true;
     }
     ctx.db.boulder.id.delete(b.id);
-    dropLoot(ctx, p.zoneId, [{ item: "stone", min: 1, max: 1 }], { x: b.x, y: b.y });
+    const qty = depositStockpile(ctx, "stone", 1);
+    events.push({ distinctId: distinctId(ctx), event: "resource_gathered", properties: { ...props, node_type: "boulder", item: "stone", qty } });
     return true;
   };
   const strikeTree = (tr: NonNullable<ReturnType<typeof meleeTreeTarget>>["target"], damage: number): boolean => {
@@ -255,7 +255,8 @@ function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; d
       return true;
     }
     ctx.db.tree.id.delete(tr.id);
-    dropLoot(ctx, p.zoneId, [{ item: "wood", min: 1, max: 1 }], { x: tr.x, y: tr.y });
+    const qty = depositStockpile(ctx, "wood", 1);
+    events.push({ distinctId: distinctId(ctx), event: "resource_gathered", properties: { ...props, node_type: "tree", item: "wood", qty } });
     return true;
   };
 
@@ -272,15 +273,10 @@ function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; d
     if (!landed) {
       const damage = roll();
       const trogg = meleePlayerTarget(ctx, p.zoneId, cx, cy, aim, ctx.timestamp, p.identity);
-      const hog = meleeHogTarget(ctx, p.zoneId, cx, cy, aim, ctx.timestamp);
-      if (trogg && (!hog || trogg.dist <= hog.dist)) {
+      if (trogg) {
         const result = damagePlayer(ctx, trogg.target, damage);
         events.push({ distinctId: distinctId(ctx), event: "combat_hit", properties: { ...props, weapon: item, target: "trogg", damage: result.dealt, killed: result.killed } });
         if (result.killed) events.push(playerDiedEvent(trogg.target.identity.toHexString(), props, item, result));
-        landed = true;
-      } else if (hog) {
-        const result = damageHog(ctx, hog.target, damage);
-        events.push({ distinctId: distinctId(ctx), event: "combat_hit", properties: { ...props, weapon: item, target: "hog", damage, killed: result.killed } });
         landed = true;
       }
     }
