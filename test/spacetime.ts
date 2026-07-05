@@ -93,6 +93,7 @@ export function makeCtx(opts: FakeCtxOpts) {
       stockpile: makeTable({ pk: "item" }),
       brazier: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
       brazierUpkeepTimer: makeTable({ pk: "scheduledId", autoInc: true }),
+      emberWanderTimer: makeTable({ pk: "scheduledId", autoInc: true }),
       playerConnection: makeTable({ pk: "connectionId", indexes: ["playerId"] }),
       chatMessage: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
       ghostHaunt: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
@@ -141,6 +142,8 @@ export function playerRow(identity: Id, over: Record<string, unknown> = {}) {
     cheatNoclip: false,
     z: 0,
     dirZ: 0,
+    kindlingCharge: 0,
+    kindlingChargeAt: { microsSinceUnixEpoch: 0n },
     ...over,
   };
 }

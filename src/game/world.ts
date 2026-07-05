@@ -4,6 +4,7 @@ import { CLICK_SLOP_PX, createOrbit } from "./controls.js";
 import {
   CAVE_DOOR,
   isBirthZone,
+  deriveKindlingCharge,
   EQUIPMENT_ACTION_MS,
   CHAT_BUBBLE_MS,
   DIR_SCALE,
@@ -11,6 +12,7 @@ import {
   getZone,
   GHOST_HAUNT_FRESH_MS,
   GLOWMOSS_TILE,
+  presenceOf,
   PLAYER_RESPAWN_MS,
   BOULDER_MAX_HEALTH,
   TREE_MAX_HEALTH,
@@ -46,7 +48,7 @@ import { audio } from "../audio.js";
 import { interact, useEquipped } from "../net/procedures.js";
 import { isOlderPlayerMotion, playerMotionChanged, withPlayerMotion } from "../motion_sync.js";
 import { FarCrowd } from "./crowd.js";
-import { createEntities, disposeObject, type Entities, type Tracked } from "./entities.js";
+import { createEntities, disposeObject, setPresenceDim, type Entities, type Tracked } from "./entities.js";
 import { buildBoulder, buildBrazier, buildTree, updateHeldFx, type HeldFx } from "./items.js";
 import { NodeField } from "./nodes.js";
 import { buildTerrain, type Terrain3D } from "./terrain.js";
@@ -586,7 +588,9 @@ export class World3D {
     mountCommands({ conn, zone: this.zone });
 
     const queries = [
-      `SELECT * FROM player WHERE zone_id = '${this.slug}' AND online = true`,
+      // Ember and dormant troggs stay in view after disconnect (GDD "The fire
+      // and the dark" → Presence), so this doesn't filter on `online`.
+      `SELECT * FROM player WHERE zone_id = '${this.slug}'`,
       `SELECT * FROM chat_message WHERE zone_id = '${this.slug}'`,
       `SELECT * FROM ground_item WHERE zone_id = '${this.slug}'`,
       `SELECT * FROM boulder WHERE zone_id = '${this.slug}'`,
@@ -1025,7 +1029,7 @@ export class World3D {
     // The boot's own-row subscription (main.ts) may have delivered rows before
     // these callbacks existed; adopt anything already cached for this zone.
     for (const p of conn.db.player.iter()) {
-      if (p.zoneId === this.slug && p.online) this.addPlayer(p);
+      if (p.zoneId === this.slug) this.addPlayer(p);
     }
     conn.db.player.onInsert((_ctx, p) => this.addPlayer(p));
     conn.db.player.onUpdate((_ctx, _old, p) => {
@@ -1079,6 +1083,7 @@ export class World3D {
         _old.equippedOffHand !== p.equippedOffHand ||
         _old.equippedOffHandInventoryId !== p.equippedOffHandInventoryId;
       if (equipmentChanged) this.entities.applyEquipment(entry);
+      this.applyPresence(entry);
     });
     conn.db.player.onDelete((_ctx, p) => this.removePlayer(p.identity.toHexString()));
   }
@@ -1126,6 +1131,17 @@ export class World3D {
     this.scene.add(entry.marker);
     this.entities.applyCarry(entry);
     this.entities.applyEquipment(entry);
+    this.applyPresence(entry);
+  }
+
+  /** Dim a tracked trogg's body to its current presence (GDD "The fire and
+   *  the dark" → Presence). Skipped while dead — `setDowned`'s translucency
+   *  owns that state instead. */
+  private applyPresence(entry: Tracked): void {
+    if (entry.player.dead) return;
+    const now: Stamp = { microsSinceUnixEpoch: BigInt(Date.now()) * 1000n };
+    const charge = deriveKindlingCharge(entry.player.kindlingCharge, entry.player.kindlingChargeAt, entry.player.online, now);
+    setPresenceDim(entry.model, presenceOf(entry.player.online, charge));
   }
 
   private removePlayer(id: string): void {

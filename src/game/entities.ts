@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { EQUIPMENT_ACTION_MS, forward, MELEE_ARC_RAD, MELEE_RANGE_TILES, PLAYER_HIT_RADIUS, PLAYER_MAX_HEALTH, RUN_SPEED_TILES_PER_SEC, timestampMs, wieldOf, type EquipSlot, type Facing, type ProjectedMotion, type Stamp } from "@trogg/shared";
+import { EQUIPMENT_ACTION_MS, forward, MELEE_ARC_RAD, MELEE_RANGE_TILES, PLAYER_HIT_RADIUS, PLAYER_MAX_HEALTH, RUN_SPEED_TILES_PER_SEC, timestampMs, wieldOf, type EquipSlot, type Facing, type Presence, type ProjectedMotion, type Stamp } from "@trogg/shared";
 import type { Player } from "../net/module_bindings/types";
 import { audio } from "../audio.js";
 import { buildGhost, buildTrogg } from "./creatures.js";
@@ -117,6 +117,18 @@ export function setDowned(model: CreatureModel, downed: boolean): void {
   for (const m of model.materials) {
     m.transparent = downed;
     m.opacity = downed ? 0.45 : 1;
+  }
+}
+
+/** Fade a living trogg's body toward its presence (GDD "The fire and the
+ *  dark" → Presence): bright is fully opaque, ember dims a touch — working
+ *  the margins on instinct — and dormant dims further — present, waiting,
+ *  visibly idle. Dead troggs keep `setDowned`'s translucency instead. */
+export function setPresenceDim(model: CreatureModel, presence: Presence): void {
+  const opacity = presence === "bright" ? 1 : presence === "ember" ? 0.75 : 0.5;
+  for (const m of model.materials) {
+    m.transparent = opacity < 1;
+    m.opacity = opacity;
   }
 }
 

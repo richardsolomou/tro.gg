@@ -23,18 +23,16 @@ export const MOVE_SPEED_TILES_PER_SEC = 4;
 export const RUN_SPEED_TILES_PER_SEC = 7;
 
 /**
- * A tile-by-tile wanderer's step timing (the time to cross one tile at walk
- * speed) and turn/idle rolls: a scheduled reducer re-bases the wanderer once per
- * tile, so it only ever commits to one tile at a time and stops flush against
- * whatever's solid. Each step a moving wanderer keeps its heading unless that
- * tile is blocked or a `WANDER_TURN_CHANCE` roll turns it; a fresh heading lands
- * on idle with `WANDER_IDLE_CHANCE` so it pauses rather than marches nonstop. It
- * rides the same intent-based motion as troggs, so there's no per-frame sync.
- * Stepping one tile at a time (rather than routing a multi-tile path) keeps its
- * banked travel to at most one tile, so a wanderer freed from a block never
- * lurches more than a tile. (initial)
+ * A wanderer's turn/idle rolls (ember troggs today, dark creatures once they
+ * exist): a scheduled reducer re-derives the wanderer's settled position each
+ * tick and either keeps its heading or rolls a fresh one, riding the same
+ * intent-based motion as troggs (no per-frame sync). A moving wanderer keeps
+ * its heading unless the way ahead is blocked or a `WANDER_TURN_CHANCE` roll
+ * turns it; a fresh heading lands on idle with `WANDER_IDLE_CHANCE` so it
+ * pauses rather than marching nonstop. (initial)
  */
 export const WANDER_IDLE_CHANCE = 0.25;
+export const WANDER_TURN_CHANCE = 0.15;
 
 /**
  * Per-zone entity ceilings (GDD "Data model"). The Commands panel and carried-object
@@ -107,6 +105,32 @@ export const FIRST_FIRE_LIT_RADIUS = 10;
 export const BRAZIER_UPKEEP_ITEM: ItemId = "wood";
 export const BRAZIER_UPKEEP_RATE = 1;
 export const BRAZIER_UPKEEP_TICK_MS = 30_000;
+
+/**
+ * Presence: bright, ember, dormant (GDD "The fire and the dark" → Presence).
+ * `kindlingCharge` is stored the way motion is — a value plus the anchor it
+ * was true at — so its current value is *derived* by applying the accrual
+ * rate while bright or the decay rate while ember, never advanced on a timer
+ * (invariant 1; see `deriveKindlingCharge`). Decaying faster than it accrues
+ * means keeping a trogg productive while away costs the same thing it always
+ * should: showing up. (initial)
+ */
+export const CHARGE_ACCRUAL_RATE = 1; // charge per minute of bright play
+export const CHARGE_MAX = 60;
+export const CHARGE_DECAY_RATE = 10; // charge per hour while ember
+
+/**
+ * An ember trogg works safe interior ground on instinct (GDD "Presence"): the
+ * scheduled `ember_wander` sweep re-derives its position every
+ * `EMBER_WANDER_TICK_MS` and, when it's adjacent to a boulder or tree, rolls
+ * `EMBER_EFFICIENCY_FRACTION` for an instinct-driven gather chip roughly the
+ * weight of one weak tool hit — a trickle next to a bright trogg spamming
+ * swings, deposited into the stockpile the same way a real hit is, earning no
+ * XP. (initial)
+ */
+export const EMBER_EFFICIENCY_FRACTION = 0.3;
+export const EMBER_WANDER_TICK_MS = 1_000;
+export const EMBER_GATHER_DAMAGE = 6;
 
 /** Trogg combat health, damage, and respawn timing. (initial) */
 export const PLAYER_MAX_HEALTH = 100;

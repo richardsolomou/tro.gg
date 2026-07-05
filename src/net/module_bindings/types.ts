@@ -60,6 +60,12 @@ export const CreatureRegen = __t.object("CreatureRegen", {
 });
 export type CreatureRegen = __Infer<typeof CreatureRegen>;
 
+export const EmberWander = __t.object("EmberWander", {
+  scheduledId: __t.u64(),
+  scheduledAt: __t.scheduleAt(),
+});
+export type EmberWander = __Infer<typeof EmberWander>;
+
 export const GhostHaunt = __t.object("GhostHaunt", {
   id: __t.u64(),
   zoneId: __t.string(),
@@ -123,6 +129,8 @@ export const Player = __t.object("Player", {
   cheatNoclip: __t.bool(),
   z: __t.f64(),
   dirZ: __t.i32(),
+  kindlingCharge: __t.f64(),
+  kindlingChargeAt: __t.timestamp(),
 });
 export type Player = __Infer<typeof Player>;
 

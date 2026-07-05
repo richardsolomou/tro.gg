@@ -4,6 +4,7 @@ import {
   WANDER_IDLE_CHANCE,
   HEALTH_REGEN_TICK_MS,
   BRAZIER_UPKEEP_TICK_MS,
+  EMBER_WANDER_TICK_MS,
   isValidName,
   isWalkable,
   BOULDER_MAX_HEALTH,
@@ -199,6 +200,14 @@ export function armBrazierUpkeep(ctx: Ctx): void {
   ctx.db.brazierUpkeepTimer.insert({ scheduledId: 0n, scheduledAt: ScheduleAt.time(at) });
 }
 
+/** Arm the ember-trogg wander sweep, unless one is already pending (GDD "The
+ *  fire and the dark" → Presence). */
+export function armEmberWander(ctx: Ctx): void {
+  if (ctx.db.emberWanderTimer.count() > 0n) return;
+  const at = ctx.timestamp.microsSinceUnixEpoch + BigInt(EMBER_WANDER_TICK_MS) * 1000n;
+  ctx.db.emberWanderTimer.insert({ scheduledId: 0n, scheduledAt: ScheduleAt.time(at) });
+}
+
 /** Whether the caller authenticated with a SpacetimeAuth OIDC token (an account, not a guest). */
 export function isSpacetimeAuthCaller(ctx: Ctx): boolean {
   return ctx.senderAuth.hasJWT && ctx.senderAuth.jwt?.issuer === SPACETIMEAUTH_ISSUER;
@@ -229,3 +238,4 @@ export * from "./inventory";
 export * from "./combat";
 export * from "./stockpile";
 export * from "./brazier";
+export * from "./presence";

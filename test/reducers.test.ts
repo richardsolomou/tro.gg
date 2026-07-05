@@ -42,6 +42,10 @@ import {
   BRAZIER_UPKEEP_RATE,
   BRAZIER_LIT_RADIUS,
   FIRST_FIRE_LIT_RADIUS,
+  CHARGE_MAX,
+  CHARGE_ACCRUAL_RATE,
+  CHARGE_DECAY_RATE,
+  EMBER_GATHER_DAMAGE,
 } from "@trogg/shared";
 import {
   chat,
@@ -70,6 +74,7 @@ import {
   respawnPlayers,
   regenCreatures,
   brazierUpkeep,
+  wanderEmber,
   spawn,
   startClaim,
   useEquipped,
@@ -866,7 +871,11 @@ test("a returning trogg embedded in a wall is nudged to spawn", () => {
 test("disconnecting drops the carried entity into the world and marks the trogg offline", () => {
   const me = id("leaver");
   const ctx = makeCtx({ sender: me });
-  ctx.db.player.insert(playerRow(me, { carrying: "boulder", x: 69, y: 96, online: true }));
+  ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
+  // Charged and already on lit ground, so it goes ember in place rather than
+  // being recalled (Phase 4 "Presence" changes what happens off lit ground —
+  // see the disconnect-recall tests below).
+  ctx.db.player.insert(playerRow(me, { carrying: "boulder", x: 69, y: 96, online: true, kindlingCharge: 5, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
   onDisconnect(ctx);
   const p = ctx.db.player.identity.find(me);
   assert.equal(p.online, false);
@@ -976,6 +985,114 @@ test("brazierUpkeep never bills or gutters the First Fire, even with an empty st
 
   assert.equal(ctx.db.brazier.id.find(firstFire.id)?.lit, true);
   assert.equal(ctx.db.stockpile.item.find(BRAZIER_UPKEEP_ITEM), undefined); // never touched
+});
+
+// --- Presence: bright, ember, dormant ---
+
+test("move accrues kindling charge for the bright play since the trogg's last input", () => {
+  const { ctx, me } = withPlayer({ x: 69, y: 96, kindlingCharge: 0, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }, { now: micros(60_000) }); // one minute later
+  move(ctx, { dirX: 1, dirY: 0, running: false });
+  const p = ctx.db.player.identity.find(me);
+  assert.equal(p.kindlingCharge, CHARGE_ACCRUAL_RATE); // one minute of bright play
+});
+
+test("move never accrues kindling charge past CHARGE_MAX", () => {
+  const { ctx, me } = withPlayer({ x: 69, y: 96, kindlingCharge: CHARGE_MAX, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }, { now: micros(60_000) });
+  move(ctx, { dirX: 1, dirY: 0, running: false });
+  const p = ctx.db.player.identity.find(me);
+  assert.equal(p.kindlingCharge, CHARGE_MAX);
+});
+
+test("onDisconnect leaves a charged trogg ember in place when it's already on lit ground", () => {
+  const me = id("staying");
+  const ctx = makeCtx({ sender: me });
+  ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
+  ctx.db.player.insert(playerRow(me, { x: 69, y: 96, online: true, kindlingCharge: 5, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
+  onDisconnect(ctx);
+  const p = ctx.db.player.identity.find(me);
+  assert.deepEqual({ x: p.x, y: p.y, online: p.online, kindlingCharge: p.kindlingCharge }, { x: 69, y: 96, online: false, kindlingCharge: 5 });
+});
+
+test("onDisconnect recalls a charged trogg off lit ground to the nearest hearth, keeping what it carries", () => {
+  const me = id("recalled");
+  const ctx = makeCtx({ sender: me });
+  const hearth = ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
+  ctx.db.player.insert(playerRow(me, { x: 200, y: 150, online: true, carrying: "boulder", kindlingCharge: 5, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
+  onDisconnect(ctx);
+  const p = ctx.db.player.identity.find(me);
+  assert.deepEqual(
+    { x: p.x, y: p.y, online: p.online, carrying: p.carrying, boulderRows: ctx.db.boulder.rows().length },
+    { x: hearth.x, y: hearth.y, online: false, carrying: "boulder", boulderRows: 0 },
+  );
+});
+
+test("onDisconnect settles a trogg with no kindling charge left at the nearest hearth, dormant", () => {
+  const me = id("dormantnow");
+  const ctx = makeCtx({ sender: me });
+  const hearth = ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
+  ctx.db.player.insert(playerRow(me, { x: 200, y: 150, online: true, kindlingCharge: 0, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
+  onDisconnect(ctx);
+  const p = ctx.db.player.identity.find(me);
+  assert.deepEqual({ x: p.x, y: p.y, kindlingCharge: p.kindlingCharge }, { x: hearth.x, y: hearth.y, kindlingCharge: 0 });
+});
+
+test("onConnect resumes bright instantly, settling however much ember decay happened while away", () => {
+  const me = id("returning");
+  const ctx = makeCtx({ sender: me, now: micros(3_600_000) }); // an hour later
+  ctx.db.player.insert(playerRow(me, { x: 69, y: 96, online: false, kindlingCharge: CHARGE_MAX, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
+  onConnect(ctx);
+  const p = ctx.db.player.identity.find(me);
+  assert.deepEqual({ online: p.online, kindlingCharge: p.kindlingCharge }, { online: true, kindlingCharge: CHARGE_MAX - CHARGE_DECAY_RATE }); // one hour of ember decay
+});
+
+test("wanderEmber keeps a charged ember trogg confined to lit territory while it wanders", () => {
+  const watcher = id("watcher");
+  const ember = id("embertrogg");
+  // random 0.9 clears both the idle and gather rolls; 5s at walk speed is far
+  // enough that an unconfined wanderer would clear the lit radius easily.
+  const ctx = makeCtx({ sender: watcher, random: 0.9, integerInRange: () => 0, now: micros(5_000) });
+  ctx.db.player.insert(playerRow(watcher, { online: true, x: 0, y: 0 }));
+  const hearth = ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
+  ctx.db.player.insert(playerRow(ember, { x: 69, y: 96, online: false, kindlingCharge: 10, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
+  wanderEmber(ctx, {});
+  const p = ctx.db.player.identity.find(ember);
+  assert.ok(Math.hypot(p.x - hearth.x, p.y - hearth.y) <= hearth.radius);
+});
+
+test("wanderEmber settles a trogg whose kindling charge has just run out at the nearest hearth", () => {
+  const watcher = id("watcher");
+  const ember = id("goingdormant");
+  const ctx = makeCtx({ sender: watcher, now: micros(999_999_999) }); // long enough to fully decay
+  ctx.db.player.insert(playerRow(watcher, { online: true }));
+  const hearth = ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
+  ctx.db.player.insert(playerRow(ember, { x: 80, y: 96, online: false, kindlingCharge: 1, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
+  wanderEmber(ctx, {});
+  const p = ctx.db.player.identity.find(ember);
+  assert.deepEqual({ x: p.x, y: p.y, kindlingCharge: p.kindlingCharge }, { x: hearth.x, y: hearth.y, kindlingCharge: 0 });
+});
+
+test("wanderEmber gathers on instinct from an adjacent boulder and deposits into the stockpile", () => {
+  const watcher = id("watcher");
+  const ember = id("gathering");
+  // 0.2 clears the idle roll (stands still) and the gather roll (< EMBER_EFFICIENCY_FRACTION) alike.
+  const ctx = makeCtx({ sender: watcher, random: 0.2 });
+  ctx.db.player.insert(playerRow(watcher, { online: true }));
+  ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
+  ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96, health: EMBER_GATHER_DAMAGE }); // breaks on one chip
+  ctx.db.player.insert(playerRow(ember, { x: 69, y: 96, online: false, kindlingCharge: 10, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
+  wanderEmber(ctx, {});
+  assert.deepEqual(
+    { boulders: ctx.db.boulder.rows().length, stone: ctx.db.stockpile.item.find("stone")?.qty },
+    { boulders: 0, stone: 1 },
+  );
+});
+
+test("wanderEmber re-arms only while a player is online", () => {
+  const ember = id("alone");
+  const ctx = makeCtx({ sender: ember });
+  ctx.db.player.insert(playerRow(ember, { online: false, kindlingCharge: 10, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
+  wanderEmber(ctx, {});
+  assert.equal(ctx.db.emberWanderTimer.rows().length, 0); // nobody's watching, so no further work
 });
 
 // --- Rename / recolor (validation + uniqueness) ---

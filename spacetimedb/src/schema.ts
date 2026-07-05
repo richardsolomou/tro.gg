@@ -11,15 +11,32 @@ import {
   PLAYER_MAX_HEALTH,
   BRAZIER_UPKEEP_ITEM,
   BRAZIER_UPKEEP_RATE,
+  deriveKindlingCharge,
+  EMBER_EFFICIENCY_FRACTION,
+  EMBER_GATHER_DAMAGE,
+  WANDER_TURN_CHANCE,
+  footprintWalkable,
+  getZone,
+  projectMotionState,
+  tileKey,
+  zoneBounds,
 } from "../../shared/index";
 import {
   anyPlayerOnline,
   armRegen,
   armBrazierUpkeep,
+  armEmberWander,
   respawnDue,
   scheduleRespawnAt,
   respawnPlayer,
   withdrawStockpile,
+  depositStockpile,
+  obstacleTiles,
+  boulderAt,
+  treeAt,
+  isLitTile,
+  nearestLitBrazier,
+  pickWanderDir,
 } from "./helpers";
 
 /**
@@ -127,6 +144,15 @@ const player = table(
     // ticked. Grounded rows stay 0/0.
     z: t.f64().default(0),
     dirZ: t.i32().default(0),
+    // Earned ember-time (GDD "The fire and the dark" → Presence), stored the
+    // way motion is: a value plus the anchor it was true at. Current charge is
+    // *derived* (`deriveKindlingCharge`) by applying the accrual rate while
+    // online or the decay rate while offline over elapsed real time since the
+    // anchor — never advanced on a timer (invariant 1). Bright/ember/dormant
+    // are therefore derived state, not stored: bright = online; ember =
+    // !online && derived charge > 0; dormant = !online && derived charge <= 0.
+    kindlingCharge: t.f64().default(0),
+    kindlingChargeAt: t.timestamp().default(Timestamp.UNIX_EPOCH),
   },
 );
 
@@ -307,6 +333,21 @@ const brazierUpkeepTimer = table(
 );
 
 /**
+ * The ember-trogg (and, later, dark-creature) wander timer (GDD "The fire and
+ * the dark" → Presence) — the direct successor of the retired `hog_wander`,
+ * the same sanctioned scheduled-reducer exception: re-armed only while a
+ * player is online, so an empty world does no ember work. Private (no client
+ * reads it).
+ */
+const emberWanderTimer = table(
+  { name: "ember_wander", scheduled: (): any => wanderEmber },
+  {
+    scheduledId: t.u64().primaryKey().autoInc(),
+    scheduledAt: t.scheduleAt(),
+  },
+);
+
+/**
  * Live socket presence per trogg (private). A player row is keyed by Identity, so
  * two tabs signed into the same account share one durable trogg. This table tracks
  * the individual connections behind that identity so an extra tab connecting does
@@ -365,7 +406,7 @@ const worldState = table(
   },
 );
 
-const spacetimedb = schema({ player, chatMessage, ghostHaunt, claimCode, boulder, tree, groundItem, inventory, stockpile, brazier, brazierUpkeepTimer, playerConnection, playerRespawn, creatureRegen, worldState });
+const spacetimedb = schema({ player, chatMessage, ghostHaunt, claimCode, boulder, tree, groundItem, inventory, stockpile, brazier, brazierUpkeepTimer, emberWanderTimer, playerConnection, playerRespawn, creatureRegen, worldState });
 export default spacetimedb;
 
 /** The reducer context, typed against this module's schema (db view + sender). */
@@ -446,4 +487,94 @@ export const brazierUpkeep = spacetimedb.reducer({ timer: brazierUpkeepTimer.row
   }
   ctx.db.brazierUpkeepTimer.clear();
   if (online) armBrazierUpkeep(ctx);
+});
+
+/**
+ * Ember-trogg wander sweep (GDD "The fire and the dark" → Presence): every
+ * offline trogg still carrying kindling charge ambles safe interior ground on
+ * instinct — confined to lit tiles, the same boundary that keeps dark
+ * creatures out (`isLitTile`) — and gathers passively from an adjacent
+ * boulder or tree at `EMBER_EFFICIENCY_FRACTION` of a bright trogg's rate,
+ * with no XP. The instant its charge reaches zero it goes dormant, settled at
+ * its zone's nearest hearth. The timer re-arms only while a player is online.
+ */
+export const wanderEmber = spacetimedb.reducer({ timer: emberWanderTimer.rowType }, (ctx) => {
+  const online = anyPlayerOnline(ctx);
+  const now = ctx.timestamp;
+  if (online) {
+    for (const p of ctx.db.player.iter()) {
+      if (p.online) continue; // bright troggs act on player input, not instinct
+      const charge = deriveKindlingCharge(p.kindlingCharge, p.kindlingChargeAt, false, now);
+      if (charge <= 0) {
+        // Just crossed to dormant (skip once it's already settled at 0): settle
+        // in place at the nearest hearth and stop.
+        if (p.kindlingCharge > 0) {
+          const hearth = nearestLitBrazier(ctx, p.zoneId, p.x, p.y);
+          ctx.db.player.identity.update({
+            ...p,
+            x: hearth?.x ?? p.x,
+            y: hearth?.y ?? p.y,
+            dirX: 0,
+            dirY: 0,
+            path: "",
+            movedAt: now,
+            kindlingCharge: 0,
+            kindlingChargeAt: now,
+          });
+        }
+        continue;
+      }
+
+      const zone = getZone(p.zoneId);
+      if (!zone) continue;
+      const blockers = obstacleTiles(ctx, p.zoneId);
+      const bounds = zoneBounds(zone, (x, y) => blockers.has(tileKey(x, y)) || !isLitTile(ctx, p.zoneId, x, y));
+      const at = projectMotionState(p, elapsedMs(p.movedAt, now), bounds);
+      const moving = p.dirX !== 0 || p.dirY !== 0;
+      const aheadClear = moving && footprintWalkable(bounds, at.x + Math.sign(p.dirX), at.y + Math.sign(p.dirY), 1);
+      const dir =
+        moving && aheadClear && ctx.random() > WANDER_TURN_CHANCE
+          ? { dirX: p.dirX, dirY: p.dirY }
+          : pickWanderDir(ctx, bounds, { x: Math.round(at.x), y: Math.round(at.y) }, 1);
+
+      // Gathering on instinct: a chance per tick, scaled by the same fraction
+      // that governs its whole stockpile rate, to chip an adjacent node.
+      if (ctx.random() < EMBER_EFFICIENCY_FRACTION) {
+        const cx = Math.round(at.x);
+        const cy = Math.round(at.y);
+        const neighbors: Array<[number, number]> = [
+          [cx + 1, cy],
+          [cx - 1, cy],
+          [cx, cy + 1],
+          [cx, cy - 1],
+        ];
+        for (const [nx, ny] of neighbors) {
+          const b = boulderAt(ctx, p.zoneId, nx, ny);
+          if (b) {
+            if (b.health > EMBER_GATHER_DAMAGE) ctx.db.boulder.id.update({ ...b, health: b.health - EMBER_GATHER_DAMAGE });
+            else {
+              ctx.db.boulder.id.delete(b.id);
+              depositStockpile(ctx, "stone", 1);
+            }
+            break;
+          }
+          const tr = treeAt(ctx, p.zoneId, nx, ny);
+          if (tr) {
+            if (tr.health > EMBER_GATHER_DAMAGE) ctx.db.tree.id.update({ ...tr, health: tr.health - EMBER_GATHER_DAMAGE });
+            else {
+              ctx.db.tree.id.delete(tr.id);
+              depositStockpile(ctx, "wood", 1);
+            }
+            break;
+          }
+        }
+      }
+
+      const unchanged = at.x === p.x && at.y === p.y && dir.dirX === p.dirX && dir.dirY === p.dirY;
+      if (unchanged) continue;
+      ctx.db.player.identity.update({ ...p, x: at.x, y: at.y, dirX: dir.dirX, dirY: dir.dirY, path: "", movedAt: now });
+    }
+  }
+  ctx.db.emberWanderTimer.clear();
+  if (online) armEmberWander(ctx);
 });
