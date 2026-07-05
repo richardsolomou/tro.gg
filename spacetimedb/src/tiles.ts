@@ -6,8 +6,10 @@ import {
   type DarkCreatureSpecies,
   DIR_SCALE,
   elapsedMs,
+  isRevealed,
   meleeHit,
   PLAYER_HIT_RADIUS,
+  penumbraOf,
   getZone,
   BOULDER_MAX_HEALTH,
   MAX_BOULDERS_PER_ZONE,
@@ -20,7 +22,18 @@ import {
   type Zone,
   zoneBounds,
 } from "../../shared/index";
+import { currentRevealedRegions } from "./reveal";
 import type { Ctx } from "./schema";
+
+/** A zone's occupied-predicate reveal clause: unrevealed ground is a hard
+ *  wall, exactly like a zone edge, until an ignition claims it (GDD
+ *  "Generation: only as far as the light reaches"). Computed once per bounds
+ *  construction, not per tile. */
+export function revealGate(ctx: Ctx, zone: Zone): (x: number, y: number) => boolean {
+  const revealedSlugs = currentRevealedRegions(ctx);
+  const penumbraSlugs = penumbraOf(revealedSlugs);
+  return (x, y) => !isRevealed(zone, revealedSlugs, penumbraSlugs, x, y);
+}
 
 /** A species' stats, falling back to the registry's first entry for a stale
  *  or unrecognised id (never expected in practice; a row's species always
@@ -65,7 +78,8 @@ export function settle(ctx: Ctx, p: Settleable, now: Stamp): { x: number; y: num
   const zone = getZone(p.zoneId);
   if (!zone) return { x: p.x, y: p.y, z: p.z ?? 0 };
   const blockers = troggBlockers(ctx, p.zoneId, now);
-  const bounds = zoneBounds(zone, (x, y) => blockers.has(tileKey(x, y)));
+  const gate = revealGate(ctx, zone);
+  const bounds = zoneBounds(zone, (x, y) => blockers.has(tileKey(x, y)) || gate(x, y));
   const at = projectMotionState(p, elapsedMs(p.movedAt, now), bounds);
   return { x: at.x, y: at.y, z: at.z };
 }
@@ -102,7 +116,8 @@ export function addDarkCreatureTiles(ctx: Ctx, zoneId: string, now: Stamp, set: 
   const zone = getZone(zoneId);
   if (!zone) return;
   const blockers = obstacleTiles(ctx, zoneId);
-  const bounds = zoneBounds(zone, (x, y) => blockers.has(tileKey(x, y)));
+  const gate = revealGate(ctx, zone);
+  const bounds = zoneBounds(zone, (x, y) => blockers.has(tileKey(x, y)) || gate(x, y));
   for (const c of ctx.db.darkCreature.zoneId.filter(zoneId)) {
     if (c.health <= 0) continue;
     const pos = projectMotion(c, elapsedMs(c.movedAt, now), bounds);
@@ -117,7 +132,8 @@ export function addPlayerTiles(ctx: Ctx, zoneId: string, now: Stamp, set: Set<st
   const zone = getZone(zoneId);
   if (!zone) return;
   const blockers = troggBlockers(ctx, zoneId, now);
-  const bounds = zoneBounds(zone, (x, y) => blockers.has(tileKey(x, y)));
+  const gate = revealGate(ctx, zone);
+  const bounds = zoneBounds(zone, (x, y) => blockers.has(tileKey(x, y)) || gate(x, y));
   for (const p of ctx.db.player.zoneId.filter(zoneId)) {
     if (!p.online) continue;
     if (exclude && p.identity.isEqual(exclude)) continue;
@@ -215,7 +231,8 @@ export function playerAt(ctx: Ctx, zoneId: string, x: number, y: number, now: St
   const zone = getZone(zoneId);
   if (!zone) return undefined;
   const blockers = troggBlockers(ctx, zoneId, now);
-  const bounds = zoneBounds(zone, (tx, ty) => blockers.has(tileKey(tx, ty)));
+  const gate = revealGate(ctx, zone);
+  const bounds = zoneBounds(zone, (tx, ty) => blockers.has(tileKey(tx, ty)) || gate(tx, ty));
   for (const p of ctx.db.player.zoneId.filter(zoneId)) {
     if (!p.online || p.dead) continue;
     if (exclude && p.identity.isEqual(exclude)) continue;
@@ -233,7 +250,8 @@ export function darkCreatureAt(ctx: Ctx, zoneId: string, x: number, y: number, n
   const zone = getZone(zoneId);
   if (!zone) return undefined;
   const blockers = troggBlockers(ctx, zoneId, now);
-  const bounds = zoneBounds(zone, (tx, ty) => blockers.has(tileKey(tx, ty)));
+  const gate = revealGate(ctx, zone);
+  const bounds = zoneBounds(zone, (tx, ty) => blockers.has(tileKey(tx, ty)) || gate(tx, ty));
   for (const c of ctx.db.darkCreature.zoneId.filter(zoneId)) {
     if (c.health <= 0) continue;
     const pos = projectMotion(c, elapsedMs(c.movedAt, now), bounds);
@@ -248,7 +266,8 @@ export function meleeDarkCreatureTarget(ctx: Ctx, zoneId: string, cx: number, cy
   const zone = getZone(zoneId);
   if (!zone) return undefined;
   const blockers = troggBlockers(ctx, zoneId, now);
-  const bounds = zoneBounds(zone, (tx, ty) => blockers.has(tileKey(tx, ty)));
+  const gate = revealGate(ctx, zone);
+  const bounds = zoneBounds(zone, (tx, ty) => blockers.has(tileKey(tx, ty)) || gate(tx, ty));
   let best: { target: NonNullable<ReturnType<typeof darkCreatureAt>>; dist: number } | undefined;
   for (const c of ctx.db.darkCreature.zoneId.filter(zoneId)) {
     if (c.health <= 0) continue;
@@ -270,7 +289,8 @@ export function meleePlayerTarget(ctx: Ctx, zoneId: string, cx: number, cy: numb
   const zone = getZone(zoneId);
   if (!zone) return undefined;
   const blockers = troggBlockers(ctx, zoneId, now);
-  const bounds = zoneBounds(zone, (tx, ty) => blockers.has(tileKey(tx, ty)));
+  const gate = revealGate(ctx, zone);
+  const bounds = zoneBounds(zone, (tx, ty) => blockers.has(tileKey(tx, ty)) || gate(tx, ty));
   let best: { target: NonNullable<ReturnType<typeof playerAt>>; dist: number } | undefined;
   for (const p of ctx.db.player.zoneId.filter(zoneId)) {
     if (!p.online || p.dead) continue;
@@ -318,7 +338,8 @@ export function placeCarried(
   dirX: number,
   dirY: number,
 ): boolean {
-  const tile = spawnTile(zone, (tx, ty) => occupied.has(tileKey(tx, ty)), x, y, dirX, dirY);
+  const gate = revealGate(ctx, zone);
+  const tile = spawnTile(zone, (tx, ty) => occupied.has(tileKey(tx, ty)) || gate(tx, ty), x, y, dirX, dirY);
   if (!tile) return false;
   return placeCarriedAt(ctx, zone, kind, style, tile);
 }

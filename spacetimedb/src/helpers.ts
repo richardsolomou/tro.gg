@@ -291,3 +291,4 @@ export * from "./combat";
 export * from "./stockpile";
 export * from "./brazier";
 export * from "./presence";
+export * from "./reveal";

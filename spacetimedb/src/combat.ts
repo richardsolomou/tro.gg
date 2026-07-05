@@ -29,6 +29,7 @@ import {
   placeCarried,
   placeCarriedAt,
   facingDir,
+  revealGate,
 } from "./tiles";
 import type { Ctx, AnalyticsEvent } from "./schema";
 
@@ -193,7 +194,8 @@ export function damageDarkCreature(ctx: Ctx, target: NonNullable<ReturnType<type
     const def = darkCreatureDef(target.species);
     const qty = ctx.random.integerInRange(def.loot.qty[0], def.loot.qty[1]);
     const occupied = solidTiles(ctx, target.zoneId, ctx.timestamp);
-    const tile = spawnTile(zone, (tx, ty) => occupied.has(tileKey(tx, ty)), Math.round(x), Math.round(y), 0, 0);
+    const gate = revealGate(ctx, zone);
+    const tile = spawnTile(zone, (tx, ty) => occupied.has(tileKey(tx, ty)) || gate(tx, ty), Math.round(x), Math.round(y), 0, 0);
     if (tile) ctx.db.groundItem.insert({ id: 0n, zoneId: target.zoneId, item: def.loot.item, x: tile.x, y: tile.y, qty });
   }
   return { health: 0, killed: true, dealt: amount };
@@ -228,6 +230,7 @@ export function throwCarried(
   const sx = Math.round(pos.x);
   const sy = Math.round(pos.y);
   const pathOccupied = solidTiles(ctx, p.zoneId, ctx.timestamp, p.identity);
+  const gate = revealGate(ctx, zone);
   let lastFree: { x: number; y: number } | undefined;
   let hit: NonNullable<ReturnType<typeof playerAt>> | undefined;
   let hitCreature: NonNullable<ReturnType<typeof darkCreatureAt>> | undefined;
@@ -244,7 +247,7 @@ export function throwCarried(
     const key = tileKey(tx, ty);
     if (key === prevKey) continue;
     prevKey = key;
-    if (!isWalkable(zone, tx, ty)) break;
+    if (!isWalkable(zone, tx, ty) || gate(tx, ty)) break;
 
     hitCreature = darkCreatureAt(ctx, p.zoneId, tx, ty, ctx.timestamp);
     if (!hitCreature) hit = playerAt(ctx, p.zoneId, tx, ty, ctx.timestamp, p.identity);
@@ -260,11 +263,11 @@ export function throwCarried(
   let landing = lastFree;
   if (hitCreature) {
     const landingOccupied = solidTiles(ctx, p.zoneId, ctx.timestamp);
-    landing = spawnTile(zone, (tx, ty) => landingOccupied.has(tileKey(tx, ty)), hitTile!.x, hitTile!.y, ux, uy) ?? lastFree;
+    landing = spawnTile(zone, (tx, ty) => landingOccupied.has(tileKey(tx, ty)) || gate(tx, ty), hitTile!.x, hitTile!.y, ux, uy) ?? lastFree;
   } else if (hit) {
     const targetTile = snapToTile(settle(ctx, hit, ctx.timestamp));
     const landingOccupied = solidTiles(ctx, p.zoneId, ctx.timestamp);
-    landing = spawnTile(zone, (tx, ty) => landingOccupied.has(tileKey(tx, ty)), targetTile.x, targetTile.y, ux, uy) ?? lastFree;
+    landing = spawnTile(zone, (tx, ty) => landingOccupied.has(tileKey(tx, ty)) || gate(tx, ty), targetTile.x, targetTile.y, ux, uy) ?? lastFree;
   }
 
   const dist = landing ? Math.hypot(landing.x - sx, landing.y - sy) : 0;

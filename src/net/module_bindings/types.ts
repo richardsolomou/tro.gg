@@ -183,6 +183,12 @@ export const Project = __t.object("Project", {
 });
 export type Project = __Infer<typeof Project>;
 
+export const RevealedRegion = __t.object("RevealedRegion", {
+  slug: __t.string(),
+  revealedAt: __t.timestamp(),
+});
+export type RevealedRegion = __Infer<typeof RevealedRegion>;
+
 export const Stockpile = __t.object("Stockpile", {
   item: __t.string(),
   qty: __t.i32(),

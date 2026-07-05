@@ -17,8 +17,7 @@ const css = (colour: number): string => `#${colour.toString(16).padStart(6, "0")
 /** Halve each channel — rock reads as clearly darker than the floor it borders. */
 const darker = (colour: number): number => (colour >> 1) & 0x7f7f7f;
 
-function paintMap(zone: Zone): HTMLCanvasElement {
-  const canvas = document.createElement("canvas");
+function paintMap(zone: Zone, isRevealed: (x: number, y: number) => boolean, canvas: HTMLCanvasElement): void {
   canvas.width = Math.ceil(zone.width / CELL) * PX;
   canvas.height = Math.ceil(zone.height / CELL) * PX;
   const ctx = canvas.getContext("2d")!;
@@ -28,7 +27,9 @@ function paintMap(zone: Zone): HTMLCanvasElement {
       const x0 = cx * CELL;
       const y0 = cy * CELL;
       const region = regionAt(x0, y0);
-      if (!region) continue; // the void outside the plus stays panel-dark
+      // unrevealed ground doesn't exist yet (GDD "Generation: only as far as
+      // the light reaches") — it stays panel-dark, exactly like the void
+      if (!region || !isRevealed(x0, y0)) continue;
       const pal = biomePalette(region.biome);
       let open = 0;
       let water = false;
@@ -62,10 +63,12 @@ function paintMap(zone: Zone): HTMLCanvasElement {
     }
   }
 
-  // region names at their capitals
+  // region names at their capitals — only for a region that's at least
+  // penumbra, so an unfound name never leaks where it is
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   for (const region of WORLD_REGIONS) {
+    if (!isRevealed(region.x, region.y)) continue;
     const x = (region.x / CELL) * PX;
     const y = (region.y / CELL) * PX;
     ctx.font = '700 15px "Baloo 2", "Trebuchet MS", system-ui, sans-serif';
@@ -74,25 +77,28 @@ function paintMap(zone: Zone): HTMLCanvasElement {
     ctx.fillStyle = "#e8dcc4";
     ctx.fillText(region.name, x, y);
   }
-  return canvas;
 }
 
 export interface WorldMapContext {
   zone: Zone;
   /** The local trogg's live tile position, when known. */
   selfPosition(): { x: number; y: number } | undefined;
+  /** Whether (x, y) is revealed ground — interior or penumbra (GDD
+   *  "Generation: only as far as the light reaches"). */
+  isRevealed(x: number, y: number): boolean;
 }
 
 /** Mount the M-key overworld map overlay. */
-export function mountWorldMap({ zone, selfPosition }: WorldMapContext): void {
+export function mountWorldMap({ zone, selfPosition, isRevealed }: WorldMapContext): void {
   const panel = document.createElement("div");
   panel.className = "panel worldmap";
   panel.hidden = true;
 
   const frame = document.createElement("div");
   frame.className = "worldmap-frame";
-  const map = paintMap(zone);
+  const map = document.createElement("canvas");
   map.className = "worldmap-canvas";
+  paintMap(zone, isRevealed, map);
   const marker = document.createElement("div");
   marker.className = "worldmap-marker";
   frame.append(map, marker);
@@ -120,6 +126,7 @@ export function mountWorldMap({ zone, selfPosition }: WorldMapContext): void {
     if (panel.hidden === !open) return;
     panel.hidden = !open;
     if (open) {
+      paintMap(zone, isRevealed, map);
       window.dispatchEvent(new CustomEvent("hud-menu-open", { detail: "worldmap" }));
       track();
     } else {

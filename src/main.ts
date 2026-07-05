@@ -96,7 +96,7 @@ async function main() {
     bootStage("entering the world…");
     const world = StartGame("game", { conn, slug });
     theme.start(); // the generative game theme (starts on the first user gesture)
-    mountWorldMap({ zone: getZone(slug)!, selfPosition: () => world.selfPosition() });
+    mountWorldMap({ zone: getZone(slug)!, selfPosition: () => world.selfPosition(), isRevealed: (x, y) => world.isRegionRevealed(x, y) });
 
     const authAvailable = isFeatureEnabled("auth-enabled") && authConfigured();
 

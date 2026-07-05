@@ -445,6 +445,44 @@ export function regionAt(x: number, y: number): WorldRegion | undefined {
   return WORLD_REGIONS[REGION_CHARS.indexOf(char)];
 }
 
+/**
+ * Which regions touch which, scanned once from the committed per-tile region
+ * grid (GDD "Generation: only as far as the light reaches"). Pure
+ * post-processing of already-generated data — never consulted by
+ * `generateWorld()`'s own terrain/region-assignment math. The runtime reveal
+ * layer derives a region's penumbra (unclaimed neighbours of a claimed
+ * region) from this graph plus the durable `revealed_region` set.
+ */
+export function computeRegionAdjacency(regionRows: readonly string[]): Record<string, string[]> {
+  const slugAt = (x: number, y: number): string | undefined => {
+    const char = regionRows[y]?.[x];
+    if (!char || char === ".") return undefined;
+    return WORLD_REGIONS[REGION_CHARS.indexOf(char)]?.slug;
+  };
+  const adjacency = new Map<string, Set<string>>();
+  const link = (a: string, b: string) => {
+    if (a === b) return;
+    if (!adjacency.has(a)) adjacency.set(a, new Set());
+    if (!adjacency.has(b)) adjacency.set(b, new Set());
+    adjacency.get(a)!.add(b);
+    adjacency.get(b)!.add(a);
+  };
+  for (let y = 0; y < regionRows.length; y++) {
+    const row = regionRows[y]!;
+    for (let x = 0; x < row.length; x++) {
+      const here = slugAt(x, y);
+      if (!here) continue;
+      const right = slugAt(x + 1, y);
+      if (right) link(here, right);
+      const down = slugAt(x, y + 1);
+      if (down) link(here, down);
+    }
+  }
+  const result: Record<string, string[]> = {};
+  for (const region of WORLD_REGIONS) result[region.slug] = [...(adjacency.get(region.slug) ?? new Set())].sort();
+  return result;
+}
+
 // deterministic value noise: a mulberry-hashed lattice, bilinearly interpolated
 function latticeNoise(seed: number): (x: number, y: number) => number {
   const cell = (cx: number, cy: number): number => {
@@ -466,6 +504,7 @@ function latticeNoise(seed: number): (x: number, y: number) => number {
 export interface GeneratedWorld {
   tiles: string[];
   regions: string[];
+  regionAdjacency: Record<string, string[]>;
   boulders: Coord[];
   trees: Coord[];
   items: GroundItemSeed[];
@@ -806,5 +845,6 @@ export function generateWorld(): GeneratedWorld {
   const caveDoor: Coord = { x: MOUTH_X, y: Math.min(mouthY + ARRIVAL_DEPTH, H - 2) };
   const cells: BirthCellSeed[] = [];
 
-  return { tiles: glyphs.map((row) => row.join("")), regions: regionGrid.map((row) => row.join("")), boulders, trees, items, cells, darkCreatures, emberHearts, arrival, caveDoor, spawn };
+  const regions = regionGrid.map((row) => row.join(""));
+  return { tiles: glyphs.map((row) => row.join("")), regions, regionAdjacency: computeRegionAdjacency(regions), boulders, trees, items, cells, darkCreatures, emberHearts, arrival, caveDoor, spawn };
 }

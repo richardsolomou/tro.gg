@@ -6,7 +6,7 @@ import { audio } from "../audio.js";
 import { hudRoot } from "./hud.js";
 import { registerKeybind } from "./keybinds.js";
 import { currentCommandFlags, type ChatCommandFlags } from "./chat_commands.js";
-import { hauntGhost, resetBoulders, resetDarkCreatures, spawnDebugEntity } from "../net/procedures.js";
+import { hauntGhost, resetBoulders, resetDarkCreatures, resetFrontier, revealNextRegion, spawnDebugEntity } from "../net/procedures.js";
 import { itemIcon } from "./inventory.js";
 import { attachTip } from "./tooltip.js";
 
@@ -116,6 +116,36 @@ function worldSection(conn: DbConnection, zone: string, status: HTMLElement): HT
 
   row.append(slider, live);
   section.append(row, label);
+
+  // The frontier (GDD "Generation: only as far as the light reaches"): claim
+  // one currently-penumbra region directly, skipping ignition, or reset the
+  // frontier back to just the Hearth — for testing the reveal boundary.
+  const frontierGrid = document.createElement("div");
+  frontierGrid.className = "command-grid";
+  const revealButton = commandButton("Reveal next region");
+  revealButton.addEventListener("click", () => {
+    void revealNextRegion(conn, "commands").catch((err) => {
+      logError("Command reveal request failed", { surface: "commands", action: "reveal_next_region", zone, error: err });
+      audio.playError();
+      status.textContent = "couldn't reveal a region";
+    });
+    logInfo("Command reveal requested", { surface: "commands", action: "reveal_next_region", zone, source: "commands" });
+    audio.playCommand();
+    status.textContent = "revealed the next region";
+  });
+  const resetFrontierButton = commandButton("Reset frontier");
+  resetFrontierButton.addEventListener("click", () => {
+    void resetFrontier(conn, "commands").catch((err) => {
+      logError("Command reset request failed", { surface: "commands", action: "reset_frontier", zone, error: err });
+      audio.playError();
+      status.textContent = "couldn't reset the frontier";
+    });
+    logInfo("Command reset requested", { surface: "commands", action: "reset_frontier", zone, source: "commands" });
+    audio.playCommand();
+    status.textContent = "reset the frontier to the Hearth";
+  });
+  frontierGrid.append(revealButton, resetFrontierButton);
+  section.appendChild(frontierGrid);
   return section;
 }
 

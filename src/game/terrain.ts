@@ -27,13 +27,23 @@ export interface Terrain3D {
   group: THREE.Group;
   /** Stream chunks around the camera focus; call once per frame. */
   update(focusX: number, focusY: number, camDistance: number): void;
+  /** Drop every currently-built chunk so the next `update()` rebuilds them
+   *  against a changed `revealed` boundary (GDD "Generation: only as far as
+   *  the light reaches") — cheap since region reveals are rare events. */
+  invalidate(): void;
   dispose(): void;
 }
 
 /** Tiles per streamed chunk (a region is 64×44, so seams stay region-aligned on x). */
 const CHUNK = 32;
 
-export function buildTerrain(zone: Zone): Terrain3D {
+/**
+ * `revealed` gates which of the fully-generated committed tilemap actually
+ * renders (GDD "Generation: only as far as the light reaches"): unrevealed
+ * ground draws as solid, unbiomed rock, exactly like the void beyond the
+ * continent — the terrain generator and its committed map are untouched.
+ */
+export function buildTerrain(zone: Zone, revealed: (x: number, y: number) => boolean): Terrain3D {
   const group = new THREE.Group();
   const globalDisposables: { dispose(): void }[] = [];
 
@@ -131,8 +141,9 @@ export function buildTerrain(zone: Zone): Terrain3D {
       for (let x = 0; x < w; x++) {
         const wx = x0 + x;
         const wy = y0 + y;
-        const glyph = row[wx]!;
-        const biome = tileBiome(wx, wy);
+        const here = revealed(wx, wy);
+        const glyph = here ? row[wx]! : WALL_TILE;
+        const biome = here ? tileBiome(wx, wy) : "cave";
         const patches = patchesFor(biome);
         const sx = (wx % PATCH) * ART;
         const sy = (wy % PATCH) * ART;
@@ -281,6 +292,9 @@ export function buildTerrain(zone: Zone): Terrain3D {
   return {
     group,
     update,
+    invalidate() {
+      for (const key of [...chunks.keys()]) dropChunk(key);
+    },
     dispose() {
       for (const key of [...chunks.keys()]) dropChunk(key);
       for (const d of globalDisposables) d.dispose();

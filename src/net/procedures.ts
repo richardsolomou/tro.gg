@@ -21,6 +21,14 @@ export function resetDarkCreatures(conn: DbConnection, source: string) {
   return conn.procedures.resetDarkCreaturesAction(telemetry(source));
 }
 
+export function revealNextRegion(conn: DbConnection, source: string) {
+  return conn.procedures.revealNextRegionAction(telemetry(source));
+}
+
+export function resetFrontier(conn: DbConnection, source: string) {
+  return conn.procedures.resetFrontierAction(telemetry(source));
+}
+
 export function hauntGhost(conn: DbConnection, count: number, source: string) {
   return conn.procedures.hauntGhostAction({ count, ...telemetry(source) });
 }

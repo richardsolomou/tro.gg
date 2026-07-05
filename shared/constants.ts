@@ -1,8 +1,21 @@
 export * from "./glyphs";
 import { SOLID_GLYPHS, TILE_GLYPHS, WATER_TILE } from "./glyphs";
 import { DARK_CREATURE_SPECIES, type DarkCreatureSpecies } from "./creatures";
-import { generateBirthCave, setRegionRows, WORLD_H, WORLD_W } from "./worldgen";
-import { WORLD_ARRIVAL, WORLD_CAVE_DOOR, WORLD_BOULDERS, WORLD_CELLS, WORLD_DARK_CREATURES, WORLD_EMBER_HEARTS, WORLD_ITEMS, WORLD_REGION_ROWS, WORLD_SPAWN, WORLD_TILES, WORLD_TREES } from "./world-map";
+import { generateBirthCave, regionAt, setRegionRows, WORLD_H, WORLD_W } from "./worldgen";
+import {
+  WORLD_ARRIVAL,
+  WORLD_CAVE_DOOR,
+  WORLD_BOULDERS,
+  WORLD_CELLS,
+  WORLD_DARK_CREATURES,
+  WORLD_EMBER_HEARTS,
+  WORLD_ITEMS,
+  WORLD_REGION_ADJACENCY,
+  WORLD_REGION_ROWS,
+  WORLD_SPAWN,
+  WORLD_TILES,
+  WORLD_TREES,
+} from "./world-map";
 
 // regionAt() reads the committed grid on both client and module
 setRegionRows(WORLD_REGION_ROWS);
@@ -586,6 +599,42 @@ export const STARTING_ZONE_SLUG = "world";
 export function getZone(slug: string): Zone | undefined {
   if (isBirthZone(slug)) return ZONES["birthcave"];
   return ZONES[slug];
+}
+
+/**
+ * Lazy, region-at-a-time worldgen (GDD "Generation: only as far as the light
+ * reaches"): the durable truth is which of the 11 world regions the tribe has
+ * claimed (an ignited brazier there), not a distance ring from the Hearth. A
+ * region is **interior** (`revealedSlugs`, claimed), **penumbra** (adjacent to
+ * an interior region via the committed `WORLD_REGION_ADJACENCY` graph, not yet
+ * claimed — walkable, dangerous, scoutable), or **unreached** (neither — a
+ * hard wall, doesn't exist yet). Penumbra is derived on demand, never stored.
+ */
+/** The regions adjacent to `slug`, per the committed `WORLD_REGION_ADJACENCY`
+ *  graph — empty for an unknown slug. */
+export function neighborsOf(slug: string): readonly string[] {
+  return WORLD_REGION_ADJACENCY[slug] ?? [];
+}
+
+export function penumbraOf(revealedSlugs: ReadonlySet<string>): ReadonlySet<string> {
+  const penumbra = new Set<string>();
+  for (const slug of revealedSlugs) {
+    for (const neighbor of WORLD_REGION_ADJACENCY[slug] ?? []) {
+      if (!revealedSlugs.has(neighbor)) penumbra.add(neighbor);
+    }
+  }
+  return penumbra;
+}
+
+/** Whether a tile is revealed ground — interior or penumbra. Always true
+ *  outside the world zone (birth caves have no region concept) and for
+ *  tiles with no region (void/ocean, already unwalkable). Callers compute
+ *  `revealedSlugs`/`penumbraSlugs` once per bounds construction, not per tile. */
+export function isRevealed(zone: Zone, revealedSlugs: ReadonlySet<string>, penumbraSlugs: ReadonlySet<string>, x: number, y: number): boolean {
+  if (zone.slug !== STARTING_ZONE_SLUG) return true;
+  const region = regionAt(x, y);
+  if (!region) return true;
+  return revealedSlugs.has(region.slug) || penumbraSlugs.has(region.slug);
 }
 
 /**

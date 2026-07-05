@@ -54,6 +54,11 @@ import {
   IGNITION_FLAME_HEALTH,
   IGNITION_WAVE_INTERVAL_MS,
   EMBER_HEART_TARGET_COUNT,
+  isRevealed,
+  neighborsOf,
+  penumbraOf,
+  regionAt,
+  WORLD_REGIONS,
 } from "@trogg/shared";
 import {
   chat,
@@ -87,8 +92,10 @@ import {
   resetDarkCreatures,
   startClaim,
   useEquipped,
+  revealNextRegion,
+  resetFrontier,
 } from "../spacetimedb/src/index.ts";
-import { darkCreatureRow, id, makeCtx, playerRow, projectRow } from "./spacetime.ts";
+import { darkCreatureRow, id, makeCtx, playerRow, projectRow, revealedRegionRow } from "./spacetime.ts";
 
 const ZONE = "world";
 const micros = (ms: number) => BigInt(ms) * 1000n;
@@ -1331,6 +1338,9 @@ test("interact puts an ember-heart back down when there's no valid ignition site
 
 test("interact lights an ignition at a valid site, spending fuel and the ember-heart", () => {
   const { ctx, me } = withPlayer({ x: 149, y: 72, carrying: "ember_heart" });
+  // (149, 72) sits in emberrift, adjacent to the (always-revealed) Hearth — a
+  // new ignition site must be penumbra, not interior.
+  ctx.db.revealedRegion.slug.delete("emberrift");
   ctx.db.stockpile.insert({ item: "wood", qty: IGNITION_FUEL_COST });
   interact(ctx, { dirX: 1, dirY: 0 });
   const proj = ctx.db.project.rows()[0];
@@ -1348,6 +1358,7 @@ test("interact lights an ignition at a valid site, spending fuel and the ember-h
 
 test("interact refuses to ignite without enough fuel, and puts the heart down instead", () => {
   const { ctx, me } = withPlayer({ x: 149, y: 72, carrying: "ember_heart" });
+  ctx.db.revealedRegion.slug.delete("emberrift"); // otherwise-valid penumbra site
   ctx.db.stockpile.insert({ item: "wood", qty: IGNITION_FUEL_COST - 1 });
   interact(ctx, { dirX: 1, dirY: 0 });
   assert.deepEqual(
@@ -1363,6 +1374,7 @@ test("interact refuses to ignite without enough fuel, and puts the heart down in
 
 test("interact refuses to ignite where another ignition already claims the site", () => {
   const { ctx, me } = withPlayer({ x: 149, y: 72, carrying: "ember_heart" });
+  ctx.db.revealedRegion.slug.delete("emberrift"); // otherwise-valid penumbra site
   ctx.db.stockpile.insert({ item: "wood", qty: IGNITION_FUEL_COST });
   ctx.db.project.insert(projectRow({ x: 151, y: 72, status: "active" }));
   interact(ctx, { dirX: 1, dirY: 0 }); // faces (150, 72), already claimed
@@ -1460,6 +1472,125 @@ test("regenCreatures stops topping up ember-hearts once EMBER_HEART_TARGET_COUNT
   for (let i = 0; i < EMBER_HEART_TARGET_COUNT; i++) ctx.db.emberHeart.insert({ id: 0n, zoneId: ZONE, x: 60 + i, y: 89 });
   regenCreatures(ctx, {});
   assert.equal(ctx.db.emberHeart.rows().length, EMBER_HEART_TARGET_COUNT);
+});
+
+// --- Lazy worldgen (region reveal) ---
+// The fake ctx pre-seeds every region as revealed (see spacetime.ts) so the
+// rest of the suite sees the whole committed map as walkable; these tests
+// explicitly narrow the revealed set to exercise the frontier itself.
+
+test("onConnect claims the Hearth as revealed and seeds its initial penumbra's population", () => {
+  const me = id("newguest-frontier");
+  const ctx = makeCtx({ sender: me });
+  ctx.db.revealedRegion.clear(); // start from an unclaimed frontier, like a fresh world
+  onConnect(ctx);
+  assert.deepEqual(ctx.db.revealedRegion.rows().map((r: any) => r.slug), ["hearth"]);
+  assert.ok(ctx.db.darkCreature.rows().length > 0);
+  assert.ok(ctx.db.emberHeart.rows().length > 0);
+});
+
+test("onConnect is idempotent about claiming the Hearth and its penumbra", () => {
+  const me = id("newguest-frontier2");
+  const ctx = makeCtx({ sender: me });
+  ctx.db.revealedRegion.clear();
+  onConnect(ctx);
+  const darkCount = ctx.db.darkCreature.rows().length;
+  const heartCount = ctx.db.emberHeart.rows().length;
+  (ctx as any).sender = id("anotherguest-frontier2");
+  onConnect(ctx);
+  assert.deepEqual(ctx.db.revealedRegion.rows().map((r: any) => r.slug), ["hearth"]);
+  assert.equal(ctx.db.darkCreature.rows().length, darkCount);
+  assert.equal(ctx.db.emberHeart.rows().length, heartCount);
+});
+
+test("moveTo's pathfinding never routes through an unreached region", () => {
+  const { ctx, me } = withPlayer({ x: 149, y: 72 }); // emberrift — penumbra of the Hearth
+  ctx.db.revealedRegion.clear();
+  ctx.db.revealedRegion.insert(revealedRegionRow({ slug: "hearth" }));
+  moveTo(ctx, { x: 164, y: 149, running: false }); // deep inside floodways — unreached, no path in
+  const p = ctx.db.player.identity.find(me);
+  const waypoints = [{ x: p.x, y: p.y }, ...parsePath(p.path)];
+  for (const step of waypoints) assert.notEqual(regionAt(step.x, step.y)?.slug, "floodways");
+});
+
+test("move keeps working freely inside an already-revealed penumbra region", () => {
+  const { ctx, me } = withPlayer({ x: 149, y: 72 }); // emberrift — penumbra of the Hearth
+  ctx.db.revealedRegion.clear();
+  ctx.db.revealedRegion.insert(revealedRegionRow({ slug: "hearth" }));
+  move(ctx, { dirX: 1, dirY: 0, running: false });
+  const p = ctx.db.player.identity.find(me);
+  assert.deepEqual({ dirX: p.dirX, dirY: p.dirY }, { dirX: 1, dirY: 0 });
+});
+
+test("interact refuses to ignite in an unreached region, even with fuel to spare", () => {
+  const { ctx, me } = withPlayer({ x: 82, y: 143, carrying: "ember_heart" }); // shadowdeep — penumbra
+  ctx.db.revealedRegion.clear();
+  ctx.db.revealedRegion.insert(revealedRegionRow({ slug: "hearth" }));
+  ctx.db.stockpile.insert({ item: "wood", qty: IGNITION_FUEL_COST });
+  interact(ctx, { dirX: 1, dirY: 0 }); // faces (83, 143), in dustworks — not even penumbra
+  assert.deepEqual(
+    { carrying: ctx.db.player.identity.find(me).carrying, projects: ctx.db.project.rows().length, wood: ctx.db.stockpile.item.find("wood")?.qty },
+    { carrying: "", projects: 0, wood: IGNITION_FUEL_COST }, // refused — the heart lands on a free tile instead, fuel untouched
+  );
+});
+
+test("interact relights an existing guttered brazier anywhere already interior, not just in the penumbra", () => {
+  const { ctx, me } = withPlayer({ x: 149, y: 72, carrying: "ember_heart" }); // emberrift
+  ctx.db.revealedRegion.clear();
+  ctx.db.revealedRegion.insert(revealedRegionRow({ slug: "hearth" }));
+  ctx.db.revealedRegion.insert(revealedRegionRow({ slug: "emberrift" })); // already claimed — interior, not penumbra
+  ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 150, y: 72, radius: BRAZIER_LIT_RADIUS, lit: false, isEternal: false }); // guttered
+  ctx.db.stockpile.insert({ item: "wood", qty: IGNITION_FUEL_COST });
+  interact(ctx, { dirX: 1, dirY: 0 }); // faces (150, 72), the guttered brazier's site
+  const proj = ctx.db.project.rows()[0];
+  assert.deepEqual(
+    { carrying: ctx.db.player.identity.find(me).carrying, status: proj?.status },
+    { carrying: "", status: "active" },
+  );
+});
+
+test("wanderPresence claims a region on ignition success and seeds its newly-exposed penumbra", () => {
+  const watcher = id("watcher-frontier");
+  const ctx = makeCtx({ sender: watcher, now: micros(500_000) });
+  ctx.db.player.insert(playerRow(watcher, { online: true }));
+  ctx.db.revealedRegion.clear();
+  ctx.db.revealedRegion.insert(revealedRegionRow({ slug: "hearth" }));
+  ctx.db.project.insert(projectRow({ x: 149, y: 72, flameHealth: 50, windowEndsAt: { microsSinceUnixEpoch: 0n } })); // emberrift
+  wanderPresence(ctx, {});
+  assert.deepEqual(ctx.db.revealedRegion.rows().map((r: any) => r.slug).sort(), ["emberrift", "hearth"]);
+  // emberrift's still-unclaimed neighbours (rustgallery, starwell) are now
+  // penumbra and already carry their committed population, so a scout can
+  // find them before anyone ignites there
+  const zone = getZone(ZONE)!;
+  for (const neighborSlug of ["rustgallery", "starwell"]) {
+    const inRegion = (t: { x: number; y: number }) => regionAt(t.x, t.y)?.slug === neighborSlug;
+    if (zone.darkCreatures.some(inRegion)) {
+      assert.ok(ctx.db.darkCreature.rows().some((c: any) => inRegion(c)), `${neighborSlug} missing seeded dark creatures`);
+    }
+  }
+});
+
+test("revealNextRegion claims one penumbra region directly, skipping ignition", () => {
+  const ctx = makeCtx({ sender: id("admin1") });
+  ctx.db.revealedRegion.clear();
+  ctx.db.revealedRegion.insert(revealedRegionRow({ slug: "hearth" }));
+  revealNextRegion(ctx);
+  const revealedSlugs = ctx.db.revealedRegion.rows().map((r: any) => r.slug);
+  assert.equal(revealedSlugs.length, 2);
+  const claimed = revealedSlugs.find((s: string) => s !== "hearth")!;
+  assert.ok(neighborsOf("hearth").includes(claimed));
+});
+
+test("revealNextRegion is a no-op once every region is already interior", () => {
+  const ctx = makeCtx({ sender: id("admin2") }); // the default ctx starts with all 11 revealed
+  revealNextRegion(ctx);
+  assert.equal(ctx.db.revealedRegion.rows().length, WORLD_REGIONS.length);
+});
+
+test("resetFrontier clears every claimed region back to just the Hearth", () => {
+  const ctx = makeCtx({ sender: id("admin3") }); // the default ctx starts with all 11 revealed
+  resetFrontier(ctx);
+  assert.deepEqual(ctx.db.revealedRegion.rows().map((r: any) => r.slug), ["hearth"]);
 });
 
 // --- Rename / recolor (validation + uniqueness) ---

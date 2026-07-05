@@ -37,6 +37,7 @@ import {
   throwCarried,
   facingDir,
   directionVector,
+  revealGate,
 } from "../helpers";
 
 /**
@@ -125,7 +126,8 @@ function runDropItem(ctx: Ctx, { inventoryId, source = "" }: { inventoryId: bigi
   addGroundItemTiles(ctx, p.zoneId, occupied);
   const pos = settle(ctx, p, ctx.timestamp);
   const face = facingDir(p);
-  const tile = spawnTile(zone, (x, y) => occupied.has(tileKey(x, y)), pos.x, pos.y, face.dirX, face.dirY);
+  const gate = revealGate(ctx, zone);
+  const tile = spawnTile(zone, (x, y) => occupied.has(tileKey(x, y)) || gate(x, y), pos.x, pos.y, face.dirX, face.dirY);
   if (!tile) return [];
 
   const removed = removeInventoryUnit(ctx, p.identity, inventoryId);

@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { assertZones, isDryFloor, isWalkable, regionAt, WALL_TILE, WORLD_REGIONS, ZONES, type Zone } from "./index";
-import { generateCaveZone } from "./worldgen";
+import { computeRegionAdjacency, generateCaveZone } from "./worldgen";
+import { WORLD_REGION_ADJACENCY, WORLD_REGION_ROWS } from "./world-map";
 
 const OPTS = { slug: "t", name: "t", width: 64, height: 44, seed: 0x70660001, boulders: 14, biome: "cave" as const };
 
@@ -94,6 +95,23 @@ test("every region contributes open, seeded ground", () => {
     assert.ok(seeded.length >= 8, `${region.slug} has only ${seeded.length} boulders`);
     const wooded = world.trees.filter((t) => regionAt(t.x, t.y)?.slug === region.slug);
     assert.ok(wooded.length >= 12, `${region.slug} has only ${wooded.length} trees`);
+  }
+});
+
+test("the committed region adjacency matches a fresh scan of the region grid", () => {
+  // Guards hand-edits to shared/world-map.ts, the same way the committed-world
+  // test above does for tiles and seeds.
+  assert.deepEqual(computeRegionAdjacency(WORLD_REGION_ROWS), WORLD_REGION_ADJACENCY);
+});
+
+test("region adjacency is symmetric, has no self-adjacency, and every region touches at least one neighbour", () => {
+  for (const region of WORLD_REGIONS) {
+    const neighbors = WORLD_REGION_ADJACENCY[region.slug]!;
+    assert.ok(neighbors.length > 0, `${region.slug} is isolated`);
+    assert.ok(!neighbors.includes(region.slug), `${region.slug} is adjacent to itself`);
+    for (const neighbor of neighbors) {
+      assert.ok(WORLD_REGION_ADJACENCY[neighbor]!.includes(region.slug), `${region.slug} -> ${neighbor} isn't reciprocated`);
+    }
   }
 });
 

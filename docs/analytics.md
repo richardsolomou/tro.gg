@@ -46,6 +46,8 @@ snake_case. Low-volume by design — anything that could fire more than ~once/se
 | `chat_sent` | `zone, source?` | Message sent — **no content** |
 | `boulders_reset` | `zone, source` | Player resets boulders via the Commands panel |
 | `dark_creatures_reset` | `zone, source` | Player resets dark creatures via the Commands panel (replaces the retired `hedgehogs_reset`) |
+| `region_revealed` | `region, source` | Player claims one currently-penumbra region directly via the Commands panel debug tool, skipping ignition (see gdd.md "Generation: only as far as the light reaches") |
+| `frontier_reset` | `source` | Player clears every claimed region back to just the Hearth via the Commands panel debug tool |
 | `debug_entity_spawned` | `zone, kind, count, source, item?, style?` | Player requests a Commands panel spawn for a supported debug entity — `kind` is `boulder`, `tree`, `dark_creature`, or `item`; `style` is present for exact species spawns and `item` for spawned pickup items |
 | `ghost_summoned` | `zone, source, count` | Player requests one or more synced cosmetic ghost haunts via the Commands panel |
 | `object_picked_up` | `zone, kind, source?` | Player picks up a tile-sized object — `kind` is `ember_heart` (replaces the retired Hog carry; boulders stopped being carryable earlier still, so old events may carry `hog` or `boulder`) |
@@ -78,7 +80,7 @@ Code currently reads these flag keys:
 | `interact` | Interact key (`E`) — pick up ground items, pick up / put down tile-sized carryables | On |
 | `running` | Hold-shift-to-run input | On |
 | `spawn-command` | Commands drawer spawn controls | On outside production (local dev + preview builds, which ship no PostHog key); flag-governed in production |
-| `cheat-commands` | Commands drawer cheats (speed, fly, noclip, god mode, heal, unstuck, sky lock) | On outside production, like `spawn-command`; flag-governed in production. Gates the UI only — `setCheats` stays a plain reducer (created 2026-07-03) |
+| `cheat-commands` | Commands drawer cheats (speed, fly, noclip, god mode, heal, unstuck, sky lock, and the World section's "Reveal next region"/"Reset frontier" frontier debug tools) | On outside production, like `spawn-command`; flag-governed in production. Gates the UI only — `setCheats`/`revealNextRegion`/`resetFrontier` stay plain reducers (created 2026-07-03) |
 | `boulder-reset` | Commands panel boulder layout reset control | On |
 | `chat-enabled` | Chat panel and bubbles | On |
 | `trogg-recolor` | Colour swatches in the Appearance panel | On |

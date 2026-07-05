@@ -11,8 +11,11 @@ import {
   MAX_GROUND_ITEMS_PER_ZONE,
   MAX_TREES_PER_ZONE,
   CHEAT_SPEED_MULTIPLIER,
+  neighborsOf,
+  penumbraOf,
   PLAYER_MAX_HEALTH,
   nearestSafeTile,
+  STARTING_ZONE_SLUG,
   spawnTile,
   tileKey,
 } from "../../../shared/index";
@@ -31,6 +34,11 @@ import {
   solidTiles,
   addGroundItemTiles,
   facingDir,
+  claimRegion,
+  currentRevealedRegions,
+  HEARTH_REGION_SLUG,
+  revealGate,
+  seedRegionPopulation,
 } from "../helpers";
 
 /**
@@ -73,8 +81,11 @@ function runSpawn(ctx: Ctx, { kind, item = "", source = "" }: { kind: string; it
   addGroundItemTiles(ctx, p.zoneId, occupied);
   const pos = settle(ctx, p, ctx.timestamp);
   const face = facingDir(p);
+  const gate = revealGate(ctx, zone);
   const blocked =
-    kind === "dark_creature" ? (x: number, y: number) => occupied.has(tileKey(x, y)) || isLitTile(ctx, p.zoneId, x, y) : (x: number, y: number) => occupied.has(tileKey(x, y));
+    kind === "dark_creature"
+      ? (x: number, y: number) => occupied.has(tileKey(x, y)) || isLitTile(ctx, p.zoneId, x, y) || gate(x, y)
+      : (x: number, y: number) => occupied.has(tileKey(x, y)) || gate(x, y);
   const tile = spawnTile(zone, blocked, pos.x, pos.y, face.dirX, face.dirY);
   if (!tile) return [];
 
@@ -291,6 +302,65 @@ export const rescue = spacetimedb.reducer((ctx) => {
     movedAt: ctx.timestamp,
   });
 });
+
+/**
+ * Debug: claim one currently-penumbra region directly, skipping ignition (GDD
+ * "Generation: only as far as the light reaches") — for testing the frontier
+ * without staging a full ignition. A no-op once every region is interior.
+ */
+function runRevealNextRegion(ctx: Ctx, source = ""): AnalyticsEvent[] {
+  const zone = getZone(STARTING_ZONE_SLUG);
+  if (!zone) return [];
+  const revealedSlugs = currentRevealedRegions(ctx);
+  const penumbraSlugs = penumbraOf(revealedSlugs);
+  const next = [...penumbraSlugs][0];
+  if (!next || !claimRegion(ctx, next)) return [];
+  for (const neighborSlug of neighborsOf(next)) {
+    if (!ctx.db.revealedRegion.slug.find(neighborSlug)) seedRegionPopulation(ctx, zone, neighborSlug);
+  }
+  return [{ distinctId: distinctId(ctx), event: "region_revealed", properties: { region: next, ...sourceProp(source) } }];
+}
+
+export const revealNextRegion = spacetimedb.reducer((ctx) => {
+  runRevealNextRegion(ctx);
+});
+
+export const revealNextRegionAction = spacetimedb.procedure(
+  { posthogKey: t.string(), source: t.string() },
+  t.unit(),
+  (ctx, args) => {
+    const events = ctx.withTx((tx) => runRevealNextRegion(tx, args.source));
+    captureProcedureEvents(ctx, args.posthogKey, events);
+    return unit();
+  },
+);
+
+/**
+ * Debug: reset the frontier back to just the Hearth (GDD "Generation: only as
+ * far as the light reaches"). Entities already seeded in now-unclaimed
+ * regions are left in place — they're simply unreachable behind the reveal
+ * gate again, exactly like a frontier no scout has found yet.
+ */
+function runResetFrontier(ctx: Ctx, source = ""): AnalyticsEvent[] {
+  for (const row of [...ctx.db.revealedRegion.iter()]) {
+    if (row.slug !== HEARTH_REGION_SLUG) ctx.db.revealedRegion.slug.delete(row.slug);
+  }
+  return [{ distinctId: distinctId(ctx), event: "frontier_reset", properties: { ...sourceProp(source) } }];
+}
+
+export const resetFrontier = spacetimedb.reducer((ctx) => {
+  runResetFrontier(ctx);
+});
+
+export const resetFrontierAction = spacetimedb.procedure(
+  { posthogKey: t.string(), source: t.string() },
+  t.unit(),
+  (ctx, args) => {
+    const events = ctx.withTx((tx) => runResetFrontier(tx, args.source));
+    captureProcedureEvents(ctx, args.posthogKey, events);
+    return unit();
+  },
+);
 
 /**
  * Pin (or release) the shared day-night cycle (GDD "Debug cheats"). The sky is

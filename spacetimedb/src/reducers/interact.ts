@@ -9,6 +9,8 @@ import {
   isDryFloor,
   isItemId,
   ITEM_PICKUP_RADIUS,
+  penumbraOf,
+  regionAt,
 } from "../../../shared/index";
 import {
   captureProcedureEvents,
@@ -19,6 +21,7 @@ import {
   solidTiles,
   addInventory,
   addMs,
+  currentRevealedRegions,
   nearestGroundItem,
   nearbyEmberHeart,
   placeCarried,
@@ -54,7 +57,16 @@ function runInteract(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; dirY
       const siteX = Math.round(pos.x) + (dir?.dirX ?? 0);
       const siteY = Math.round(pos.y) + (dir?.dirY ?? 0);
       const claimed = [...ctx.db.project.zoneId.filter(p.zoneId)].some((pr) => pr.status === "active" && Math.hypot(pr.x - siteX, pr.y - siteY) <= 1);
-      const validSite = isDryFloor(zone, siteX, siteY) && !isLitTile(ctx, p.zoneId, siteX, siteY) && !claimed;
+      // Pushing the frontline means igniting where the dark still holds: a
+      // brand-new site must be in the penumbra. Relighting an existing
+      // guttered brazier stays allowed anywhere already interior — the
+      // "cheap to relight" behaviour is unchanged (GDD "Generation: only as
+      // far as the light reaches" / "Territory and permanence").
+      const relighting = [...ctx.db.brazier.zoneId.filter(p.zoneId)].some((b) => !b.isEternal && !b.lit && Math.hypot(b.x - siteX, b.y - siteY) <= 1);
+      const revealedSlugs = currentRevealedRegions(ctx);
+      const siteSlug = regionAt(siteX, siteY)?.slug;
+      const inFrontier = !!siteSlug && (relighting ? revealedSlugs.has(siteSlug) : penumbraOf(revealedSlugs).has(siteSlug));
+      const validSite = isDryFloor(zone, siteX, siteY) && !isLitTile(ctx, p.zoneId, siteX, siteY) && !claimed && inFrontier;
       if (validSite && withdrawStockpile(ctx, "wood", IGNITION_FUEL_COST)) {
         ctx.db.project.insert({
           id: 0n,

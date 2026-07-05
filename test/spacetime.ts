@@ -4,6 +4,8 @@
 // assert on the resulting rows. The risk in any fake-db harness is the CRUD semantics
 // drifting from the real store; these are the unambiguous ones the reducers rely on.
 
+import { WORLD_REGIONS } from "@trogg/shared";
+
 /** A stand-in identity: equality by hex, like SpacetimeDB's Identity. */
 export interface Id {
   readonly hex: string;
@@ -75,6 +77,13 @@ export function makeCtx(opts: FakeCtxOpts) {
   const random: any = () => randomValue;
   random.integerInRange = opts.integerInRange ?? ((lo: number) => lo);
 
+  // Every region starts revealed, so existing movement/combat/interact tests
+  // (written before the lazy-reveal frontier existed) keep seeing the whole
+  // committed map as walkable. A test exercising the frontier itself clears
+  // this table down to whichever regions the scenario calls for.
+  const revealedRegion = makeTable({ pk: "slug" });
+  for (const region of WORLD_REGIONS) revealedRegion.insert({ slug: region.slug, revealedAt: { microsSinceUnixEpoch: 0n } });
+
   return {
     sender: opts.sender,
     connectionId: opts.connectionId ?? id("conn"),
@@ -104,6 +113,7 @@ export function makeCtx(opts: FakeCtxOpts) {
       playerRespawn: makeTable({ pk: "scheduledId", autoInc: true, indexes: ["playerId"] }),
       worldState: makeTable({ pk: "id" }),
       creatureRegen: makeTable({ pk: "scheduledId", autoInc: true }),
+      revealedRegion,
     },
   };
 }
@@ -165,6 +175,15 @@ export function darkCreatureRow(over: Record<string, unknown> = {}) {
     health: 40,
     lastDamagedAt: { microsSinceUnixEpoch: 0n },
     aggroTargetId: "",
+    ...over,
+  };
+}
+
+/** Build a claimed-region row with sensible defaults; override what the test cares about. */
+export function revealedRegionRow(over: Record<string, unknown> = {}) {
+  return {
+    slug: "hearth",
+    revealedAt: { microsSinceUnixEpoch: 0n },
     ...over,
   };
 }

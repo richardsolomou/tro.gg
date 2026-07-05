@@ -26,6 +26,11 @@ export const WORLD_REGION_ROWS: readonly string[] = [
 ${world.regions.map((row) => `  ${JSON.stringify(row)},`).join("\n")}
 ];
 
+/** Which regions touch which (GDD "Generation: only as far as the light
+ *  reaches") — scanned once from the grid above; drives the runtime reveal
+ *  layer's penumbra computation. */
+export const WORLD_REGION_ADJACENCY: Readonly<Record<string, readonly string[]>> = ${JSON.stringify(world.regionAdjacency)};
+
 export const WORLD_BOULDERS: readonly Coord[] = ${JSON.stringify(world.boulders)};
 
 export const WORLD_TREES: readonly Coord[] = ${JSON.stringify(world.trees)};

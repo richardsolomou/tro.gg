@@ -28,9 +28,14 @@ import {
   WANDER_TURN_CHANCE,
   footprintWalkable,
   getZone,
+  isRevealed,
   isWalkable,
+  neighborsOf,
+  penumbraOf,
   projectMotionState,
+  regionAt,
   tileKey,
+  type Zone,
   zoneBounds,
 } from "../../shared/index";
 import {
@@ -54,6 +59,9 @@ import {
   damagePlayer,
   countRows,
   randomUnlitDryTile,
+  claimRegion,
+  currentRevealedRegions,
+  seedRegionPopulation,
 } from "./helpers";
 
 /**
@@ -485,6 +493,22 @@ const creatureRegen = table(
 );
 
 /**
+ * A claimed region (GDD "Generation: only as far as the light reaches"): the
+ * durable truth of how far the tribe's fire has reached. One row per
+ * interior region — the Hearth on first connect, then each region an
+ * ignition succeeds in. Penumbra (adjacent, unclaimed) is never stored —
+ * derived on demand from this (≤11-row) set plus the committed
+ * `WORLD_REGION_ADJACENCY` graph.
+ */
+const revealedRegion = table(
+  { name: "revealed_region", public: true },
+  {
+    slug: t.string().primaryKey(),
+    revealedAt: t.timestamp(),
+  },
+);
+
+/**
  * Shared world dials (GDD "Debug cheats") — one public singleton row (id 0).
  * `skyLocked`/`skyPhase` pin the day-night cycle for EVERYONE: the cycle is
  * cosmetic, but the sky is shared fiction, so a Commands-drawer scrub changes
@@ -500,7 +524,7 @@ const worldState = table(
   },
 );
 
-const spacetimedb = schema({ player, chatMessage, ghostHaunt, claimCode, boulder, tree, darkCreature, emberHeart, project, groundItem, inventory, stockpile, brazier, brazierUpkeepTimer, emberWanderTimer, playerConnection, playerRespawn, creatureRegen, worldState });
+const spacetimedb = schema({ player, chatMessage, ghostHaunt, claimCode, boulder, tree, darkCreature, emberHeart, project, groundItem, inventory, stockpile, brazier, brazierUpkeepTimer, emberWanderTimer, playerConnection, playerRespawn, creatureRegen, revealedRegion, worldState });
 export default spacetimedb;
 
 /** The reducer context, typed against this module's schema (db view + sender). */
@@ -641,6 +665,9 @@ export const wanderPresence = spacetimedb.reducer({ timer: emberWanderTimer.rowT
   const online = anyPlayerOnline(ctx);
   const now = ctx.timestamp;
   if (online) {
+    const revealedSlugs = currentRevealedRegions(ctx);
+    const penumbraSlugs = penumbraOf(revealedSlugs);
+    const revealed = (zone: Zone, x: number, y: number) => isRevealed(zone, revealedSlugs, penumbraSlugs, x, y);
     for (const p of ctx.db.player.iter()) {
       if (p.online) continue; // bright troggs act on player input, not instinct
       const charge = deriveKindlingCharge(p.kindlingCharge, p.kindlingChargeAt, false, now);
@@ -667,7 +694,7 @@ export const wanderPresence = spacetimedb.reducer({ timer: emberWanderTimer.rowT
       const zone = getZone(p.zoneId);
       if (!zone) continue;
       const blockers = obstacleTiles(ctx, p.zoneId);
-      const bounds = zoneBounds(zone, (x, y) => blockers.has(tileKey(x, y)) || !isLitTile(ctx, p.zoneId, x, y));
+      const bounds = zoneBounds(zone, (x, y) => blockers.has(tileKey(x, y)) || !isLitTile(ctx, p.zoneId, x, y) || !revealed(zone, x, y));
       const at = projectMotionState(p, elapsedMs(p.movedAt, now), bounds);
       const moving = p.dirX !== 0 || p.dirY !== 0;
       const aheadClear = moving && footprintWalkable(bounds, at.x + Math.sign(p.dirX), at.y + Math.sign(p.dirY), 1);
@@ -736,7 +763,7 @@ export const wanderPresence = spacetimedb.reducer({ timer: emberWanderTimer.rowT
       const zone = getZone(c.zoneId);
       if (!zone) continue;
       const statics = staticBlockersFor(c.zoneId);
-      const bounds = zoneBounds(zone, (x, y) => statics.has(tileKey(x, y)) || isLitTile(ctx, c.zoneId, x, y));
+      const bounds = zoneBounds(zone, (x, y) => statics.has(tileKey(x, y)) || isLitTile(ctx, c.zoneId, x, y) || !revealed(zone, x, y));
       const at = projectMotionState(c, elapsedMs(c.movedAt, now), bounds);
       settledCreatures.push({ row: c, x: at.x, y: at.y, zoneId: c.zoneId });
       let tiles = creatureTilesByZone.get(c.zoneId);
@@ -823,7 +850,7 @@ export const wanderPresence = spacetimedb.reducer({ timer: emberWanderTimer.rowT
       } else {
         const bounds = zoneBounds(zone, (x, y) => {
           const k = tileKey(x, y);
-          if (statics.has(k) || isLitTile(ctx, s.zoneId, x, y)) return true;
+          if (statics.has(k) || isLitTile(ctx, s.zoneId, x, y) || !revealed(zone, x, y)) return true;
           return k !== ownTile && creatureTiles.has(k);
         });
         dir = pickWanderDir(ctx, bounds, { x: Math.round(s.x), y: Math.round(s.y) }, 1);
@@ -849,6 +876,18 @@ export const wanderPresence = spacetimedb.reducer({ timer: emberWanderTimer.rowT
         if (existing) ctx.db.brazier.id.update({ ...existing, lit: true });
         else ctx.db.brazier.insert({ id: 0n, zoneId: proj.zoneId, x: proj.x, y: proj.y, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
         ctx.db.project.id.delete(proj.id);
+
+        // Claiming a region opens its still-unclaimed neighbours as the next
+        // penumbra — seed them now from the same committed per-region lists
+        // worldgen already drew, so a scout can find what's inside before
+        // anyone claims it themselves (GDD "Generation: only as far as the
+        // light reaches").
+        const siteSlug = regionAt(proj.x, proj.y)?.slug;
+        if (siteSlug && claimRegion(ctx, siteSlug)) {
+          for (const neighborSlug of neighborsOf(siteSlug)) {
+            if (!ctx.db.revealedRegion.slug.find(neighborSlug)) seedRegionPopulation(ctx, zone, neighborSlug);
+          }
+        }
         continue;
       }
 

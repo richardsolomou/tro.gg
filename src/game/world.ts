@@ -13,6 +13,8 @@ import {
   getZone,
   GHOST_HAUNT_FRESH_MS,
   GLOWMOSS_TILE,
+  isRevealed,
+  penumbraOf,
   presenceOf,
   PLAYER_RESPAWN_MS,
   BOULDER_MAX_HEALTH,
@@ -181,6 +183,15 @@ export class World3D {
       if (view.row.lit && Math.hypot(x - view.row.x, y - view.row.y) <= view.row.radius) return true;
     }
     return false;
+  }
+
+  /** How far the tribe's fire has reached (GDD "Generation: only as far as
+   *  the light reaches") — the client mirror of the server's `isRevealed`,
+   *  read off the already-subscribed `revealed_region` rows. */
+  private readonly revealedRegions = new Set<string>();
+  private penumbraRegions: ReadonlySet<string> = new Set();
+  isRegionRevealed(x: number, y: number): boolean {
+    return isRevealed(this.zone, this.revealedRegions, this.penumbraRegions, x, y);
   }
 
   /** Hide world objects beyond what the fog reveals: the seamless world renders
@@ -389,7 +400,7 @@ export class World3D {
       interact: this.useInteract,
     });
 
-    const obstructed = (x: number, y: number) => this.boulderTiles.has(tileKey(x, y)) || this.treeTiles.has(tileKey(x, y));
+    const obstructed = (x: number, y: number) => this.boulderTiles.has(tileKey(x, y)) || this.treeTiles.has(tileKey(x, y)) || !this.isRegionRevealed(x, y);
     this.troggBounds = zoneBounds(this.zone, obstructed);
     // A dark creature can't stand on lit ground (GDD "Dark creatures"), the
     // mirror of an ember trogg's confinement — read live off the subscribed
@@ -422,7 +433,7 @@ export class World3D {
     this.moon = World3D.skyBody("rgba(214, 226, 248, 0.85)", 9);
     this.scene.add(this.sun, this.moon);
 
-    this.terrain = buildTerrain(this.zone);
+    this.terrain = buildTerrain(this.zone, (x, y) => this.isRegionRevealed(x, y));
     this.scene.add(this.terrain.group);
     this.entities = createEntities(this.scene);
     this.treeField = new NodeField(this.scene, buildTree(), MAX_TREES_PER_ZONE);
@@ -510,6 +521,7 @@ export class World3D {
     this.wireBraziers();
     this.wireEmberHearts();
     this.wireProjects();
+    this.wireRevealedRegions();
     if (this.useDarkCreatures) this.wireDarkCreatures();
     if (this.useGhost) this.wireGhostHaunts();
 
@@ -643,6 +655,7 @@ export class World3D {
       `SELECT * FROM project WHERE zone_id = '${this.slug}'`,
       "SELECT * FROM world_state",
       "SELECT * FROM stockpile",
+      "SELECT * FROM revealed_region",
     ];
     if (this.myId) queries.push(`SELECT * FROM inventory WHERE player_id = '${this.myId}'`);
     if (this.useGhost) queries.push(`SELECT * FROM ghost_haunt WHERE zone_id = '${this.slug}'`);
@@ -1409,6 +1422,22 @@ export class World3D {
     conn.db.project.onInsert((_ctx, row) => this.upsertProject(row));
     conn.db.project.onUpdate((_ctx, _old, row) => this.upsertProject(row));
     conn.db.project.onDelete((_ctx, row) => this.removeProject(row));
+  }
+
+  /** Refresh the claimed/penumbra region sets and rebuild terrain against the
+   *  new boundary (GDD "Generation: only as far as the light reaches") —
+   *  unrevealed ground is a hard wall until an ignition claims it. */
+  private refreshRevealedRegions(): void {
+    this.revealedRegions.clear();
+    for (const row of this.conn.db.revealedRegion.iter()) this.revealedRegions.add(row.slug);
+    this.penumbraRegions = penumbraOf(this.revealedRegions);
+    this.terrain.invalidate();
+  }
+
+  private wireRevealedRegions(): void {
+    const conn = this.conn;
+    conn.db.revealedRegion.onInsert(() => this.refreshRevealedRegions());
+    conn.db.revealedRegion.onDelete(() => this.refreshRevealedRegions());
   }
 
   /** A hearth or brazier: the stone ring + fire (`buildBrazier`) plus a flat

@@ -7,6 +7,7 @@ import {
   COLOR_UNSET,
   deriveKindlingCharge,
   getZone,
+  neighborsOf,
   STYLE_UNSET,
   isWalkable,
   PLAYER_MAX_HEALTH,
@@ -17,11 +18,12 @@ import {
   healStaleWorld,
   seedBoulders,
   seedTrees,
-  seedDarkCreatures,
-  seedEmberHearts,
   seedGroundItems,
   seedBirthInstance,
   seedFirstFire,
+  seedRevealedHearth,
+  seedRegionPopulation,
+  HEARTH_REGION_SLUG,
   playerConnectionCount,
   rememberPlayerConnection,
   forgetPlayerConnection,
@@ -53,8 +55,12 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
   seedTrees(ctx, startingZone);
   seedGroundItems(ctx, startingZone);
   seedFirstFire(ctx, startingZone);
-  seedDarkCreatures(ctx, startingZone);
-  seedEmberHearts(ctx, startingZone);
+  // The Hearth is interior from the start (GDD "Generation: only as far as
+  // the light reaches"); its initial penumbra is seeded right alongside it,
+  // not via an ignition, so a fresh world has somewhere to scout on day one.
+  seedRevealedHearth(ctx);
+  seedRegionPopulation(ctx, startingZone, HEARTH_REGION_SLUG);
+  for (const neighborSlug of neighborsOf(HEARTH_REGION_SLUG)) seedRegionPopulation(ctx, startingZone, neighborSlug);
   armRegen(ctx);
   armBrazierUpkeep(ctx);
   armEmberWander(ctx);

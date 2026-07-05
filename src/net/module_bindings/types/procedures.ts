@@ -16,7 +16,9 @@ import * as RecolorActionProcedure from "../recolor_action_procedure";
 import * as RenameActionProcedure from "../rename_action_procedure";
 import * as ResetBouldersActionProcedure from "../reset_boulders_action_procedure";
 import * as ResetDarkCreaturesActionProcedure from "../reset_dark_creatures_action_procedure";
+import * as ResetFrontierActionProcedure from "../reset_frontier_action_procedure";
 import * as RestyleActionProcedure from "../restyle_action_procedure";
+import * as RevealNextRegionActionProcedure from "../reveal_next_region_action_procedure";
 import * as SpawnActionProcedure from "../spawn_action_procedure";
 import * as UseEquippedActionProcedure from "../use_equipped_action_procedure";
 
@@ -40,8 +42,12 @@ export type ResetBouldersActionArgs = __Infer<typeof ResetBouldersActionProcedur
 export type ResetBouldersActionResult = __Infer<typeof ResetBouldersActionProcedure.returnType>;
 export type ResetDarkCreaturesActionArgs = __Infer<typeof ResetDarkCreaturesActionProcedure.params>;
 export type ResetDarkCreaturesActionResult = __Infer<typeof ResetDarkCreaturesActionProcedure.returnType>;
+export type ResetFrontierActionArgs = __Infer<typeof ResetFrontierActionProcedure.params>;
+export type ResetFrontierActionResult = __Infer<typeof ResetFrontierActionProcedure.returnType>;
 export type RestyleActionArgs = __Infer<typeof RestyleActionProcedure.params>;
 export type RestyleActionResult = __Infer<typeof RestyleActionProcedure.returnType>;
+export type RevealNextRegionActionArgs = __Infer<typeof RevealNextRegionActionProcedure.params>;
+export type RevealNextRegionActionResult = __Infer<typeof RevealNextRegionActionProcedure.returnType>;
 export type SpawnActionArgs = __Infer<typeof SpawnActionProcedure.params>;
 export type SpawnActionResult = __Infer<typeof SpawnActionProcedure.returnType>;
 export type UseEquippedActionArgs = __Infer<typeof UseEquippedActionProcedure.params>;
