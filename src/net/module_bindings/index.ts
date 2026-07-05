@@ -80,10 +80,12 @@ import BoulderRow from "./boulder_table";
 import BrazierRow from "./brazier_table";
 import ChatMessageRow from "./chat_message_table";
 import DarkCreatureRow from "./dark_creature_table";
+import EmberHeartRow from "./ember_heart_table";
 import GhostHauntRow from "./ghost_haunt_table";
 import GroundItemRow from "./ground_item_table";
 import InventoryRow from "./inventory_table";
 import PlayerRow from "./player_table";
+import ProjectRow from "./project_table";
 import StockpileRow from "./stockpile_table";
 import TreeRow from "./tree_table";
 import WorldStateRow from "./world_state_table";
@@ -148,6 +150,20 @@ const tablesSchema = __schema({
       { name: 'dark_creature_id_key', constraint: 'unique', columns: ['id'] },
     ],
   }, DarkCreatureRow),
+  emberHeart: __table({
+    name: 'ember_heart',
+    indexes: [
+      { accessor: 'id', name: 'ember_heart_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+      { accessor: 'zoneId', name: 'ember_heart_zone_id_idx_btree', algorithm: 'btree', columns: [
+        'zoneId',
+      ] },
+    ],
+    constraints: [
+      { name: 'ember_heart_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, EmberHeartRow),
   ghostHaunt: __table({
     name: 'ghost_haunt',
     indexes: [
@@ -204,6 +220,20 @@ const tablesSchema = __schema({
       { name: 'player_identity_key', constraint: 'unique', columns: ['identity'] },
     ],
   }, PlayerRow),
+  project: __table({
+    name: 'project',
+    indexes: [
+      { accessor: 'id', name: 'project_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+      { accessor: 'zoneId', name: 'project_zone_id_idx_btree', algorithm: 'btree', columns: [
+        'zoneId',
+      ] },
+    ],
+    constraints: [
+      { name: 'project_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, ProjectRow),
   stockpile: __table({
     name: 'stockpile',
     indexes: [

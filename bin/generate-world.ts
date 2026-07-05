@@ -40,6 +40,9 @@ ${world.cells.map((cell) => `  ${JSON.stringify(cell)},`).join("\n")}
 /** Starting dark-creature population (GDD "Dark creatures"). */
 export const WORLD_DARK_CREATURES: readonly DarkCreatureSeed[] = ${JSON.stringify(world.darkCreatures)};
 
+/** Starting ember-heart sites (GDD "Ignition"). */
+export const WORLD_EMBER_HEARTS: readonly Coord[] = ${JSON.stringify(world.emberHearts)};
+
 /** Where an emerging trogg lands: the coast's cave-mouth alcove. */
 export const WORLD_ARRIVAL: Coord = ${JSON.stringify(world.arrival)};
 

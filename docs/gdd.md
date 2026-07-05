@@ -40,7 +40,7 @@ The buildable spec for tro.gg. If you are an agent working on this codebase: thi
 | action | A timed activity a player starts on a node (mine, forage). One action at a time per player. |
 | skill | A progression track (mining, foraging, combat). XP and levels per skill, per player, earned only by bright play. |
 | recipe | A crafting definition: inputs → output, skill requirement. |
-| project | A communal endeavor the tribe funds by contributing to the stockpile toward it — currently, igniting a brazier. Completion is shared; contribution is tracked per player. `project` in code/schema. |
+| project | A communal endeavor the tribe funds from the stockpile — currently, igniting a brazier: one lump withdrawal plus one carried ember-heart, not per-player pooled contribution. `project` in code/schema. |
 | guest | An anonymous player (self-issued anonymous session). Has a generated name until upgrade. |
 
 ## Design pillars
@@ -288,10 +288,11 @@ The game's central system: the tribe holds back an encroaching dark by keeping f
 
 Pushing the frontline outward is a deliberate, active event, not a threshold quietly crossed:
 
-- **Two keys, one door.** Igniting a new brazier costs (1) a lump of fuel hauled from the stockpile — `IGNITION_FUEL_COST` *(initial)*, sized well above ordinary upkeep — and (2) an ember-heart, a component that exists nowhere in the stockpile and can only be recovered by a bright trogg scouting the dark beyond the frontline (below). Fuel is what the sleeping tribe provided; the ember-heart is what someone awake went and got. Every push is jointly authored by both halves of the game.
-- **The event itself is hold-the-point, not full-clear.** Bright troggs carry the fuel and ember-heart to the chosen site and light a nascent flame; this uses the same `projects` row shape the game already has (slug, zoneId, status, requirements, contributed), just pointed at a brazier site instead of an abstract goal. For a fixed window (`IGNITION_WINDOW_MS` *(initial)*, on the order of minutes, not an hour — a mandatory hour-long event doesn't suit a handful of concurrent players) the dark answers with waves at the nascent flame, and the defenders hold rather than hunt down every last creature on the map — a full-clear objective dies on one hidden straggler, and this design avoids that failure mode on purpose.
-- **Success ignites the brazier**: the site becomes a lit hearth, the ground around it is claimed, and every dark creature killed there from now on stays dead (Territory and permanence).
-- **Failure consumes the stake.** If the nascent flame goes out before the window ends, the fuel and the ember-heart are spent for nothing — the tribe re-gathers and re-scouts before trying again. The cost of failure is the resources and the scouting effort, never a player's progress or a corpse's loot.
+- **Two keys, one door.** Igniting a new brazier costs (1) a lump of fuel hauled from the stockpile — `IGNITION_FUEL_COST` *(initial)*, sized well above ordinary upkeep — and (2) an ember-heart, a component that exists nowhere in the stockpile and can only be recovered by scouting the dark. Fuel is what the sleeping tribe provided; the ember-heart is what someone awake went and got. Every push is jointly authored by both halves of the game. Since the frontline/penumbra ring system doesn't exist yet (Roadmap step 7), ember-hearts are scattered thinly across the dark generally, not staged one-ring-deep — a scope simplification the ring-at-a-time worldgen may narrow later.
+- **`E` while carrying an ember-heart is context-sensitive.** Facing a valid site — dry floor, not already lit, not another active ignition's site — with enough stockpiled fuel, put-down lights the ignition instead of just setting the heart back in the world; anywhere else, it's an ordinary put-down (the same "future effects hang off the same key" the interact mechanic was built for).
+- **The event itself is hold-the-point, not full-clear.** This uses a `project` row (id, zoneId, x, y, status, flameHealth, windowEndsAt, lastWaveAt) pointed at the brazier site — a narrower, ignition-specific shape than the originally-planned generic slug/requirements/per-player-contribution row, since ignition's actual funding is one lump withdrawal plus one carried component, not iterative pooling; the general shape remains open for a future communal project that genuinely needs it. For a fixed window (`IGNITION_WINDOW_MS` *(initial)*, on the order of minutes, not an hour) the dark answers with waves of dark creatures (`IGNITION_WAVE_SIZE` every `IGNITION_WAVE_INTERVAL_MS`, the first almost immediately) converging on the site instead of a trogg; a wave creature in reach (`IGNITION_SITE_REACH`) stops and chips `flameHealth` at its own damage roll, same as attacking a trogg. Defenders hold by killing the waves — same combat, same `damageDarkCreature` — rather than hunting down every last creature on the map.
+- **Success ignites the brazier**: surviving the whole window with any flame left lights a new brazier at the site (or relights an existing guttered one there), claiming the ground and — once a dark creature dies there — permanently (Territory and permanence).
+- **Failure consumes the stake.** If flame health hits zero before the window ends, the project resolves to failure on the spot — the fuel and the ember-heart are already spent for nothing, and nothing lingers to clean up. The tribe re-gathers and re-scouts before trying again.
 
 #### Generation: only as far as the light reaches
 
@@ -388,8 +389,9 @@ tree           id (PK, auto-inc), zoneId, x, y, health     (tile coords)
 dark_creature  id (PK, auto-inc), zoneId, x, y, dirX, dirY, movedAt, species, health, lastDamagedAt, aggroTargetId
                a hostile inhabitant of the dark and the penumbra (see "Dark creatures"). Intent-based
                motion like a player or the retired `hog` row (position derived with projectMotion);
-               server-owned, no identity. aggroTargetId is the trogg identity it's currently chasing,
-               if any ("" = wandering). Solid, the same way a Hog used to be: blocks troggs and other
+               server-owned, no identity. aggroTargetId is the trogg identity it's currently chasing, an
+               ignition site it's converging on as `project:<id>` (see "Ignition"), or "" while
+               wandering. Solid, the same way a Hog used to be: blocks troggs and other
                dark creatures. Cannot occupy a lit tile (see "The fire and the dark" → Territory and
                permanence), which is what keeps it out of claimed ground rather than a targeting rule.
                Whether it respawns after death depends on whether the tile it died on is lit at the
@@ -454,11 +456,24 @@ claim_code     code (PK), guest (Identity), createdAt
 skills         playerId, skill, xp
                XP accrues only from bright (actively played) actions — ember work feeds the stockpile
                but never a skill (see "Skills and XP"). index: by_player (playerId)
-projects       slug, zoneId, status, requirements, contributed
-               a communal endeavor funded from the stockpile; currently used for ignition (see "The fire
-               and the dark" → Ignition), where `requirements` is the fuel + ember-heart cost of a
-               brazier site and completion inserts/lights the matching `brazier` row. `contributed` is
-               tracked per player even though the stockpile itself isn't (see "The stockpile").
+ember_heart    id (PK, auto-inc), zoneId, x, y
+               a rare component recovered only by scouting the dark (see "Ignition"), required alongside
+               fuel to ignite a brazier. A tile-sized carryable like the retired boulder carry — `interact`
+               lifts one into a trogg's `carrying` field ("ember_heart"), leaving this row gone until put
+               down (or spent igniting). Seeded thinly per the world registry on first connect; the
+               out-of-combat regen sweep tops the population back up to EMBER_HEART_TARGET_COUNT.
+               index: by_zone (zoneId)
+project        id (PK, auto-inc), zoneId, x, y, status, flameHealth, windowEndsAt, lastWaveAt
+               a communal ignition in progress at a brazier site (see "The fire and the dark" →
+               Ignition). Narrower than the originally-planned generic slug/requirements/per-player-
+               contribution shape, since ignition's actual funding is one lump stockpile withdrawal plus
+               one carried ember-heart, not iterative pooling; the general shape stays open for a future
+               project that genuinely needs it. `status` is "active" for a row's whole life — success
+               (a lit/relit `brazier` row) and failure (the stake spent for nothing) both resolve the row
+               out of existence the instant they happen, never lingering in some other status.
+               `flameHealth` depletes as dark-creature waves reach the site and land a hit; hitting zero
+               fails the ignition on the spot. `lastWaveAt` paces wave spawns for the life of the window.
+               Resolved via the same `ember_wander` sweep that steps ember troggs and dark creatures.
                index: by_zone (zoneId)
 ```
 
@@ -488,7 +503,7 @@ projects       slug, zoneId, status, requirements, contributed
 
 Roadmap notes are planning context, not permission gates. Pick work by current product need, maintainer direction, and what keeps the game playable. Do not block a task because older notes placed it later, and do not treat this section as a release checklist.
 
-**This document specs a direction the shipped code is still catching up to.** The game pivoted from a Hog-town/personal-inventory/tool-crafting design to the fire-and-dark design above; Hogs are retired, gathering deposits straight into the shared stockpile, the First Fire holds a lit radius with billed upkeep, a trogg now goes ember then dormant on disconnect instead of vanishing, and the dark holds real hostile creatures bound by the light (Roadmap steps 1–5, done), but ignition and lazy worldgen are still the target, not yet the shipped state. Flag any place code and doc disagree rather than silently trusting either (per "How to use this document").
+**This document specs a direction the shipped code is still catching up to.** The game pivoted from a Hog-town/personal-inventory/tool-crafting design to the fire-and-dark design above; Hogs are retired, gathering deposits straight into the shared stockpile, the First Fire holds a lit radius with billed upkeep, a trogg now goes ember then dormant on disconnect instead of vanishing, the dark holds real hostile creatures bound by the light, and the tribe can hold-the-point an ignition to push a brazier into new ground (Roadmap steps 1–6, done), but lazy worldgen is still the target, not yet the shipped state. Flag any place code and doc disagree rather than silently trusting either (per "How to use this document").
 
 Migrating the existing build toward this spec is the current top-level work, roughly in dependency order:
 
@@ -497,7 +512,7 @@ Migrating the existing build toward this spec is the current top-level work, rou
 3. ~~Hearths, braziers, and the lit-radius rule.~~ Done: the `brazier` table exists, seeded with the First Fire as the one eternal, always-lit row at the Hearth; a scheduled sweep bills every other lit brazier `BRAZIER_UPKEEP_RATE` Wood per tick from the stockpile and gutters whichever is furthest from the First Fire first when unpaid. The geometric "is this tile lit" primitive (`isLitTile`) exists too, but nothing reads it yet — the actual "dark creatures can't enter a lit tile" collision rule lands with Dark creatures (step 5) once there's a creature to bind by it.
 4. ~~Presence: bright / ember / dormant.~~ Done: `kindlingCharge`/`kindlingChargeAt` live on the player row, derived the way motion is (`deriveKindlingCharge`); `move`/`moveTo`/`face` accrue it as the only "real input" reducers that count as bright play. The client subscribes to every player row in its zone regardless of `online`, so ember and dormant troggs stay visible (dimmed via `setPresenceDim`) instead of dropping from view. The scheduled `ember_wander` sweep (`wanderPresence`, the direct successor of `hog_wander`) ambles a charged ember trogg across lit tiles only (`pickWanderDir` bounded by `isLitTile`) and gathers on instinct from an adjacent boulder or tree at `EMBER_EFFICIENCY_FRACTION`; the instant its derived charge hits zero it settles at the nearest hearth, dormant. `onDisconnect` finalizes the last stretch of bright play into charge, then recalls to the nearest hearth (`nearestLitBrazier`) whenever the trogg isn't already on lit ground — ember if charge remains, dormant if not — and skips the drop-carried-on-disconnect step for a recall, since the carried kind is durable on the row. `onConnect` re-derives however much ember decay happened while away and resumes bright instantly.
 5. ~~Dark creatures.~~ Done: the `dark_creature` table exists, seeded per region on the world map (well clear of the Hearth's light) via `bin/generate-world`'s `WORLD_DARK_CREATURES`. The same `wanderPresence` sweep now also steps every living dark creature — light-bound wander (`isLitTile` inverted), aggro-on-sight within `DARK_CREATURE_AGGRO_RANGE`, turn-toward-target chase, stop-and-swing once in reach. `useEquipped`/`throwCarried` resolve a dark creature over an equally distant trogg; `damageDarkCreature` settles a kill as a corpse and drops loot; `regenCreatures` reaps a corpse after `NPC_CORPSE_MS` and decides right there whether the ground is lit enough to respawn one. The first species is the grask (`buildGrask` in `src/game/creatures.ts`); Commands-panel spawn buttons and a `resetDarkCreatures` reducer mirror boulders/trees. Deferred: the far-crowd instanced-silhouette fallback beyond `CREATURE_BUDGET` stays trogg-only for now (see "Dark creatures" above).
-6. **Ignition.** Repoint the existing `projects` table at brazier sites; the ember-heart as a carryable (reusing the generic carry/throw mechanic — `placeCarried`, `throwCarried` — that Hogs used to be the only occupant of); the hold-the-point event and its waves.
+6. ~~Ignition.~~ Done: the `ember_heart` table seeds a handful of recoverable hearts across the dark (`bin/generate-world`'s `WORLD_EMBER_HEARTS`, topped up by the regen sweep); `interact` lifts one as a carryable via the generic carry mechanic (`placeCarried`) that Hogs used to be the only occupant of. Facing a valid, unclaimed, dry-floor site with `IGNITION_FUEL_COST` in the stockpile, putting the heart down lights a `project` row instead of just dropping it. The `wanderPresence` sweep paces `IGNITION_WAVE_SIZE` dark-creature waves at `IGNITION_WAVE_INTERVAL_MS` (aggroTargetId `project:<id>`, converging on the site instead of a trogg), resolves the flame's health as waves land hits, and — surviving the window — lights (or relights) a `brazier` there. The generic multi-player, per-contribution `projects` shape from the original plan narrowed to what ignition actually needed (see "The fire and the dark" → Ignition); throwing an ember-heart stays dormant, exactly as spec'd.
 7. **Lazy, ring-at-a-time worldgen.** Extend the deterministic generator to produce one ring past the current frontline on demand and freeze each ring once it's been reached, rather than committing the whole continent up front.
 
 Implemented world systems that carry over unchanged: the static `ZONES`/committed-map machinery, zone-scoped subscriptions, per-tile walkability, free camera-relative WASD movement with sliding collision, boulder mining and tree felling, the jointed 3D rig and its animation/equip system, inventory/equipment mechanics for personal gear, sword/unarmed combat grammar (hit circles, swing cones, weapon damage, shield block), trogg health/death/respawn, hold-shift-to-run, recolouring/restyling, chat, the ghost easter egg, the Commands drawer, and anonymous-first identity with optional Discord claim.

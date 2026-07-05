@@ -340,6 +340,25 @@ export function buildBrazier(): THREE.Group {
   return g;
 }
 
+/** The ember-heart (GDD "Ignition"): a rare, faintly glowing coal in a cracked
+ *  dark shell — found scattered in the dark, carried to a brazier site to
+ *  light it. */
+export function buildEmberHeart(): THREE.Group {
+  const g = new THREE.Group();
+  const shell = new THREE.Mesh(ico(0.18, 1), mat(ITEM_3D.rockDk));
+  shell.position.y = 0.22;
+  shell.scale.y = 1.2;
+  shell.castShadow = true;
+  g.add(shell);
+  const core = new THREE.Mesh(
+    ico(0.11, 1),
+    poolMaterial("ember-heart:core", () => new THREE.MeshStandardMaterial({ color: 0xff6a1e, emissive: 0xff6a1e, emissiveIntensity: 1.2, roughness: 0.4 })),
+  );
+  core.position.y = 0.22;
+  g.add(core);
+  return g;
+}
+
 /** The mineable boulder: a chunky low-poly rock filling most of its tile. */
 export function buildBoulder(): THREE.Group {
   const g = new THREE.Group();

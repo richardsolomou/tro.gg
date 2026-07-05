@@ -89,6 +89,8 @@ export function makeCtx(opts: FakeCtxOpts) {
       boulder: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
       tree: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
       darkCreature: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
+      emberHeart: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
+      project: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
       groundItem: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
       inventory: makeTable({ pk: "id", autoInc: true, indexes: ["playerId"] }),
       stockpile: makeTable({ pk: "item" }),
@@ -163,6 +165,21 @@ export function darkCreatureRow(over: Record<string, unknown> = {}) {
     health: 40,
     lastDamagedAt: { microsSinceUnixEpoch: 0n },
     aggroTargetId: "",
+    ...over,
+  };
+}
+
+/** Build an ignition project row with sensible defaults; override what the test cares about. */
+export function projectRow(over: Record<string, unknown> = {}) {
+  return {
+    id: 0n,
+    zoneId: "world",
+    x: 5,
+    y: 5,
+    status: "active",
+    flameHealth: 100,
+    windowEndsAt: { microsSinceUnixEpoch: 0n },
+    lastWaveAt: { microsSinceUnixEpoch: 0n },
     ...over,
   };
 }

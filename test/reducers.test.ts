@@ -50,6 +50,10 @@ import {
   DARK_CREATURES,
   MAX_DARK_CREATURES_PER_ZONE,
   NPC_CORPSE_MS,
+  IGNITION_FUEL_COST,
+  IGNITION_FLAME_HEALTH,
+  IGNITION_WAVE_INTERVAL_MS,
+  EMBER_HEART_TARGET_COUNT,
 } from "@trogg/shared";
 import {
   chat,
@@ -84,7 +88,7 @@ import {
   startClaim,
   useEquipped,
 } from "../spacetimedb/src/index.ts";
-import { darkCreatureRow, id, makeCtx, playerRow } from "./spacetime.ts";
+import { darkCreatureRow, id, makeCtx, playerRow, projectRow } from "./spacetime.ts";
 
 const ZONE = "world";
 const micros = (ms: number) => BigInt(ms) * 1000n;
@@ -1288,6 +1292,174 @@ test("resetDarkCreatures clears the zone (corpses included) and reseeds from the
   resetDarkCreatures(ctx, {});
   const zone = getZone(ZONE)!;
   assert.equal(ctx.db.darkCreature.rows().length, zone.darkCreatures.length);
+});
+
+// --- Ignition ---
+
+test("onConnect seeds the world zone's ember-heart sites, idempotently", () => {
+  const me = id("newguest3");
+  const ctx = makeCtx({ sender: me });
+  onConnect(ctx);
+  const count = ctx.db.emberHeart.rows().filter((e: any) => e.zoneId === ZONE).length;
+  assert.ok(count > 0);
+
+  (ctx as any).sender = id("anotherguest3");
+  onConnect(ctx);
+  assert.equal(ctx.db.emberHeart.rows().filter((e: any) => e.zoneId === ZONE).length, count);
+});
+
+test("interact picks up an adjacent ember-heart, preferring the faced tile", () => {
+  const { ctx, me } = withPlayer({ x: 69, y: 96 });
+  ctx.db.emberHeart.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96 });
+  ctx.db.emberHeart.insert({ id: 0n, zoneId: ZONE, x: 68, y: 96 });
+  interact(ctx, { dirX: 1, dirY: 0 }); // faces the east one
+  assert.deepEqual(
+    { carrying: ctx.db.player.identity.find(me).carrying, remaining: ctx.db.emberHeart.rows().length, x: ctx.db.emberHeart.rows()[0]!.x },
+    { carrying: "ember_heart", remaining: 1, x: 68 }, // the faced (east) one was lifted, the other stays
+  );
+});
+
+test("interact puts an ember-heart back down when there's no valid ignition site", () => {
+  const { ctx, me } = withPlayer({ x: 69, y: 96, carrying: "ember_heart" });
+  ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false }); // lit ground
+  interact(ctx, { dirX: 1, dirY: 0 });
+  assert.deepEqual(
+    { carrying: ctx.db.player.identity.find(me).carrying, emberHearts: ctx.db.emberHeart.rows().length, projects: ctx.db.project.rows().length },
+    { carrying: "", emberHearts: 1, projects: 0 },
+  );
+});
+
+test("interact lights an ignition at a valid site, spending fuel and the ember-heart", () => {
+  const { ctx, me } = withPlayer({ x: 149, y: 72, carrying: "ember_heart" });
+  ctx.db.stockpile.insert({ item: "wood", qty: IGNITION_FUEL_COST });
+  interact(ctx, { dirX: 1, dirY: 0 });
+  const proj = ctx.db.project.rows()[0];
+  assert.deepEqual(
+    {
+      carrying: ctx.db.player.identity.find(me).carrying,
+      emberHearts: ctx.db.emberHeart.rows().length,
+      wood: ctx.db.stockpile.item.find("wood")?.qty,
+      status: proj?.status,
+      flameHealth: proj?.flameHealth,
+    },
+    { carrying: "", emberHearts: 0, wood: 0, status: "active", flameHealth: IGNITION_FLAME_HEALTH },
+  );
+});
+
+test("interact refuses to ignite without enough fuel, and puts the heart down instead", () => {
+  const { ctx, me } = withPlayer({ x: 149, y: 72, carrying: "ember_heart" });
+  ctx.db.stockpile.insert({ item: "wood", qty: IGNITION_FUEL_COST - 1 });
+  interact(ctx, { dirX: 1, dirY: 0 });
+  assert.deepEqual(
+    {
+      carrying: ctx.db.player.identity.find(me).carrying,
+      projects: ctx.db.project.rows().length,
+      emberHearts: ctx.db.emberHeart.rows().length,
+      wood: ctx.db.stockpile.item.find("wood")?.qty,
+    },
+    { carrying: "", projects: 0, emberHearts: 1, wood: IGNITION_FUEL_COST - 1 },
+  );
+});
+
+test("interact refuses to ignite where another ignition already claims the site", () => {
+  const { ctx, me } = withPlayer({ x: 149, y: 72, carrying: "ember_heart" });
+  ctx.db.stockpile.insert({ item: "wood", qty: IGNITION_FUEL_COST });
+  ctx.db.project.insert(projectRow({ x: 151, y: 72, status: "active" }));
+  interact(ctx, { dirX: 1, dirY: 0 }); // faces (150, 72), already claimed
+  assert.deepEqual(
+    { carrying: ctx.db.player.identity.find(me).carrying, projects: ctx.db.project.rows().length, wood: ctx.db.stockpile.item.find("wood")?.qty },
+    { carrying: "", projects: 1, wood: IGNITION_FUEL_COST }, // the attempt never withdrew fuel
+  );
+});
+
+test("wanderPresence converges a wave creature on its ignition site and chips the flame in reach", () => {
+  const watcher = id("watcher");
+  const ctx = makeCtx({ sender: watcher });
+  ctx.db.player.insert(playerRow(watcher, { online: true, x: 0, y: 0 }));
+  const proj = ctx.db.project.insert(projectRow({ x: 149, y: 72, flameHealth: IGNITION_FLAME_HEALTH, windowEndsAt: { microsSinceUnixEpoch: micros(999_999_999) } }));
+  const c = ctx.db.darkCreature.insert(darkCreatureRow({ x: 149, y: 72, aggroTargetId: `project:${proj.id}` }));
+  wanderPresence(ctx, {});
+  assert.deepEqual(
+    {
+      dirX: ctx.db.darkCreature.id.find(c.id)?.dirX,
+      dirY: ctx.db.darkCreature.id.find(c.id)?.dirY,
+      flameHealth: ctx.db.project.id.find(proj.id)?.flameHealth,
+    },
+    { dirX: 0, dirY: 0, flameHealth: IGNITION_FLAME_HEALTH - DARK_CREATURES.grask!.damage[0] }, // in reach: stops, lands the mock RNG's floor roll
+  );
+});
+
+test("wanderPresence fails an ignition outright once its flame is depleted", () => {
+  const watcher = id("watcher");
+  const ctx = makeCtx({ sender: watcher, integerInRange: () => 999 }); // guarantees the flame hits zero this tick
+  ctx.db.player.insert(playerRow(watcher, { online: true, x: 0, y: 0 }));
+  const proj = ctx.db.project.insert(projectRow({ x: 149, y: 72, flameHealth: 5, windowEndsAt: { microsSinceUnixEpoch: micros(999_999_999) } }));
+  ctx.db.darkCreature.insert(darkCreatureRow({ x: 149, y: 72, aggroTargetId: `project:${proj.id}` }));
+  wanderPresence(ctx, {});
+  assert.equal(ctx.db.project.rows().length, 0); // the stake is spent, nothing lingers
+});
+
+test("wanderPresence lights a fresh brazier when an ignition's window elapses with flame left", () => {
+  const watcher = id("watcher");
+  const ctx = makeCtx({ sender: watcher, now: micros(500_000) });
+  ctx.db.player.insert(playerRow(watcher, { online: true }));
+  ctx.db.project.insert(projectRow({ x: 149, y: 72, flameHealth: 50, windowEndsAt: { microsSinceUnixEpoch: 0n } }));
+  wanderPresence(ctx, {});
+  const brazier = ctx.db.brazier.rows().find((b: any) => b.x === 149 && b.y === 72);
+  assert.deepEqual(
+    { projects: ctx.db.project.rows().length, lit: brazier?.lit, isEternal: brazier?.isEternal },
+    { projects: 0, lit: true, isEternal: false },
+  );
+});
+
+test("wanderPresence relights an existing guttered brazier at the same site instead of duplicating", () => {
+  const watcher = id("watcher");
+  const ctx = makeCtx({ sender: watcher, now: micros(500_000) });
+  ctx.db.player.insert(playerRow(watcher, { online: true }));
+  const old = ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 149, y: 72, radius: BRAZIER_LIT_RADIUS, lit: false, isEternal: false });
+  ctx.db.project.insert(projectRow({ x: 149, y: 72, flameHealth: 50, windowEndsAt: { microsSinceUnixEpoch: 0n } }));
+  wanderPresence(ctx, {});
+  assert.deepEqual(
+    { count: ctx.db.brazier.rows().length, lit: ctx.db.brazier.id.find(old.id)?.lit },
+    { count: 1, lit: true },
+  );
+});
+
+test("wanderPresence spawns a wave at an active ignition once due", () => {
+  const watcher = id("watcher");
+  const ctx = makeCtx({ sender: watcher, now: micros(999_999_999) });
+  ctx.db.player.insert(playerRow(watcher, { online: true }));
+  ctx.db.project.insert(projectRow({ x: 149, y: 72, windowEndsAt: { microsSinceUnixEpoch: micros(999_999_999_999) }, lastWaveAt: { microsSinceUnixEpoch: 0n } }));
+  wanderPresence(ctx, {});
+  const wave = ctx.db.darkCreature.rows().filter((c: any) => c.aggroTargetId.startsWith("project:"));
+  assert.ok(wave.length > 0);
+  assert.ok(wave.every((c: any) => c.species === "grask"));
+});
+
+test("wanderPresence doesn't spawn a fresh wave before IGNITION_WAVE_INTERVAL_MS elapses", () => {
+  const watcher = id("watcher");
+  const ctx = makeCtx({ sender: watcher, now: micros(IGNITION_WAVE_INTERVAL_MS - 1000) });
+  ctx.db.player.insert(playerRow(watcher, { online: true }));
+  ctx.db.project.insert(projectRow({ x: 149, y: 72, windowEndsAt: { microsSinceUnixEpoch: micros(999_999_999_999) }, lastWaveAt: { microsSinceUnixEpoch: 0n } }));
+  wanderPresence(ctx, {});
+  assert.equal(ctx.db.darkCreature.rows().length, 0);
+});
+
+test("regenCreatures tops up ember-hearts toward EMBER_HEART_TARGET_COUNT", () => {
+  const me = id("watcher8");
+  const ctx = makeCtx({ sender: me });
+  ctx.db.player.insert(playerRow(me, { online: true }));
+  regenCreatures(ctx, {});
+  assert.equal(ctx.db.emberHeart.rows().length, 1);
+});
+
+test("regenCreatures stops topping up ember-hearts once EMBER_HEART_TARGET_COUNT is met", () => {
+  const me = id("watcher9");
+  const ctx = makeCtx({ sender: me });
+  ctx.db.player.insert(playerRow(me, { online: true }));
+  for (let i = 0; i < EMBER_HEART_TARGET_COUNT; i++) ctx.db.emberHeart.insert({ id: 0n, zoneId: ZONE, x: 60 + i, y: 89 });
+  regenCreatures(ctx, {});
+  assert.equal(ctx.db.emberHeart.rows().length, EMBER_HEART_TARGET_COUNT);
 });
 
 // --- Rename / recolor (validation + uniqueness) ---

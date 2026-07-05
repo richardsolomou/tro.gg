@@ -158,6 +158,34 @@ export function treeAt(ctx: Ctx, zoneId: string, x: number, y: number) {
   return undefined;
 }
 
+/** The ember-heart at a tile in a zone, or undefined (GDD "Ignition"). */
+export function emberHeartAt(ctx: Ctx, zoneId: string, x: number, y: number) {
+  for (const e of ctx.db.emberHeart.zoneId.filter(zoneId)) {
+    if (e.x === x && e.y === y) return e;
+  }
+  return undefined;
+}
+
+/** The ember-heart to pick up from an adjacent tile, preferring the faced one
+ *  (GDD "Interacting": "the one on the tile the trogg faces wins"). `faceDirX`/
+ *  `faceDirY` of (0, 0) means no faced tile — just scan the four neighbours. */
+export function nearbyEmberHeart(ctx: Ctx, zoneId: string, x: number, y: number, faceDirX: number, faceDirY: number) {
+  if (faceDirX !== 0 || faceDirY !== 0) {
+    const faced = emberHeartAt(ctx, zoneId, x + faceDirX, y + faceDirY);
+    if (faced) return faced;
+  }
+  for (const [dx, dy] of [
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1],
+  ] as const) {
+    const e = emberHeartAt(ctx, zoneId, x + dx, y + dy);
+    if (e) return e;
+  }
+  return undefined;
+}
+
 /** The pickup item at a tile in a zone, or undefined. */
 export function groundItemAt(ctx: Ctx, zoneId: string, x: number, y: number) {
   for (const item of ctx.db.groundItem.zoneId.filter(zoneId)) {
@@ -305,6 +333,8 @@ export function placeCarriedAt(ctx: Ctx, zone: Zone, kind: string, style: string
   if (kind === "boulder") {
     if (countRows(ctx.db.boulder.zoneId.filter(zone.slug)) >= MAX_BOULDERS_PER_ZONE) return false;
     ctx.db.boulder.insert({ id: 0n, zoneId: zone.slug, x: tile.x, y: tile.y, health: BOULDER_MAX_HEALTH, cellId: 0 });
+  } else if (kind === "ember_heart") {
+    ctx.db.emberHeart.insert({ id: 0n, zoneId: zone.slug, x: tile.x, y: tile.y });
   } else {
     return false;
   }

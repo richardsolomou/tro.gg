@@ -38,7 +38,7 @@ import {
   type Zone,
 } from "@trogg/shared";
 import type { DbConnection } from "../net/module_bindings";
-import type { Boulder, Brazier, DarkCreature, GroundItem, Player, Tree } from "../net/module_bindings/types";
+import type { Boulder, Brazier, DarkCreature, EmberHeart, GroundItem, Player, Project, Tree } from "../net/module_bindings/types";
 import { attachKeyboard, isTyping, type MoveIntent } from "../input.js";
 import { setupChat } from "../ui/chat.js";
 import { coachHit } from "../ui/coach.js";
@@ -51,7 +51,7 @@ import { isOlderPlayerMotion, playerMotionChanged, withPlayerMotion } from "../m
 import { FarCrowd } from "./crowd.js";
 import { createEntities, disposeObject, FLINCH_MS, poseDead, setDowned, setPresenceDim, steer, yawFor, type Entities, type Tracked } from "./entities.js";
 import { buildGrask } from "./creatures.js";
-import { buildBoulder, buildBrazier, buildTree, updateHeldFx, type HeldFx } from "./items.js";
+import { buildBoulder, buildBrazier, buildEmberHeart, buildFire, buildTree, updateHeldFx, type HeldFx } from "./items.js";
 import { NodeField } from "./nodes.js";
 import { makeHealthBar, type Overlay } from "./overlays.js";
 import type { CreatureModel } from "./rig.js";
@@ -236,6 +236,8 @@ export class World3D {
   private readonly braziers = new Map<string, { row: Brazier; group: THREE.Group; fx: HeldFx; ground: THREE.Mesh }>();
   private readonly darkCreatures = new Map<string, DarkCreatureView>();
   private darkCreatureBounds!: ZoneBounds;
+  private readonly emberHearts = new Map<string, { row: EmberHeart; group: THREE.Group }>();
+  private readonly projects = new Map<string, { row: Project; group: THREE.Group; fx: HeldFx }>();
 
   private readonly boulderTiles = new Set<string>();
   private readonly treeTiles = new Set<string>();
@@ -506,6 +508,8 @@ export class World3D {
     this.wireBoulders();
     this.wireTrees();
     this.wireBraziers();
+    this.wireEmberHearts();
+    this.wireProjects();
     if (this.useDarkCreatures) this.wireDarkCreatures();
     if (this.useGhost) this.wireGhostHaunts();
 
@@ -635,6 +639,8 @@ export class World3D {
       `SELECT * FROM boulder WHERE zone_id = '${this.slug}'`,
       `SELECT * FROM tree WHERE zone_id = '${this.slug}'`,
       `SELECT * FROM brazier WHERE zone_id = '${this.slug}'`,
+      `SELECT * FROM ember_heart WHERE zone_id = '${this.slug}'`,
+      `SELECT * FROM project WHERE zone_id = '${this.slug}'`,
       "SELECT * FROM world_state",
       "SELECT * FROM stockpile",
     ];
@@ -799,6 +805,8 @@ export class World3D {
           groundItems: this.groundItems.size,
           braziers: this.braziers.size,
           darkCreatures: this.darkCreatures.size,
+          emberHearts: this.emberHearts.size,
+          projects: this.projects.size,
         };
       };
     }
@@ -823,6 +831,10 @@ export class World3D {
     // animating every lit one unconditionally costs nothing.
     for (const view of this.braziers.values()) {
       if (view.row.lit) updateHeldFx(view.fx, now);
+    }
+    // Active ignitions are rarer still — animate every nascent flame.
+    for (const view of this.projects.values()) {
+      updateHeldFx(view.fx, now);
     }
     // Dark creatures: the same intent-driven extrapolation as troggs
     // (`projectMotionState`), just driven directly rather than through the
@@ -1340,6 +1352,63 @@ export class World3D {
     conn.db.groundItem.onInsert((_ctx, row) => this.upsertGroundItem(row));
     conn.db.groundItem.onUpdate((_ctx, _old, row) => this.upsertGroundItem(row));
     conn.db.groundItem.onDelete((_ctx, row) => this.removeGroundItem(row));
+  }
+
+  private upsertEmberHeart(row: EmberHeart): void {
+    const key = row.id.toString();
+    let view = this.emberHearts.get(key);
+    if (!view) {
+      view = { row, group: buildEmberHeart() };
+      this.emberHearts.set(key, view);
+      this.scene.add(view.group);
+    }
+    view.row = row;
+    this.entities.place(view.group, row.x, row.y);
+  }
+
+  private removeEmberHeart(row: EmberHeart): void {
+    const view = this.emberHearts.get(row.id.toString());
+    if (view) disposeObject(view.group);
+    this.emberHearts.delete(row.id.toString());
+  }
+
+  private wireEmberHearts(): void {
+    const conn = this.conn;
+    conn.db.emberHeart.onInsert((_ctx, row) => this.upsertEmberHeart(row));
+    conn.db.emberHeart.onUpdate((_ctx, _old, row) => this.upsertEmberHeart(row));
+    conn.db.emberHeart.onDelete((_ctx, row) => this.removeEmberHeart(row));
+  }
+
+  /** An ignition in progress (GDD "The fire and the dark" → Ignition): a
+   *  nascent flame marks the site for the length of the hold-the-point
+   *  window — the wave dark creatures and, on success, the lit brazier that
+   *  replaces this row are the rest of the feedback. */
+  private upsertProject(row: Project): void {
+    const key = row.id.toString();
+    let view = this.projects.get(key);
+    if (!view) {
+      const group = new THREE.Group();
+      const { group: fire, cels } = buildFire(0x9110 + Number(row.id), 1.2);
+      group.add(fire);
+      view = { row, group, fx: { cels } };
+      this.projects.set(key, view);
+      this.scene.add(group);
+      this.entities.place(group, row.x, row.y);
+    }
+    view.row = row;
+  }
+
+  private removeProject(row: Project): void {
+    const view = this.projects.get(row.id.toString());
+    if (view) disposeObject(view.group);
+    this.projects.delete(row.id.toString());
+  }
+
+  private wireProjects(): void {
+    const conn = this.conn;
+    conn.db.project.onInsert((_ctx, row) => this.upsertProject(row));
+    conn.db.project.onUpdate((_ctx, _old, row) => this.upsertProject(row));
+    conn.db.project.onDelete((_ctx, row) => this.removeProject(row));
   }
 
   /** A hearth or brazier: the stone ring + fire (`buildBrazier`) plus a flat

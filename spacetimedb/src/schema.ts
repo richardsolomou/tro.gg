@@ -10,18 +10,25 @@ import {
   HEALTH_REGEN_FRACTION,
   BOULDER_MAX_HEALTH,
   TREE_MAX_HEALTH,
+  EMBER_HEART_TARGET_COUNT,
+  IGNITION_SITE_REACH,
+  IGNITION_WAVE_INTERVAL_MS,
+  IGNITION_WAVE_SIZE,
   meleeHit,
   NPC_CORPSE_MS,
   PLAYER_HIT_RADIUS,
   PLAYER_MAX_HEALTH,
+  BRAZIER_LIT_RADIUS,
   BRAZIER_UPKEEP_ITEM,
   BRAZIER_UPKEEP_RATE,
   deriveKindlingCharge,
   EMBER_EFFICIENCY_FRACTION,
   EMBER_GATHER_DAMAGE,
+  STARTING_ZONE_SLUG,
   WANDER_TURN_CHANCE,
   footprintWalkable,
   getZone,
+  isWalkable,
   projectMotionState,
   tileKey,
   zoneBounds,
@@ -45,6 +52,8 @@ import {
   settle,
   darkCreatureDef,
   damagePlayer,
+  countRows,
+  randomUnlitDryTile,
 } from "./helpers";
 
 /**
@@ -263,13 +272,15 @@ const tree = table(
  * A hostile inhabitant of the dark and the penumbra (GDD "Dark creatures").
  * Intent-based motion like a player or the retired `hog` row — position is
  * derived with `projectMotion`, never advanced on a timer. `aggroTargetId` is
- * the identity hex of the trogg it's chasing, "" while wandering. Solid, the
- * same way a Hog used to be: blocks troggs and other dark creatures. Cannot
- * occupy a lit tile (`isLitTile`), which is what keeps it out of claimed
- * ground rather than a targeting rule. `health` at zero is a corpse — settled,
- * inert, reaped by the `regenCreatures` sweep after `NPC_CORPSE_MS`; whether a
- * fresh one then takes its place depends on whether the ground is lit at that
- * moment (Territory and permanence), not anything stored on the row.
+ * either the identity hex of the trogg it's chasing, an ignition site it's
+ * converging on as `project:<id>` (GDD "Ignition"), or "" while wandering.
+ * Solid, the same way a Hog used to be: blocks troggs and other dark
+ * creatures. Cannot occupy a lit tile (`isLitTile`), which is what keeps it
+ * out of claimed ground rather than a targeting rule. `health` at zero is a
+ * corpse — settled, inert, reaped by the `regenCreatures` sweep after
+ * `NPC_CORPSE_MS`; whether a fresh one then takes its place depends on
+ * whether the ground is lit at that moment (Territory and permanence), not
+ * anything stored on the row.
  */
 const darkCreature = table(
   { name: "dark_creature", public: true },
@@ -285,6 +296,50 @@ const darkCreature = table(
     health: t.i32(),
     lastDamagedAt: t.timestamp(),
     aggroTargetId: t.string().default(""),
+  },
+);
+
+/**
+ * A rare component recovered only by scouting the dark (GDD glossary;
+ * "Ignition"), required alongside fuel to ignite a brazier. A tile-sized
+ * carryable like the retired boulder carry — `interact` lifts one onto a
+ * trogg's `carrying` field, leaving this row gone until put down (or spent
+ * igniting). The out-of-combat regen sweep keeps `EMBER_HEART_TARGET_COUNT`
+ * seeded per zone, topping one up whenever a scout carries one away.
+ */
+const emberHeart = table(
+  { name: "ember_heart", public: true },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    zoneId: t.string().index("btree"),
+    x: t.i32(),
+    y: t.i32(),
+  },
+);
+
+/**
+ * A communal ignition in progress at a brazier site (GDD "The fire and the
+ * dark" → Ignition). `status` is "active" for a row's whole life — success
+ * and failure both resolve the row out of existence the instant they happen
+ * (a lit or relit `brazier` row is success's lasting record; failure just
+ * spends the stake), never lingering in some other status. `flameHealth`
+ * depletes as dark-creature waves reach the site (`IGNITION_SITE_REACH`) and
+ * land a hit; hitting zero fails the ignition on the spot. `lastWaveAt`
+ * paces `IGNITION_WAVE_INTERVAL_MS` waves for the life of the window. Rows
+ * resolve via the same `ember_wander` sweep that steps ember troggs and dark
+ * creatures.
+ */
+const project = table(
+  { name: "project", public: true },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    zoneId: t.string().index("btree"),
+    x: t.i32(),
+    y: t.i32(),
+    status: t.string(),
+    flameHealth: t.i32(),
+    windowEndsAt: t.timestamp(),
+    lastWaveAt: t.timestamp(),
   },
 );
 
@@ -445,7 +500,7 @@ const worldState = table(
   },
 );
 
-const spacetimedb = schema({ player, chatMessage, ghostHaunt, claimCode, boulder, tree, darkCreature, groundItem, inventory, stockpile, brazier, brazierUpkeepTimer, emberWanderTimer, playerConnection, playerRespawn, creatureRegen, worldState });
+const spacetimedb = schema({ player, chatMessage, ghostHaunt, claimCode, boulder, tree, darkCreature, emberHeart, project, groundItem, inventory, stockpile, brazier, brazierUpkeepTimer, emberWanderTimer, playerConnection, playerRespawn, creatureRegen, worldState });
 export default spacetimedb;
 
 /** The reducer context, typed against this module's schema (db view + sender). */
@@ -502,6 +557,14 @@ export const regenCreatures = spacetimedb.reducer({ timer: creatureRegen.rowType
       if (c.health >= def.maxHealth || !rested(c.lastDamagedAt)) continue;
       const heal = Math.ceil(def.maxHealth * HEALTH_REGEN_FRACTION);
       ctx.db.darkCreature.id.update({ ...c, health: Math.min(def.maxHealth, c.health + heal) });
+    }
+
+    // Ember-hearts: keep EMBER_HEART_TARGET_COUNT seeded in the world zone,
+    // topping one up wherever a scout has carried one away (GDD "Ignition").
+    const worldZone = getZone(STARTING_ZONE_SLUG);
+    if (worldZone && countRows(ctx.db.emberHeart.zoneId.filter(worldZone.slug)) < EMBER_HEART_TARGET_COUNT) {
+      const tile = randomUnlitDryTile(ctx, worldZone);
+      if (tile) ctx.db.emberHeart.insert({ id: 0n, zoneId: worldZone.slug, x: tile.x, y: tile.y });
     }
   }
   ctx.db.creatureRegen.clear();
@@ -691,30 +754,57 @@ export const wanderPresence = spacetimedb.reducer({ timer: emberWanderTimer.rowT
       const creatureTiles = creatureTilesByZone.get(s.zoneId)!;
       const ownTile = tileKey(Math.round(s.x), Math.round(s.y));
 
+      // A wave creature converges on an active ignition site instead of a
+      // trogg (GDD "Ignition"); once its project resolves or vanishes, it
+      // falls back to normal aggro-on-sight below, same tick it goes stale.
+      let site: NonNullable<ReturnType<typeof ctx.db.project.id.find>> | undefined;
+      if (c.aggroTargetId.startsWith("project:")) {
+        const proj = ctx.db.project.id.find(BigInt(c.aggroTargetId.slice(8)));
+        if (proj && proj.status === "active") site = proj;
+      }
+
       // Keep a live target (same zone, online, alive); else look for a fresh
       // bright trogg within aggro range. Sighting is range-based, like earshot.
       let target: NonNullable<ReturnType<typeof ctx.db.player.identity.find>> | undefined;
-      for (const pl of ctx.db.player.zoneId.filter(s.zoneId)) {
-        if (!pl.online || pl.dead) continue;
-        if (c.aggroTargetId && pl.identity.toHexString() === c.aggroTargetId) {
-          target = pl;
-          break;
-        }
-      }
-      if (!target) {
+      if (!site) {
         for (const pl of ctx.db.player.zoneId.filter(s.zoneId)) {
           if (!pl.online || pl.dead) continue;
-          const tp = settle(ctx, pl, now);
-          if (Math.hypot(tp.x - s.x, tp.y - s.y) <= DARK_CREATURE_AGGRO_RANGE) {
+          if (c.aggroTargetId && pl.identity.toHexString() === c.aggroTargetId) {
             target = pl;
             break;
           }
         }
+        if (!target) {
+          for (const pl of ctx.db.player.zoneId.filter(s.zoneId)) {
+            if (!pl.online || pl.dead) continue;
+            const tp = settle(ctx, pl, now);
+            if (Math.hypot(tp.x - s.x, tp.y - s.y) <= DARK_CREATURE_AGGRO_RANGE) {
+              target = pl;
+              break;
+            }
+          }
+        }
       }
-      const aggroTargetId = target ? target.identity.toHexString() : "";
+      const aggroTargetId = site ? c.aggroTargetId : target ? target.identity.toHexString() : "";
 
       let dir = { dirX: 0, dirY: 0 };
-      if (target) {
+      if (site) {
+        const dx = site.x + 0.5 - s.x;
+        const dy = site.y + 0.5 - s.y;
+        const dlen = Math.hypot(dx, dy);
+        const toward = dlen > 0 ? { dirX: Math.round((dx / dlen) * DIR_SCALE), dirY: Math.round((dy / dlen) * DIR_SCALE) } : { dirX: 0, dirY: 0 };
+        if (dlen <= IGNITION_SITE_REACH) {
+          // Reached the nascent flame: stop closing and chip it, the same
+          // slow once-per-tick rhythm as attacking a trogg (invariant 7).
+          // Hitting zero fails the ignition outright — the stake is spent.
+          const def = darkCreatureDef(c.species);
+          const flameHealth = Math.max(0, site.flameHealth - ctx.random.integerInRange(def.damage[0], def.damage[1]));
+          if (flameHealth <= 0) ctx.db.project.id.delete(site.id);
+          else ctx.db.project.id.update({ ...site, flameHealth });
+        } else {
+          dir = toward;
+        }
+      } else if (target) {
         const tp = settle(ctx, target, now);
         const dx = tp.x - s.x;
         const dy = tp.y - s.y;
@@ -742,6 +832,48 @@ export const wanderPresence = spacetimedb.reducer({ timer: emberWanderTimer.rowT
       const unchanged = s.x === c.x && s.y === c.y && dir.dirX === c.dirX && dir.dirY === c.dirY && aggroTargetId === c.aggroTargetId;
       if (unchanged) continue;
       ctx.db.darkCreature.id.update({ ...c, x: s.x, y: s.y, dirX: dir.dirX, dirY: dir.dirY, movedAt: now, aggroTargetId });
+    }
+
+    // Ignition projects (GDD "The fire and the dark" → Ignition): every row
+    // still standing here is active — a failed one was already deleted above,
+    // the instant its flame hit zero. Pace fresh waves and, once the window
+    // elapses with any flame left, light the brazier — relighting an existing
+    // guttered one at the same site if there is one.
+    for (const proj of ctx.db.project.iter()) {
+      if (proj.status !== "active") continue;
+      const zone = getZone(proj.zoneId);
+      if (!zone) continue;
+
+      if (elapsedMs(proj.windowEndsAt, now) >= 0) {
+        const existing = [...ctx.db.brazier.zoneId.filter(proj.zoneId)].find((b) => !b.isEternal && Math.hypot(b.x - proj.x, b.y - proj.y) <= 1);
+        if (existing) ctx.db.brazier.id.update({ ...existing, lit: true });
+        else ctx.db.brazier.insert({ id: 0n, zoneId: proj.zoneId, x: proj.x, y: proj.y, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
+        ctx.db.project.id.delete(proj.id);
+        continue;
+      }
+
+      if (elapsedMs(proj.lastWaveAt, now) < IGNITION_WAVE_INTERVAL_MS) continue;
+      for (let i = 0; i < IGNITION_WAVE_SIZE; i++) {
+        const angle = ctx.random() * Math.PI * 2;
+        const ringRadius = 4 + ctx.random() * 3;
+        const tx = Math.round(proj.x + Math.cos(angle) * ringRadius);
+        const ty = Math.round(proj.y + Math.sin(angle) * ringRadius);
+        if (!isWalkable(zone, tx, ty)) continue;
+        ctx.db.darkCreature.insert({
+          id: 0n,
+          zoneId: proj.zoneId,
+          x: tx,
+          y: ty,
+          dirX: 0,
+          dirY: 0,
+          movedAt: now,
+          species: "grask",
+          health: darkCreatureDef("grask").maxHealth,
+          lastDamagedAt: now,
+          aggroTargetId: `project:${proj.id}`,
+        });
+      }
+      ctx.db.project.id.update({ ...proj, lastWaveAt: now });
     }
   }
   ctx.db.emberWanderTimer.clear();

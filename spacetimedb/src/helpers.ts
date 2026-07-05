@@ -5,6 +5,7 @@ import {
   HEALTH_REGEN_TICK_MS,
   BRAZIER_UPKEEP_TICK_MS,
   EMBER_WANDER_TICK_MS,
+  isDryFloor,
   isValidName,
   isWalkable,
   BOULDER_MAX_HEALTH,
@@ -17,6 +18,7 @@ import {
   type ZoneBounds,
 } from "../../shared/index";
 import { countRows, darkCreatureDef } from "./tiles";
+import { isLitTile } from "./brazier";
 import type { Ctx, ProcCtx, AnalyticsEvent } from "./schema";
 
 const POSTHOG_CAPTURE_URL = "https://us.i.posthog.com/capture/";
@@ -71,16 +73,19 @@ export function healStaleWorld(ctx: Ctx, zone: Zone): void {
   const trees = [...ctx.db.tree.zoneId.filter(zone.slug)];
   const items = [...ctx.db.groundItem.zoneId.filter(zone.slug)];
   const creatures = [...ctx.db.darkCreature.zoneId.filter(zone.slug)];
+  const emberHearts = [...ctx.db.emberHeart.zoneId.filter(zone.slug)];
   const stale =
     boulders.some((b) => !isWalkable(zone, b.x, b.y)) ||
     trees.some((tr) => !isWalkable(zone, tr.x, tr.y)) ||
     items.some((g) => !isWalkable(zone, g.x, g.y)) ||
-    creatures.some((c) => !isWalkable(zone, Math.round(c.x), Math.round(c.y)));
+    creatures.some((c) => !isWalkable(zone, Math.round(c.x), Math.round(c.y))) ||
+    emberHearts.some((e) => !isWalkable(zone, e.x, e.y));
   if (!stale) return;
   for (const b of boulders) ctx.db.boulder.id.delete(b.id);
   for (const tr of trees) ctx.db.tree.id.delete(tr.id);
   for (const g of items) ctx.db.groundItem.id.delete(g.id);
   for (const c of creatures) ctx.db.darkCreature.id.delete(c.id);
+  for (const e of emberHearts) ctx.db.emberHeart.id.delete(e.id);
 }
 
 /** Seed a zone's boulders from the registry, unless it already has some.
@@ -118,6 +123,16 @@ export function seedDarkCreatures(ctx: Ctx, zone: Zone): void {
       lastDamagedAt: Timestamp.UNIX_EPOCH,
       aggroTargetId: "",
     });
+  }
+}
+
+/** Seed a zone's ember-heart sites from the registry, unless it already has
+ *  some (GDD "Ignition"). Picked up ones are topped back up by the
+ *  out-of-combat regen sweep, not this idempotent connect-time seeder. */
+export function seedEmberHearts(ctx: Ctx, zone: Zone): void {
+  if ([...ctx.db.emberHeart.zoneId.filter(zone.slug)].length > 0) return;
+  for (const seed of zone.emberHearts) {
+    ctx.db.emberHeart.insert({ id: 0n, zoneId: zone.slug, x: seed.x, y: seed.y });
   }
 }
 
@@ -177,6 +192,19 @@ export function randomWalkableTile(ctx: Ctx, zone: Zone): { x: number; y: number
   for (let y = 0; y < zone.height; y++) {
     for (let x = 0; x < zone.width; x++) {
       if (isWalkable(zone, x, y)) tiles.push({ x, y });
+    }
+  }
+  if (tiles.length === 0) return undefined;
+  return tiles[ctx.random.integerInRange(0, tiles.length - 1)];
+}
+
+/** Pick a dry, unlit floor tile from a zone — genuinely "in the dark" (GDD
+ *  "Ignition"), where a fresh ember-heart top-up belongs. */
+export function randomUnlitDryTile(ctx: Ctx, zone: Zone): { x: number; y: number } | undefined {
+  const tiles: { x: number; y: number }[] = [];
+  for (let y = 0; y < zone.height; y++) {
+    for (let x = 0; x < zone.width; x++) {
+      if (isDryFloor(zone, x, y) && !isLitTile(ctx, zone.slug, x, y)) tiles.push({ x, y });
     }
   }
   if (tiles.length === 0) return undefined;

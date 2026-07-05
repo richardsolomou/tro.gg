@@ -3,7 +3,7 @@ import { EQUIPMENT_ACTION_MS, forward, MELEE_ARC_RAD, MELEE_RANGE_TILES, PLAYER_
 import type { Player } from "../net/module_bindings/types";
 import { audio } from "../audio.js";
 import { buildGhost, buildTrogg } from "./creatures.js";
-import { buildBoulder, buildGroundItem, buildHeldItem, updateHeldFx, wireHeldFx, type HeldFx } from "./items.js";
+import { buildBoulder, buildEmberHeart, buildGroundItem, buildHeldItem, updateHeldFx, wireHeldFx, type HeldFx } from "./items.js";
 import { makeBubble, makeDamageText, makeHealthBar, makeLabel, makeStatusText, type Overlay } from "./overlays.js";
 import { ATTACK_PERIOD, type CreatureModel } from "./rig.js";
 import { UI_3D } from "./palette.js";
@@ -445,7 +445,7 @@ export function createEntities(scene: THREE.Scene) {
     (motes.material as THREE.PointsMaterial).opacity = 0.75 + 0.2 * Math.sin(now * 0.004 + phase);
   };
 
-  /** Sync the carried overlay (boulder) to the player row. */
+  /** Sync the carried overlay (boulder, ember-heart) to the player row. */
   const applyCarry = (entry: Tracked) => {
     const kind = entry.player.carrying;
     if (kind === entry.carriedKind) return;
@@ -457,6 +457,8 @@ export function createEntities(scene: THREE.Scene) {
     if (kind === "boulder") {
       overlay = buildBoulder();
       overlay.scale.setScalar(0.7);
+    } else if (kind === "ember_heart") {
+      overlay = buildEmberHeart();
     }
     if (!overlay) return;
     overlay.position.set(0, entry.model.height + 0.18, 0);

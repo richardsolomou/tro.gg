@@ -18,6 +18,7 @@ import {
   seedBoulders,
   seedTrees,
   seedDarkCreatures,
+  seedEmberHearts,
   seedGroundItems,
   seedBirthInstance,
   seedFirstFire,
@@ -53,6 +54,7 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
   seedGroundItems(ctx, startingZone);
   seedFirstFire(ctx, startingZone);
   seedDarkCreatures(ctx, startingZone);
+  seedEmberHearts(ctx, startingZone);
   armRegen(ctx);
   armBrazierUpkeep(ctx);
   armEmberWander(ctx);
