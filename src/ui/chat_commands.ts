@@ -5,6 +5,7 @@ import { POSTHOG_KEY } from "../env.js";
 export interface ChatCommandFlags {
   spawn: boolean;
   resetBoulders: boolean;
+  resetDarkCreatures: boolean;
   ghost: boolean;
   cheats: boolean;
 }
@@ -14,6 +15,7 @@ export function currentCommandFlags(): ChatCommandFlags {
   return {
     spawn: isFeatureEnabled("spawn-command", import.meta.env.DEV || !POSTHOG_KEY),
     resetBoulders: isFeatureEnabled("boulder-reset"),
+    resetDarkCreatures: isFeatureEnabled("dark-creature-reset"),
     ghost: isFeatureEnabled("ghost-trogg"),
     cheats: isFeatureEnabled("cheat-commands", import.meta.env.DEV || !POSTHOG_KEY),
   };

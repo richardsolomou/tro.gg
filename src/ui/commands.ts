@@ -5,12 +5,12 @@ import { logError, logInfo } from "../analytics.js";
 import { audio } from "../audio.js";
 import { hudRoot } from "./hud.js";
 import { registerKeybind } from "./keybinds.js";
-import { currentCommandFlags } from "./chat_commands.js";
-import { hauntGhost, resetBoulders, spawnDebugEntity } from "../net/procedures.js";
+import { currentCommandFlags, type ChatCommandFlags } from "./chat_commands.js";
+import { hauntGhost, resetBoulders, resetDarkCreatures, spawnDebugEntity } from "../net/procedures.js";
 import { itemIcon } from "./inventory.js";
 import { attachTip } from "./tooltip.js";
 
-type SpawnRequest = { kind: "boulder" } | { kind: "tree" } | { kind: "item"; item: SpawnableItemId };
+type SpawnRequest = { kind: "boulder" } | { kind: "tree" } | { kind: "dark_creature" } | { kind: "item"; item: SpawnableItemId };
 
 export interface CommandPanelContext {
   conn: DbConnection;
@@ -48,7 +48,7 @@ export function mountCommands({ conn, zone }: CommandPanelContext): void {
     body.append(movementSection(toggle), survivalSection(conn, zone.slug, status, toggle), worldSection(conn, zone.slug, status));
   }
   if (flags.spawn) body.appendChild(spawnSection(conn, zone.slug, status));
-  if (flags.resetBoulders) body.appendChild(resetSection(conn, zone.slug, status));
+  if (flags.resetBoulders || flags.resetDarkCreatures) body.appendChild(resetSection(conn, zone.slug, status, flags));
   if (flags.ghost) body.appendChild(ghostSection(conn, zone.slug, status));
   body.appendChild(debugSection(status));
   body.appendChild(status);
@@ -126,6 +126,7 @@ function spawnSection(conn: DbConnection, zone: string, status: HTMLElement): HT
 
   grid.appendChild(spawnButton("Boulder", itemIcon("boulder"), () => requestSpawn(conn, zone, status, { kind: "boulder" })));
   grid.appendChild(spawnButton("Tree", itemIcon("tree"), () => requestSpawn(conn, zone, status, { kind: "tree" })));
+  grid.appendChild(spawnButton("Dark creature", itemIcon("dark_creature"), () => requestSpawn(conn, zone, status, { kind: "dark_creature" })));
   for (const item of SPAWNABLE_ITEM_IDS) {
     grid.appendChild(spawnButton(ITEMS[item].name, itemIcon(item), () => requestSpawn(conn, zone, status, { kind: "item", item })));
   }
@@ -136,7 +137,7 @@ function spawnSection(conn: DbConnection, zone: string, status: HTMLElement): HT
 
 function requestSpawn(conn: DbConnection, zone: string, status: HTMLElement, request: SpawnRequest) {
   const item = request.kind === "item" ? request.item : "";
-  const label = request.kind === "item" ? ITEMS[request.item].name : request.kind;
+  const label = request.kind === "item" ? ITEMS[request.item].name : request.kind === "dark_creature" ? "dark creature" : request.kind;
   void spawnDebugEntity(conn, request.kind, item, "commands").catch((err) => {
     logError("Command spawn request failed", { surface: "commands", action: "spawn", zone, kind: request.kind, item, error: err });
     audio.playError();
@@ -147,23 +148,40 @@ function requestSpawn(conn: DbConnection, zone: string, status: HTMLElement, req
   status.textContent = `requested ${label}`;
 }
 
-function resetSection(conn: DbConnection, zone: string, status: HTMLElement): HTMLElement {
+function resetSection(conn: DbConnection, zone: string, status: HTMLElement, flags: ChatCommandFlags): HTMLElement {
   const section = commandSection("Reset");
   const grid = document.createElement("div");
   grid.className = "command-grid";
 
-  const button = commandButton("Reset boulders");
-  button.addEventListener("click", () => {
-    void resetBoulders(conn, "commands").catch((err) => {
-      logError("Command reset request failed", { surface: "commands", action: "reset_boulders", zone, error: err });
-      audio.playError();
-      status.textContent = "couldn't reset boulders";
+  if (flags.resetBoulders) {
+    const button = commandButton("Reset boulders");
+    button.addEventListener("click", () => {
+      void resetBoulders(conn, "commands").catch((err) => {
+        logError("Command reset request failed", { surface: "commands", action: "reset_boulders", zone, error: err });
+        audio.playError();
+        status.textContent = "couldn't reset boulders";
+      });
+      logInfo("Command reset requested", { surface: "commands", action: "reset_boulders", zone, source: "commands" });
+      audio.playCommand();
+      status.textContent = "reset boulders";
     });
-    logInfo("Command reset requested", { surface: "commands", action: "reset_boulders", zone, source: "commands" });
-    audio.playCommand();
-    status.textContent = "reset boulders";
-  });
-  grid.appendChild(button);
+    grid.appendChild(button);
+  }
+
+  if (flags.resetDarkCreatures) {
+    const button = commandButton("Reset dark creatures");
+    button.addEventListener("click", () => {
+      void resetDarkCreatures(conn, "commands").catch((err) => {
+        logError("Command reset request failed", { surface: "commands", action: "reset_dark_creatures", zone, error: err });
+        audio.playError();
+        status.textContent = "couldn't reset dark creatures";
+      });
+      logInfo("Command reset requested", { surface: "commands", action: "reset_dark_creatures", zone, source: "commands" });
+      audio.playCommand();
+      status.textContent = "reset dark creatures";
+    });
+    grid.appendChild(button);
+  }
 
   section.appendChild(grid);
   return section;

@@ -51,6 +51,7 @@ import RedeemClaimReducer from "./redeem_claim_reducer";
 import RenameReducer from "./rename_reducer";
 import RescueReducer from "./rescue_reducer";
 import ResetBouldersReducer from "./reset_boulders_reducer";
+import ResetDarkCreaturesReducer from "./reset_dark_creatures_reducer";
 import RestyleReducer from "./restyle_reducer";
 import SetCheatsReducer from "./set_cheats_reducer";
 import SetLiftReducer from "./set_lift_reducer";
@@ -69,6 +70,7 @@ import * as InteractActionProcedure from "./interact_action_procedure";
 import * as RecolorActionProcedure from "./recolor_action_procedure";
 import * as RenameActionProcedure from "./rename_action_procedure";
 import * as ResetBouldersActionProcedure from "./reset_boulders_action_procedure";
+import * as ResetDarkCreaturesActionProcedure from "./reset_dark_creatures_action_procedure";
 import * as RestyleActionProcedure from "./restyle_action_procedure";
 import * as SpawnActionProcedure from "./spawn_action_procedure";
 import * as UseEquippedActionProcedure from "./use_equipped_action_procedure";
@@ -259,6 +261,7 @@ const reducersSchema = __reducers(
   __reducerSchema("rename", RenameReducer),
   __reducerSchema("rescue", RescueReducer),
   __reducerSchema("reset_boulders", ResetBouldersReducer),
+  __reducerSchema("reset_dark_creatures", ResetDarkCreaturesReducer),
   __reducerSchema("restyle", RestyleReducer),
   __reducerSchema("set_cheats", SetCheatsReducer),
   __reducerSchema("set_lift", SetLiftReducer),
@@ -279,6 +282,7 @@ const proceduresSchema = __procedures(
   __procedureSchema("recolor_action", RecolorActionProcedure.params, RecolorActionProcedure.returnType),
   __procedureSchema("rename_action", RenameActionProcedure.params, RenameActionProcedure.returnType),
   __procedureSchema("reset_boulders_action", ResetBouldersActionProcedure.params, ResetBouldersActionProcedure.returnType),
+  __procedureSchema("reset_dark_creatures_action", ResetDarkCreaturesActionProcedure.params, ResetDarkCreaturesActionProcedure.returnType),
   __procedureSchema("restyle_action", RestyleActionProcedure.params, RestyleActionProcedure.returnType),
   __procedureSchema("spawn_action", SpawnActionProcedure.params, SpawnActionProcedure.returnType),
   __procedureSchema("use_equipped_action", UseEquippedActionProcedure.params, UseEquippedActionProcedure.returnType),

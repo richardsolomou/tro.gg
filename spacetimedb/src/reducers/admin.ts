@@ -5,9 +5,11 @@ import {
   isSpawnableItemId,
   BOULDER_MAX_HEALTH,
   TREE_MAX_HEALTH,
+  DARK_CREATURE_MAX_HEALTH,
   MAX_BOULDERS_PER_ZONE,
   MAX_GROUND_ITEMS_PER_ZONE,
   MAX_TREES_PER_ZONE,
+  MAX_DARK_CREATURES_PER_ZONE,
   CHEAT_SPEED_MULTIPLIER,
   PLAYER_MAX_HEALTH,
   nearestSafeTile,
@@ -17,6 +19,7 @@ import {
 import {
   spawnAt,
   seedBoulders,
+  seedDarkCreatures,
   captureProcedureEvents,
   sourceProp,
   distinctId,
@@ -38,8 +41,8 @@ import {
  * or a boxed-in trogg is a silent no-op.
  */
 function runSpawn(ctx: Ctx, { kind, item = "", source = "" }: { kind: string; item?: string; source?: string }): AnalyticsEvent[] {
-  if (kind !== "boulder" && kind !== "tree" && kind !== "item") return [];
-  if ((kind === "boulder" || kind === "tree") && item !== "") return [];
+  if (kind !== "boulder" && kind !== "tree" && kind !== "dark_creature" && kind !== "item") return [];
+  if ((kind === "boulder" || kind === "tree" || kind === "dark_creature") && item !== "") return [];
   if (kind === "item" && !isSpawnableItemId(item)) return [];
 
   const p = ctx.db.player.identity.find(ctx.sender);
@@ -53,8 +56,11 @@ function runSpawn(ctx: Ctx, { kind, item = "", source = "" }: { kind: string; it
       ? [...ctx.db.boulder.zoneId.filter(p.zoneId)].filter((b) => !b.cellId).length
       : kind === "tree"
         ? countRows(ctx.db.tree.zoneId.filter(p.zoneId))
-        : countRows(ctx.db.groundItem.zoneId.filter(p.zoneId));
-  const cap = kind === "boulder" ? MAX_BOULDERS_PER_ZONE : kind === "tree" ? MAX_TREES_PER_ZONE : MAX_GROUND_ITEMS_PER_ZONE;
+        : kind === "dark_creature"
+          ? countRows(ctx.db.darkCreature.zoneId.filter(p.zoneId))
+          : countRows(ctx.db.groundItem.zoneId.filter(p.zoneId));
+  const cap =
+    kind === "boulder" ? MAX_BOULDERS_PER_ZONE : kind === "tree" ? MAX_TREES_PER_ZONE : kind === "dark_creature" ? MAX_DARK_CREATURES_PER_ZONE : MAX_GROUND_ITEMS_PER_ZONE;
   if (existing >= cap) return [];
 
   // Drop entities on free floor — never inside a wall or on top of anything solid
@@ -70,6 +76,21 @@ function runSpawn(ctx: Ctx, { kind, item = "", source = "" }: { kind: string; it
     ctx.db.boulder.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y, health: BOULDER_MAX_HEALTH, cellId: 0 });
   } else if (kind === "tree") {
     ctx.db.tree.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y, health: TREE_MAX_HEALTH });
+  } else if (kind === "dark_creature") {
+    ctx.db.darkCreature.insert({
+      id: 0n,
+      zoneId: p.zoneId,
+      x: tile.x,
+      y: tile.y,
+      dirX: 0,
+      dirY: 0,
+      movedAt: ctx.timestamp,
+      species: "wretch",
+      health: DARK_CREATURE_MAX_HEALTH,
+      lastDamagedAt: ctx.timestamp,
+      aggroTargetId: "",
+      lastAttackAt: ctx.timestamp,
+    });
   } else {
     ctx.db.groundItem.insert({ id: 0n, zoneId: p.zoneId, item, x: tile.x, y: tile.y, qty: 1 });
   }
@@ -122,6 +143,36 @@ export const resetBouldersAction = spacetimedb.procedure(
   t.unit(),
   (ctx, args) => {
     const events = ctx.withTx((tx) => runResetBoulders(tx, args.source));
+    captureProcedureEvents(ctx, args.posthogKey, events);
+    return unit();
+  },
+);
+
+/**
+ * Reset the caller's zone dark creatures to their registry population (GDD
+ * "Dark creatures") — the mirror of `resetBoulders`: clears the zone's dark
+ * creatures and reseeds from the registry, the cull for a zone overrun with
+ * extra panel-spawned or respawned creatures.
+ */
+function runResetDarkCreatures(ctx: Ctx, source = ""): AnalyticsEvent[] {
+  const p = ctx.db.player.identity.find(ctx.sender);
+  if (!p) return [];
+  const zone = getZone(p.zoneId);
+  if (!zone) return [];
+  for (const d of [...ctx.db.darkCreature.zoneId.filter(zone.slug)]) ctx.db.darkCreature.id.delete(d.id);
+  seedDarkCreatures(ctx, zone);
+  return [{ distinctId: distinctId(ctx), event: "dark_creatures_reset", properties: { zone: zone.slug, ...sourceProp(source) } }];
+}
+
+export const resetDarkCreatures = spacetimedb.reducer((ctx) => {
+  runResetDarkCreatures(ctx);
+});
+
+export const resetDarkCreaturesAction = spacetimedb.procedure(
+  { posthogKey: t.string(), source: t.string() },
+  t.unit(),
+  (ctx, args) => {
+    const events = ctx.withTx((tx) => runResetDarkCreatures(tx, args.source));
     captureProcedureEvents(ctx, args.posthogKey, events);
     return unit();
   },

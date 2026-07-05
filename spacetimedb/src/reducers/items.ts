@@ -26,12 +26,14 @@ import {
   meleeBoulderTarget,
   meleeTreeTarget,
   meleePlayerTarget,
+  meleeDarkCreatureTarget,
   ownedInventoryRow,
   equippedInventoryRow,
   removeInventoryUnit,
   playerDiedEvent,
   depositStockpile,
   damagePlayer,
+  damageDarkCreature,
   throwCarried,
   facingDir,
   directionVector,
@@ -272,8 +274,16 @@ function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; d
     }
     if (!landed) {
       const damage = roll();
+      // A dark creature outranks a trogg at equal distance (GDD "Dark
+      // creatures" → "Combat") — the two are meant to be fighting side by
+      // side, not clipping each other in the same swing.
       const trogg = meleePlayerTarget(ctx, p.zoneId, cx, cy, aim, ctx.timestamp, p.identity);
-      if (trogg) {
+      const darkCreature = meleeDarkCreatureTarget(ctx, p.zoneId, cx, cy, aim);
+      if (darkCreature && (!trogg || darkCreature.dist <= trogg.dist)) {
+        const result = damageDarkCreature(ctx, darkCreature.target, damage);
+        events.push({ distinctId: distinctId(ctx), event: "combat_hit", properties: { ...props, weapon: item, target: "dark_creature", damage: result.dealt, killed: result.killed } });
+        landed = true;
+      } else if (trogg) {
         const result = damagePlayer(ctx, trogg.target, damage);
         events.push({ distinctId: distinctId(ctx), event: "combat_hit", properties: { ...props, weapon: item, target: "trogg", damage: result.dealt, killed: result.killed } });
         if (result.killed) events.push(playerDiedEvent(trogg.target.identity.toHexString(), props, item, result));

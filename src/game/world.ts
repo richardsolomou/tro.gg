@@ -6,6 +6,7 @@ import {
   isBirthZone,
   EQUIPMENT_ACTION_MS,
   CHAT_BUBBLE_MS,
+  DARK_CREATURE_MAX_HEALTH,
   DIR_SCALE,
   facingFromDir,
   footprintTiles,
@@ -32,12 +33,13 @@ import {
   WALL_TILE,
   zoneBounds,
   type Coord,
+  type Facing,
   type Stamp,
   type ZoneBounds,
   type Zone,
 } from "@trogg/shared";
 import type { DbConnection } from "../net/module_bindings";
-import type { Boulder, GroundItem, Player, Tree } from "../net/module_bindings/types";
+import type { Boulder, DarkCreature, GroundItem, Player, Tree } from "../net/module_bindings/types";
 import { attachKeyboard, isTyping, type MoveIntent } from "../input.js";
 import { setupChat } from "../ui/chat.js";
 import { coachHit } from "../ui/coach.js";
@@ -48,11 +50,14 @@ import { audio } from "../audio.js";
 import { interact, useEquipped } from "../net/procedures.js";
 import { isOlderPlayerMotion, playerMotionChanged, withPlayerMotion } from "../motion_sync.js";
 import { FarCrowd } from "./crowd.js";
-import { createEntities, disposeObject, setPresenceTint, type Entities, type Tracked } from "./entities.js";
+import { applyFlinch, createEntities, disposeObject, poseDead, setDowned, setPresenceTint, type Entities, type Tracked } from "./entities.js";
 import { buildBoulder, buildTree } from "./items.js";
+import { buildWretch } from "./creatures.js";
+import { makeHealthBar, type Overlay } from "./overlays.js";
 import { NodeField } from "./nodes.js";
 import { buildTerrain, type Terrain3D } from "./terrain.js";
 import { biomePalette, DAYLIGHT_3D, UI_3D } from "./palette.js";
+import { type CreatureModel } from "./rig.js";
 
 /** Fraction of the viewport the zone fills, leaving a rim of cave around it. */
 const ZONE_FILL = 0.92;
@@ -97,6 +102,26 @@ const TORCH_LIGHT_BUDGET = 4;
  *  120Hz+, which doubles CPU/GPU heat for no gameplay benefit — excess ticks
  *  are dropped whole (no projection, no render). */
 const FRAME_CAP_FPS = 60;
+
+/** A dark creature's live display state (GDD "Dark creatures") — a leaner
+ *  sibling of `Tracked`: no equipment, no chat, just motion, gait, and the
+ *  shared hit-flinch/health-bar/downed-pose primitives. */
+interface TrackedDark {
+  row: DarkCreature;
+  marker: THREE.Group;
+  model: CreatureModel;
+  healthBar: Overlay;
+  gait: "idle" | "walk";
+  facing: Facing;
+  corrX: number;
+  corrY: number;
+  flashOn: boolean;
+  flinchBaseMs?: number;
+  /** `movedAt` remapped onto the local performance.now() clock (see
+   *  `timestampBaseMs`), so deployed latency never makes it trail the
+   *  server's motion by a round trip. */
+  baseMs: number;
+}
 
 
 
@@ -203,6 +228,7 @@ export class World3D {
     canvas.style.opacity = "1";
   }
   private readonly groundItems = new Map<string, { row: GroundItem; group: THREE.Group }>();
+  private readonly darkCreatures = new Map<string, TrackedDark>();
 
   private readonly boulderTiles = new Set<string>();
   private readonly treeTiles = new Set<string>();
@@ -466,6 +492,7 @@ export class World3D {
     this.wireGroundItems();
     this.wireBoulders();
     this.wireTrees();
+    this.wireDarkCreatures();
     if (this.useGhost) this.wireGhostHaunts();
 
     attachKeyboard(
@@ -632,6 +659,7 @@ export class World3D {
     // Presence) — same epoch as the synced `kindlingChargeAt`, so a little
     // client clock skew only blurs the dim/undim timing, never the mechanic.
     const wallClock: Stamp = { microsSinceUnixEpoch: BigInt(Date.now()) * 1000n };
+    this.tickDarkCreatures(now, dt);
     this.crowd.begin();
     for (const entry of this.tracked.values()) {
       const isSelf = entry.player.identity.toHexString() === this.myId;
@@ -1252,6 +1280,108 @@ export class World3D {
     const view = this.groundItems.get(row.id.toString());
     if (view) disposeObject(view.group);
     this.groundItems.delete(row.id.toString());
+  }
+
+  // ── dark creatures (GDD "Dark creatures") ─────────────────────────────────
+  // A leaner sibling of trogg tracking: the same jointed rig and hit-feedback
+  // primitives (buildWretch, applyFlinch, setDowned/poseDead, makeHealthBar),
+  // but its own driver — no equipment, no chat, no crowd-silhouette budget yet.
+
+  private addDarkCreature(row: DarkCreature): void {
+    const key = row.id.toString();
+    if (this.darkCreatures.has(key)) return;
+    const model = buildWretch();
+    const marker = new THREE.Group();
+    model.root.position.set(0.5, 0, 0.5);
+    marker.add(model.root);
+    const dead = row.health <= 0;
+    if (dead) {
+      setDowned(model, true);
+      poseDead(model, 0.5, model.height * 0.14);
+    } else {
+      model.actions.idle.legs.play();
+      model.actions.idle.arms.play();
+    }
+    const bar = makeHealthBar(Math.max(0, Math.min(1, row.health / DARK_CREATURE_MAX_HEALTH)), dead);
+    bar.sprite.position.set(0.5, model.height + 0.28, 0.5);
+    marker.add(bar.sprite);
+    this.scene.add(marker);
+    this.darkCreatures.set(key, {
+      row,
+      marker,
+      model,
+      healthBar: bar,
+      gait: "idle",
+      facing: "down",
+      corrX: 0,
+      corrY: 0,
+      flashOn: false,
+      baseMs: timestampBaseMs(row.movedAt),
+    });
+  }
+
+  private removeDarkCreature(row: DarkCreature): void {
+    const key = row.id.toString();
+    const view = this.darkCreatures.get(key);
+    if (!view) return;
+    view.healthBar.dispose();
+    disposeObject(view.marker);
+    this.darkCreatures.delete(key);
+  }
+
+  private wireDarkCreatures(): void {
+    const conn = this.conn;
+    for (const row of conn.db.darkCreature.iter()) {
+      if (row.zoneId === this.slug) this.addDarkCreature(row);
+    }
+    conn.db.darkCreature.onInsert((_ctx, row) => {
+      if (row.zoneId === this.slug) this.addDarkCreature(row);
+    });
+    conn.db.darkCreature.onUpdate((_ctx, old, row) => {
+      const view = this.darkCreatures.get(row.id.toString());
+      if (!view) return this.addDarkCreature(row);
+      if (row.health < old.health) {
+        view.flinchBaseMs = performance.now();
+        this.entities.showDamage({ x: view.row.x, z: view.row.y }, old.health - row.health, this.entities.headTop());
+      }
+      if (old.health > 0 && row.health <= 0) {
+        setDowned(view.model, true);
+        poseDead(view.model, 0.5, view.model.height * 0.14);
+      }
+      if (old.movedAt.microsSinceUnixEpoch !== row.movedAt.microsSinceUnixEpoch) view.baseMs = timestampBaseMs(row.movedAt);
+      view.row = row;
+      if (row.health !== old.health) {
+        view.healthBar.dispose();
+        view.marker.remove(view.healthBar.sprite);
+        const bar = makeHealthBar(Math.max(0, Math.min(1, row.health / DARK_CREATURE_MAX_HEALTH)), row.health <= 0);
+        bar.sprite.position.set(0.5, view.model.height + 0.28, 0.5);
+        view.marker.add(bar.sprite);
+        view.healthBar = bar;
+      }
+    });
+    conn.db.darkCreature.onDelete((_ctx, row) => this.removeDarkCreature(row));
+  }
+
+  /** Per-frame dark-creature driver: project motion, face the heading, switch
+   *  idle/walk, and run the shared hit-flinch. */
+  private tickDarkCreatures(now: number, dt: number): void {
+    for (const view of this.darkCreatures.values()) {
+      if (view.row.health <= 0) continue; // a corpse holds its downed pose
+      const motion = projectMotion(view.row, now - view.baseMs, this.troggBounds);
+      view.marker.position.set(motion.x + 0.5, 0, motion.y + 0.5);
+      const moving = view.row.dirX !== 0 || view.row.dirY !== 0;
+      if (moving) view.model.root.rotation.y = Math.atan2(view.row.dirX, view.row.dirY);
+      const nextGait = moving ? "walk" : "idle";
+      if (nextGait !== view.gait) {
+        view.model.actions[view.gait].legs.stop();
+        view.model.actions[view.gait].arms.stop();
+        view.model.actions[nextGait].legs.play();
+        view.model.actions[nextGait].arms.play();
+        view.gait = nextGait;
+      }
+      view.model.mixer.update(dt);
+      applyFlinch(view, now, 0.5);
+    }
   }
 
   private wireGroundItems(): void {

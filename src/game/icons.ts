@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { buildTrogg } from "./creatures.js";
+import { buildTrogg, buildWretch } from "./creatures.js";
 import { buildBoulder, buildHeldItem, buildTree } from "./items.js";
 import { ITEM_3D } from "./palette.js";
 
@@ -85,6 +85,7 @@ export function itemIcon(item: string): HTMLCanvasElement {
   return cached(`item:${item}`, () => {
     if (item === "boulder") return buildBoulder();
     if (item === "tree") return buildTree();
+    if (item === "dark_creature") return buildWretch().root;
     const model = buildHeldItem(item);
     model?.rotation.set(0, 0.5, 0); // upright, slightly turned — the shelf pose
     return model;

@@ -1,15 +1,16 @@
 import * as THREE from "three";
-import { GHOST_3D, TROGG_SKINS_3D } from "./palette.js";
+import { GHOST_3D, TROGG_SKINS_3D, WRETCH_3D } from "./palette.js";
 import { finishCreature, joint, Parts, type CreatureModel, type GaitSpec } from "./rig.js";
 
 /**
  * Every creature body, built procedurally on the shared joint vocabulary
  * (`rig.ts`). Proportions follow the concept art (`docs/art-refs/`): the hunched
- * big-shouldered trogg. Model style notes live with each builder; palettes in
- * `palette.ts`.
+ * big-shouldered trogg, the crouched dark-creature wretch. Model style notes
+ * live with each builder; palettes in `palette.ts`.
  */
 
 const TROGG_GAIT: GaitSpec = { restTorso: 0.14, restArm: 0.08, legSwing: 0.55, armSwing: 0.45, walkDip: 0.05, runDip: 0.08, runLean: 0.16, breathe: 0.015 };
+const WRETCH_GAIT: GaitSpec = { restTorso: 0.3, restArm: 0.2, legSwing: 0.6, armSwing: 0.5, walkDip: 0.08, runDip: 0.12, runLean: 0.22, breathe: 0.02 };
 
 /** The hunched cave ogre (styles: moss/stone/ridge; `tint` is the player colour). */
 export function buildTrogg(style: string, tint?: number): CreatureModel {
@@ -59,6 +60,40 @@ export function buildTrogg(style: string, tint?: number): CreatureModel {
   p.box(head, 0.06, 0.13, 0.05, skin.tooth, 0.17, -0.05, 0.26);
 
   return finishCreature(root, p, TROGG_GAIT, 1.75);
+}
+
+/** The wretch (GDD "Dark creatures"): a hunched, ashen inhabitant of the dark,
+ *  built low and forward-leaning so it reads as hostile at a glance. */
+export function buildWretch(): CreatureModel {
+  const c = WRETCH_3D;
+  const p = new Parts();
+  const root = new THREE.Group();
+  const bob = joint(root, "Bob", 0, 0, 0);
+
+  for (const side of [-1, 1] as const) {
+    const leg = joint(bob, side < 0 ? "LegL" : "LegR", side * 0.16, 0.34, 0);
+    p.box(leg, 0.18, 0.24, 0.2, c.hide, 0, -0.12);
+    p.box(leg, 0.16, 0.1, 0.24, c.claw, 0, -0.26, 0.06); // clawed foot
+  }
+
+  const torso = joint(bob, "Torso", 0, 0.42, -0.06, WRETCH_GAIT.restTorso);
+  p.box(torso, 0.46, 0.4, 0.36, c.hide, 0, 0.2); // hunched narrow chest
+  p.box(torso, 0.5, 0.16, 0.4, c.hideDk, 0, 0.02, -0.04); // hollow gut shadow
+
+  for (const side of [-1, 1] as const) {
+    const arm = joint(torso, side < 0 ? "ArmL" : "ArmR", side * 0.32, 0.4, 0.1, WRETCH_GAIT.restArm);
+    p.box(arm, 0.14, 0.36, 0.14, c.hide, 0, -0.16);
+    p.box(arm, 0.1, 0.18, 0.1, c.claw, 0, -0.4); // clawed hand
+    joint(arm, side < 0 ? "HandL" : "HandR", 0, -0.44, 0.04);
+  }
+
+  const head = joint(torso, "Head", 0, 0.5, 0.24, 0.35); // pitched forward, hunting
+  p.box(head, 0.32, 0.3, 0.32, c.hide, 0, 0.12);
+  p.box(head, 0.08, 0.06, 0.05, c.eye, -0.09, 0.14, 0.17, true); // glowing eyes
+  p.box(head, 0.08, 0.06, 0.05, c.eye, 0.09, 0.14, 0.17, true);
+  p.box(head, 0.2, 0.1, 0.1, c.hideDk, 0, -0.04, 0.18); // underslung jaw
+
+  return finishCreature(root, p, WRETCH_GAIT, 1.05, 0.65);
 }
 
 /** The pale draped ghost (cosmetic easter egg): a sheet dome, eye holes, stub feet. */

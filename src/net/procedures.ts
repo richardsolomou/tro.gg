@@ -9,12 +9,16 @@ export function sendChat(conn: DbConnection, text: string) {
   return conn.procedures.chatAction({ text, ...telemetry("chat") });
 }
 
-export function spawnDebugEntity(conn: DbConnection, kind: "boulder" | "tree" | "item", item: string, source: string) {
+export function spawnDebugEntity(conn: DbConnection, kind: "boulder" | "tree" | "dark_creature" | "item", item: string, source: string) {
   return conn.procedures.spawnAction({ kind, item, ...telemetry(source) });
 }
 
 export function resetBoulders(conn: DbConnection, source: string) {
   return conn.procedures.resetBouldersAction(telemetry(source));
+}
+
+export function resetDarkCreatures(conn: DbConnection, source: string) {
+  return conn.procedures.resetDarkCreaturesAction(telemetry(source));
 }
 
 export function hauntGhost(conn: DbConnection, count: number, source: string) {

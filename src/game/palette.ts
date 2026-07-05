@@ -23,6 +23,9 @@ export const TROGG_SKINS_3D: Record<string, TroggSkin3D> = {
 
 export const GHOST_3D = { sheet: 0xf6f4ec, sheetDk: 0xd4d4cd, eye: 0x161616, foot: 0x9c6f3f, face: 0xf0dcab, faceDk: 0xcdac72 } as const;
 
+/** The wretch (GDD "Dark creatures"): a hunched, ashen inhabitant of the dark. */
+export const WRETCH_3D = { hide: 0x2a2630, hideDk: 0x171420, claw: 0x100c14, eye: 0xb23bf2 } as const;
+
 /** Tool and prop materials (tools/gen-item-art.ts). */
 export const ITEM_3D = {
   woodLt: 0x9a6330,
