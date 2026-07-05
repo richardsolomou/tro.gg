@@ -42,6 +42,11 @@ export const WORLD_ARRIVAL: Coord = ${JSON.stringify(world.arrival)};
 
 /** The alcove's deep end — walk into it to descend into your own cave. */
 export const WORLD_CAVE_DOOR: Coord = ${JSON.stringify(world.caveDoor)};
+
+/** Starting tiles of the zone's ambient dark creatures (GDD "Dark creatures"). */
+export const WORLD_DARK_CREATURES: readonly Coord[] = ${JSON.stringify(world.darkCreatures)};
 `;
 writeFileSync(fileURLToPath(new URL("../shared/world-map.ts", import.meta.url)), out);
-console.log(`world committed: ${world.tiles.length} rows, ${world.boulders.length} boulders, ${world.trees.length} trees, ${world.cells.length} birth cells`);
+console.log(
+  `world committed: ${world.tiles.length} rows, ${world.boulders.length} boulders, ${world.trees.length} trees, ${world.cells.length} birth cells, ${world.darkCreatures.length} dark creatures`,
+);

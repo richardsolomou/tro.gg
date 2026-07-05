@@ -9,6 +9,10 @@ import {
   BOULDER_MAX_HEALTH,
   TREE_MAX_HEALTH,
   PLAYER_MAX_HEALTH,
+  BRAZIER_UPKEEP_ITEM,
+  BRAZIER_UPKEEP_RATE,
+  DARK_CREATURE_MAX_HEALTH,
+  NPC_CORPSE_MS,
 } from "../../shared/index";
 import {
   anyPlayerOnline,
@@ -16,6 +20,12 @@ import {
   respawnDue,
   scheduleRespawnAt,
   respawnPlayer,
+  armBrazierUpkeep,
+  guttermostLitBrazier,
+  wanderEmberTroggs,
+  wanderDarkCreatures,
+  regenDarkCreatures,
+  armEmberWander,
 } from "./helpers";
 
 /**
@@ -122,6 +132,16 @@ const player = table(
     // ticked. Grounded rows stay 0/0.
     z: t.f64().default(0),
     dirZ: t.i32().default(0),
+    // Earned ember-time budget (GDD "The fire and the dark" → Presence), stored
+    // the same way motion is — a value plus the anchor it was true at
+    // (`kindlingChargeNow` derives the current ms from elapsed real time since
+    // the anchor, accruing while online and spending while not). Settled at
+    // every bright/ember transition (connect, disconnect) by `settleKindling`.
+    kindlingCharge: t.f64().default(0),
+    kindlingChargeAt: t.timestamp().default(Timestamp.UNIX_EPOCH),
+    // The out-of-combat clock for an ember trogg's own reduced-rate gathering
+    // (GDD "The fire and the dark" → Presence), independent of `lastDamagedAt`.
+    lastEmberGatherAt: t.timestamp().default(Timestamp.UNIX_EPOCH),
   },
 );
 
@@ -285,6 +305,86 @@ const stockpile = table(
 );
 
 /**
+ * A hearth or brazier (GDD "The fire and the dark" → Territory and permanence):
+ * a fire that holds the dark back from every tile within `radius`. `isEternal` is
+ * true only for the First Fire at the Hearth, seeded once per zone and never
+ * guttered regardless of upkeep. Every other row can go dark when the stockpile
+ * can't cover total upkeep (the scheduled `brazierUpkeep` sweep) and relights
+ * only through a successful ignition — never automatically.
+ */
+const brazier = table(
+  { name: "brazier", public: true },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    zoneId: t.string().index("btree"),
+    x: t.i32(),
+    y: t.i32(),
+    radius: t.f64(),
+    lit: t.bool().default(true),
+    isEternal: t.bool().default(false),
+  },
+);
+
+/**
+ * The brazier upkeep timer (GDD "The fire and the dark" → Territory and
+ * permanence) — the sanctioned scheduled-reducer exception (invariant 1),
+ * re-armed only while a player is online, mirroring `creatureRegen`.
+ */
+const brazierUpkeep = table(
+  { name: "brazier_upkeep", scheduled: (): any => sweepBrazierUpkeep },
+  {
+    scheduledId: t.u64().primaryKey().autoInc(),
+    scheduledAt: t.scheduleAt(),
+  },
+);
+
+/**
+ * A hostile inhabitant of the dark and the penumbra (GDD "Dark creatures") —
+ * the direct successor of the retired ambient Hog: the same intent-based
+ * motion (origin, direction, `movedAt`), server-owned with no identity, solid
+ * against troggs and other dark creatures. `aggroTargetId` is the identity hex
+ * of the trogg it's chasing, or "" while wandering. Bound by the light (GDD
+ * "The fire and the dark" → Territory and permanence): it cannot occupy a lit
+ * tile, so it paces the frontline rather than crossing it. Whether a kill
+ * respawns depends on whether the tile it died on is lit at the time
+ * (territory-linked respawn), not anything stored on the row itself.
+ */
+const darkCreature = table(
+  { name: "dark_creature", public: true },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    zoneId: t.string().index("btree"),
+    x: t.i32(),
+    y: t.i32(),
+    dirX: t.i32().default(0),
+    dirY: t.i32().default(0),
+    movedAt: t.timestamp().default(Timestamp.UNIX_EPOCH),
+    species: t.string().default("wretch"),
+    health: t.i32().default(DARK_CREATURE_MAX_HEALTH),
+    lastDamagedAt: t.timestamp().default(Timestamp.UNIX_EPOCH),
+    aggroTargetId: t.string().default(""),
+    // The out-of-combat clock for its own attack cadence — a slow, deliberate
+    // cooldown (invariant 7: no twitch combat), independent of `lastDamagedAt`.
+    lastAttackAt: t.timestamp().default(Timestamp.UNIX_EPOCH),
+  },
+);
+
+/**
+ * The ember-trogg and dark-creature wander timer (GDD "The fire and the dark"
+ * → Presence, "Dark creatures") — the direct successor of the retired
+ * `hog_wander`: fires the passes that move ember troggs across safe interior
+ * ground and dark creatures across the dark and penumbra, re-arming only
+ * while a player is online (invariant 1).
+ */
+const emberWanderTimer = table(
+  { name: "ember_wander", scheduled: (): any => sweepEmberWander },
+  {
+    scheduledId: t.u64().primaryKey().autoInc(),
+    scheduledAt: t.scheduleAt(),
+  },
+);
+
+/**
  * One-shot player respawn timers. Each death inserts one row scheduled for
  * `respawnAt`; the reducer re-checks the player row before respawning so stale
  * timer rows are harmless.
@@ -327,7 +427,25 @@ const worldState = table(
   },
 );
 
-const spacetimedb = schema({ player, chatMessage, ghostHaunt, claimCode, boulder, tree, groundItem, inventory, playerConnection, stockpile, playerRespawn, creatureRegen, worldState });
+const spacetimedb = schema({
+  player,
+  chatMessage,
+  ghostHaunt,
+  claimCode,
+  boulder,
+  tree,
+  groundItem,
+  inventory,
+  playerConnection,
+  stockpile,
+  brazier,
+  brazierUpkeep,
+  darkCreature,
+  emberWanderTimer,
+  playerRespawn,
+  creatureRegen,
+  worldState,
+});
 export default spacetimedb;
 
 /** The reducer context, typed against this module's schema (db view + sender). */
@@ -355,9 +473,58 @@ export const regenCreatures = spacetimedb.reducer({ timer: creatureRegen.rowType
       const heal = Math.ceil(PLAYER_MAX_HEALTH * HEALTH_REGEN_FRACTION);
       ctx.db.player.identity.update({ ...p, health: Math.min(PLAYER_MAX_HEALTH, p.health + heal) });
     }
+    regenDarkCreatures(ctx, now, NPC_CORPSE_MS, HEALTH_REGEN_DELAY_MS, HEALTH_REGEN_FRACTION);
   }
   ctx.db.creatureRegen.clear();
   if (online) armRegen(ctx);
+});
+
+/**
+ * Move and feed every ember trogg, and move and fight every dark creature
+ * (GDD "The fire and the dark" → Presence, "Dark creatures") — the direct
+ * successor of the retired `wanderHogs`, re-armed only while a player is
+ * online (invariant 1).
+ */
+export const sweepEmberWander = spacetimedb.reducer({ timer: emberWanderTimer.rowType }, (ctx) => {
+  const online = anyPlayerOnline(ctx);
+  const now = ctx.timestamp;
+  if (online) {
+    wanderEmberTroggs(ctx, now);
+    wanderDarkCreatures(ctx, now);
+  }
+  ctx.db.emberWanderTimer.clear();
+  if (online) armEmberWander(ctx);
+});
+
+/**
+ * Draw brazier upkeep from the stockpile (GDD "The fire and the dark" →
+ * Territory and permanence). Each lit, non-eternal brazier costs
+ * `BRAZIER_UPKEEP_RATE` of `BRAZIER_UPKEEP_ITEM` per tick. When the stockpile
+ * can't cover every lit brazier, the one furthest from its zone's First Fire
+ * gutters — one at a time, outermost first, never the interior — until what's
+ * left fits what's in the stockpile. Guttered braziers relight only through a
+ * successful ignition, never automatically once the stockpile recovers.
+ */
+export const sweepBrazierUpkeep = spacetimedb.reducer({ timer: brazierUpkeep.rowType }, (ctx) => {
+  const online = anyPlayerOnline(ctx);
+  if (online) {
+    let available = ctx.db.stockpile.item.find(BRAZIER_UPKEEP_ITEM)?.qty ?? 0;
+    for (;;) {
+      const lit = [...ctx.db.brazier.iter()].filter((b) => b.lit && !b.isEternal);
+      const cost = BRAZIER_UPKEEP_RATE * lit.length;
+      if (lit.length === 0 || cost <= available) {
+        available -= cost;
+        break;
+      }
+      const outermost = guttermostLitBrazier(ctx, lit);
+      if (!outermost) break;
+      ctx.db.brazier.id.update({ ...outermost, lit: false });
+    }
+    const row = ctx.db.stockpile.item.find(BRAZIER_UPKEEP_ITEM);
+    if (row) ctx.db.stockpile.item.update({ ...row, qty: Math.max(0, Math.round(available)) });
+  }
+  ctx.db.brazierUpkeep.clear();
+  if (online) armBrazierUpkeep(ctx);
 });
 
 /** Respawn a dead trogg whose one-shot death timer has elapsed. */

@@ -95,6 +95,10 @@ export function makeCtx(opts: FakeCtxOpts) {
       ghostHaunt: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
       claimCode: makeTable({ pk: "code" }),
       stockpile: makeTable({ pk: "item" }),
+      brazier: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
+      brazierUpkeep: makeTable({ pk: "scheduledId", autoInc: true }),
+      darkCreature: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
+      emberWanderTimer: makeTable({ pk: "scheduledId", autoInc: true }),
       playerRespawn: makeTable({ pk: "scheduledId", autoInc: true, indexes: ["playerId"] }),
       worldState: makeTable({ pk: "id" }),
       creatureRegen: makeTable({ pk: "scheduledId", autoInc: true }),
@@ -139,6 +143,9 @@ export function playerRow(identity: Id, over: Record<string, unknown> = {}) {
     cheatNoclip: false,
     z: 0,
     dirZ: 0,
+    kindlingCharge: 0,
+    kindlingChargeAt: { microsSinceUnixEpoch: 0n },
+    lastEmberGatherAt: { microsSinceUnixEpoch: 0n },
     ...over,
   };
 }

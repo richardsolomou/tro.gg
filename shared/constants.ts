@@ -1,7 +1,7 @@
 export * from "./glyphs";
 import { SOLID_GLYPHS, TILE_GLYPHS, WATER_TILE } from "./glyphs";
 import { generateBirthCave, setRegionRows, WORLD_H, WORLD_W } from "./worldgen";
-import { WORLD_ARRIVAL, WORLD_CAVE_DOOR, WORLD_BOULDERS, WORLD_CELLS, WORLD_ITEMS, WORLD_REGION_ROWS, WORLD_SPAWN, WORLD_TILES, WORLD_TREES } from "./world-map";
+import { WORLD_ARRIVAL, WORLD_CAVE_DOOR, WORLD_BOULDERS, WORLD_CELLS, WORLD_DARK_CREATURES, WORLD_ITEMS, WORLD_REGION_ROWS, WORLD_SPAWN, WORLD_TILES, WORLD_TREES } from "./world-map";
 
 // regionAt() reads the committed grid on both client and module
 setRegionRows(WORLD_REGION_ROWS);
@@ -36,10 +36,104 @@ export const MAX_GROUND_ITEMS_PER_ZONE = 384;
 /**
  * The tribe's shared stockpile (GDD "The fire and the dark" → The stockpile): one
  * global pool per item, fed directly by every gather action. A full pool doesn't
- * grow further — gathering past the cap is wasted effort. (initial, placeholder —
- * retune once brazier upkeep rates exist to size it against.)
+ * grow further — gathering past the cap is wasted effort. Sized to a few days of
+ * the tribe's total upkeep at the current brazier count. (initial)
  */
 export const STOCKPILE_CAP = 10_000;
+
+/**
+ * Hearths and braziers (GDD "The fire and the dark" → Territory and permanence):
+ * every hearth casts a lit radius dark creatures cannot enter. The First Fire at
+ * the Hearth is `isEternal` and never gutters; every other brazier drains
+ * `BRAZIER_UPKEEP_ITEM` from the stockpile at `BRAZIER_UPKEEP_RATE` per tick of
+ * `BRAZIER_UPKEEP_TICK_MS` for as long as it burns. Wood is the upkeep fuel — the
+ * same resource an ignition's fuel cost draws from (see Ignition, below). When the
+ * stockpile can't cover total upkeep, the brazier(s) furthest from the First Fire
+ * gutter first, one at a time, never the interior — the outermost-first recession
+ * rule. Guttered braziers relight only through a successful ignition (below), never
+ * automatically once the stockpile recovers. (initial)
+ */
+export const FIRST_FIRE_RADIUS = 16;
+export const BRAZIER_RADIUS = 8;
+export const BRAZIER_UPKEEP_ITEM: StockpileItemId = "wood";
+export const BRAZIER_UPKEEP_RATE = 4;
+export const BRAZIER_UPKEEP_TICK_MS = 60_000;
+
+/**
+ * Presence: bright, ember, dormant (GDD "The fire and the dark" → Presence).
+ * `kindlingCharge` is denominated in milliseconds of ember-time remaining, stored
+ * the same way motion is — a value plus the anchor (`kindlingChargeAt`) it was
+ * true at — so the current value is *derived* by applying the accrual ratio over
+ * elapsed real time while bright, or spending it 1:1 against elapsed real time
+ * while ember (invariant 1: never advanced on a timer). `CHARGE_ACCRUAL_RATE` is
+ * ms of charge earned per ms of bright play; `CHARGE_DECAY_RATE` is ms of charge
+ * spent per ms of ember time (1 — ember time literally draws down the budget it
+ * was banked as). A trogg with zero derived charge is dormant, not ember. (initial)
+ */
+export const CHARGE_ACCRUAL_RATE = 0.5;
+export const CHARGE_DECAY_RATE = 1;
+export const CHARGE_MAX_MS = 4 * 60 * 60 * 1000;
+
+/** An ember trogg's gather rate relative to a bright trogg's (GDD "Skills and XP",
+ *  "The fire and the dark" → Presence): instinct, not judgment, works slower and
+ *  earns no XP. Expressed as the interval between ember deposits, sized so the
+ *  effective rate is roughly EMBER_EFFICIENCY_FRACTION of a bright trogg mining a
+ *  stone node (one node's yield per GATHER_ACTION_MS). (initial) */
+export const EMBER_EFFICIENCY_FRACTION = 0.3;
+export const GATHER_ACTION_MS = 3_000;
+export const EMBER_GATHER_INTERVAL_MS = Math.round(GATHER_ACTION_MS / EMBER_EFFICIENCY_FRACTION);
+
+/** How often the ember/dark-creature wander sweep ticks (GDD "The fire and the
+ *  dark" → Presence, "Dark creatures") — the direct successor of the retired
+ *  Hog-wander cadence. (initial) */
+export const EMBER_WANDER_TICK_MS = 1_000 / MOVE_SPEED_TILES_PER_SEC;
+export const WANDER_TURN_CHANCE = 0.15;
+export const WANDER_IDLE_CHANCE = 0.25;
+
+/**
+ * Dark creatures (GDD "Dark creatures"): hostile, light-bound inhabitants of the
+ * dark and the penumbra. `DARK_CREATURE_MAX_HEALTH` and `DARK_CREATURE_AGGRO_RANGE`
+ * are for the first bestiary entry (the wretch); species variety is open (see
+ * Roadmap). Aggro is range-based, like earshot — no stealth or line-of-sight model
+ * yet. (initial)
+ */
+export const DARK_CREATURE_MAX_HEALTH = 70;
+export const DARK_CREATURE_AGGRO_RANGE = 6;
+export const MAX_DARK_CREATURES_PER_ZONE = 96;
+
+/** A dark creature's own attack, on the same swing/hit-circle grammar as a
+ *  trogg's (GDD "Dark creatures" → "aggressive on sight... attacks on the same
+ *  swing/hit-circle grammar as a trogg"). (initial) */
+export const DARK_CREATURE_DAMAGE: readonly [number, number] = [8, 16];
+
+/** How often a dark creature can land its own attack (GDD "Dark creatures" —
+ *  slow and stat-driven, invariant 7: no twitch combat). Slower than the
+ *  wander tick, so a chase doesn't read as a machine-gun swing. (initial) */
+export const DARK_CREATURE_ATTACK_COOLDOWN_MS = 1_200;
+
+/** A dark creature's loot (GDD "Dark creatures" → Combat): what a kill leaves
+ *  behind, same drop/decay/cap mechanics as any other corpse. (initial) */
+export function darkCreatureLoot(): LootRoll[] {
+  return [{ item: "stone", min: 1, max: 2 }];
+}
+
+/** An ember-heart's drop chance (GDD "The fire and the dark" → Ignition):
+ *  "recovered only by scouting beyond the frontline" — a kill on ground still
+ *  lit by no hearth has a chance to leave one behind; a kill on already-lit,
+ *  claimed ground never does (that ground isn't "the dark" being scouted). (initial) */
+export const EMBER_HEART_DROP_CHANCE = 0.15;
+
+/**
+ * Ignition (GDD "The fire and the dark" → Ignition): pushing the frontline
+ * outward is a deliberate hold-the-point event, not a threshold quietly crossed.
+ * `IGNITION_FUEL_COST` is drawn from the stockpile's `BRAZIER_UPKEEP_ITEM`,
+ * sized well above ordinary upkeep; the second key is a carried ember-heart,
+ * recovered only by killing a dark creature beyond the frontline. `IGNITION_WINDOW_MS`
+ * is a hold, not an hour-long raid — sized for a handful of concurrent players. (initial)
+ */
+export const IGNITION_FUEL_COST = 500;
+export const IGNITION_WINDOW_MS = 3 * 60_000;
+export const IGNITION_RANGE_TILES = 3;
 
 /** Chat. (initial) */
 export const CHAT_MAX_CHARS = 200;
@@ -71,7 +165,7 @@ export interface Coord {
 }
 
 /** Item ids are canonical across inventory rows, equipment slots, and UI labels. */
-export const ITEM_IDS = ["stone", "wood", "pickaxe", "shovel", "axe", "sword", "shield", "torch"] as const;
+export const ITEM_IDS = ["stone", "wood", "pickaxe", "shovel", "axe", "sword", "shield", "torch", "ember-heart"] as const;
 export type ItemId = (typeof ITEM_IDS)[number];
 export const SPAWNABLE_ITEM_IDS = ["pickaxe", "shovel", "axe", "sword", "shield", "torch", "stone", "wood"] as const satisfies readonly ItemId[];
 export type SpawnableItemId = (typeof SPAWNABLE_ITEM_IDS)[number];
@@ -83,6 +177,12 @@ export type StockpileItemId = (typeof STOCKPILE_ITEM_IDS)[number];
 export function isStockpileItemId(item: string): item is StockpileItemId {
   return (STOCKPILE_ITEM_IDS as readonly string[]).includes(item);
 }
+
+/** The one carryable ground find today (GDD "Interacting" / "The fire and the
+ *  dark" → Ignition): recovered from a dark-creature kill, picked up into
+ *  `carrying` rather than personal inventory, and delivered by putting it down
+ *  at an ignition site. Not spawnable from the Commands panel. */
+export const EMBER_HEART_ITEM: ItemId = "ember-heart";
 
 /** Inventory capacity (GDD "Inventory"): each row occupies one visible carry slot. (initial) */
 export const INVENTORY_SLOT_COUNT = 20;
@@ -278,6 +378,12 @@ export const ITEMS: Record<ItemId, ItemDef> = {
     blurb: "Equipped in the off hand. Carries a pool of firelight into the dark.",
     slot: "offHand",
   },
+  "ember-heart": {
+    id: "ember-heart",
+    name: "Ember-heart",
+    stackable: false,
+    blurb: "A coal recovered from the dark. Carry it to an ignition site.",
+  },
 };
 
 export function isItemId(item: string): item is ItemId {
@@ -417,6 +523,9 @@ export interface Zone {
   cells: readonly BirthCellSeed[];
   /** Where `E` emerges from an instanced birth cave (GDD "Onboarding"). */
   exit?: Coord;
+  /** Starting tiles of the zone's ambient dark creatures (GDD "Dark creatures");
+   *  empty for zones without any — every birth cave, currently. */
+  darkCreatures: readonly Coord[];
 }
 
 /**
@@ -442,6 +551,7 @@ export const ZONES: Record<string, Zone> = {
     trees: WORLD_TREES,
     items: WORLD_ITEMS,
     cells: WORLD_CELLS,
+    darkCreatures: WORLD_DARK_CREATURES,
   },
   birthcave: generateBirthCave(),
 };

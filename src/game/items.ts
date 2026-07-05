@@ -165,18 +165,6 @@ function stone(): THREE.Group {
   return g;
 }
 
-function quill(): THREE.Group {
-  const g = new THREE.Group();
-  const spine = new THREE.Mesh(cone(0.035, 0.34, 5), mat(ITEM_3D.woodLt));
-  spine.position.y = 0.17;
-  spine.castShadow = true;
-  g.add(spine);
-  const tip = new THREE.Mesh(cone(0.02, 0.1, 5), mat(ITEM_3D.woodDk));
-  tip.position.y = 0.32;
-  g.add(tip);
-  return g;
-}
-
 function wood(): THREE.Group {
   const g = new THREE.Group();
   const log = new THREE.Mesh(cylinder(0.09, 0.1, 0.4, 6), mat(ITEM_3D.wood));
@@ -191,7 +179,7 @@ function wood(): THREE.Group {
   return g;
 }
 
-const BUILDERS: Record<string, () => THREE.Group> = { pickaxe, shovel, axe, sword, shield, torch, stone, wood, quill };
+const BUILDERS: Record<string, () => THREE.Group> = { pickaxe, shovel, axe, sword, shield, torch, stone, wood, "ember-heart": buildEmberHeart };
 
 export function hasItem3D(item: string): boolean {
   return BUILDERS[item] !== undefined;
@@ -208,7 +196,6 @@ const HELD_PITCH: Record<string, number> = {
   torch: 1.25, // cancels the raised-arm pitch so the flame stands vertical
   stone: Math.PI / 2,
   wood: Math.PI / 2,
-  quill: Math.PI / 2,
 };
 
 /**
@@ -313,5 +300,24 @@ export function buildBoulder(): THREE.Group {
   cap.position.set(0.1, 0.62, -0.05);
   cap.castShadow = true;
   g.add(cap);
+  return g;
+}
+
+/** An ember-heart (GDD "The fire and the dark" → Ignition): a fist-sized coal
+ *  recovered from the dark, carried to an ignition site. A dark shell over a
+ *  glowing core so it reads as banked fire rather than a lit flame. */
+export function buildEmberHeart(): THREE.Group {
+  const g = new THREE.Group();
+  const shell = new THREE.Mesh(ico(0.22, 0), mat(ITEM_3D.rockDk));
+  shell.position.y = 0.24;
+  shell.rotation.set(0.3, 0.5, 0.1);
+  shell.castShadow = true;
+  g.add(shell);
+  const core = new THREE.Mesh(ico(0.13, 0), poolMaterial("emberheart:core", () => new THREE.MeshBasicMaterial({ color: FLAME_MID })));
+  core.position.y = 0.24;
+  g.add(core);
+  const light = new THREE.PointLight(FLAME_MID, 0.6, 2.5);
+  light.position.y = 0.24;
+  g.add(light);
   return g;
 }

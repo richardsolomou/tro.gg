@@ -10,6 +10,7 @@ import {
   isWalkable,
   PLAYER_MAX_HEALTH,
   STARTING_ZONE_SLUG,
+  bankedKindlingCharge,
 } from "../../../shared/index";
 import {
   spawnAt,
@@ -28,6 +29,11 @@ import {
   solidTiles,
   placeCarried,
   facingDir,
+  seedFirstFire,
+  armBrazierUpkeep,
+  seedDarkCreatures,
+  armEmberWander,
+  recallToHearth,
 } from "../helpers";
 
 export const init = spacetimedb.init(() => {});
@@ -45,7 +51,11 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
   seedBoulders(ctx, startingZone);
   seedTrees(ctx, startingZone);
   seedGroundItems(ctx, startingZone);
+  seedFirstFire(ctx, startingZone);
+  seedDarkCreatures(ctx, startingZone);
   armRegen(ctx);
+  armBrazierUpkeep(ctx);
+  armEmberWander(ctx);
 
   const hadLiveConnection = playerConnectionCount(ctx, ctx.sender) > 0;
   rememberPlayerConnection(ctx);
@@ -74,7 +84,22 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
     // (A trogg mid-birth resumes inside its own private cave, untouched.)
     const stuck = zone && !isWalkable(zone, Math.round(existing.x), Math.round(existing.y));
     const pos = stuck ? (nearestSafeTile(zone, existing.x, existing.y) ?? spawnAt(zone)) : { x: existing.x, y: existing.y };
-    ctx.db.player.identity.update({ ...existing, x: pos.x, y: pos.y, dirX: 0, dirY: 0, running: false, path: "", online: true, movedAt: ctx.timestamp });
+    // Reconnecting returns a trogg to bright instantly, wherever it settled as
+    // ember or dormant (GDD "The fire and the dark" → Presence). Bank whatever
+    // charge it derived under the ember/dormant regime and re-anchor for accrual.
+    ctx.db.player.identity.update({
+      ...existing,
+      kindlingCharge: bankedKindlingCharge(existing, ctx.timestamp),
+      kindlingChargeAt: ctx.timestamp,
+      x: pos.x,
+      y: pos.y,
+      dirX: 0,
+      dirY: 0,
+      running: false,
+      path: "",
+      online: true,
+      movedAt: ctx.timestamp,
+    });
     return;
   }
 
@@ -133,13 +158,19 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
     cheatNoclip: false,
     z: 0,
     dirZ: 0,
+    kindlingCharge: 0,
+    kindlingChargeAt: ctx.timestamp,
+    lastEmberGatherAt: ctx.timestamp,
   });
 });
 
 /**
- * A client disconnected. Settle the trogg to where it is *now* and mark it
- * offline (clients subscribe to online players only, so it leaves their view
- * without losing durable progress).
+ * A client disconnected. Settle the trogg to where it is *now*; if that's
+ * unclaimed ground, recall it to the zone's hearth before it goes ember (GDD
+ * "The fire and the dark" → Presence — ember troggs only ever exist on lit,
+ * safe ground). Mark it offline and bank its bright-earned kindling charge for
+ * ember's decay regime; a returning player's `online` still gates bright vs.
+ * ember/dormant, so the row stays visible either way (GDD "Presence").
  */
 export const onDisconnect = spacetimedb.clientDisconnected((ctx) => {
   const p = ctx.db.player.identity.find(ctx.sender);
@@ -147,6 +178,8 @@ export const onDisconnect = spacetimedb.clientDisconnected((ctx) => {
   if (forgetPlayerConnection(ctx) > 0) return;
 
   const settled = settle(ctx, p, ctx.timestamp);
+  const zone = getZone(p.zoneId);
+  const pos = zone ? recallToHearth(ctx, zone, settled.x, settled.y) : settled;
   // Drop whatever the trogg was carrying where it stops, so a carried entity is
   // never orphaned while its carrier is offline (GDD "Interacting"). If it's boxed
   // in and can't be placed, keep it on the row — it's durable and still droppable
@@ -154,15 +187,29 @@ export const onDisconnect = spacetimedb.clientDisconnected((ctx) => {
   let carrying = p.carrying;
   let carryingStyle = p.carryingStyle;
   if (carrying !== "") {
-    const zone = getZone(p.zoneId);
     const occupied = solidTiles(ctx, p.zoneId, ctx.timestamp, p.identity);
     const face = facingDir(p);
-    if (zone && placeCarried(ctx, zone, carrying, carryingStyle, occupied, settled.x, settled.y, face.dirX, face.dirY)) {
+    if (zone && placeCarried(ctx, zone, carrying, carryingStyle, occupied, pos.x, pos.y, face.dirX, face.dirY)) {
       carrying = "";
       carryingStyle = "";
     }
   }
-  ctx.db.player.identity.update({ ...p, x: settled.x, y: settled.y, z: settled.z, dirZ: 0, dirX: 0, dirY: 0, running: false, path: "", online: false, carrying, carryingStyle });
+  ctx.db.player.identity.update({
+    ...p,
+    kindlingCharge: bankedKindlingCharge(p, ctx.timestamp),
+    kindlingChargeAt: ctx.timestamp,
+    x: pos.x,
+    y: pos.y,
+    z: settled.z,
+    dirZ: 0,
+    dirX: 0,
+    dirY: 0,
+    running: false,
+    path: "",
+    online: false,
+    carrying,
+    carryingStyle,
+  });
 });
 
 

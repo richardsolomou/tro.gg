@@ -1,9 +1,9 @@
 import * as THREE from "three";
-import { EQUIPMENT_ACTION_MS, forward, MELEE_ARC_RAD, MELEE_RANGE_TILES, PLAYER_HIT_RADIUS, PLAYER_MAX_HEALTH, RUN_SPEED_TILES_PER_SEC, timestampMs, wieldOf, type EquipSlot, type Facing, type ProjectedMotion, type Stamp } from "@trogg/shared";
+import { EQUIPMENT_ACTION_MS, forward, MELEE_ARC_RAD, MELEE_RANGE_TILES, PLAYER_HIT_RADIUS, PLAYER_MAX_HEALTH, RUN_SPEED_TILES_PER_SEC, timestampMs, wieldOf, type EquipSlot, type Facing, type Presence, type ProjectedMotion, type Stamp } from "@trogg/shared";
 import type { Player } from "../net/module_bindings/types";
 import { audio } from "../audio.js";
 import { buildGhost, buildTrogg } from "./creatures.js";
-import { buildBoulder, buildGroundItem, buildHeldItem, updateHeldFx, wireHeldFx, type HeldFx } from "./items.js";
+import { buildBoulder, buildEmberHeart, buildGroundItem, buildHeldItem, updateHeldFx, wireHeldFx, type HeldFx } from "./items.js";
 import { makeBubble, makeDamageText, makeHealthBar, makeLabel, makeStatusText, type Overlay } from "./overlays.js";
 import { ATTACK_PERIOD, type CreatureModel } from "./rig.js";
 import { UI_3D } from "./palette.js";
@@ -117,6 +117,19 @@ export function setDowned(model: CreatureModel, downed: boolean): void {
   for (const m of model.materials) {
     m.transparent = downed;
     m.opacity = downed ? 0.45 : 1;
+  }
+}
+
+/** Dim a trogg's body to read as unattended (GDD "The fire and the dark" →
+ *  Presence): full colour while bright, banked-embers dark while ember, near
+ *  black while dormant. Re-derives from each material's own base colour every
+ *  call (cached in `userData` on first use), so repeated calls never compound. */
+export function setPresenceTint(model: CreatureModel, presence: Presence): void {
+  const factor = presence === "bright" ? 1 : presence === "ember" ? 0.55 : 0.32;
+  for (const m of model.materials) {
+    const base = (m.userData.baseColor as THREE.Color | undefined) ?? m.color.clone();
+    m.userData.baseColor = base;
+    m.color.copy(base).multiplyScalar(factor);
   }
 }
 
@@ -434,7 +447,7 @@ export function createEntities(scene: THREE.Scene) {
     (motes.material as THREE.PointsMaterial).opacity = 0.75 + 0.2 * Math.sin(now * 0.004 + phase);
   };
 
-  /** Sync the carried overlay (currently, a legacy boulder) to the player row. */
+  /** Sync the carried overlay — an ember-heart, or a legacy carried boulder — to the player row. */
   const applyCarry = (entry: Tracked) => {
     const kind = entry.player.carrying;
     if (kind === entry.carriedKind) return;
@@ -446,6 +459,8 @@ export function createEntities(scene: THREE.Scene) {
     if (kind === "boulder") {
       overlay = buildBoulder();
       overlay.scale.setScalar(0.7);
+    } else if (kind === "ember-heart") {
+      overlay = buildEmberHeart();
     }
     if (!overlay) return;
     overlay.position.set(0, entry.model.height + 0.18, 0);

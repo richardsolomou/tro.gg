@@ -46,4 +46,7 @@ export default __t.row({
   cheatNoclip: __t.bool().name("cheat_noclip"),
   z: __t.f64(),
   dirZ: __t.i32().name("dir_z"),
+  kindlingCharge: __t.f64().name("kindling_charge"),
+  kindlingChargeAt: __t.timestamp().name("kindling_charge_at"),
+  lastEmberGatherAt: __t.timestamp().name("last_ember_gather_at"),
 });

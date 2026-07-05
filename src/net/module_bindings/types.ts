@@ -20,6 +20,23 @@ export const Boulder = __t.object("Boulder", {
 });
 export type Boulder = __Infer<typeof Boulder>;
 
+export const Brazier = __t.object("Brazier", {
+  id: __t.u64(),
+  zoneId: __t.string(),
+  x: __t.i32(),
+  y: __t.i32(),
+  radius: __t.f64(),
+  lit: __t.bool(),
+  isEternal: __t.bool(),
+});
+export type Brazier = __Infer<typeof Brazier>;
+
+export const BrazierUpkeep = __t.object("BrazierUpkeep", {
+  scheduledId: __t.u64(),
+  scheduledAt: __t.scheduleAt(),
+});
+export type BrazierUpkeep = __Infer<typeof BrazierUpkeep>;
+
 export const ChatMessage = __t.object("ChatMessage", {
   id: __t.u64(),
   zoneId: __t.string(),
@@ -42,6 +59,28 @@ export const CreatureRegen = __t.object("CreatureRegen", {
   scheduledAt: __t.scheduleAt(),
 });
 export type CreatureRegen = __Infer<typeof CreatureRegen>;
+
+export const DarkCreature = __t.object("DarkCreature", {
+  id: __t.u64(),
+  zoneId: __t.string(),
+  x: __t.i32(),
+  y: __t.i32(),
+  dirX: __t.i32(),
+  dirY: __t.i32(),
+  movedAt: __t.timestamp(),
+  species: __t.string(),
+  health: __t.i32(),
+  lastDamagedAt: __t.timestamp(),
+  aggroTargetId: __t.string(),
+  lastAttackAt: __t.timestamp(),
+});
+export type DarkCreature = __Infer<typeof DarkCreature>;
+
+export const EmberWander = __t.object("EmberWander", {
+  scheduledId: __t.u64(),
+  scheduledAt: __t.scheduleAt(),
+});
+export type EmberWander = __Infer<typeof EmberWander>;
 
 export const GhostHaunt = __t.object("GhostHaunt", {
   id: __t.u64(),
@@ -106,6 +145,9 @@ export const Player = __t.object("Player", {
   cheatNoclip: __t.bool(),
   z: __t.f64(),
   dirZ: __t.i32(),
+  kindlingCharge: __t.f64(),
+  kindlingChargeAt: __t.timestamp(),
+  lastEmberGatherAt: __t.timestamp(),
 });
 export type Player = __Infer<typeof Player>;
 

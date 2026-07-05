@@ -236,6 +236,7 @@ export function generateCaveZone(opts: CaveOptions): Zone {
     boulders,
     trees,
     items,
+    darkCreatures: [],
     cells: [],
   };
 }
@@ -386,6 +387,7 @@ export function generateBirthCave(): Zone {
     boulders: [],
     trees: [],
     items: [],
+    darkCreatures: [],
     cells: [{ x: spawn.x, y: spawn.y, corridor, pickaxe }],
   };
 }
@@ -411,7 +413,7 @@ export const WORLD_W = 224;
 export const WORLD_H = 208;
 
 export const WORLD_REGIONS: readonly WorldRegion[] = [
-  { slug: "hog-town", name: "Hog Town", biome: "cave", x: 112, y: 104 },
+  { slug: "hearth", name: "The Hearth", biome: "cave", x: 112, y: 104 },
   { slug: "glowvault", name: "Glowvault", biome: "glowvault", x: 88, y: 62 },
   { slug: "starwell", name: "Starwell", biome: "starwell", x: 138, y: 34 },
   { slug: "mossglen", name: "Mossglen", biome: "mossglen", x: 128, y: 148 },
@@ -471,6 +473,10 @@ export interface GeneratedWorld {
   /** The alcove's deep end — walk into it to descend into your own cave. */
   caveDoor: Coord;
   spawn: Coord;
+  /** Starting tiles of the zone's ambient dark creatures (GDD "Dark creatures") —
+   *  seeded per region like boulders and trees, but excluded from the ring
+   *  around spawn the First Fire already lights. */
+  darkCreatures: Coord[];
 }
 
 export function generateWorld(): GeneratedWorld {
@@ -730,6 +736,21 @@ export function generateWorld(): GeneratedWorld {
     }
   }
 
+  // 9b. dark creatures: seeded per region like trees, but excluded from the
+  // ring around spawn the First Fire already lights (16 tiles, matching
+  // FIRST_FIRE_RADIUS in shared/constants.ts — duplicated here rather than
+  // imported, since constants.ts itself imports from this module). A separate
+  // rng stream drawn after trees, so re-tuning this seeding leaves every
+  // earlier draw byte-identical.
+  const darkCreatureRand = mulberry32(0x7066300a);
+  const darkCreatures: Coord[] = [];
+  for (let region = 0; region < WORLD_REGIONS.length; region++) {
+    for (let i = 0; i < 6; i++) {
+      const tile = drawFrom(region, darkCreatureRand);
+      if (tile && Math.hypot(tile.x - spawn.x, tile.y - spawn.y) >= 16) darkCreatures.push(tile);
+    }
+  }
+
   // 10. the birth-cave mouth (GDD "Onboarding: the Warren"): newborns dig out
   // of their own instanced cave and step into the world HERE — a small dead-end
   // alcove burrowed into the south-coast rock, so every trogg's first steps
@@ -754,5 +775,5 @@ export function generateWorld(): GeneratedWorld {
   const caveDoor: Coord = { x: MOUTH_X, y: Math.min(mouthY + ARRIVAL_DEPTH, H - 2) };
   const cells: BirthCellSeed[] = [];
 
-  return { tiles: glyphs.map((row) => row.join("")), regions: regionGrid.map((row) => row.join("")), boulders, trees, items, cells, arrival, caveDoor, spawn };
+  return { tiles: glyphs.map((row) => row.join("")), regions: regionGrid.map((row) => row.join("")), boulders, trees, items, cells, arrival, caveDoor, spawn, darkCreatures };
 }

@@ -17,6 +17,7 @@ import {
   TREE_MAX_HEALTH,
   MAX_BOULDERS_PER_ZONE,
   MAX_TREES_PER_ZONE,
+  presenceOf,
   projectMotion,
   projectMotionState,
   rockHeightAt,
@@ -47,7 +48,7 @@ import { audio } from "../audio.js";
 import { interact, useEquipped } from "../net/procedures.js";
 import { isOlderPlayerMotion, playerMotionChanged, withPlayerMotion } from "../motion_sync.js";
 import { FarCrowd } from "./crowd.js";
-import { createEntities, disposeObject, type Entities, type Tracked } from "./entities.js";
+import { createEntities, disposeObject, setPresenceTint, type Entities, type Tracked } from "./entities.js";
 import { buildBoulder, buildTree } from "./items.js";
 import { NodeField } from "./nodes.js";
 import { buildTerrain, type Terrain3D } from "./terrain.js";
@@ -585,11 +586,17 @@ export class World3D {
     mountCommands({ conn, zone: this.zone });
 
     const queries = [
-      `SELECT * FROM player WHERE zone_id = '${this.slug}' AND online = true`,
+      // No `online = true` filter: an ember or dormant trogg (GDD "The fire and
+      // the dark" → Presence) stays subscribed after its player disconnects —
+      // only presenceOf() (derived client-side, same as health/motion) decides
+      // whether it renders bright, ember, or dormant.
+      `SELECT * FROM player WHERE zone_id = '${this.slug}'`,
       `SELECT * FROM chat_message WHERE zone_id = '${this.slug}'`,
       `SELECT * FROM ground_item WHERE zone_id = '${this.slug}'`,
       `SELECT * FROM boulder WHERE zone_id = '${this.slug}'`,
       `SELECT * FROM tree WHERE zone_id = '${this.slug}'`,
+      `SELECT * FROM dark_creature WHERE zone_id = '${this.slug}'`,
+      `SELECT * FROM brazier WHERE zone_id = '${this.slug}'`,
       "SELECT * FROM world_state",
       "SELECT * FROM stockpile",
     ];
@@ -621,6 +628,10 @@ export class World3D {
     const dt = Math.min(0.1, (now - this.lastMs) / 1000);
     this.lastMs = now;
 
+    // A wall-clock stamp for deriving presence (GDD "The fire and the dark" →
+    // Presence) — same epoch as the synced `kindlingChargeAt`, so a little
+    // client clock skew only blurs the dim/undim timing, never the mechanic.
+    const wallClock: Stamp = { microsSinceUnixEpoch: BigInt(Date.now()) * 1000n };
     this.crowd.begin();
     for (const entry of this.tracked.values()) {
       const isSelf = entry.player.identity.toHexString() === this.myId;
@@ -629,7 +640,10 @@ export class World3D {
       // Altitude is derived from the synced intent like x/y, so every client
       // (and the flyer itself) renders the same height.
       entry.marker.position.y = motion.z;
-      if (entry.marker.visible) this.entities.animate(entry, now, dt, motion);
+      if (entry.marker.visible) {
+        this.entities.animate(entry, now, dt, motion);
+        setPresenceTint(entry.model, presenceOf(entry.player, wallClock));
+      }
       else if (!entry.player.dead) this.crowd.add("trogg", motion.x, motion.y, Math.atan2(motion.dirX, motion.dirY), 1, entry.style, entry.baseColor);
 
       if (!isSelf) {
@@ -1016,7 +1030,9 @@ export class World3D {
     // The boot's own-row subscription (main.ts) may have delivered rows before
     // these callbacks existed; adopt anything already cached for this zone.
     for (const p of conn.db.player.iter()) {
-      if (p.zoneId === this.slug && p.online) this.addPlayer(p);
+      // Ember and dormant troggs (no live socket) still render — presence is
+      // derived, not a subscription filter (GDD "The fire and the dark").
+      if (p.zoneId === this.slug) this.addPlayer(p);
     }
     conn.db.player.onInsert((_ctx, p) => this.addPlayer(p));
     conn.db.player.onUpdate((_ctx, _old, p) => {

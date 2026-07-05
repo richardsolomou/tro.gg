@@ -17,8 +17,22 @@ import {
   tileKey,
   type Zone,
   zoneBounds,
+  walkableSteps,
+  WANDER_IDLE_CHANCE,
+  type ZoneBounds,
 } from "../../shared/index";
 import type { Ctx } from "./schema";
+
+/** Pick a fresh wander heading for a server-owned creature (GDD "Dark
+ *  creatures", "The fire and the dark" → Presence): idle with
+ *  `WANDER_IDLE_CHANCE`, else a random walkable step — the direct successor
+ *  of the retired Hog-specific `pickWanderDir`. */
+export function pickWanderDir(ctx: Ctx, bounds: ZoneBounds, pos: { x: number; y: number }, size = 1): { dirX: number; dirY: number } {
+  if (ctx.random() < WANDER_IDLE_CHANCE) return { dirX: 0, dirY: 0 };
+  const options = walkableSteps(bounds, pos.x, pos.y, size);
+  if (options.length === 0) return { dirX: 0, dirY: 0 };
+  return options[ctx.random.integerInRange(0, options.length - 1)]!;
+}
 
 /** A fresh trogg's spawn tile: the zone's spawn point (the zone centre when unset). */
 export function spawnAt(zone: Zone): { x: number; y: number } {
@@ -77,10 +91,14 @@ export function obstacleTiles(ctx: Ctx, zoneId: string): Set<string> {
   return tiles;
 }
 
-/** The tiles solid to a trogg in a zone: boulders and trees. Not other
- *  troggs — trogg↔trogg has no collision. */
+/** The tiles solid to a trogg in a zone: boulders, trees, and dark creatures
+ *  (GDD "Dark creatures"). Not other troggs — trogg↔trogg has no collision. */
 export function troggBlockers(ctx: Ctx, zoneId: string): Set<string> {
-  return obstacleTiles(ctx, zoneId);
+  const tiles = obstacleTiles(ctx, zoneId);
+  for (const d of ctx.db.darkCreature.zoneId.filter(zoneId)) {
+    if (d.health > 0) tiles.add(tileKey(d.x, d.y));
+  }
+  return tiles;
 }
 
 /** Add each online trogg's current tile (projected to `now`, against walls + boulders)
@@ -187,6 +205,29 @@ export function meleePlayerTarget(ctx: Ctx, zoneId: string, cx: number, cy: numb
     const pos = projectMotion(p, elapsedMs(p.movedAt, now), bounds);
     const dist = meleeHit(cx, cy, aim.dirX, aim.dirY, { x: pos.x + 0.5, y: pos.y + 0.5, radius: PLAYER_HIT_RADIUS });
     if (dist !== undefined && (!best || dist < best.dist)) best = { target: p, dist };
+  }
+  return best;
+}
+
+/** The living dark creature currently on a tile in a zone, or undefined —
+ *  the dark-creature mirror of `playerAt`. */
+export function darkCreatureAt(ctx: Ctx, zoneId: string, x: number, y: number) {
+  for (const d of ctx.db.darkCreature.zoneId.filter(zoneId)) {
+    if (d.health > 0 && d.x === x && d.y === y) return d;
+  }
+  return undefined;
+}
+
+/** Melee target selection against dark creatures — the mirror of
+ *  `meleePlayerTarget` (GDD "Dark creatures", "Combat"). Dark creatures don't
+ *  move within a swing's resolution the way troggs do, so their stored tile
+ *  is used directly rather than re-derived from a live projection. */
+export function meleeDarkCreatureTarget(ctx: Ctx, zoneId: string, cx: number, cy: number, aim: { dirX: number; dirY: number }) {
+  let best: { target: NonNullable<ReturnType<typeof darkCreatureAt>>; dist: number } | undefined;
+  for (const d of ctx.db.darkCreature.zoneId.filter(zoneId)) {
+    if (d.health <= 0) continue;
+    const dist = meleeHit(cx, cy, aim.dirX, aim.dirY, { x: d.x + 0.5, y: d.y + 0.5, radius: PLAYER_HIT_RADIUS });
+    if (dist !== undefined && (!best || dist < best.dist)) best = { target: d, dist };
   }
   return best;
 }
