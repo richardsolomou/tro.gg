@@ -48,6 +48,7 @@ import { attachKeyboard, isTyping, type MoveIntent } from "../input.js";
 import { setupChat } from "../ui/chat.js";
 import { coachHit } from "../ui/coach.js";
 import { mountCommands } from "../ui/commands.js";
+import { regionToast } from "../ui/toasts.js";
 import { createSelfController, type SelfController } from "../movement.js";
 import { captureEvent, isFeatureEnabled, logError, logInfo } from "../analytics.js";
 import { audio } from "../audio.js";
@@ -361,6 +362,7 @@ export class World3D {
     fog.far = 150 - 80 * dark;
   }
   private selfPos?: { x: number; y: number };
+  private lastRegionSlug?: string;
   private troggBounds!: ZoneBounds;
 
   private destinationTile?: Coord;
@@ -771,6 +773,15 @@ export class World3D {
       // Exposed for the e2e harness: the local trogg's projected tile position and
       // a click-to-move injection, so probes can route with the real pathfinding.
       this.selfPos = { x: motion.x, y: motion.y };
+      // The frontier has no gate or wall (GDD "Generation: only as far as the
+      // light reaches") — a haze tint is the only visual cue crossing into
+      // penumbra, easy to miss mid-exploration. Announce it once per region
+      // entered, only when the new ground is unclaimed.
+      const here = this.slug === STARTING_ZONE_SLUG ? regionAt(Math.round(motion.x), Math.round(motion.y)) : undefined;
+      if (here?.slug !== this.lastRegionSlug) {
+        this.lastRegionSlug = here?.slug;
+        if (here && !this.revealedRegions.has(here.slug)) regionToast(`Entering ${here.name} — unclaimed`);
+      }
       // Threshold transfers (GDD "Onboarding: the Warren"): walking onto the
       // cave's exit landing emerges into the world; pushing into the alcove's
       // deep end descends into your own cave. The walk is the door — the
