@@ -18,9 +18,9 @@ export function depositStockpile(ctx: Ctx, item: string, qty: number): number {
 }
 
 /**
- * Withdraw from the stockpile for upkeep or an ignition cost — all-or-nothing,
- * since a partially funded brazier or ignition makes no sense. Returns whether
- * the full amount was available and withdrawn.
+ * Withdraw from the stockpile for upkeep — all-or-nothing, since a partially
+ * funded brazier makes no sense. Returns whether the full amount was
+ * available and withdrawn.
  */
 export function withdrawStockpile(ctx: Ctx, item: string, qty: number): boolean {
   if (!isItemId(item) || qty <= 0) return false;

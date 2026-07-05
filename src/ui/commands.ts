@@ -118,8 +118,9 @@ function worldSection(conn: DbConnection, zone: string, status: HTMLElement): HT
   section.append(row, label);
 
   // The frontier (GDD "Generation: only as far as the light reaches"): claim
-  // one currently-penumbra region directly, skipping ignition, or reset the
-  // frontier back to just the Hearth — for testing the reveal boundary.
+  // one currently-penumbra region directly, skipping the usual clear-the-zone
+  // requirement, or reset the frontier back to just the Hearth — for testing
+  // the reveal boundary.
   const frontierGrid = document.createElement("div");
   frontierGrid.className = "command-grid";
   const revealButton = commandButton("Reveal next region");

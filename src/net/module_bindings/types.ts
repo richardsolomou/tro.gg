@@ -75,14 +75,6 @@ export const DarkCreature = __t.object("DarkCreature", {
 });
 export type DarkCreature = __Infer<typeof DarkCreature>;
 
-export const EmberHeart = __t.object("EmberHeart", {
-  id: __t.u64(),
-  zoneId: __t.string(),
-  x: __t.i32(),
-  y: __t.i32(),
-});
-export type EmberHeart = __Infer<typeof EmberHeart>;
-
 export const EmberWander = __t.object("EmberWander", {
   scheduledId: __t.u64(),
   scheduledAt: __t.scheduleAt(),
@@ -170,18 +162,6 @@ export const PlayerRespawn = __t.object("PlayerRespawn", {
   scheduledAt: __t.scheduleAt(),
 });
 export type PlayerRespawn = __Infer<typeof PlayerRespawn>;
-
-export const Project = __t.object("Project", {
-  id: __t.u64(),
-  zoneId: __t.string(),
-  x: __t.i32(),
-  y: __t.i32(),
-  status: __t.string(),
-  flameHealth: __t.i32(),
-  windowEndsAt: __t.timestamp(),
-  lastWaveAt: __t.timestamp(),
-});
-export type Project = __Infer<typeof Project>;
 
 export const RevealedRegion = __t.object("RevealedRegion", {
   slug: __t.string(),

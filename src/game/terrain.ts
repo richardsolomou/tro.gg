@@ -1,6 +1,6 @@
 import * as THREE from "three";
-import { DEEP_WATER_TILE, GLOWMOSS_TILE, GRAVEL_TILE, MOSS_TILE, regionAt, rockHeightAt, WALL_TILE, WATER_TILE, type Zone } from "@trogg/shared";
-import { biomePalette } from "./palette.js";
+import { DEEP_WATER_TILE, GLOWMOSS_TILE, GRAVEL_TILE, MOSS_TILE, regionAt, rockHeightAt, WALL_TILE, WATER_TILE, type RegionVisibility, type Zone } from "@trogg/shared";
+import { biomePalette, DAYLIGHT_3D } from "./palette.js";
 
 /**
  * Procedural cave terrain. The floor and void are pixel-painted patch
@@ -37,13 +37,22 @@ export interface Terrain3D {
 /** Tiles per streamed chunk (a region is 64×44, so seams stay region-aligned on x). */
 const CHUNK = 32;
 
+/** The fog tint blended over penumbra ground — the same cool haze the sky
+ *  fog uses, so "scoutable but not tamed" reads as one more shade of the
+ *  same uncertainty, not a separate effect. */
+const PENUMBRA_HAZE = new THREE.Color(DAYLIGHT_3D.haze);
+const PENUMBRA_HAZE_CSS = `#${DAYLIGHT_3D.haze.toString(16).padStart(6, "0")}`;
+const PENUMBRA_HAZE_MIX = 0.55;
+
 /**
- * `revealed` gates which of the fully-generated committed tilemap actually
- * renders (GDD "Generation: only as far as the light reaches"): unrevealed
- * ground draws as solid, unbiomed rock, exactly like the void beyond the
- * continent — the terrain generator and its committed map are untouched.
+ * `regionState` gates which of the fully-generated committed tilemap
+ * actually renders, and how (GDD "Generation: only as far as the light
+ * reaches"): unreached ground draws as solid, unbiomed rock, exactly like
+ * the void beyond the continent; penumbra ground draws for real — its true
+ * tiles and walls — blended toward a haze tint, since it's scoutable but not
+ * tamed. The terrain generator and its committed map are untouched either way.
  */
-export function buildTerrain(zone: Zone, revealed: (x: number, y: number) => boolean): Terrain3D {
+export function buildTerrain(zone: Zone, regionState: (x: number, y: number) => RegionVisibility): Terrain3D {
   const group = new THREE.Group();
   const globalDisposables: { dispose(): void }[] = [];
 
@@ -133,7 +142,7 @@ export function buildTerrain(zone: Zone, revealed: (x: number, y: number) => boo
     canvas.width = w * ART;
     canvas.height = h * ART;
     const ctx = canvas.getContext("2d")!;
-    const wallTiles: { x: number; y: number; biome: string }[] = [];
+    const wallTiles: { x: number; y: number; biome: string; hazy: boolean }[] = [];
     const glowTiles: { x: number; y: number; biome: string }[] = [];
     const deepTiles: { x: number; y: number }[] = [];
     for (let y = 0; y < h; y++) {
@@ -141,9 +150,10 @@ export function buildTerrain(zone: Zone, revealed: (x: number, y: number) => boo
       for (let x = 0; x < w; x++) {
         const wx = x0 + x;
         const wy = y0 + y;
-        const here = revealed(wx, wy);
-        const glyph = here ? row[wx]! : WALL_TILE;
-        const biome = here ? tileBiome(wx, wy) : "cave";
+        const state = regionState(wx, wy);
+        const glyph = state === "unreached" ? WALL_TILE : row[wx]!;
+        const biome = state === "unreached" ? "cave" : tileBiome(wx, wy);
+        const hazy = state === "penumbra";
         const patches = patchesFor(biome);
         const sx = (wx % PATCH) * ART;
         const sy = (wy % PATCH) * ART;
@@ -157,12 +167,21 @@ export function buildTerrain(zone: Zone, revealed: (x: number, y: number) => boo
         }
         ctx.drawImage(patches.floor!, sx, sy, ART, ART, x * ART, y * ART, ART, ART);
         if (glyph === WALL_TILE) {
-          wallTiles.push({ x: wx, y: wy, biome });
+          wallTiles.push({ x: wx, y: wy, biome, hazy });
           continue;
         }
         const decal = patches[glyph];
         if (decal) ctx.drawImage(decal, sx, sy, ART, ART, x * ART, y * ART, ART, ART);
         if (glyph === GLOWMOSS_TILE) glowTiles.push({ x: wx, y: wy, biome });
+        // penumbra ground is real, just hazed — a scoutable region reads as
+        // "not tamed yet," not as a wall (GDD "Generation: only as far as
+        // the light reaches").
+        if (hazy) {
+          ctx.fillStyle = PENUMBRA_HAZE_CSS;
+          ctx.globalAlpha = PENUMBRA_HAZE_MIX;
+          ctx.fillRect(x * ART, y * ART, ART, ART);
+          ctx.globalAlpha = 1;
+        }
       }
     }
     const floorTex = new THREE.CanvasTexture(canvas);
@@ -199,7 +218,9 @@ export function buildTerrain(zone: Zone, revealed: (x: number, y: number) => boo
         place.makeTranslation(tile.x + 0.5, height / 2, tile.y + 0.5);
         place.scale(shape.set(1, height, 1));
         walls.setMatrixAt(i, place);
-        walls.setColorAt(i, wallColour.setHex(biomePalette(tile.biome).wall.face));
+        wallColour.setHex(biomePalette(tile.biome).wall.face);
+        if (tile.hazy) wallColour.lerp(PENUMBRA_HAZE, PENUMBRA_HAZE_MIX);
+        walls.setColorAt(i, wallColour);
       });
       walls.castShadow = true;
       walls.receiveShadow = true;

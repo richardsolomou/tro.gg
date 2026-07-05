@@ -50,10 +50,6 @@ import {
   DARK_CREATURES,
   MAX_DARK_CREATURES_PER_ZONE,
   NPC_CORPSE_MS,
-  IGNITION_FUEL_COST,
-  IGNITION_FLAME_HEALTH,
-  IGNITION_WAVE_INTERVAL_MS,
-  EMBER_HEART_TARGET_COUNT,
   isRevealed,
   neighborsOf,
   penumbraOf,
@@ -95,7 +91,7 @@ import {
   revealNextRegion,
   resetFrontier,
 } from "../spacetimedb/src/index.ts";
-import { darkCreatureRow, id, makeCtx, playerRow, projectRow, revealedRegionRow } from "./spacetime.ts";
+import { darkCreatureRow, id, makeCtx, playerRow, revealedRegionRow } from "./spacetime.ts";
 
 const ZONE = "world";
 const micros = (ms: number) => BigInt(ms) * 1000n;
@@ -974,20 +970,21 @@ test("brazierUpkeep pays every lit brazier when the stockpile can cover it", () 
   assert.equal(ctx.db.brazierUpkeepTimer.rows().length, 1); // re-armed while someone is online
 });
 
-test("brazierUpkeep gutters the brazier furthest from the First Fire first when unpaid", () => {
+test("brazierUpkeep gutters the region furthest (by hop-depth) from the Hearth first when unpaid", () => {
   const me = id("watcher");
   const ctx = makeCtx({ sender: me });
   ctx.db.player.insert(playerRow(me, { online: true }));
   const firstFire = ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 0, y: 0, radius: FIRST_FIRE_LIT_RADIUS, lit: true, isEternal: true });
-  const near = ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 10, y: 0, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
-  const far = ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 20, y: 0, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
+  // emberrift is one hop from the Hearth; dustworks is two.
+  const near = ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 149, y: 72, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
+  const far = ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 83, y: 143, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
   ctx.db.stockpile.insert({ item: BRAZIER_UPKEEP_ITEM, qty: BRAZIER_UPKEEP_RATE }); // affords only one
 
   brazierUpkeep(ctx, {});
 
   assert.equal(ctx.db.brazier.id.find(firstFire.id)?.lit, true); // the First Fire is never billed
-  assert.equal(ctx.db.brazier.id.find(near.id)?.lit, true); // closer to the First Fire, kept lit
-  assert.equal(ctx.db.brazier.id.find(far.id)?.lit, false); // furthest, gutters first
+  assert.equal(ctx.db.brazier.id.find(near.id)?.lit, true); // shallower region, kept lit
+  assert.equal(ctx.db.brazier.id.find(far.id)?.lit, false); // deepest region, gutters first
   assert.equal(ctx.db.stockpile.item.find(BRAZIER_UPKEEP_ITEM)?.qty, 0);
 });
 
@@ -1301,177 +1298,70 @@ test("resetDarkCreatures clears the zone (corpses included) and reseeds from the
   assert.equal(ctx.db.darkCreature.rows().length, zone.darkCreatures.length);
 });
 
-// --- Ignition ---
+// --- Territory claiming: clear the zone, then set a free brazier down ---
 
-test("onConnect seeds the world zone's ember-heart sites, idempotently", () => {
-  const me = id("newguest3");
-  const ctx = makeCtx({ sender: me });
-  onConnect(ctx);
-  const count = ctx.db.emberHeart.rows().filter((e: any) => e.zoneId === ZONE).length;
-  assert.ok(count > 0);
-
-  (ctx as any).sender = id("anotherguest3");
-  onConnect(ctx);
-  assert.equal(ctx.db.emberHeart.rows().filter((e: any) => e.zoneId === ZONE).length, count);
-});
-
-test("interact picks up an adjacent ember-heart, preferring the faced tile", () => {
-  const { ctx, me } = withPlayer({ x: 69, y: 96 });
-  ctx.db.emberHeart.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96 });
-  ctx.db.emberHeart.insert({ id: 0n, zoneId: ZONE, x: 68, y: 96 });
-  interact(ctx, { dirX: 1, dirY: 0 }); // faces the east one
-  assert.deepEqual(
-    { carrying: ctx.db.player.identity.find(me).carrying, remaining: ctx.db.emberHeart.rows().length, x: ctx.db.emberHeart.rows()[0]!.x },
-    { carrying: "ember_heart", remaining: 1, x: 68 }, // the faced (east) one was lifted, the other stays
-  );
-});
-
-test("interact puts an ember-heart back down when there's no valid ignition site", () => {
-  const { ctx, me } = withPlayer({ x: 69, y: 96, carrying: "ember_heart" });
-  ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false }); // lit ground
+test("interact refuses to claim a penumbra region while a dark creature is still alive in it", () => {
+  const { ctx, me } = withPlayer({ x: 149, y: 72 }); // emberrift — penumbra of the Hearth
+  ctx.db.revealedRegion.clear();
+  ctx.db.revealedRegion.insert(revealedRegionRow({ slug: "hearth" }));
+  ctx.db.darkCreature.insert(darkCreatureRow({ x: 149, y: 72, health: 40 }));
   interact(ctx, { dirX: 1, dirY: 0 });
   assert.deepEqual(
-    { carrying: ctx.db.player.identity.find(me).carrying, emberHearts: ctx.db.emberHeart.rows().length, projects: ctx.db.project.rows().length },
-    { carrying: "", emberHearts: 1, projects: 0 },
+    { carrying: ctx.db.player.identity.find(me).carrying, braziers: ctx.db.brazier.rows().length, revealed: ctx.db.revealedRegion.rows().length },
+    { carrying: "", braziers: 0, revealed: 1 },
   );
 });
 
-test("interact lights an ignition at a valid site, spending fuel and the ember-heart", () => {
-  const { ctx, me } = withPlayer({ x: 149, y: 72, carrying: "ember_heart" });
-  // (149, 72) sits in emberrift, adjacent to the (always-revealed) Hearth — a
-  // new ignition site must be penumbra, not interior.
-  ctx.db.revealedRegion.slug.delete("emberrift");
-  ctx.db.stockpile.insert({ item: "wood", qty: IGNITION_FUEL_COST });
+test("interact claims a penumbra region for free once every dark creature in it is dead, and seeds its new penumbra", () => {
+  const { ctx, me } = withPlayer({ x: 149, y: 72 }); // emberrift — penumbra of the Hearth
+  ctx.db.revealedRegion.clear();
+  ctx.db.revealedRegion.insert(revealedRegionRow({ slug: "hearth" }));
+  ctx.db.darkCreature.insert(darkCreatureRow({ x: 149, y: 72, health: 0 })); // a corpse doesn't block the claim
   interact(ctx, { dirX: 1, dirY: 0 });
-  const proj = ctx.db.project.rows()[0];
+
+  const brazier = ctx.db.brazier.rows()[0];
   assert.deepEqual(
-    {
-      carrying: ctx.db.player.identity.find(me).carrying,
-      emberHearts: ctx.db.emberHeart.rows().length,
-      wood: ctx.db.stockpile.item.find("wood")?.qty,
-      status: proj?.status,
-      flameHealth: proj?.flameHealth,
-    },
-    { carrying: "", emberHearts: 0, wood: 0, status: "active", flameHealth: IGNITION_FLAME_HEALTH },
+    { carrying: ctx.db.player.identity.find(me).carrying, count: ctx.db.brazier.rows().length, lit: brazier?.lit, isEternal: brazier?.isEternal },
+    { carrying: "", count: 1, lit: true, isEternal: false },
   );
+  assert.deepEqual(ctx.db.revealedRegion.rows().map((r: any) => r.slug).sort(), ["emberrift", "hearth"]);
+
+  // emberrift's still-unclaimed neighbours (rustgallery, starwell) are now
+  // penumbra and already carry their committed population, so a scout can
+  // find them before anyone claims them
+  const zone = getZone(ZONE)!;
+  for (const neighborSlug of ["rustgallery", "starwell"]) {
+    const inRegion = (t: { x: number; y: number }) => regionAt(t.x, t.y)?.slug === neighborSlug;
+    if (zone.darkCreatures.some(inRegion)) {
+      assert.ok(ctx.db.darkCreature.rows().some((c: any) => inRegion(c)), `${neighborSlug} missing seeded dark creatures`);
+    }
+  }
 });
 
-test("interact refuses to ignite without enough fuel, and puts the heart down instead", () => {
-  const { ctx, me } = withPlayer({ x: 149, y: 72, carrying: "ember_heart" });
-  ctx.db.revealedRegion.slug.delete("emberrift"); // otherwise-valid penumbra site
-  ctx.db.stockpile.insert({ item: "wood", qty: IGNITION_FUEL_COST - 1 });
-  interact(ctx, { dirX: 1, dirY: 0 });
+test("interact refuses a second claim in a region that already has a brazier", () => {
+  const { ctx, me } = withPlayer({ x: 149, y: 72 }); // emberrift — penumbra of the Hearth
+  ctx.db.revealedRegion.clear();
+  ctx.db.revealedRegion.insert(revealedRegionRow({ slug: "hearth" }));
+  interact(ctx, { dirX: 1, dirY: 0 }); // clears (no creatures) and claims
+
+  ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), x: 149, y: 73, dirX: 0, dirY: 0 });
+  interact(ctx, { dirX: 1, dirY: 0 }); // already interior — no second claim, falls through to pickup
+
+  assert.equal(ctx.db.brazier.rows().length, 1);
+});
+
+test("interact relights a guttered brazier in an interior region for free, even with living dark creatures nearby", () => {
+  const { ctx, me } = withPlayer({ x: 149, y: 72 }); // emberrift
+  ctx.db.revealedRegion.clear();
+  ctx.db.revealedRegion.insert(revealedRegionRow({ slug: "hearth" }));
+  ctx.db.revealedRegion.insert(revealedRegionRow({ slug: "emberrift" })); // already claimed — interior
+  ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 150, y: 72, radius: BRAZIER_LIT_RADIUS, lit: false, isEternal: false }); // guttered
+  ctx.db.darkCreature.insert(darkCreatureRow({ x: 150, y: 72, health: 40 })); // wouldn't matter even if alive
+  interact(ctx, { dirX: 1, dirY: 0 }); // faces (150, 72), the guttered brazier's site
   assert.deepEqual(
-    {
-      carrying: ctx.db.player.identity.find(me).carrying,
-      projects: ctx.db.project.rows().length,
-      emberHearts: ctx.db.emberHeart.rows().length,
-      wood: ctx.db.stockpile.item.find("wood")?.qty,
-    },
-    { carrying: "", projects: 0, emberHearts: 1, wood: IGNITION_FUEL_COST - 1 },
+    { carrying: ctx.db.player.identity.find(me).carrying, lit: ctx.db.brazier.rows()[0]?.lit },
+    { carrying: "", lit: true },
   );
-});
-
-test("interact refuses to ignite where another ignition already claims the site", () => {
-  const { ctx, me } = withPlayer({ x: 149, y: 72, carrying: "ember_heart" });
-  ctx.db.revealedRegion.slug.delete("emberrift"); // otherwise-valid penumbra site
-  ctx.db.stockpile.insert({ item: "wood", qty: IGNITION_FUEL_COST });
-  ctx.db.project.insert(projectRow({ x: 151, y: 72, status: "active" }));
-  interact(ctx, { dirX: 1, dirY: 0 }); // faces (150, 72), already claimed
-  assert.deepEqual(
-    { carrying: ctx.db.player.identity.find(me).carrying, projects: ctx.db.project.rows().length, wood: ctx.db.stockpile.item.find("wood")?.qty },
-    { carrying: "", projects: 1, wood: IGNITION_FUEL_COST }, // the attempt never withdrew fuel
-  );
-});
-
-test("wanderPresence converges a wave creature on its ignition site and chips the flame in reach", () => {
-  const watcher = id("watcher");
-  const ctx = makeCtx({ sender: watcher });
-  ctx.db.player.insert(playerRow(watcher, { online: true, x: 0, y: 0 }));
-  const proj = ctx.db.project.insert(projectRow({ x: 149, y: 72, flameHealth: IGNITION_FLAME_HEALTH, windowEndsAt: { microsSinceUnixEpoch: micros(999_999_999) } }));
-  const c = ctx.db.darkCreature.insert(darkCreatureRow({ x: 149, y: 72, aggroTargetId: `project:${proj.id}` }));
-  wanderPresence(ctx, {});
-  assert.deepEqual(
-    {
-      dirX: ctx.db.darkCreature.id.find(c.id)?.dirX,
-      dirY: ctx.db.darkCreature.id.find(c.id)?.dirY,
-      flameHealth: ctx.db.project.id.find(proj.id)?.flameHealth,
-    },
-    { dirX: 0, dirY: 0, flameHealth: IGNITION_FLAME_HEALTH - DARK_CREATURES.grask!.damage[0] }, // in reach: stops, lands the mock RNG's floor roll
-  );
-});
-
-test("wanderPresence fails an ignition outright once its flame is depleted", () => {
-  const watcher = id("watcher");
-  const ctx = makeCtx({ sender: watcher, integerInRange: () => 999 }); // guarantees the flame hits zero this tick
-  ctx.db.player.insert(playerRow(watcher, { online: true, x: 0, y: 0 }));
-  const proj = ctx.db.project.insert(projectRow({ x: 149, y: 72, flameHealth: 5, windowEndsAt: { microsSinceUnixEpoch: micros(999_999_999) } }));
-  ctx.db.darkCreature.insert(darkCreatureRow({ x: 149, y: 72, aggroTargetId: `project:${proj.id}` }));
-  wanderPresence(ctx, {});
-  assert.equal(ctx.db.project.rows().length, 0); // the stake is spent, nothing lingers
-});
-
-test("wanderPresence lights a fresh brazier when an ignition's window elapses with flame left", () => {
-  const watcher = id("watcher");
-  const ctx = makeCtx({ sender: watcher, now: micros(500_000) });
-  ctx.db.player.insert(playerRow(watcher, { online: true }));
-  ctx.db.project.insert(projectRow({ x: 149, y: 72, flameHealth: 50, windowEndsAt: { microsSinceUnixEpoch: 0n } }));
-  wanderPresence(ctx, {});
-  const brazier = ctx.db.brazier.rows().find((b: any) => b.x === 149 && b.y === 72);
-  assert.deepEqual(
-    { projects: ctx.db.project.rows().length, lit: brazier?.lit, isEternal: brazier?.isEternal },
-    { projects: 0, lit: true, isEternal: false },
-  );
-});
-
-test("wanderPresence relights an existing guttered brazier at the same site instead of duplicating", () => {
-  const watcher = id("watcher");
-  const ctx = makeCtx({ sender: watcher, now: micros(500_000) });
-  ctx.db.player.insert(playerRow(watcher, { online: true }));
-  const old = ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 149, y: 72, radius: BRAZIER_LIT_RADIUS, lit: false, isEternal: false });
-  ctx.db.project.insert(projectRow({ x: 149, y: 72, flameHealth: 50, windowEndsAt: { microsSinceUnixEpoch: 0n } }));
-  wanderPresence(ctx, {});
-  assert.deepEqual(
-    { count: ctx.db.brazier.rows().length, lit: ctx.db.brazier.id.find(old.id)?.lit },
-    { count: 1, lit: true },
-  );
-});
-
-test("wanderPresence spawns a wave at an active ignition once due", () => {
-  const watcher = id("watcher");
-  const ctx = makeCtx({ sender: watcher, now: micros(999_999_999) });
-  ctx.db.player.insert(playerRow(watcher, { online: true }));
-  ctx.db.project.insert(projectRow({ x: 149, y: 72, windowEndsAt: { microsSinceUnixEpoch: micros(999_999_999_999) }, lastWaveAt: { microsSinceUnixEpoch: 0n } }));
-  wanderPresence(ctx, {});
-  const wave = ctx.db.darkCreature.rows().filter((c: any) => c.aggroTargetId.startsWith("project:"));
-  assert.ok(wave.length > 0);
-  assert.ok(wave.every((c: any) => c.species === "grask"));
-});
-
-test("wanderPresence doesn't spawn a fresh wave before IGNITION_WAVE_INTERVAL_MS elapses", () => {
-  const watcher = id("watcher");
-  const ctx = makeCtx({ sender: watcher, now: micros(IGNITION_WAVE_INTERVAL_MS - 1000) });
-  ctx.db.player.insert(playerRow(watcher, { online: true }));
-  ctx.db.project.insert(projectRow({ x: 149, y: 72, windowEndsAt: { microsSinceUnixEpoch: micros(999_999_999_999) }, lastWaveAt: { microsSinceUnixEpoch: 0n } }));
-  wanderPresence(ctx, {});
-  assert.equal(ctx.db.darkCreature.rows().length, 0);
-});
-
-test("regenCreatures tops up ember-hearts toward EMBER_HEART_TARGET_COUNT", () => {
-  const me = id("watcher8");
-  const ctx = makeCtx({ sender: me });
-  ctx.db.player.insert(playerRow(me, { online: true }));
-  regenCreatures(ctx, {});
-  assert.equal(ctx.db.emberHeart.rows().length, 1);
-});
-
-test("regenCreatures stops topping up ember-hearts once EMBER_HEART_TARGET_COUNT is met", () => {
-  const me = id("watcher9");
-  const ctx = makeCtx({ sender: me });
-  ctx.db.player.insert(playerRow(me, { online: true }));
-  for (let i = 0; i < EMBER_HEART_TARGET_COUNT; i++) ctx.db.emberHeart.insert({ id: 0n, zoneId: ZONE, x: 60 + i, y: 89 });
-  regenCreatures(ctx, {});
-  assert.equal(ctx.db.emberHeart.rows().length, EMBER_HEART_TARGET_COUNT);
 });
 
 // --- Lazy worldgen (region reveal) ---
@@ -1486,7 +1376,6 @@ test("onConnect claims the Hearth as revealed and seeds its initial penumbra's p
   onConnect(ctx);
   assert.deepEqual(ctx.db.revealedRegion.rows().map((r: any) => r.slug), ["hearth"]);
   assert.ok(ctx.db.darkCreature.rows().length > 0);
-  assert.ok(ctx.db.emberHeart.rows().length > 0);
 });
 
 test("onConnect is idempotent about claiming the Hearth and its penumbra", () => {
@@ -1495,12 +1384,10 @@ test("onConnect is idempotent about claiming the Hearth and its penumbra", () =>
   ctx.db.revealedRegion.clear();
   onConnect(ctx);
   const darkCount = ctx.db.darkCreature.rows().length;
-  const heartCount = ctx.db.emberHeart.rows().length;
   (ctx as any).sender = id("anotherguest-frontier2");
   onConnect(ctx);
   assert.deepEqual(ctx.db.revealedRegion.rows().map((r: any) => r.slug), ["hearth"]);
   assert.equal(ctx.db.darkCreature.rows().length, darkCount);
-  assert.equal(ctx.db.emberHeart.rows().length, heartCount);
 });
 
 test("moveTo's pathfinding never routes through an unreached region", () => {
@@ -1522,55 +1409,18 @@ test("move keeps working freely inside an already-revealed penumbra region", () 
   assert.deepEqual({ dirX: p.dirX, dirY: p.dirY }, { dirX: 1, dirY: 0 });
 });
 
-test("interact refuses to ignite in an unreached region, even with fuel to spare", () => {
-  const { ctx, me } = withPlayer({ x: 82, y: 143, carrying: "ember_heart" }); // shadowdeep — penumbra
+test("interact refuses to claim from an unreached region, even with nothing alive there", () => {
+  const { ctx, me } = withPlayer({ x: 83, y: 143 }); // dustworks — two hops out, not even penumbra
   ctx.db.revealedRegion.clear();
   ctx.db.revealedRegion.insert(revealedRegionRow({ slug: "hearth" }));
-  ctx.db.stockpile.insert({ item: "wood", qty: IGNITION_FUEL_COST });
-  interact(ctx, { dirX: 1, dirY: 0 }); // faces (83, 143), in dustworks — not even penumbra
+  interact(ctx, { dirX: 1, dirY: 0 });
   assert.deepEqual(
-    { carrying: ctx.db.player.identity.find(me).carrying, projects: ctx.db.project.rows().length, wood: ctx.db.stockpile.item.find("wood")?.qty },
-    { carrying: "", projects: 0, wood: IGNITION_FUEL_COST }, // refused — the heart lands on a free tile instead, fuel untouched
+    { carrying: ctx.db.player.identity.find(me).carrying, braziers: ctx.db.brazier.rows().length, revealed: ctx.db.revealedRegion.rows().length },
+    { carrying: "", braziers: 0, revealed: 1 },
   );
 });
 
-test("interact relights an existing guttered brazier anywhere already interior, not just in the penumbra", () => {
-  const { ctx, me } = withPlayer({ x: 149, y: 72, carrying: "ember_heart" }); // emberrift
-  ctx.db.revealedRegion.clear();
-  ctx.db.revealedRegion.insert(revealedRegionRow({ slug: "hearth" }));
-  ctx.db.revealedRegion.insert(revealedRegionRow({ slug: "emberrift" })); // already claimed — interior, not penumbra
-  ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 150, y: 72, radius: BRAZIER_LIT_RADIUS, lit: false, isEternal: false }); // guttered
-  ctx.db.stockpile.insert({ item: "wood", qty: IGNITION_FUEL_COST });
-  interact(ctx, { dirX: 1, dirY: 0 }); // faces (150, 72), the guttered brazier's site
-  const proj = ctx.db.project.rows()[0];
-  assert.deepEqual(
-    { carrying: ctx.db.player.identity.find(me).carrying, status: proj?.status },
-    { carrying: "", status: "active" },
-  );
-});
-
-test("wanderPresence claims a region on ignition success and seeds its newly-exposed penumbra", () => {
-  const watcher = id("watcher-frontier");
-  const ctx = makeCtx({ sender: watcher, now: micros(500_000) });
-  ctx.db.player.insert(playerRow(watcher, { online: true }));
-  ctx.db.revealedRegion.clear();
-  ctx.db.revealedRegion.insert(revealedRegionRow({ slug: "hearth" }));
-  ctx.db.project.insert(projectRow({ x: 149, y: 72, flameHealth: 50, windowEndsAt: { microsSinceUnixEpoch: 0n } })); // emberrift
-  wanderPresence(ctx, {});
-  assert.deepEqual(ctx.db.revealedRegion.rows().map((r: any) => r.slug).sort(), ["emberrift", "hearth"]);
-  // emberrift's still-unclaimed neighbours (rustgallery, starwell) are now
-  // penumbra and already carry their committed population, so a scout can
-  // find them before anyone ignites there
-  const zone = getZone(ZONE)!;
-  for (const neighborSlug of ["rustgallery", "starwell"]) {
-    const inRegion = (t: { x: number; y: number }) => regionAt(t.x, t.y)?.slug === neighborSlug;
-    if (zone.darkCreatures.some(inRegion)) {
-      assert.ok(ctx.db.darkCreature.rows().some((c: any) => inRegion(c)), `${neighborSlug} missing seeded dark creatures`);
-    }
-  }
-});
-
-test("revealNextRegion claims one penumbra region directly, skipping ignition", () => {
+test("revealNextRegion claims one penumbra region directly, skipping the clear-the-zone requirement", () => {
   const ctx = makeCtx({ sender: id("admin1") });
   ctx.db.revealedRegion.clear();
   ctx.db.revealedRegion.insert(revealedRegionRow({ slug: "hearth" }));

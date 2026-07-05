@@ -3,21 +3,24 @@ import { t } from "spacetimedb/server";
 import {
   getZone,
   isDarkCreatureSpecies,
+  isDryFloor,
   isSpawnableItemId,
   BOULDER_MAX_HEALTH,
+  BRAZIER_LIT_RADIUS,
   TREE_MAX_HEALTH,
   MAX_BOULDERS_PER_ZONE,
   MAX_DARK_CREATURES_PER_ZONE,
   MAX_GROUND_ITEMS_PER_ZONE,
   MAX_TREES_PER_ZONE,
   CHEAT_SPEED_MULTIPLIER,
-  neighborsOf,
   penumbraOf,
   PLAYER_MAX_HEALTH,
   nearestSafeTile,
+  regionAt,
   STARTING_ZONE_SLUG,
   spawnTile,
   tileKey,
+  type Zone,
 } from "../../../shared/index";
 import {
   spawnAt,
@@ -34,11 +37,10 @@ import {
   solidTiles,
   addGroundItemTiles,
   facingDir,
-  claimRegion,
+  claimRegionAndExposePenumbra,
   currentRevealedRegions,
   HEARTH_REGION_SLUG,
   revealGate,
-  seedRegionPopulation,
 } from "../helpers";
 
 /**
@@ -303,21 +305,34 @@ export const rescue = spacetimedb.reducer((ctx) => {
   });
 });
 
+/** The first dry, open tile found in a region — deterministic, not random;
+ *  fine for a rarely-called debug tool. Undefined only if the region is
+ *  somehow entirely wet or walled off, which never happens in practice. */
+function firstDryTileInRegion(zone: Zone, slug: string): { x: number; y: number } | undefined {
+  for (let y = 0; y < zone.height; y++) {
+    for (let x = 0; x < zone.width; x++) {
+      if (regionAt(x, y)?.slug === slug && isDryFloor(zone, x, y)) return { x, y };
+    }
+  }
+  return undefined;
+}
+
 /**
- * Debug: claim one currently-penumbra region directly, skipping ignition (GDD
- * "Generation: only as far as the light reaches") — for testing the frontier
- * without staging a full ignition. A no-op once every region is interior.
+ * Debug: claim one currently-penumbra region directly, skipping the usual
+ * clear-the-zone requirement (GDD "Generation: only as far as the light
+ * reaches" / "Territory and permanence") — for testing the frontier without
+ * fighting anything. Inserts a lit brazier too, so the shortcut leaves the
+ * same end state a real claim would. A no-op once every region is interior.
  */
 function runRevealNextRegion(ctx: Ctx, source = ""): AnalyticsEvent[] {
   const zone = getZone(STARTING_ZONE_SLUG);
   if (!zone) return [];
-  const revealedSlugs = currentRevealedRegions(ctx);
-  const penumbraSlugs = penumbraOf(revealedSlugs);
-  const next = [...penumbraSlugs][0];
-  if (!next || !claimRegion(ctx, next)) return [];
-  for (const neighborSlug of neighborsOf(next)) {
-    if (!ctx.db.revealedRegion.slug.find(neighborSlug)) seedRegionPopulation(ctx, zone, neighborSlug);
-  }
+  const next = [...penumbraOf(currentRevealedRegions(ctx))][0];
+  if (!next) return [];
+  const tile = firstDryTileInRegion(zone, next);
+  if (!tile) return [];
+  ctx.db.brazier.insert({ id: 0n, zoneId: zone.slug, x: tile.x, y: tile.y, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
+  claimRegionAndExposePenumbra(ctx, zone, next);
   return [{ distinctId: distinctId(ctx), event: "region_revealed", properties: { region: next, ...sourceProp(source) } }];
 }
 

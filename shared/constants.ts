@@ -8,7 +8,6 @@ import {
   WORLD_BOULDERS,
   WORLD_CELLS,
   WORLD_DARK_CREATURES,
-  WORLD_EMBER_HEARTS,
   WORLD_ITEMS,
   WORLD_REGION_ADJACENCY,
   WORLD_REGION_ROWS,
@@ -404,31 +403,6 @@ export function isDarkCreatureSpecies(species: string): species is DarkCreatureS
 }
 
 /**
- * Ignition (GDD "The fire and the dark" → Ignition): pushing the frontline is
- * a deliberate hold-the-point event, not a threshold quietly crossed.
- * `IGNITION_FUEL_COST` is sized well above ordinary brazier upkeep;
- * `IGNITION_WINDOW_MS` is minutes, not an hour, so it suits a handful of
- * concurrent defenders. `IGNITION_FLAME_HEALTH` and the wave pacing constants
- * are this implementation's own hold-the-point resolution — the GDD leaves
- * exact wave design and difficulty scaling as an open thread (see Roadmap),
- * so these are starting values, not a spec. (initial)
- */
-export const IGNITION_FUEL_COST = 200;
-export const IGNITION_WINDOW_MS = 180_000;
-export const IGNITION_FLAME_HEALTH = 100;
-export const IGNITION_WAVE_INTERVAL_MS = 25_000;
-export const IGNITION_WAVE_SIZE = 3;
-export const IGNITION_SITE_REACH = 1.5;
-
-/**
- * Ember-hearts (GDD "Ignition" / glossary): a rare component recovered only
- * by scouting the dark, required alongside fuel to ignite a brazier.
- * `EMBER_HEART_TARGET_COUNT` is how many the out-of-combat regen sweep keeps
- * seeded per zone, topping one up when a scout carries one away. (initial)
- */
-export const EMBER_HEART_TARGET_COUNT = 6;
-
-/**
  * Identity & accounts (GDD "Identity"). Guests are anonymous SpacetimeDB
  * identities; signing in upgrades a guest to an account whose identity SpacetimeDB
  * derives from a SpacetimeAuth OIDC token's `iss`+`sub`. The module trusts only
@@ -537,8 +511,6 @@ export interface Zone {
   cells: readonly BirthCellSeed[];
   /** Starting dark-creature population — empty for the private birth cave. */
   darkCreatures: readonly DarkCreatureSeed[];
-  /** Starting ember-heart sites (GDD "Ignition") — empty for the private birth cave. */
-  emberHearts: readonly Coord[];
   /** Where `E` emerges from an instanced birth cave (GDD "Onboarding"). */
   exit?: Coord;
 }
@@ -567,7 +539,6 @@ export const ZONES: Record<string, Zone> = {
     items: WORLD_ITEMS,
     cells: WORLD_CELLS,
     darkCreatures: WORLD_DARK_CREATURES,
-    emberHearts: WORLD_EMBER_HEARTS,
   },
   birthcave: generateBirthCave(),
 };
@@ -635,6 +606,21 @@ export function isRevealed(zone: Zone, revealedSlugs: ReadonlySet<string>, penum
   const region = regionAt(x, y);
   if (!region) return true;
   return revealedSlugs.has(region.slug) || penumbraSlugs.has(region.slug);
+}
+
+/** The three fog-of-war states a world-zone tile can be in (GDD "Generation:
+ *  only as far as the light reaches"): **interior** renders and plays
+ *  normally; **penumbra** renders — real terrain, walkable, dangerous — but
+ *  hazed, since it's scoutable, not tamed; **unreached** doesn't render at
+ *  all. Always "interior" outside the world zone or off the region grid. */
+export type RegionVisibility = "interior" | "penumbra" | "unreached";
+
+export function regionVisibility(zone: Zone, revealedSlugs: ReadonlySet<string>, penumbraSlugs: ReadonlySet<string>, x: number, y: number): RegionVisibility {
+  if (zone.slug !== STARTING_ZONE_SLUG) return "interior";
+  const region = regionAt(x, y);
+  if (!region) return "interior";
+  if (revealedSlugs.has(region.slug)) return "interior";
+  return penumbraSlugs.has(region.slug) ? "penumbra" : "unreached";
 }
 
 /**

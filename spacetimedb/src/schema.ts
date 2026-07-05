@@ -10,27 +10,19 @@ import {
   HEALTH_REGEN_FRACTION,
   BOULDER_MAX_HEALTH,
   TREE_MAX_HEALTH,
-  EMBER_HEART_TARGET_COUNT,
-  IGNITION_SITE_REACH,
-  IGNITION_WAVE_INTERVAL_MS,
-  IGNITION_WAVE_SIZE,
   meleeHit,
   NPC_CORPSE_MS,
   PLAYER_HIT_RADIUS,
   PLAYER_MAX_HEALTH,
-  BRAZIER_LIT_RADIUS,
   BRAZIER_UPKEEP_ITEM,
   BRAZIER_UPKEEP_RATE,
   deriveKindlingCharge,
   EMBER_EFFICIENCY_FRACTION,
   EMBER_GATHER_DAMAGE,
-  STARTING_ZONE_SLUG,
   WANDER_TURN_CHANCE,
   footprintWalkable,
   getZone,
   isRevealed,
-  isWalkable,
-  neighborsOf,
   penumbraOf,
   projectMotionState,
   regionAt,
@@ -57,11 +49,8 @@ import {
   settle,
   darkCreatureDef,
   damagePlayer,
-  countRows,
-  randomUnlitDryTile,
-  claimRegion,
   currentRevealedRegions,
-  seedRegionPopulation,
+  regionHopDepths,
 } from "./helpers";
 
 /**
@@ -280,15 +269,16 @@ const tree = table(
  * A hostile inhabitant of the dark and the penumbra (GDD "Dark creatures").
  * Intent-based motion like a player or the retired `hog` row — position is
  * derived with `projectMotion`, never advanced on a timer. `aggroTargetId` is
- * either the identity hex of the trogg it's chasing, an ignition site it's
- * converging on as `project:<id>` (GDD "Ignition"), or "" while wandering.
+ * either the identity hex of the trogg it's chasing or "" while wandering.
  * Solid, the same way a Hog used to be: blocks troggs and other dark
  * creatures. Cannot occupy a lit tile (`isLitTile`), which is what keeps it
  * out of claimed ground rather than a targeting rule. `health` at zero is a
  * corpse — settled, inert, reaped by the `regenCreatures` sweep after
  * `NPC_CORPSE_MS`; whether a fresh one then takes its place depends on
  * whether the ground is lit at that moment (Territory and permanence), not
- * anything stored on the row.
+ * anything stored on the row. A region's living population must reach zero
+ * before a brazier can go down there (Territory and permanence) — clearing
+ * it is what claims the ground, not a separate event.
  */
 const darkCreature = table(
   { name: "dark_creature", public: true },
@@ -304,50 +294,6 @@ const darkCreature = table(
     health: t.i32(),
     lastDamagedAt: t.timestamp(),
     aggroTargetId: t.string().default(""),
-  },
-);
-
-/**
- * A rare component recovered only by scouting the dark (GDD glossary;
- * "Ignition"), required alongside fuel to ignite a brazier. A tile-sized
- * carryable like the retired boulder carry — `interact` lifts one onto a
- * trogg's `carrying` field, leaving this row gone until put down (or spent
- * igniting). The out-of-combat regen sweep keeps `EMBER_HEART_TARGET_COUNT`
- * seeded per zone, topping one up whenever a scout carries one away.
- */
-const emberHeart = table(
-  { name: "ember_heart", public: true },
-  {
-    id: t.u64().primaryKey().autoInc(),
-    zoneId: t.string().index("btree"),
-    x: t.i32(),
-    y: t.i32(),
-  },
-);
-
-/**
- * A communal ignition in progress at a brazier site (GDD "The fire and the
- * dark" → Ignition). `status` is "active" for a row's whole life — success
- * and failure both resolve the row out of existence the instant they happen
- * (a lit or relit `brazier` row is success's lasting record; failure just
- * spends the stake), never lingering in some other status. `flameHealth`
- * depletes as dark-creature waves reach the site (`IGNITION_SITE_REACH`) and
- * land a hit; hitting zero fails the ignition on the spot. `lastWaveAt`
- * paces `IGNITION_WAVE_INTERVAL_MS` waves for the life of the window. Rows
- * resolve via the same `ember_wander` sweep that steps ember troggs and dark
- * creatures.
- */
-const project = table(
-  { name: "project", public: true },
-  {
-    id: t.u64().primaryKey().autoInc(),
-    zoneId: t.string().index("btree"),
-    x: t.i32(),
-    y: t.i32(),
-    status: t.string(),
-    flameHealth: t.i32(),
-    windowEndsAt: t.timestamp(),
-    lastWaveAt: t.timestamp(),
   },
 );
 
@@ -400,11 +346,16 @@ const stockpile = table(
 );
 
 /**
- * A fire that holds the dark back from the ground inside `radius` (GDD "The
- * fire and the dark" → Territory and permanence). `isEternal` is true only for
- * the First Fire at the Hearth, which never gutters regardless of upkeep.
- * Every other row can go dark when the stockpile can't cover total upkeep —
- * outermost from the First Fire first — and relights on a successful ignition.
+ * A fire that holds the dark back from the region it stands in (GDD "The
+ * fire and the dark" → Territory and permanence) — a whole region counts as
+ * lit the moment its brazier is, not just a radius around it; a region holds
+ * at most one non-eternal row. `radius` is cosmetic only now (the visual
+ * glow/ground-disc size in `upsertBrazier`), not a gameplay boundary.
+ * `isEternal` is true only for the First Fire at the Hearth, which never
+ * gutters regardless of upkeep. Every other row can go dark when the
+ * stockpile can't cover total upkeep — the region deepest from the Hearth
+ * first — and relights for free at any time; the region itself stays
+ * claimed the whole time, guttered or not, so nothing needs re-clearing.
  */
 const brazier = table(
   { name: "brazier", public: true },
@@ -495,9 +446,9 @@ const creatureRegen = table(
 /**
  * A claimed region (GDD "Generation: only as far as the light reaches"): the
  * durable truth of how far the tribe's fire has reached. One row per
- * interior region — the Hearth on first connect, then each region an
- * ignition succeeds in. Penumbra (adjacent, unclaimed) is never stored —
- * derived on demand from this (≤11-row) set plus the committed
+ * interior region — the Hearth on first connect, then each region a group
+ * clears and sets a brazier down in. Penumbra (adjacent, unclaimed) is never
+ * stored — derived on demand from this (≤11-row) set plus the committed
  * `WORLD_REGION_ADJACENCY` graph.
  */
 const revealedRegion = table(
@@ -524,7 +475,7 @@ const worldState = table(
   },
 );
 
-const spacetimedb = schema({ player, chatMessage, ghostHaunt, claimCode, boulder, tree, darkCreature, emberHeart, project, groundItem, inventory, stockpile, brazier, brazierUpkeepTimer, emberWanderTimer, playerConnection, playerRespawn, creatureRegen, revealedRegion, worldState });
+const spacetimedb = schema({ player, chatMessage, ghostHaunt, claimCode, boulder, tree, darkCreature, groundItem, inventory, stockpile, brazier, brazierUpkeepTimer, emberWanderTimer, playerConnection, playerRespawn, creatureRegen, revealedRegion, worldState });
 export default spacetimedb;
 
 /** The reducer context, typed against this module's schema (db view + sender). */
@@ -582,14 +533,6 @@ export const regenCreatures = spacetimedb.reducer({ timer: creatureRegen.rowType
       const heal = Math.ceil(def.maxHealth * HEALTH_REGEN_FRACTION);
       ctx.db.darkCreature.id.update({ ...c, health: Math.min(def.maxHealth, c.health + heal) });
     }
-
-    // Ember-hearts: keep EMBER_HEART_TARGET_COUNT seeded in the world zone,
-    // topping one up wherever a scout has carried one away (GDD "Ignition").
-    const worldZone = getZone(STARTING_ZONE_SLUG);
-    if (worldZone && countRows(ctx.db.emberHeart.zoneId.filter(worldZone.slug)) < EMBER_HEART_TARGET_COUNT) {
-      const tile = randomUnlitDryTile(ctx, worldZone);
-      if (tile) ctx.db.emberHeart.insert({ id: 0n, zoneId: worldZone.slug, x: tile.x, y: tile.y });
-    }
   }
   ctx.db.creatureRegen.clear();
   if (online) armRegen(ctx);
@@ -611,13 +554,16 @@ export const respawnPlayers = spacetimedb.reducer({ timer: playerRespawn.rowType
  * Brazier upkeep sweep (GDD "The fire and the dark" → Territory and
  * permanence): every lit, non-eternal brazier bills `BRAZIER_UPKEEP_RATE` of
  * `BRAZIER_UPKEEP_ITEM` per tick. When the stockpile can't cover the total,
- * the brazier(s) furthest from their zone's First Fire gutter first — never
- * the interior, never at random — until what's left standing is affordable.
- * The First Fire itself is never billed and never gutters.
+ * the brazier(s) in the region(s) deepest from the Hearth (by region-graph
+ * hop distance, not raw tile distance — regions vary too much in size for
+ * that to mean the same thing everywhere) gutter first — never the interior,
+ * never at random — until what's left standing is affordable. The First Fire
+ * itself is never billed and never gutters.
  */
 export const brazierUpkeep = spacetimedb.reducer({ timer: brazierUpkeepTimer.rowType }, (ctx) => {
   const online = anyPlayerOnline(ctx);
   if (online) {
+    const depths = regionHopDepths();
     const rows = [...ctx.db.brazier.iter()];
     const byZone = new Map<string, (typeof rows)[number][]>();
     for (const b of rows) {
@@ -629,11 +575,10 @@ export const brazierUpkeep = spacetimedb.reducer({ timer: brazierUpkeepTimer.row
       list.push(b);
     }
     for (const [, zoneBraziers] of byZone) {
-      const firstFire = zoneBraziers.find((b) => b.isEternal);
       const lit = zoneBraziers
         .filter((b) => b.lit && !b.isEternal)
-        .map((b) => ({ row: b, dist: firstFire ? Math.hypot(b.x - firstFire.x, b.y - firstFire.y) : 0 }))
-        .sort((a, b2) => b2.dist - a.dist); // furthest first
+        .map((b) => ({ row: b, depth: depths.get(regionAt(b.x, b.y)?.slug ?? "") ?? -1 }))
+        .sort((a, b2) => b2.depth - a.depth); // deepest (furthest from the Hearth) first
       const stock = ctx.db.stockpile.item.find(BRAZIER_UPKEEP_ITEM)?.qty ?? 0;
       let count = lit.length;
       while (count > 0 && count * BRAZIER_UPKEEP_RATE > stock) {
@@ -781,57 +726,30 @@ export const wanderPresence = spacetimedb.reducer({ timer: emberWanderTimer.rowT
       const creatureTiles = creatureTilesByZone.get(s.zoneId)!;
       const ownTile = tileKey(Math.round(s.x), Math.round(s.y));
 
-      // A wave creature converges on an active ignition site instead of a
-      // trogg (GDD "Ignition"); once its project resolves or vanishes, it
-      // falls back to normal aggro-on-sight below, same tick it goes stale.
-      let site: NonNullable<ReturnType<typeof ctx.db.project.id.find>> | undefined;
-      if (c.aggroTargetId.startsWith("project:")) {
-        const proj = ctx.db.project.id.find(BigInt(c.aggroTargetId.slice(8)));
-        if (proj && proj.status === "active") site = proj;
-      }
-
       // Keep a live target (same zone, online, alive); else look for a fresh
       // bright trogg within aggro range. Sighting is range-based, like earshot.
       let target: NonNullable<ReturnType<typeof ctx.db.player.identity.find>> | undefined;
-      if (!site) {
+      for (const pl of ctx.db.player.zoneId.filter(s.zoneId)) {
+        if (!pl.online || pl.dead) continue;
+        if (c.aggroTargetId && pl.identity.toHexString() === c.aggroTargetId) {
+          target = pl;
+          break;
+        }
+      }
+      if (!target) {
         for (const pl of ctx.db.player.zoneId.filter(s.zoneId)) {
           if (!pl.online || pl.dead) continue;
-          if (c.aggroTargetId && pl.identity.toHexString() === c.aggroTargetId) {
+          const tp = settle(ctx, pl, now);
+          if (Math.hypot(tp.x - s.x, tp.y - s.y) <= DARK_CREATURE_AGGRO_RANGE) {
             target = pl;
             break;
           }
         }
-        if (!target) {
-          for (const pl of ctx.db.player.zoneId.filter(s.zoneId)) {
-            if (!pl.online || pl.dead) continue;
-            const tp = settle(ctx, pl, now);
-            if (Math.hypot(tp.x - s.x, tp.y - s.y) <= DARK_CREATURE_AGGRO_RANGE) {
-              target = pl;
-              break;
-            }
-          }
-        }
       }
-      const aggroTargetId = site ? c.aggroTargetId : target ? target.identity.toHexString() : "";
+      const aggroTargetId = target ? target.identity.toHexString() : "";
 
       let dir = { dirX: 0, dirY: 0 };
-      if (site) {
-        const dx = site.x + 0.5 - s.x;
-        const dy = site.y + 0.5 - s.y;
-        const dlen = Math.hypot(dx, dy);
-        const toward = dlen > 0 ? { dirX: Math.round((dx / dlen) * DIR_SCALE), dirY: Math.round((dy / dlen) * DIR_SCALE) } : { dirX: 0, dirY: 0 };
-        if (dlen <= IGNITION_SITE_REACH) {
-          // Reached the nascent flame: stop closing and chip it, the same
-          // slow once-per-tick rhythm as attacking a trogg (invariant 7).
-          // Hitting zero fails the ignition outright — the stake is spent.
-          const def = darkCreatureDef(c.species);
-          const flameHealth = Math.max(0, site.flameHealth - ctx.random.integerInRange(def.damage[0], def.damage[1]));
-          if (flameHealth <= 0) ctx.db.project.id.delete(site.id);
-          else ctx.db.project.id.update({ ...site, flameHealth });
-        } else {
-          dir = toward;
-        }
-      } else if (target) {
+      if (target) {
         const tp = settle(ctx, target, now);
         const dx = tp.x - s.x;
         const dy = tp.y - s.y;
@@ -859,60 +777,6 @@ export const wanderPresence = spacetimedb.reducer({ timer: emberWanderTimer.rowT
       const unchanged = s.x === c.x && s.y === c.y && dir.dirX === c.dirX && dir.dirY === c.dirY && aggroTargetId === c.aggroTargetId;
       if (unchanged) continue;
       ctx.db.darkCreature.id.update({ ...c, x: s.x, y: s.y, dirX: dir.dirX, dirY: dir.dirY, movedAt: now, aggroTargetId });
-    }
-
-    // Ignition projects (GDD "The fire and the dark" → Ignition): every row
-    // still standing here is active — a failed one was already deleted above,
-    // the instant its flame hit zero. Pace fresh waves and, once the window
-    // elapses with any flame left, light the brazier — relighting an existing
-    // guttered one at the same site if there is one.
-    for (const proj of ctx.db.project.iter()) {
-      if (proj.status !== "active") continue;
-      const zone = getZone(proj.zoneId);
-      if (!zone) continue;
-
-      if (elapsedMs(proj.windowEndsAt, now) >= 0) {
-        const existing = [...ctx.db.brazier.zoneId.filter(proj.zoneId)].find((b) => !b.isEternal && Math.hypot(b.x - proj.x, b.y - proj.y) <= 1);
-        if (existing) ctx.db.brazier.id.update({ ...existing, lit: true });
-        else ctx.db.brazier.insert({ id: 0n, zoneId: proj.zoneId, x: proj.x, y: proj.y, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
-        ctx.db.project.id.delete(proj.id);
-
-        // Claiming a region opens its still-unclaimed neighbours as the next
-        // penumbra — seed them now from the same committed per-region lists
-        // worldgen already drew, so a scout can find what's inside before
-        // anyone claims it themselves (GDD "Generation: only as far as the
-        // light reaches").
-        const siteSlug = regionAt(proj.x, proj.y)?.slug;
-        if (siteSlug && claimRegion(ctx, siteSlug)) {
-          for (const neighborSlug of neighborsOf(siteSlug)) {
-            if (!ctx.db.revealedRegion.slug.find(neighborSlug)) seedRegionPopulation(ctx, zone, neighborSlug);
-          }
-        }
-        continue;
-      }
-
-      if (elapsedMs(proj.lastWaveAt, now) < IGNITION_WAVE_INTERVAL_MS) continue;
-      for (let i = 0; i < IGNITION_WAVE_SIZE; i++) {
-        const angle = ctx.random() * Math.PI * 2;
-        const ringRadius = 4 + ctx.random() * 3;
-        const tx = Math.round(proj.x + Math.cos(angle) * ringRadius);
-        const ty = Math.round(proj.y + Math.sin(angle) * ringRadius);
-        if (!isWalkable(zone, tx, ty)) continue;
-        ctx.db.darkCreature.insert({
-          id: 0n,
-          zoneId: proj.zoneId,
-          x: tx,
-          y: ty,
-          dirX: 0,
-          dirY: 0,
-          movedAt: now,
-          species: "grask",
-          health: darkCreatureDef("grask").maxHealth,
-          lastDamagedAt: now,
-          aggroTargetId: `project:${proj.id}`,
-        });
-      }
-      ctx.db.project.id.update({ ...proj, lastWaveAt: now });
     }
   }
   ctx.db.emberWanderTimer.clear();

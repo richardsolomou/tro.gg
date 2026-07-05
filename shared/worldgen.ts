@@ -238,7 +238,6 @@ export function generateCaveZone(opts: CaveOptions): Zone {
     items,
     cells: [],
     darkCreatures: [],
-    emberHearts: [],
   };
 }
 
@@ -390,7 +389,6 @@ export function generateBirthCave(): Zone {
     items: [],
     cells: [{ x: spawn.x, y: spawn.y, corridor, pickaxe }],
     darkCreatures: [],
-    emberHearts: [],
   };
 }
 
@@ -510,7 +508,6 @@ export interface GeneratedWorld {
   items: GroundItemSeed[];
   cells: BirthCellSeed[];
   darkCreatures: DarkCreatureSeed[];
-  emberHearts: Coord[];
   /** Where an emerging trogg lands: inside the coast's cave-mouth alcove. */
   arrival: Coord;
   /** The alcove's deep end — walk into it to descend into your own cave. */
@@ -798,29 +795,6 @@ export function generateWorld(): GeneratedWorld {
     }
   }
 
-  // Ember-hearts: rare, recovered only by scouting the dark (GDD "Ignition") —
-  // a handful spread thinly across regions (not per-region ambient population
-  // like dark creatures), the same Hearth clearance and a dedicated stream so
-  // retuning either seed leaves the other untouched. Kept roughly in step
-  // with EMBER_HEART_TARGET_COUNT (shared/constants.ts), which also governs
-  // the ongoing regen-sweep top-up.
-  const emberHeartRand = mulberry32(0x7066300b);
-  const emberHearts: Coord[] = [];
-  const EMBER_HEART_SEED_COUNT = 6;
-  for (let i = 0; i < EMBER_HEART_SEED_COUNT; i++) {
-    const region = i % WORLD_REGIONS.length;
-    let tile: Coord | undefined;
-    for (let attempt = 0; attempt < 20; attempt++) {
-      const candidate = drawFrom(region, emberHeartRand);
-      if (!candidate) break;
-      if (Math.hypot(candidate.x - spawn.x, candidate.y - spawn.y) >= HEARTH_CLEARANCE) {
-        tile = candidate;
-        break;
-      }
-    }
-    if (tile) emberHearts.push(tile);
-  }
-
   // 10. the birth-cave mouth (GDD "Onboarding: the Warren"): newborns dig out
   // of their own instanced cave and step into the world HERE — a small dead-end
   // alcove burrowed into the south-coast rock, so every trogg's first steps
@@ -846,5 +820,5 @@ export function generateWorld(): GeneratedWorld {
   const cells: BirthCellSeed[] = [];
 
   const regions = regionGrid.map((row) => row.join(""));
-  return { tiles: glyphs.map((row) => row.join("")), regions, regionAdjacency: computeRegionAdjacency(regions), boulders, trees, items, cells, darkCreatures, emberHearts, arrival, caveDoor, spawn };
+  return { tiles: glyphs.map((row) => row.join("")), regions, regionAdjacency: computeRegionAdjacency(regions), boulders, trees, items, cells, darkCreatures, arrival, caveDoor, spawn };
 }

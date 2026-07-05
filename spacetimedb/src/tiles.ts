@@ -26,7 +26,7 @@ import { currentRevealedRegions } from "./reveal";
 import type { Ctx } from "./schema";
 
 /** A zone's occupied-predicate reveal clause: unrevealed ground is a hard
- *  wall, exactly like a zone edge, until an ignition claims it (GDD
+ *  wall, exactly like a zone edge, until a group clears it and claims it (GDD
  *  "Generation: only as far as the light reaches"). Computed once per bounds
  *  construction, not per tile. */
 export function revealGate(ctx: Ctx, zone: Zone): (x: number, y: number) => boolean {
@@ -170,34 +170,6 @@ export function boulderAt(ctx: Ctx, zoneId: string, x: number, y: number) {
 export function treeAt(ctx: Ctx, zoneId: string, x: number, y: number) {
   for (const tr of ctx.db.tree.zoneId.filter(zoneId)) {
     if (tr.x === x && tr.y === y) return tr;
-  }
-  return undefined;
-}
-
-/** The ember-heart at a tile in a zone, or undefined (GDD "Ignition"). */
-export function emberHeartAt(ctx: Ctx, zoneId: string, x: number, y: number) {
-  for (const e of ctx.db.emberHeart.zoneId.filter(zoneId)) {
-    if (e.x === x && e.y === y) return e;
-  }
-  return undefined;
-}
-
-/** The ember-heart to pick up from an adjacent tile, preferring the faced one
- *  (GDD "Interacting": "the one on the tile the trogg faces wins"). `faceDirX`/
- *  `faceDirY` of (0, 0) means no faced tile — just scan the four neighbours. */
-export function nearbyEmberHeart(ctx: Ctx, zoneId: string, x: number, y: number, faceDirX: number, faceDirY: number) {
-  if (faceDirX !== 0 || faceDirY !== 0) {
-    const faced = emberHeartAt(ctx, zoneId, x + faceDirX, y + faceDirY);
-    if (faced) return faced;
-  }
-  for (const [dx, dy] of [
-    [1, 0],
-    [-1, 0],
-    [0, 1],
-    [0, -1],
-  ] as const) {
-    const e = emberHeartAt(ctx, zoneId, x + dx, y + dy);
-    if (e) return e;
   }
   return undefined;
 }
@@ -354,8 +326,6 @@ export function placeCarriedAt(ctx: Ctx, zone: Zone, kind: string, style: string
   if (kind === "boulder") {
     if (countRows(ctx.db.boulder.zoneId.filter(zone.slug)) >= MAX_BOULDERS_PER_ZONE) return false;
     ctx.db.boulder.insert({ id: 0n, zoneId: zone.slug, x: tile.x, y: tile.y, health: BOULDER_MAX_HEALTH, cellId: 0 });
-  } else if (kind === "ember_heart") {
-    ctx.db.emberHeart.insert({ id: 0n, zoneId: zone.slug, x: tile.x, y: tile.y });
   } else {
     return false;
   }
