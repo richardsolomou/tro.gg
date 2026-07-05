@@ -26,11 +26,6 @@ const cues = {
     asset(new URL("../assets/audio/boulders/breaking-falling-hit/bfh1_rock_falling_01.ogg", import.meta.url)),
     asset(new URL("../assets/audio/boulders/breaking-falling-hit/bfh1_rock_falling_02.ogg", import.meta.url)),
   ],
-  hog: [
-    asset(new URL("../assets/audio/hogs/freesound-cc0-previews/hedgehog-smell-and-run_ffdown_570301_hq.mp3", import.meta.url)),
-    asset(new URL("../assets/audio/hogs/freesound-cc0-previews/angry-hedgehog-sniffing-1_fthgurdy_528183_hq.mp3", import.meta.url)),
-    asset(new URL("../assets/audio/hogs/freesound-cc0-previews/hedgehog-eating_tatratank_541421_hq.mp3", import.meta.url)),
-  ],
   chatSend: [
     asset(new URL("../assets/audio/ui/kenney-ui-audio/Audio/click1.ogg", import.meta.url)),
     asset(new URL("../assets/audio/ui/kenney-ui-audio/Audio/click2.ogg", import.meta.url)),
@@ -71,7 +66,6 @@ const CUE_CATEGORY: Record<keyof typeof cues, SoundCategory> = {
   footstepsWalk: "footsteps",
   footstepsRun: "footsteps",
   boulderSettle: "world",
-  hog: "world",
   ghost: "world",
   chatSend: "interface",
   chatReceive: "interface",
@@ -113,15 +107,6 @@ class AudioCues {
     });
   }
 
-  /** A Hog stepping nearby: the little ones patter (small and quick), the 2×2
-   *  giants thud (slow and deep) — the same strides, a different gait by pitch. */
-  playHogStepAt(distance: number, size = 1) {
-    const gain = AudioCues.falloff(distance);
-    if (gain <= 0.02) return;
-    if (size > 1) this.play("footstepsWalk", { volume: 0.025 * gain, minGapMs: 260, rate: [0.55, 0.68] });
-    else this.play("footstepsWalk", { volume: 0.008 * gain, minGapMs: 150, rate: [1.7, 1.95] });
-  }
-
   /** A boulder shoved or settling somewhere nearby. */
   playBoulderSettleAt(distance: number) {
     const gain = AudioCues.falloff(distance);
@@ -131,13 +116,6 @@ class AudioCues {
 
   playBoulderSettle() {
     this.play("boulderSettle", { volume: 0.16, minGapMs: 120, rate: [0.86, 1.02] });
-  }
-
-  /** A Hog snuffling somewhere nearby — silent beyond earshot like every world sound. */
-  playHogAt(distance: number) {
-    const gain = AudioCues.falloff(distance);
-    if (gain <= 0.02) return;
-    this.play("hog", { volume: 0.08 * gain, minGapMs: 2200, rate: [0.92, 1.08] });
   }
 
   /** Something entered the pack — a different voice per material: stone

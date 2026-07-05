@@ -76,21 +76,17 @@ Code currently reads these flag keys:
 | `auth-enabled` | Account sign-in / claim panel (the top-right claim/sign-out control) | On, but the UI still requires `VITE_SPACETIMEAUTH_CLIENT_ID` |
 | `ghost-trogg` | Zone-synced cosmetic ghost easter egg (Commands panel ghost button) | On |
 | `interact` | Interact key (`E`) — pick up ground items, pick up / put down tile-sized carryables | On |
-| `roaming-hogs` | Roaming-creature rendering and subscription (Hogs are retired with the fire-and-dark pivot; this flag should be renamed/repointed at dark-creature rendering, or replaced, when that work lands — see gdd.md Roadmap) | On |
 | `running` | Hold-shift-to-run input | On |
 | `spawn-command` | Commands drawer spawn controls | On outside production (local dev + preview builds, which ship no PostHog key); flag-governed in production |
 | `cheat-commands` | Commands drawer cheats (speed, fly, noclip, god mode, heal, unstuck, sky lock) | On outside production, like `spawn-command`; flag-governed in production. Gates the UI only — `setCheats` stays a plain reducer (created 2026-07-03) |
 | `boulder-reset` | Commands panel boulder layout reset control | On |
-| `hog-reset` | Commands panel Hog population reset control (retired alongside Hogs; replace with a dark-creature reset flag when that work lands) | On |
 | `chat-enabled` | Chat panel and bubbles | On |
 | `trogg-recolor` | Colour swatches in the Appearance panel | On |
 | `trogg-restyle` | Body-style buttons in the Appearance panel | On |
 
 Retired by the 3D renderer port: `avatar-sprites` (trogg sprite avatars vs the placeholder colour marker) is no longer read — the 3D client always renders models. The PostHog flag stays live while the 2D client is still the deployed production build; archive it in project 314596 when this port ships. Retired with boulder pushing: `boulder-pushing` is no longer read — boulders are mining nodes, not pushable; archive alongside `avatar-sprites`.
 
-**Pending retirement with the fire-and-dark pivot (gdd.md):** `roaming-hogs` and `hog-reset` are still live in code and PostHog today, gating systems the GDD now specs for removal (see gdd.md Roadmap step 1). Archive both in project 314596 once the Hog retirement lands in code, and register whatever dark-creature-rendering and dark-creature-reset flags replace them in this table at that time.
-
-PostHog project audit (2026-06-27): all code-read flags above are configured in PostHog project 314596 and active. They are intentionally still in use because they cover remote rollback, production-only debug command governance, or visible UI capabilities that should not advertise disabled controls. `interact` was created 2026-06-25 with the carry mechanic; `hog-reset` was created 2026-06-25 with the Hog reset tool; `trogg-restyle` was created 2026-06-27 with avatar body styles. No new flag is needed for the observability pass; planned future flags should be added here, and created in PostHog, when code starts reading them.
+PostHog project audit (2026-07-05): all code-read flags above are configured in PostHog project 314596 and active. `roaming-hogs` and `hog-reset` are retired from code; archive them in project 314596 when authenticated PostHog access is available. Future dark-creature flags should be registered here and created in PostHog only when code starts reading them.
 
 ## Error tracking and logs
 

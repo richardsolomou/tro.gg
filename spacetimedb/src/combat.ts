@@ -4,11 +4,9 @@ import {
   elapsedMs,
   EMERGE_ARRIVAL,
   getZone,
-  hogLoot,
   type LootRoll,
   isWalkable,
   STARTING_ZONE_SLUG,
-  HOG_MAX_HEALTH,
   MAX_GROUND_ITEMS_PER_ZONE,
   PLAYER_MAX_HEALTH,
   PLAYER_RESPAWN_MS,
@@ -17,7 +15,6 @@ import {
   spawnTiles,
   THROWN_OBJECT_DAMAGE,
   THROWN_OBJECT_RANGE,
-  THROWN_HOG_SETTLE_MS,
   type Stamp,
   tileKey,
   type Zone,
@@ -27,8 +24,6 @@ import {
   solidTiles,
   addGroundItemTiles,
   countRows,
-  hogAt,
-  hogTile,
   playerAt,
   placeCarried,
   placeCarriedAt,
@@ -92,25 +87,6 @@ export function playerDiedEvent(distinctId: string, props: Record<string, string
       respawn_ms: result.respawnMs,
     },
   };
-}
-
-export function hogHealth(h: { health?: number }): number {
-  return typeof h.health === "number" ? h.health : HOG_MAX_HEALTH;
-}
-
-export function damageHog(ctx: Ctx, target: NonNullable<ReturnType<typeof hogAt>>, amount: number): DamageResult {
-  const health = Math.max(0, hogHealth(target) - amount);
-  if (health > 0) {
-    ctx.db.hog.id.update({ ...target, health, lastDamagedAt: ctx.timestamp });
-    return { health, killed: false, dealt: amount };
-  }
-  // The killing blow leaves a corpse where the Hog actually was (its stored
-  // origin can be a whole run behind under the gliding wander): settled, stopped,
-  // health 0. The regen sweep reaps it after NPC_CORPSE_MS.
-  const at = hogTile(ctx, target, ctx.timestamp);
-  ctx.db.hog.id.update({ ...target, x: at.x, y: at.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, health: 0, lastDamagedAt: ctx.timestamp });
-  dropLoot(ctx, target.zoneId, hogLoot(target.style), at);
-  return { health: 0, killed: true, dealt: amount };
 }
 
 /** Lay loot down as ground items on the nearest free tiles around where its
@@ -205,9 +181,7 @@ export function damagePlayer(ctx: Ctx, target: NonNullable<ReturnType<typeof pla
   return { health: 0, killed: true, dealt, droppedItemRows: dropped.rows, droppedItemQty: dropped.qty, respawnMs: PLAYER_RESPAWN_MS };
 }
 
-/** Throw a carried boulder or Hog along the exact aim (free-direction, not the
- *  four cardinals), damaging the first character hit and landing on the tile the
- *  throw reaches. */
+/** Throw a legacy carried boulder along the exact aim. */
 export function throwCarried(
   ctx: Ctx,
   p: NonNullable<ReturnType<typeof playerAt>>,
@@ -216,15 +190,15 @@ export function throwCarried(
   aim: { dirX: number; dirY: number },
 ):
   | {
-      kind: "boulder" | "hog";
+      kind: "boulder";
       range: number;
-      hitTarget?: "trogg" | "hog";
+      hitTarget?: "trogg";
       damage?: number;
       killed: boolean;
       playerDeath?: PlayerDamageResult & { distinctId: string };
     }
   | undefined {
-  if (p.carrying !== "boulder" && p.carrying !== "hog") return undefined;
+  if (p.carrying !== "boulder") return undefined;
 
   const len = Math.hypot(aim.dirX, aim.dirY);
   if (len === 0) return undefined;
@@ -236,7 +210,6 @@ export function throwCarried(
   const pathOccupied = solidTiles(ctx, p.zoneId, ctx.timestamp, p.identity);
   let lastFree: { x: number; y: number } | undefined;
   let hit: NonNullable<ReturnType<typeof playerAt>> | undefined;
-  let hogHit: NonNullable<ReturnType<typeof hogAt>> | undefined;
 
   // Walk the aim ray tile by tile out to range: sample every half tile and act
   // on each new tile the ray enters, so a diagonal throw travels diagonally
@@ -252,31 +225,24 @@ export function throwCarried(
 
     hit = playerAt(ctx, p.zoneId, tx, ty, ctx.timestamp, p.identity);
     if (hit) break;
-    hogHit = hogAt(ctx, p.zoneId, tx, ty, ctx.timestamp);
-    if (hogHit) break;
-
     if (pathOccupied.has(key)) break;
     lastFree = { x: tx, y: ty };
   }
 
   let landing = lastFree;
-  if (hit || hogHit) {
-    const targetTile = hit ? snapToTile(settle(ctx, hit, ctx.timestamp)) : hogTile(ctx, hogHit!, ctx.timestamp);
+  if (hit) {
+    const targetTile = snapToTile(settle(ctx, hit, ctx.timestamp));
     const landingOccupied = solidTiles(ctx, p.zoneId, ctx.timestamp);
     landing = spawnTile(zone, (tx, ty) => landingOccupied.has(tileKey(tx, ty)), targetTile.x, targetTile.y, ux, uy) ?? lastFree;
   }
 
   const dist = landing ? Math.hypot(landing.x - sx, landing.y - sy) : 0;
-  // A thrown Hog can't move for a fixed settle after it lands, so it never
-  // strides off before the client's arc sets it down; a boulder never roams, so
-  // it rests immediately and the client arc alone carries the throw.
-  const landingAt = p.carrying === "hog" ? addMs(ctx.timestamp, THROWN_HOG_SETTLE_MS) : Timestamp.UNIX_EPOCH;
-  if (!landing || !placeCarriedAt(ctx, zone, p.carrying, p.carryingStyle, landing, landingAt)) return undefined;
+  if (!landing || !placeCarriedAt(ctx, zone, p.carrying, p.carryingStyle, landing)) return undefined;
   const range = Math.round(dist);
   const result: {
-    kind: "boulder" | "hog";
+    kind: "boulder";
     range: number;
-    hitTarget?: "trogg" | "hog";
+    hitTarget?: "trogg";
     damage?: number;
     killed: boolean;
     playerDeath?: PlayerDamageResult & { distinctId: string };
@@ -287,12 +253,6 @@ export function throwCarried(
     result.damage = damage.dealt;
     result.killed = damage.killed;
     if (damage.killed) result.playerDeath = { ...damage, distinctId: hit.identity.toHexString() };
-  }
-  if (hogHit) {
-    const damage = damageHog(ctx, hogHit, THROWN_OBJECT_DAMAGE);
-    result.hitTarget = "hog";
-    result.damage = damage.dealt;
-    result.killed = damage.killed;
   }
   ctx.db.player.identity.update({ ...p, carrying: "", carryingStyle: "" });
   return result;

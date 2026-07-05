@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { assertZones, isDryFloor, isWalkable, regionAt, WALL_TILE, WORLD_REGIONS, ZONES, type Zone } from "./index";
 import { generateCaveZone } from "./worldgen";
 
-const OPTS = { slug: "t", name: "t", width: 64, height: 44, seed: 0x70660001, boulders: 14, hogs: 12, biome: "cave" as const };
+const OPTS = { slug: "t", name: "t", width: 64, height: 44, seed: 0x70660001, boulders: 14, biome: "cave" as const };
 
 function reachableCount(zone: Zone, fromX: number, fromY: number): number {
   const seen = new Set<string>([`${fromX},${fromY}`]);
@@ -61,21 +61,14 @@ test("the spawn plaza is open and every walkable tile is reachable from it", () 
   assert.ok(walkable > zone.width * zone.height * 0.33, `only ${walkable} open tiles`);
 });
 
-test("giants sit on clear 2×2 footprints and every seed is on open floor", () => {
+test("every generated seed is on open floor", () => {
   const zone = generateCaveZone(OPTS);
-  for (const seed of [...zone.boulders, ...zone.trees, ...zone.hogs, ...zone.items]) {
+  for (const seed of [...zone.boulders, ...zone.trees, ...zone.items]) {
     assert.ok(isWalkable(zone, seed.x, seed.y), `seed at ${seed.x},${seed.y} is in rock`);
   }
   const world = ZONES["world"]!;
-  for (const seed of [...world.boulders, ...world.trees, ...world.hogs, ...world.items]) {
+  for (const seed of [...world.boulders, ...world.trees, ...world.items]) {
     assert.ok(isDryFloor(world, seed.x, seed.y), `world seed at ${seed.x},${seed.y} is wet or in rock`);
-  }
-  for (const giant of zone.bigHogs) {
-    for (let dy = 0; dy < 2; dy++) {
-      for (let dx = 0; dx < 2; dx++) {
-        assert.ok(isWalkable(zone, giant.x + dx, giant.y + dy), `giant footprint at ${giant.x},${giant.y} blocked`);
-      }
-    }
   }
 });
 

@@ -5,11 +5,10 @@
  * value it chose (a palette/style index stored on the row), or — until it picks —
  * a stable default derived from its durable id, so an unchosen trogg looks the same
  * to everyone, every session. Defaults are recomputed from the id like a level is
- * from XP, never stored. Hogs have no row of their own, so their style is derived
- * straight from their entity id, giving a zone a varied, stable crowd.
+ * from XP, never stored.
  */
 
-import { COMMON_HOG_STYLES, HOG_STYLES, TROGG_STYLES, type HogStyle, type TroggStyle } from "./creatures";
+import { TROGG_STYLES, type TroggStyle } from "./creatures";
 
 /** The recolour palette: earthy hide tints applied as a multiply over the model's
  *  olive base, so a trogg always reads as a believable stone-and-moss creature —
@@ -89,16 +88,4 @@ export function troggStyleIndexFor(styleIndex: number, userId: string): number {
 /** A trogg's display style: its chosen entry, else the id-derived default. */
 export function troggStyleFor(styleIndex: number, userId: string): TroggStyle {
   return TROGG_STYLES[troggStyleIndexFor(styleIndex, userId)]!;
-}
-
-/** A common Hog's style, derived from its entity id — the small roaming crowd varies
- *  over `COMMON_HOG_STYLES`. Big and easter-egg hogs carry an explicit style on their
- *  row instead, so they never come up here. */
-export function hogStyleFor(hogId: string, storedStyle = ""): HogStyle {
-  return isHogStyle(storedStyle) ? storedStyle : COMMON_HOG_STYLES[hashId(hogId) % COMMON_HOG_STYLES.length]!;
-}
-
-/** Whether `style` is one of the registered Hog skins. */
-export function isHogStyle(style: string): style is HogStyle {
-  return (HOG_STYLES as readonly string[]).includes(style);
 }

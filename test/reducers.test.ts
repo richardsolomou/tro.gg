@@ -5,8 +5,6 @@ import {
   CLAIM_CODE_TTL_MS,
   GHOST_HAUNT_HISTORY_MAX,
   getZone,
-  HOG_MAX_HEALTH,
-  hogStyleFor,
   INVENTORY_SLOT_COUNT,
   isWalkable,
   MAX_BOULDERS_PER_ZONE,
@@ -26,7 +24,6 @@ import {
   projectMotion,
   zoneBounds,
   MAX_GROUND_ITEMS_PER_ZONE,
-  MAX_HOGS_PER_ZONE,
   parsePath,
   PLAYER_MAX_HEALTH,
   PLAYER_RESPAWN_MS,
@@ -40,9 +37,6 @@ import {
   UNARMED_DAMAGE,
   HEALTH_REGEN_DELAY_MS,
   HEALTH_REGEN_FRACTION,
-  hogMaxHealth,
-  NPC_CORPSE_MS,
-  hogLoot,
 } from "@trogg/shared";
 import {
   chat,
@@ -63,7 +57,6 @@ import {
   rename,
   restyle,
   resetBoulders,
-  resetHogs,
   setCheats,
   setLift,
   setSky,
@@ -74,9 +67,8 @@ import {
   spawn,
   startClaim,
   useEquipped,
-  wanderHogs,
 } from "../spacetimedb/src/index.ts";
-import { id, makeCtx, playerRow, type FakeCtx } from "./spacetime.ts";
+import { id, makeCtx, playerRow } from "./spacetime.ts";
 
 const ZONE = "world";
 const micros = (ms: number) => BigInt(ms) * 1000n;
@@ -130,70 +122,6 @@ test("spawn refuses ground items once the zone is at its cap", () => {
   for (let i = 0; i < MAX_GROUND_ITEMS_PER_ZONE; i++) ctx.db.groundItem.insert({ id: 0n, zoneId: ZONE, item: "stone", x: 65, y: 89 });
   spawn(ctx, { kind: "item", item: "sword" });
   assert.equal(ctx.db.groundItem.rows().length, MAX_GROUND_ITEMS_PER_ZONE);
-});
-
-test("spawn stores an explicit Hog sprite style", () => {
-  const { ctx } = withPlayer({ x: 69, y: 96 });
-  spawn(ctx, { kind: "hog", item: "snow" });
-  assert.equal(ctx.db.hog.rows().length, 1);
-  assert.equal(ctx.db.hog.rows()[0].style, "snow");
-});
-
-test("spawn stores an explicit big Hog sprite style", () => {
-  const { ctx } = withPlayer({ x: 69, y: 96 });
-  spawn(ctx, { kind: "hog", item: "dino" });
-  assert.equal(ctx.db.hog.rows().length, 1);
-  assert.equal(ctx.db.hog.rows()[0].style, "dino");
-});
-
-// --- Two Hogs never converge onto one tile (the wanderHogs fix) ---
-
-test("two Hogs heading at the same tile do not both claim it", () => {
-  const me = id("watcher");
-  const ctx = makeCtx({ sender: me, now: 0n, random: 0.99, integerInRange: (lo) => lo });
-  ctx.db.player.insert(playerRow(me, { x: 66, y: 90, online: true }));
-  // A at (5,8) heading right and B at (7,8) heading left both want the empty tile (6,8).
-  ctx.db.hog.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, dirX: 1, dirY: 0, movedAt: { microsSinceUnixEpoch: 0n }, path: "", homeX: 5, homeY: 8, style: "" });
-  ctx.db.hog.insert({ id: 0n, zoneId: ZONE, x: 71, y: 96, dirX: -1, dirY: 0, movedAt: { microsSinceUnixEpoch: 0n }, path: "", homeX: 7, homeY: 8, style: "" });
-
-  wanderHogs(ctx, {});
-
-  const dests = ctx.db.hog.rows().map((h: any) => `${h.x + h.dirX},${h.y + h.dirY}`);
-  assert.notEqual(dests[0], dests[1]); // distinct destinations — no shared tile
-});
-
-// --- Big (2×2) Hogs block their whole footprint (the size-aware wander) ---
-
-test("a common Hog won't step onto a big Hog's 2x2 footprint", () => {
-  const me = id("watcher");
-  const ctx = makeCtx({ sender: me, now: 0n, random: 0.99, integerInRange: (lo) => lo });
-  ctx.db.player.insert(playerRow(me, { x: 76, y: 100, online: true }));
-  // A buff giant anchored at (3,7) covers (3,7),(4,7),(3,8),(4,8).
-  ctx.db.hog.insert({ id: 0n, zoneId: ZONE, x: 67, y: 95, dirX: 0, dirY: 0, movedAt: { microsSinceUnixEpoch: 0n }, path: "", homeX: 3, homeY: 7, style: "buff" });
-  // A common hog just right of it, heading left toward footprint tile (4,7).
-  ctx.db.hog.insert({ id: 0n, zoneId: ZONE, x: 69, y: 95, dirX: -1, dirY: 0, movedAt: { microsSinceUnixEpoch: 0n }, path: "", homeX: 5, homeY: 7, style: "" });
-
-  wanderHogs(ctx, {});
-
-  const footprint = new Set(["3,7", "4,7", "3,8", "4,8"]);
-  const common = ctx.db.hog.rows().find((h: any) => h.style === "");
-  // Whatever heading it took, the tile it steps to next is outside the giant's footprint.
-  assert.ok(!footprint.has(`${common.x + common.dirX},${common.y + common.dirY}`));
-});
-
-test("a big Hog keeps its whole 2x2 footprint on walkable floor as it wanders", () => {
-  const me = id("watcher");
-  const ctx = makeCtx({ sender: me, now: micros(10_000), random: 0.99, integerInRange: (lo) => lo });
-  ctx.db.player.insert(playerRow(me, { x: 76, y: 100, online: true }));
-  // Heading right from (3,7); after a tile-crossing it re-bases and keeps its footprint clear.
-  ctx.db.hog.insert({ id: 0n, zoneId: ZONE, x: 67, y: 95, dirX: 1, dirY: 0, movedAt: { microsSinceUnixEpoch: 0n }, path: "", homeX: 3, homeY: 7, style: "buff" });
-
-  wanderHogs(ctx, {});
-
-  const h = ctx.db.hog.rows().find((r: any) => r.style === "buff");
-  for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) {
-    assert.ok(isWalkable(getZone(ZONE)!, h.x + dx, h.y + dy), `footprint tile (${h.x + dx}, ${h.y + dy}) off floor`);
-  }
 });
 
 // --- Guest -> account upgrade never destroys a carried entity (the redeemClaim fix) ---
@@ -552,7 +480,6 @@ test("out-of-combat regen: heals after the delay, never before, never the dead",
   ctx.db.player.insert(playerRow(fresh, { online: true, health: 50, lastDamagedAt: { microsSinceUnixEpoch: micros(HEALTH_REGEN_DELAY_MS) } }));
   const dead = id("dead");
   ctx.db.player.insert(playerRow(dead, { online: true, health: 0, dead: true, lastDamagedAt: { microsSinceUnixEpoch: micros(1000) } }));
-  ctx.db.hog.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96, dirX: 0, dirY: 0, movedAt: { microsSinceUnixEpoch: 0n }, path: "", homeX: 0, homeY: 0, style: "", health: 10, lastDamagedAt: { microsSinceUnixEpoch: micros(1000) } });
 
   regenCreatures(ctx, {});
 
@@ -560,7 +487,6 @@ test("out-of-combat regen: heals after the delay, never before, never the dead",
   assert.equal(ctx.db.player.identity.find(me).health, 50 + heal); // rested → heals
   assert.equal(ctx.db.player.identity.find(fresh).health, 50); // hit 1s ago → waits
   assert.equal(ctx.db.player.identity.find(dead).health, 0); // dead → respawn's job
-  assert.equal(ctx.db.hog.rows()[0].health, 10 + Math.ceil(HOG_MAX_HEALTH * HEALTH_REGEN_FRACTION));
   assert.equal(ctx.db.creatureRegen.rows().length, 1); // re-armed while someone is online
 });
 
@@ -570,13 +496,6 @@ test("regen never overshoots max health", () => {
   ctx.db.player.insert(playerRow(me, { online: true, health: PLAYER_MAX_HEALTH - 1, lastDamagedAt: { microsSinceUnixEpoch: 0n } }));
   regenCreatures(ctx, {});
   assert.equal(ctx.db.player.identity.find(me).health, PLAYER_MAX_HEALTH);
-});
-
-test("a giant Hog carries four commons' worth of health", () => {
-  assert.equal(hogMaxHealth("buff"), HOG_MAX_HEALTH * 4);
-  const { ctx } = withPlayer({ x: 69, y: 96 });
-  spawn(ctx, { kind: "hog", item: "dino" });
-  assert.equal(ctx.db.hog.rows()[0].health, HOG_MAX_HEALTH * 4);
 });
 
 test("useEquipped damages a faced adjacent trogg with a sword", () => {
@@ -609,7 +528,7 @@ test("a shield in the off hand blocks a fraction of melee damage taken", () => {
 });
 
 test("a shield also blocks a fraction of thrown damage taken", () => {
-  const { ctx, me } = withPlayer({ x: 69, y: 96, carrying: "hog", equippedMainHand: "" });
+  const { ctx, me } = withPlayer({ x: 69, y: 96, carrying: "boulder", equippedMainHand: "" });
   const other = id("other");
   ctx.db.player.insert(playerRow(other, { x: 70, y: 96, health: PLAYER_MAX_HEALTH, equippedOffHand: "shield" }));
 
@@ -657,11 +576,12 @@ test("an off-tool weapon scratches a node — and only when no creature is in re
   const chip = Math.max(1, Math.round(WEAPON_DAMAGE.sword![0] * OFF_TOOL_NODE_FACTOR));
   assert.equal(ctx.db.tree.id.find(tr.id)?.health, TREE_MAX_HEALTH - chip); // whittled, barely
 
-  // a hog steps into reach: the sword goes back to being a weapon
-  const h = ctx.db.hog.insert({ id: 0n, zoneId: ZONE, x: 70, y: 97, dirX: 0, dirY: 0, movedAt: { microsSinceUnixEpoch: 0n }, path: "", homeX: 0, homeY: 0, style: "", health: HOG_MAX_HEALTH });
+  // a trogg steps into reach: the sword goes back to being a weapon
+  const other = id("other");
+  ctx.db.player.insert(playerRow(other, { x: 70, y: 97, health: PLAYER_MAX_HEALTH }));
   ctx.timestamp = { microsSinceUnixEpoch: micros(1000) }; // past the use cooldown
   useEquipped(ctx, { dirX: 1, dirY: 0 });
-  assert.equal(ctx.db.hog.id.find(h.id)?.health, HOG_MAX_HEALTH - WEAPON_DAMAGE.sword![0]);
+  assert.equal(ctx.db.player.identity.find(other).health, PLAYER_MAX_HEALTH - WEAPON_DAMAGE.sword![0]);
   assert.equal(ctx.db.tree.id.find(tr.id)?.health, TREE_MAX_HEALTH - chip); // untouched this swing
 });
 
@@ -746,93 +666,6 @@ test("a sword hit at zero health kills, drops inventory, and respawns after the 
   assert.deepEqual({ x: target.x, y: target.y }, { x: EMERGE_ARRIVAL.x, y: EMERGE_ARRIVAL.y }); // just outside the cave
 });
 
-test("useEquipped damages a faced adjacent Hog with a sword", () => {
-  const { ctx, me } = withPlayer({ x: 69, y: 96, equippedMainHand: "sword" });
-  const sword = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });
-  ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedMainHandInventoryId: sword.id });
-  const h = hogAt_(ctx, 70, 96);
-
-  useEquipped(ctx, { dirX: 1, dirY: 0 });
-
-  assert.equal(ctx.db.hog.id.find(h.id).health, HOG_MAX_HEALTH - WEAPON_DAMAGE.sword![0]);
-});
-
-test("useEquipped damages a big 2×2 Hog on any of its footprint tiles, not just its anchor", () => {
-  // Giant anchored at (6,8) covers (6,8),(7,8),(6,9),(7,9). The trogg stands at (5,9) and
-  // faces the giant's lower-left body tile (6,9) — a footprint tile that is not the anchor.
-  const { ctx, me } = withPlayer({ x: 69, y: 97, equippedMainHand: "sword" });
-  const sword = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });
-  ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedMainHandInventoryId: sword.id });
-  const giant = hogAt_(ctx, 70, 96, { style: "buff" });
-
-  useEquipped(ctx, { dirX: 1, dirY: 0 });
-
-  assert.equal(ctx.db.hog.id.find(giant.id).health, HOG_MAX_HEALTH - WEAPON_DAMAGE.sword![0]);
-});
-
-test("a slain Hog drops its loot on the nearest free tile by the corpse", () => {
-  const { ctx, me } = withPlayer({ x: 69, y: 96, equippedMainHand: "sword" }, { now: micros(1000) });
-  const sword = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });
-  ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedMainHandInventoryId: sword.id });
-  hogAt_(ctx, 70, 96, WEAPON_DAMAGE.sword![0]);
-
-  useEquipped(ctx, { dirX: 1, dirY: 0 });
-
-  const drops = ctx.db.groundItem.rows();
-  assert.equal(drops.length, 1);
-  // the mock RNG rolls the floor of the common Hog's quill range
-  assert.deepEqual({ item: drops[0].item, qty: drops[0].qty }, { item: "quill", qty: hogLoot("")[0]!.min });
-  const corpse = ctx.db.hog.rows()[0];
-  assert.ok(Math.abs(drops[0].x - corpse.x) <= 1 && Math.abs(drops[0].y - corpse.y) <= 1, "loot beside the corpse");
-});
-
-test("a slain giant sheds a giant's share of quills", () => {
-  const { ctx, me } = withPlayer({ x: 69, y: 96, equippedMainHand: "sword" }, { now: micros(1000) });
-  const sword = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });
-  ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedMainHandInventoryId: sword.id });
-  hogAt_(ctx, 70, 96, { style: "buff", health: WEAPON_DAMAGE.sword![0] });
-
-  useEquipped(ctx, { dirX: 1, dirY: 0 });
-
-  assert.equal(ctx.db.groundItem.rows()[0]?.qty, hogLoot("buff")[0]!.min);
-});
-
-test("loot respects the per-zone ground-item cap", () => {
-  const { ctx, me } = withPlayer({ x: 69, y: 96, equippedMainHand: "sword" }, { now: micros(1000) });
-  const sword = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });
-  ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedMainHandInventoryId: sword.id });
-  for (let i = 0; i < MAX_GROUND_ITEMS_PER_ZONE; i++) ctx.db.groundItem.insert({ id: 0n, zoneId: ZONE, item: "stone", x: 65, y: 89, qty: 1 });
-  hogAt_(ctx, 70, 96, WEAPON_DAMAGE.sword![0]);
-
-  useEquipped(ctx, { dirX: 1, dirY: 0 });
-
-  assert.equal(ctx.db.groundItem.rows().length, MAX_GROUND_ITEMS_PER_ZONE); // full zone drops nothing extra
-});
-
-test("a killed Hog becomes a settled corpse, untargetable, reaped after NPC_CORPSE_MS", () => {
-  const { ctx, me } = withPlayer({ x: 69, y: 96, equippedMainHand: "sword" }, { now: micros(1000) });
-  const sword = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });
-  ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedMainHandInventoryId: sword.id });
-  hogAt_(ctx, 70, 96, WEAPON_DAMAGE.sword![0]);
-
-  useEquipped(ctx, { dirX: 1, dirY: 0 });
-
-  const corpse = ctx.db.hog.rows()[0];
-  assert.deepEqual({ health: corpse.health, dirX: corpse.dirX, dirY: corpse.dirY }, { health: 0, dirX: 0, dirY: 0 });
-
-  // a second swing finds nothing — corpses are not targets
-  ctx.timestamp = { microsSinceUnixEpoch: micros(2000) };
-  useEquipped(ctx, { dirX: 1, dirY: 0 });
-  assert.equal(ctx.db.hog.rows()[0].health, 0);
-
-  // the regen sweep leaves a fresh corpse alone, then reaps it after NPC_CORPSE_MS
-  regenCreatures(ctx, {});
-  assert.equal(ctx.db.hog.rows().length, 1);
-  ctx.timestamp = { microsSinceUnixEpoch: micros(1000 + NPC_CORPSE_MS) };
-  regenCreatures(ctx, {});
-  assert.equal(ctx.db.hog.rows().length, 0);
-});
-
 test("useEquipped throws a carried boulder into a trogg and lands it past the target", () => {
   const { ctx, me } = withPlayer({ x: 69, y: 96, carrying: "boulder", equippedMainHand: "" });
   const other = id("other");
@@ -842,31 +675,6 @@ test("useEquipped throws a carried boulder into a trogg and lands it past the ta
 
   const target = ctx.db.player.identity.find(other);
   assert.equal(target.health, PLAYER_MAX_HEALTH - THROWN_OBJECT_DAMAGE);
-  assert.equal(ctx.db.player.identity.find(me).carrying, "");
-  const b = ctx.db.boulder.rows()[0];
-  assert.deepEqual({ x: b.x, y: b.y }, { x: 72, y: 96 });
-});
-
-test("useEquipped throws a carried Hog into a trogg", () => {
-  const { ctx, me } = withPlayer({ x: 69, y: 96, carrying: "hog", equippedMainHand: "" });
-  const other = id("other");
-  ctx.db.player.insert(playerRow(other, { x: 70, y: 96, health: PLAYER_MAX_HEALTH }));
-
-  useEquipped(ctx, { dirX: 1, dirY: 0 });
-
-  assert.equal(ctx.db.player.identity.find(other).health, PLAYER_MAX_HEALTH - THROWN_OBJECT_DAMAGE);
-  assert.equal(ctx.db.player.identity.find(me).carrying, "");
-  const h = ctx.db.hog.rows()[0];
-  assert.deepEqual({ x: h.x, y: h.y, dirX: h.dirX, dirY: h.dirY }, { x: 71, y: 96, dirX: 0, dirY: 0 });
-});
-
-test("useEquipped throws a carried boulder into a Hog", () => {
-  const { ctx, me } = withPlayer({ x: 69, y: 96, carrying: "boulder", equippedMainHand: "" });
-  const h = hogAt_(ctx, 71, 96);
-
-  useEquipped(ctx, { dirX: 1, dirY: 0 });
-
-  assert.equal(ctx.db.hog.id.find(h.id).health, HOG_MAX_HEALTH - THROWN_OBJECT_DAMAGE);
   assert.equal(ctx.db.player.identity.find(me).carrying, "");
   const b = ctx.db.boulder.rows()[0];
   assert.deepEqual({ x: b.x, y: b.y }, { x: 72, y: 96 });
@@ -891,32 +699,6 @@ test("useEquipped throws a carried object along a diagonal aim, not the nearest 
   const b = ctx.db.boulder.rows()[0];
   // travelled on both axes — a cardinal-snapped throw would leave y at 96
   assert.ok(b.x > 69 && b.y > 96, `expected a diagonal landing, got (${b.x}, ${b.y})`);
-});
-
-test("a thrown Hog is settled in place and the wander leaves it alone until it lands", () => {
-  const { ctx, me } = withPlayer({ x: 69, y: 96, carrying: "hog", equippedMainHand: "", online: true }, { now: 0n, random: 0.99, integerInRange: (lo) => lo });
-
-  useEquipped(ctx, { dirX: 1, dirY: 0 });
-
-  const thrown = ctx.db.hog.rows()[0];
-  assert.equal(ctx.db.player.identity.find(me).carrying, "");
-  assert.equal(thrown.dirX, 0); // lands at rest
-  assert.ok(Number(thrown.landingAt.microsSinceUnixEpoch) > 0, "landingAt set into the future");
-
-  // the wander runs at the same instant (still in flight): the Hog must not move
-  wanderHogs(ctx, {});
-  const after = ctx.db.hog.id.find(thrown.id);
-  assert.deepEqual({ x: after.x, y: after.y, dirX: after.dirX, dirY: after.dirY }, { x: thrown.x, y: thrown.y, dirX: 0, dirY: 0 });
-});
-
-test("interact prioritizes the faced pickup when several entities are adjacent", () => {
-  const { ctx, me } = withPlayer({ x: 69, y: 96, carrying: "" });
-  ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 69, y: 95 });
-  hogAt_(ctx, 70, 96);
-  interact(ctx, { dirX: 1, dirY: 0 });
-  assert.equal(ctx.db.player.identity.find(me).carrying, "hog");
-  assert.equal(ctx.db.hog.rows().length, 0);
-  assert.equal(ctx.db.boulder.rows().length, 1);
 });
 
 test("interact prioritizes a faced ground item over other adjacent pickups", () => {
@@ -978,13 +760,6 @@ test("hauntGhost trims old haunt rows to the cap", () => {
   assert.equal(rows.find((r: any) => r.id === oldestId), undefined);
 });
 
-// --- helpers for the entity tables ---
-const hogAt_ = (ctx: FakeCtx, x: number, y: number, over: number | string | { health?: number; style?: string } = {}) => {
-  const health = typeof over === "number" ? over : typeof over === "object" ? (over.health ?? HOG_MAX_HEALTH) : HOG_MAX_HEALTH;
-  const style = typeof over === "string" ? over : typeof over === "object" ? (over.style ?? "") : "";
-  return ctx.db.hog.insert({ id: 0n, zoneId: ZONE, x, y, dirX: 0, dirY: 0, movedAt: { microsSinceUnixEpoch: 0n }, path: "", homeX: x, homeY: y, health, style });
-};
-
 // --- Connect / disconnect lifecycle ---
 
 test("connecting as a guest inserts an online guest and lazily seeds the zone", () => {
@@ -999,7 +774,6 @@ test("connecting as a guest inserts an online guest and lazily seeds the zone", 
   const cave = getZone(birthZoneFor(me.toHexString()))!;
   // world boulders, plus the newborn's private instance rubble in its own zone
   assert.equal(ctx.db.boulder.rows().length, zone.boulders.length + cave.cells[0]!.corridor.length);
-  assert.equal(ctx.db.hog.rows().length, zone.hogs.length + zone.bigHogs.length);
   // the world's starter rack, plus the instance's pickaxe
   assert.equal(ctx.db.groundItem.rows().length, zone.items.length + 1);
 });
@@ -1022,6 +796,23 @@ test("reconnecting flips an existing trogg back online without duplicating it", 
   assert.equal(mine.length, 1);
   assert.equal(mine[0].online, true);
   assert.equal(mine[0].name, "Keepme");
+});
+
+test("connecting purges retired Hog carry and quill rows", () => {
+  const me = id("legacy");
+  const ctx = makeCtx({ sender: me });
+  ctx.db.player.insert(playerRow(me, { online: false, carrying: "hog", carryingStyle: "ember" }));
+  ctx.db.inventory.insert({ id: 0n, playerId: me, item: "quill", qty: 4 });
+  ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });
+  ctx.db.groundItem.insert({ id: 0n, zoneId: ZONE, item: "quill", x: 65, y: 89, qty: 2 });
+
+  onConnect(ctx);
+
+  const player = ctx.db.player.identity.find(me);
+  assert.equal(player.carrying, "");
+  assert.equal(player.carryingStyle, "");
+  assert.deepEqual(ctx.db.inventory.rows().map((row: any) => row.item), ["sword"]);
+  assert.equal(ctx.db.groundItem.rows().some((row: any) => row.item === "quill"), false);
 });
 
 test("connecting a second tab for the same account does not reset active movement", () => {
@@ -1092,54 +883,13 @@ test("moveTo stores a cardinal route toward a reachable tile", () => {
   assert.deepEqual({ dirX: p.dirX, dirY: p.dirY, faceX: p.faceX, faceY: p.faceY }, { dirX: 1, dirY: 0, faceX: 1, faceY: 0 });
 });
 
-// --- Interacting: put-down, the cap on drop, and Hog pickup ---
+// --- Interacting ---
 
 test("interact puts a carried boulder down on the faced tile", () => {
   const { ctx, me } = withPlayer({ x: 69, y: 96, carrying: "boulder" });
   interact(ctx, { dirX: 1, dirY: 0 });
   assert.equal(ctx.db.player.identity.find(me).carrying, "");
   assert.equal(ctx.db.boulder.rows().length, 1);
-});
-
-test("a drop is refused at the entity cap, so the trogg keeps carrying", () => {
-  const { ctx, me } = withPlayer({ x: 69, y: 96, carrying: "hog" });
-  for (let i = 0; i < MAX_HOGS_PER_ZONE; i++) hogAt_(ctx, 65, 89);
-  interact(ctx, { dirX: 1, dirY: 0 });
-  assert.equal(ctx.db.player.identity.find(me).carrying, "hog"); // still carrying
-  assert.equal(ctx.db.hog.rows().length, MAX_HOGS_PER_ZONE); // no overflow
-});
-
-test("interact picks up a Hog on the faced tile", () => {
-  const { ctx, me } = withPlayer({ x: 69, y: 96 });
-  hogAt_(ctx, 70, 96);
-  interact(ctx, { dirX: 1, dirY: 0 });
-  assert.equal(ctx.db.hog.rows().length, 0);
-  assert.equal(ctx.db.player.identity.find(me).carrying, "hog");
-});
-
-test("interact preserves a Hog's style while carried and after put-down", () => {
-  const { ctx, me } = withPlayer({ x: 69, y: 96 });
-  hogAt_(ctx, 70, 96, "ember");
-
-  interact(ctx, { dirX: 1, dirY: 0 });
-  const carrying = ctx.db.player.identity.find(me);
-  assert.equal(carrying.carrying, "hog");
-  assert.equal(carrying.carryingStyle, "ember");
-
-  interact(ctx, { dirX: 1, dirY: 0 });
-  const dropped = ctx.db.hog.rows()[0];
-  assert.equal(ctx.db.player.identity.find(me).carrying, "");
-  assert.equal(ctx.db.player.identity.find(me).carryingStyle, "");
-  assert.equal(dropped.style, "ember");
-});
-
-test("interact stores the effective id-derived Hog style for legacy rows", () => {
-  const { ctx, me } = withPlayer({ x: 69, y: 96 });
-  const hog = hogAt_(ctx, 70, 96);
-
-  interact(ctx, { dirX: 1, dirY: 0 });
-
-  assert.equal(ctx.db.player.identity.find(me).carryingStyle, hogStyleFor(hog.id.toString()));
 });
 
 // --- Reset commands restore the registry layout ---
@@ -1151,14 +901,6 @@ test("resetBoulders restores the zone's registry boulder layout", () => {
   const reg = getZone(ZONE)!.boulders;
   const keys = new Set(ctx.db.boulder.rows().map((b: any) => `${b.x},${b.y}`));
   assert.deepEqual(keys, new Set(reg.map((c) => `${c.x},${c.y}`)));
-});
-
-test("resetHogs restores the zone's registry Hog population", () => {
-  const { ctx } = withPlayer({});
-  hogAt_(ctx, 65, 89);
-  hogAt_(ctx, 66, 90);
-  resetHogs(ctx);
-  assert.equal(ctx.db.hog.rows().length, getZone(ZONE)!.hogs.length + getZone(ZONE)!.bigHogs.length);
 });
 
 // --- Rename / recolor (validation + uniqueness) ---
@@ -1270,14 +1012,12 @@ test("onConnect wipes and reseeds rows stranded in rock by a map regen", () => {
   const ctx = makeCtx({ sender: me });
   // a boulder from an old layout, now inside the new map's rock at (0, 0)
   ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 0, y: 0 });
-  ctx.db.hog.insert({ id: 0n, zoneId: ZONE, x: 0, y: 1, dirX: 0, dirY: 0, movedAt: { microsSinceUnixEpoch: 0n }, style: "", health: 60 });
   onConnect(ctx);
   const zone = getZone(ZONE)!;
   for (const b of ctx.db.boulder.zoneId.filter(ZONE)) {
     assert.ok(isWalkable(zone, b.x, b.y), `reseeded boulder at ${b.x},${b.y} is in rock`);
   }
   assert.ok(ctx.db.boulder.zoneId.filter(ZONE).length > 0);
-  assert.ok(ctx.db.hog.rows().every((h: any) => isWalkable(zone, Math.round(h.x), Math.round(h.y))));
 });
 
 test("onConnect leaves healthy world rows alone", () => {

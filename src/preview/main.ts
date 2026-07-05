@@ -1,10 +1,10 @@
 import "./preview.css";
 import * as THREE from "three";
 import { createOrbit } from "../game/controls.js";
-import { COMMON_HOG_STYLES, HOG_STYLES, hogSize, TROGG_STYLES, wieldOf, type Kind } from "@trogg/shared";
-import { buildHog, buildHogBall, buildTrogg } from "../game/creatures.js";
+import { TROGG_STYLES, wieldOf } from "@trogg/shared";
+import { buildTrogg } from "../game/creatures.js";
 import { buildHeldItem, hasItem3D, updateHeldFx, wireHeldFx, type HeldFx } from "../game/items.js";
-import { hogIcon, itemIcon, troggIcon } from "../game/icons.js";
+import { itemIcon, troggIcon } from "../game/icons.js";
 import { applyFlinch, disposeObject, FLINCH_MS, poseDead, setDowned } from "../game/entities.js";
 import { type CreatureModel } from "../game/rig.js";
 
@@ -13,22 +13,18 @@ import { type CreatureModel } from "../game/rig.js";
  * every creature model, animation clip, and held item. Every control is
  * URL-addressable so a preview state is a
  * shareable deep link, e.g.
- * `/preview?view=holder&creature=hog:buff&item=sword&off=shield&mode=attack&paused=1&scrub=0.35&bones=1&yaw=-1.2`.
+ * `/preview?view=holder&creature=trogg:moss&item=sword&off=shield&mode=attack&paused=1&scrub=0.35&bones=1&yaw=-1.2`.
  * Unknown values fall back to defaults. The e2e harness boots these states
  * headless and asserts the canvas still renders (`e2e/preview.spec.ts`).
  */
 
 interface CreatureChoice {
-  kind: Kind;
   style: string;
 }
 
-const CREATURES: CreatureChoice[] = [
-  ...TROGG_STYLES.map((style) => ({ kind: "trogg" as Kind, style })),
-  ...HOG_STYLES.map((style) => ({ kind: "hog" as Kind, style })),
-];
+const CREATURES: CreatureChoice[] = TROGG_STYLES.map((style) => ({ style }));
 const ITEM_CHOICES = ["none", "pickaxe", "shovel", "axe", "sword", "shield", "torch", "stone", "wood"] as const;
-const MODES = ["idle", "walk", "run", "attack", "hit", "dead", "ball"] as const;
+const MODES = ["idle", "walk", "run", "attack", "hit", "dead"] as const;
 type Mode = (typeof MODES)[number];
 /** How often the hit flinch replays in `hit` mode. */
 const HIT_LOOP_MS = 900;
@@ -53,8 +49,8 @@ function parseCreature(raw: string | null): CreatureChoice {
   if (!raw) return CREATURES[0]!;
   const byIndex = CREATURES[Number(raw)];
   if (byIndex && /^\d+$/.test(raw)) return byIndex;
-  const [kind, style] = raw.split(":");
-  return CREATURES.find((c) => c.kind === kind && c.style === style) ?? CREATURES[0]!;
+  const style = raw.includes(":") ? raw.split(":")[1] : raw;
+  return CREATURES.find((c) => c.style === style) ?? CREATURES[0]!;
 }
 
 function parseItem(raw: string | null, fallback: string): string {
@@ -69,7 +65,7 @@ function parseMode(raw: string | null): Mode {
 function syncUrl(): void {
   const q = new URLSearchParams({
     view: state.view,
-    creature: `${state.creature.kind}:${state.creature.style}`,
+    creature: `trogg:${state.creature.style}`,
     item: state.item,
     off: state.off,
     mode: state.mode,
@@ -201,19 +197,7 @@ function rebuild(): void {
     return;
   }
 
-  if (state.mode === "ball") {
-    const style = (COMMON_HOG_STYLES as readonly string[]).includes(state.creature.style) ? state.creature.style : "classic";
-    const ball = buildHogBall(style);
-    ball.position.y = 0.42;
-    subject = ball;
-    scene.add(ball);
-    frame();
-    return;
-  }
-
-  model = state.creature.kind === "trogg" ? buildTrogg(state.creature.style) : buildHog(state.creature.style);
-  const scale = state.creature.kind === "hog" ? hogSize(state.creature.style) : 1;
-  model.root.scale.setScalar(scale);
+  model = buildTrogg(state.creature.style);
   model.root.rotation.y = state.yaw;
   subject = model.root;
   scene.add(model.root);
@@ -238,11 +222,10 @@ function rebuild(): void {
     action.reset().play();
   }
 
-  // The in-game dead stance, verbatim: flat on the ground, troggs also faded
-  // (Hog corpses stay opaque, like the game's). Frozen — the tick skips the mixer.
+  // The in-game dead stance, verbatim. Frozen — the tick skips the mixer.
   if (state.mode === "dead") {
-    poseDead(model, 0, state.creature.kind === "hog" ? 0.2 * scale : 0.24);
-    if (state.creature.kind === "trogg") setDowned(model, true);
+    poseDead(model, 0, 0.24);
+    setDowned(model, true);
   }
 
   // gold joint dots — the bones overlay, for checking joint placement
@@ -323,12 +306,7 @@ function mountControls(): void {
   const creatures = document.createElement("div");
   creatures.className = "palette";
   for (const c of CREATURES) {
-    const pick = () => {
-      state.creature = c;
-      // troggs have no ball form
-      if (c.kind === "trogg" && state.mode === "ball") state.mode = "idle";
-    };
-    creatures.appendChild(slot(c.kind === "trogg" ? troggIcon(c.style) : hogIcon(c.style), () => state.creature.kind === c.kind && state.creature.style === c.style, pick, true));
+    creatures.appendChild(slot(troggIcon(c.style), () => state.creature.style === c.style, () => (state.creature = c), true));
   }
 
   const items = document.createElement("div");
@@ -341,7 +319,6 @@ function mountControls(): void {
   }
 
   const modes = MODES.map((m) => button(m, () => state.mode === m, () => (state.mode = m)));
-  const ballBtn = modes[MODES.indexOf("ball")]!;
   const viewBtn = button("item view", () => state.view === "item", () => (state.view = state.view === "item" ? "holder" : "item"));
   const pauseBtn = button("pause", () => state.paused, () => (state.paused = !state.paused));
   const bonesBtn = button("bones", () => state.bones, () => (state.bones = !state.bones));
@@ -367,17 +344,16 @@ function mountControls(): void {
   controls.append(creatureG, mainG, offG, animG, group("", viewBtn, pauseBtn, bonesBtn), scrubG);
 
   // Hide what a view can't use: the lone-item shelf has no creature, off hand, or
-  // rig; the ball is one static pose (hogs only); the hit flinch runs on its own
+  // rig; the hit flinch runs on its own
   // cycle, so pause/scrub only apply to the clip modes.
   const holder = () => state.view !== "item";
-  const clipMode = () => holder() && state.mode !== "ball" && state.mode !== "hit" && state.mode !== "dead";
+  const clipMode = () => holder() && state.mode !== "hit" && state.mode !== "dead";
   showWhen(creatureG, holder);
-  showWhen(offG, () => holder() && state.mode !== "ball" && state.mode !== "dead");
-  showWhen(mainG, () => state.view === "item" || (state.mode !== "ball" && state.mode !== "dead"));
+  showWhen(offG, () => holder() && state.mode !== "dead");
+  showWhen(mainG, () => state.view === "item" || state.mode !== "dead");
   showWhen(animG, holder);
-  showWhen(ballBtn, () => state.creature.kind === "hog");
   showWhen(pauseBtn, clipMode);
-  showWhen(bonesBtn, () => holder() && state.mode !== "ball");
+  showWhen(bonesBtn, holder);
   showWhen(scrubG, clipMode);
 
   for (const p of repaints) p();
@@ -407,7 +383,7 @@ function tick(): void {
       }
       applyFlinch(flinchView, now, 0);
       model.mixer.update(state.paused ? 0 : dt);
-    } else if (state.mode !== "ball" && state.mode !== "dead") {
+    } else if (state.mode !== "dead") {
       const clip = currentClip();
       if (clip && state.paused) {
         for (const action of clip.actions) {

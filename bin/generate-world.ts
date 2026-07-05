@@ -13,7 +13,7 @@ const out = `/**
  * hand: edit tiles or seeds here directly (assertZones + the worldgen tests
  * validate edits); rerunning the generator overwrites the whole file.
  */
-import type { BigHog, BirthCellSeed, Coord, GroundItemSeed } from "./constants";
+import type { BirthCellSeed, Coord, GroundItemSeed } from "./constants";
 
 export const WORLD_SPAWN: Coord = ${JSON.stringify(world.spawn)};
 
@@ -30,11 +30,7 @@ export const WORLD_BOULDERS: readonly Coord[] = ${JSON.stringify(world.boulders)
 
 export const WORLD_TREES: readonly Coord[] = ${JSON.stringify(world.trees)};
 
-export const WORLD_HOGS: readonly Coord[] = ${JSON.stringify(world.hogs)};
-
 export const WORLD_ITEMS: readonly GroundItemSeed[] = ${JSON.stringify(world.items)};
-
-export const WORLD_BIG_HOGS: readonly BigHog[] = ${JSON.stringify(world.bigHogs)};
 
 /** The birth warren's cells (GDD "Onboarding: the Warren"). */
 export const WORLD_CELLS: readonly BirthCellSeed[] = [
@@ -48,4 +44,4 @@ export const WORLD_ARRIVAL: Coord = ${JSON.stringify(world.arrival)};
 export const WORLD_CAVE_DOOR: Coord = ${JSON.stringify(world.caveDoor)};
 `;
 writeFileSync(fileURLToPath(new URL("../shared/world-map.ts", import.meta.url)), out);
-console.log(`world committed: ${world.tiles.length} rows, ${world.boulders.length} boulders, ${world.trees.length} trees, ${world.hogs.length} hogs, ${world.cells.length} birth cells`);
+console.log(`world committed: ${world.tiles.length} rows, ${world.boulders.length} boulders, ${world.trees.length} trees, ${world.cells.length} birth cells`);

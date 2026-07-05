@@ -1,4 +1,4 @@
-import spacetimedb from "../schema";
+import spacetimedb, { type Ctx } from "../schema";
 import { Timestamp } from "spacetimedb";
 import {
   CAVE_DOOR,
@@ -16,13 +16,11 @@ import {
   healStaleWorld,
   seedBoulders,
   seedTrees,
-  seedHogs,
   seedGroundItems,
   seedBirthInstance,
   playerConnectionCount,
   rememberPlayerConnection,
   forgetPlayerConnection,
-  armWander,
   armRegen,
   isSpacetimeAuthCaller,
   claimProviderName,
@@ -34,22 +32,33 @@ import {
 
 export const init = spacetimedb.init(() => {});
 
+/** Remove durable values whose definitions were retired with Hogs. */
+function purgeRetiredHogState(ctx: Ctx): void {
+  for (const item of [...ctx.db.groundItem.iter()]) {
+    if (item.item === "quill") ctx.db.groundItem.id.delete(item.id);
+  }
+  for (const item of [...ctx.db.inventory.iter()]) {
+    if (item.item === "quill") ctx.db.inventory.id.delete(item.id);
+  }
+  for (const player of [...ctx.db.player.iter()]) {
+    if (player.carrying === "hog") ctx.db.player.identity.update({ ...player, carrying: "", carryingStyle: "" });
+  }
+}
+
 /**
  * A client connected. Resume the existing trogg (mark it online) or spawn a fresh
  * one at the zone centre. The durable row already is the player — there is no
  * separate load step.
  */
 export const onConnect = spacetimedb.clientConnected((ctx) => {
+  purgeRetiredHogState(ctx);
   // init runs first-publish only, so it can't seed a table added to an already-published
   // module; seed lazily on connect, idempotently.
   const startingZone = getZone(STARTING_ZONE_SLUG)!;
   healStaleWorld(ctx, startingZone);
   seedBoulders(ctx, startingZone);
   seedTrees(ctx, startingZone);
-  seedHogs(ctx, startingZone);
   seedGroundItems(ctx, startingZone);
-  // A player is here, so make sure the Hogs are roaming (no-op if already armed).
-  armWander(ctx);
   armRegen(ctx);
 
   const hadLiveConnection = playerConnectionCount(ctx, ctx.sender) > 0;

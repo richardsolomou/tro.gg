@@ -25,7 +25,7 @@ function harness(over: Partial<SelfControllerDeps> = {}) {
   const moves: MoveCall[] = [];
   const faces: FaceCall[] = [];
   const moveTos: Coord[] = [];
-  const hogTiles = new Set<string>();
+  const obstacleTiles = new Set<string>();
   const boulderTiles = new Set<string>();
   const destinations: (Coord | undefined)[] = [];
 
@@ -54,10 +54,10 @@ function harness(over: Partial<SelfControllerDeps> = {}) {
 
   const self = createSelfController({
     conn,
-    // Like production, the bounds treat hog and boulder tiles as unwalkable, so the
+    // Like production, the bounds treat dynamic obstacle and boulder tiles as unwalkable, so the
     // controller's can-I-progress probe collides with them (world3d's zoneBounds wiring).
-    bounds: { width: 20, height: 20, isWalkable: (x, y) => !hogTiles.has(`${x},${y}`) && !boulderTiles.has(`${x},${y}`) } as ZoneBounds,
-    hogTiles,
+    bounds: { width: 20, height: 20, isWalkable: (x, y) => !obstacleTiles.has(`${x},${y}`) && !boulderTiles.has(`${x},${y}`) } as ZoneBounds,
+    obstacleTiles,
     boulderTiles,
     getSelf: () => entry,
     showDestination: (tile) => destinations.push(tile),
@@ -68,7 +68,7 @@ function harness(over: Partial<SelfControllerDeps> = {}) {
   });
 
   const motion = (x: number, y: number, dirX: number, dirY: number, arrived = false): ProjectedMotion => ({ x, y, z: 0, dirX, dirY, arrived });
-  return { self, entry, player, moves, faces, moveTos, hogTiles, boulderTiles, destinations, motion };
+  return { self, entry, player, moves, faces, moveTos, obstacleTiles, boulderTiles, destinations, motion };
 }
 
 const idle: MoveIntent = { dirX: 0, dirY: 0, running: false };
@@ -117,9 +117,9 @@ test("a diagonal intent is sent as-is and faces its dominant axis", () => {
   assert.deepEqual({ dirX: h.self.facing.dirX, dirY: h.self.facing.dirY }, { dirX: 1, dirY: 0 });
 });
 
-test("waiting against a blocking Hog sends one standing face update", () => {
+test("waiting against a dynamic obstacle sends one standing face update", () => {
   const h = harness();
-  h.hogTiles.add("1,0");
+  h.obstacleTiles.add("1,0");
   h.self.onIntent(right);
   h.self.update(h.entry, h.motion(0, 0, 0, 0), 0);
   h.self.update(h.entry, h.motion(0, 0, 0, 0), 16);
@@ -141,12 +141,12 @@ test("a held run re-bases the origin once per tile crossed", () => {
   assert.equal(h.moves.length, 1);
 });
 
-test("walking flush into a Hog stops the trogg, keeping it idle (no stale intent)", () => {
+test("walking flush into a dynamic obstacle stops the trogg, keeping it idle (no stale intent)", () => {
   const h = harness();
   h.self.onIntent(right, true);
   h.moves.length = 0;
-  h.hogTiles.add("1,0"); // Hog on the tile directly ahead
-  h.self.update(h.entry, h.motion(0, 0, 1, 0), 0); // flush on centre against the Hog
+  h.obstacleTiles.add("1,0");
+  h.self.update(h.entry, h.motion(0, 0, 1, 0), 0);
   assert.deepEqual(h.moves.at(-1), { dirX: 0, dirY: 0, running: false });
 });
 
@@ -296,25 +296,25 @@ test("clicking a tile we're already on clears the marker instead of retrying for
   assert.equal(h.moveTos.length, before); // no further moveTo spam
 });
 
-test("WASD resumes the held direction once a blocking Hog moves off", () => {
+test("WASD resumes the held direction once a blocking obstacle moves off", () => {
   const h = harness();
   h.self.onIntent(right, true); // walking right
-  h.hogTiles.add("1,0"); // Hog flush on the tile ahead
+  h.obstacleTiles.add("1,0");
   h.self.update(h.entry, h.motion(0, 0, 1, 0), 0); // stop flush against it (idle intent)
   h.moves.length = 0;
   h.self.update(h.entry, h.motion(0, 0, 0, 0), 16); // still blocked: wait, arm the resume
   assert.equal(h.moves.length, 0);
-  h.hogTiles.clear(); // Hog ambles off
+  h.obstacleTiles.clear();
   h.self.update(h.entry, h.motion(0, 0, 0, 0), 32); // tile clear → resume walking
   assert.deepEqual(h.moves.at(-1), right);
 });
 
-test("a click-to-move route stalled on a Hog re-issues toward the clicked tile", () => {
+test("a click-to-move route stalled on an obstacle re-issues toward the clicked tile", () => {
   const h = harness();
   h.self.onClick({ x: 5, y: 0 });
   h.self.update(h.entry, h.motion(0, 0, 0, 0, true), 0); // flush fires the initial moveTo
   h.moveTos.length = 0;
-  // Server routed us partway, then a Hog sealed the next tile: path set, no heading, not arrived.
+  // Server routed us partway, then an obstacle sealed the next tile: path set, no heading, not arrived.
   h.entry.player.path = "1,0;2,0;3,0;4,0;5,0";
   h.self.update(h.entry, h.motion(1, 0, 0, 0, false), 1000); // stalled, throttle elapsed → re-route
   assert.deepEqual(h.moveTos.at(-1), { x: 5, y: 0 });

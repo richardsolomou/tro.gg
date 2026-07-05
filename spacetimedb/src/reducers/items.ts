@@ -1,6 +1,5 @@
 import spacetimedb, { type Ctx, type AnalyticsEvent } from "../schema";
 import { t } from "spacetimedb/server";
-import { ScheduleAt, Timestamp } from "spacetimedb";
 import {
   elapsedMs,
   EQUIPMENT_USE_COOLDOWN_MS,
@@ -25,14 +24,12 @@ import {
   addGroundItemTiles,
   meleeBoulderTarget,
   meleeTreeTarget,
-  meleeHogTarget,
   meleePlayerTarget,
   ownedInventoryRow,
   equippedInventoryRow,
   removeInventoryUnit,
   playerDiedEvent,
   dropLoot,
-  damageHog,
   damagePlayer,
   throwCarried,
   facingDir,
@@ -180,7 +177,7 @@ export const discardItemAction = spacetimedb.procedure(
  * Use the equipped main-hand item (GDD "Avatars and equipment"). The row update
  * is a visible, low-volume impulse every client can animate. It preserves the
  * current movement intent — using a tool never turns into a stop. If the trogg is
- * carrying a Hog, `F` throws it as a tile-based impact weapon. Otherwise the swing
+ * carrying a legacy boulder, `F` throws it as a tile-based impact weapon. Otherwise the swing
  * resolves in order: the weapon's own gathering node at full damage, a creature,
  * then any node at a fraction of the roll; at zero health the target dies or the
  * node breaks and grants its resource.
@@ -272,15 +269,10 @@ function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; d
     if (!landed) {
       const damage = roll();
       const trogg = meleePlayerTarget(ctx, p.zoneId, cx, cy, aim, ctx.timestamp, p.identity);
-      const hog = meleeHogTarget(ctx, p.zoneId, cx, cy, aim, ctx.timestamp);
-      if (trogg && (!hog || trogg.dist <= hog.dist)) {
+      if (trogg) {
         const result = damagePlayer(ctx, trogg.target, damage);
         events.push({ distinctId: distinctId(ctx), event: "combat_hit", properties: { ...props, weapon: item, target: "trogg", damage: result.dealt, killed: result.killed } });
         if (result.killed) events.push(playerDiedEvent(trogg.target.identity.toHexString(), props, item, result));
-        landed = true;
-      } else if (hog) {
-        const result = damageHog(ctx, hog.target, damage);
-        events.push({ distinctId: distinctId(ctx), event: "combat_hit", properties: { ...props, weapon: item, target: "hog", damage, killed: result.killed } });
         landed = true;
       }
     }
@@ -318,4 +310,3 @@ export const useEquippedAction = spacetimedb.procedure(
     return unit();
   },
 );
-

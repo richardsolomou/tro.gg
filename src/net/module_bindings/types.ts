@@ -62,30 +62,6 @@ export const GroundItem = __t.object("GroundItem", {
 });
 export type GroundItem = __Infer<typeof GroundItem>;
 
-export const Hog = __t.object("Hog", {
-  id: __t.u64(),
-  zoneId: __t.string(),
-  x: __t.i32(),
-  y: __t.i32(),
-  dirX: __t.i32(),
-  dirY: __t.i32(),
-  movedAt: __t.timestamp(),
-  path: __t.string(),
-  homeX: __t.i32(),
-  homeY: __t.i32(),
-  style: __t.string(),
-  health: __t.i32(),
-  lastDamagedAt: __t.timestamp(),
-  landingAt: __t.timestamp(),
-});
-export type Hog = __Infer<typeof Hog>;
-
-export const HogWander = __t.object("HogWander", {
-  scheduledId: __t.u64(),
-  scheduledAt: __t.scheduleAt(),
-});
-export type HogWander = __Infer<typeof HogWander>;
-
 export const Inventory = __t.object("Inventory", {
   id: __t.u64(),
   playerId: __t.identity(),

@@ -3,7 +3,6 @@
  * facings, footprints, and equip slots — where the cast lives.
  */
 
-export type Kind = "trogg" | "hog";
 export type Facing = "down" | "up" | "left" | "right";
 
 /**
@@ -12,27 +11,7 @@ export type Facing = "down" | "up" | "left" | "right";
  * rules. The first entry of each list is the default.
  */
 export const TROGG_STYLES = ["moss", "stone", "ridge"] as const;
-/** Every hog style. The common three fill the random roaming crowd; the big two
- *  (buff, dino) are placed showpieces that span a 2x2 footprint and render at
- *  double size; the chicken is an easter egg, summoned, never random. */
-export const HOG_STYLES = ["classic", "snow", "ember", "buff", "dino", "chicken"] as const;
-/** The small hogs that fill the id-derived random crowd (see `hogStyleFor`). */
-export const COMMON_HOG_STYLES = ["classic", "snow", "ember"] as const;
-/** Hogs that occupy a 2x2 tile footprint and render at double size (GDD "Hogs"). */
-export const BIG_HOG_STYLES = ["buff", "dino"] as const;
 export type TroggStyle = (typeof TROGG_STYLES)[number];
-export type HogStyle = (typeof HOG_STYLES)[number];
-export type Style = TroggStyle | HogStyle;
-
-/** A hog style's tile-footprint span: 2 for the big showpieces, 1 for the rest. */
-export function hogSize(style: string): number {
-  return (BIG_HOG_STYLES as readonly string[]).includes(style) ? 2 : 1;
-}
-
-/** The styles a kind offers, default first. */
-export function stylesOf(kind: Kind): readonly string[] {
-  return kind === "trogg" ? TROGG_STYLES : HOG_STYLES;
-}
 
 /**
  * The facing a movement intent reads as. WASD/path motion sets `(dirX, dirY)`;

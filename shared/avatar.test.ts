@@ -3,7 +3,6 @@ import { test } from "node:test";
 import {
   COLOR_UNSET,
   STYLE_UNSET,
-  hogStyleFor,
   isColorIndex,
   isTroggStyleIndex,
   TROGG_COLORS,
@@ -14,7 +13,7 @@ import {
   troggStyleFor,
   troggStyleIndexFor,
 } from "./avatar";
-import { HOG_STYLES, TROGG_STYLES } from "./creatures";
+import { TROGG_STYLES } from "./creatures";
 
 test("a trogg's colour is stable for the same id", () => {
   assert.equal(troggColor("abcd1234"), troggColor("abcd1234"));
@@ -79,11 +78,4 @@ test("effective index resolvers fall back to the id-derived default when unchose
   assert.equal(TROGG_COLORS[cIdx], troggColorFor(COLOR_UNSET, "abcd1234"));
   const sIdx = troggStyleIndexFor(STYLE_UNSET, "abcd1234");
   assert.equal(TROGG_STYLES[sIdx], troggStyleFor(STYLE_UNSET, "abcd1234"));
-});
-
-test("a Hog's style is stable for its id and always from the list", () => {
-  assert.equal(hogStyleFor("7"), hogStyleFor("7"));
-  for (const id of ["1", "2", "42", "999"]) {
-    assert.ok((HOG_STYLES as readonly string[]).includes(hogStyleFor(id)));
-  }
 });

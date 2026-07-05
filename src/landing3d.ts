@@ -1,11 +1,11 @@
 import * as THREE from "three";
-import { buildHog, buildTrogg } from "./game/creatures.js";
+import { buildTrogg } from "./game/creatures.js";
 import type { CreatureModel } from "./game/rig.js";
 import { CAVE_3D } from "./game/palette.js";
 
 /**
  * The landing page's ambient backdrop: darkness, a rocky low-poly floor, two
- * flickering torches framing the copy, and a trogg and a hog sitting in their
+ * flickering torches framing the copy, and two troggs sitting in their
  * light. Generic by design (not the game world), so the same look ports to the
  * stream scenes (starting soon / brb / ending) via bin/export-backdrop. No
  * netcode.
@@ -175,7 +175,7 @@ export interface BackdropOptions {
    *  the horizontal view, so 1 would leave them behind the centred copy. */
   spacing?: number;
   /** "pair" flanks centred copy with both torch groups; "right" keeps only the
-   *  right-hand torch and hog, for left-aligned layouts. */
+   *  right-hand torch and trogg, for left-aligned layouts. */
   layout?: "pair" | "right";
 }
 
@@ -195,9 +195,9 @@ function buildBackdropScene(glow: number, spacing: number, layout: "pair" | "rig
   scene.add(buildGround(rand));
 
   // Two torches framing the copy, like the old page — now casting real light —
-  // with a trogg and a hog sitting in their pools, facing the middle.
+  // with two troggs sitting in their pools, facing the middle.
   const torches = [buildTorch(4.6 * spacing, 1.0, 2, shadows)];
-  const creatures = [seat(buildHog("classic"), 3.7 * spacing, 1.8, -0.6, 0.12)];
+  const creatures = [seat(buildTrogg("stone"), 3.7 * spacing, 1.8, -0.6, 0.44)];
   if (layout === "pair") {
     torches.push(buildTorch(-4.6 * spacing, 1.0, 1, shadows));
     creatures.push(seat(buildTrogg("moss"), -3.9 * spacing, 1.2, 0.6, 0.44));

@@ -8,8 +8,8 @@
 
 export const SOUND_CATEGORIES = [
   { id: "music", label: "Music", blurb: "The game theme" },
-  { id: "footsteps", label: "Footsteps", blurb: "Troggs and Hogs on the move" },
-  { id: "world", label: "World", blurb: "Boulders, Hog snuffles, the ghost" },
+  { id: "footsteps", label: "Footsteps", blurb: "Troggs on the move" },
+  { id: "world", label: "World", blurb: "Boulders and the ghost" },
   { id: "interface", label: "Interface", blurb: "Chat, commands, pickups, errors" },
 ] as const;
 
