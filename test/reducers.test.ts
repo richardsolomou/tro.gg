@@ -38,6 +38,10 @@ import {
   HEALTH_REGEN_DELAY_MS,
   HEALTH_REGEN_FRACTION,
   STOCKPILE_CAP,
+  BRAZIER_UPKEEP_ITEM,
+  BRAZIER_UPKEEP_RATE,
+  BRAZIER_LIT_RADIUS,
+  FIRST_FIRE_LIT_RADIUS,
 } from "@trogg/shared";
 import {
   chat,
@@ -65,6 +69,7 @@ import {
   rescue,
   respawnPlayers,
   regenCreatures,
+  brazierUpkeep,
   spawn,
   startClaim,
   useEquipped,
@@ -905,6 +910,72 @@ test("resetBoulders restores the zone's registry boulder layout", () => {
   const reg = getZone(ZONE)!.boulders;
   const keys = new Set(ctx.db.boulder.rows().map((b: any) => `${b.x},${b.y}`));
   assert.deepEqual(keys, new Set(reg.map((c) => `${c.x},${c.y}`)));
+});
+
+// --- Braziers and territory ---
+
+test("onConnect seeds the First Fire as one eternal, always-lit brazier at the zone spawn", () => {
+  const me = id("newguest");
+  const ctx = makeCtx({ sender: me });
+  onConnect(ctx);
+  const zone = getZone(ZONE)!;
+  const spawn = zone.spawn ?? { x: Math.floor(zone.width / 2), y: Math.floor(zone.height / 2) };
+  const braziers = ctx.db.brazier.rows();
+  assert.equal(braziers.length, 1);
+  assert.deepEqual(
+    { x: braziers[0].x, y: braziers[0].y, radius: braziers[0].radius, lit: braziers[0].lit, isEternal: braziers[0].isEternal },
+    { x: spawn.x, y: spawn.y, radius: FIRST_FIRE_LIT_RADIUS, lit: true, isEternal: true },
+  );
+
+  // idempotent: a second guest connecting to the same world doesn't seed a duplicate First Fire
+  (ctx as any).sender = id("anotherguest");
+  onConnect(ctx);
+  assert.equal(ctx.db.brazier.rows().filter((b: any) => b.zoneId === ZONE).length, 1);
+});
+
+test("brazierUpkeep pays every lit brazier when the stockpile can cover it", () => {
+  const me = id("watcher");
+  const ctx = makeCtx({ sender: me });
+  ctx.db.player.insert(playerRow(me, { online: true }));
+  ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 0, y: 0, radius: FIRST_FIRE_LIT_RADIUS, lit: true, isEternal: true });
+  ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 10, y: 0, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
+  ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 20, y: 0, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
+  ctx.db.stockpile.insert({ item: BRAZIER_UPKEEP_ITEM, qty: 10 });
+
+  brazierUpkeep(ctx, {});
+
+  assert.equal(ctx.db.brazier.rows().every((b: any) => b.lit), true);
+  assert.equal(ctx.db.stockpile.item.find(BRAZIER_UPKEEP_ITEM)?.qty, 10 - 2 * BRAZIER_UPKEEP_RATE);
+  assert.equal(ctx.db.brazierUpkeepTimer.rows().length, 1); // re-armed while someone is online
+});
+
+test("brazierUpkeep gutters the brazier furthest from the First Fire first when unpaid", () => {
+  const me = id("watcher");
+  const ctx = makeCtx({ sender: me });
+  ctx.db.player.insert(playerRow(me, { online: true }));
+  const firstFire = ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 0, y: 0, radius: FIRST_FIRE_LIT_RADIUS, lit: true, isEternal: true });
+  const near = ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 10, y: 0, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
+  const far = ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 20, y: 0, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
+  ctx.db.stockpile.insert({ item: BRAZIER_UPKEEP_ITEM, qty: BRAZIER_UPKEEP_RATE }); // affords only one
+
+  brazierUpkeep(ctx, {});
+
+  assert.equal(ctx.db.brazier.id.find(firstFire.id)?.lit, true); // the First Fire is never billed
+  assert.equal(ctx.db.brazier.id.find(near.id)?.lit, true); // closer to the First Fire, kept lit
+  assert.equal(ctx.db.brazier.id.find(far.id)?.lit, false); // furthest, gutters first
+  assert.equal(ctx.db.stockpile.item.find(BRAZIER_UPKEEP_ITEM)?.qty, 0);
+});
+
+test("brazierUpkeep never bills or gutters the First Fire, even with an empty stockpile", () => {
+  const me = id("watcher");
+  const ctx = makeCtx({ sender: me });
+  ctx.db.player.insert(playerRow(me, { online: true }));
+  const firstFire = ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 0, y: 0, radius: FIRST_FIRE_LIT_RADIUS, lit: true, isEternal: true });
+
+  brazierUpkeep(ctx, {});
+
+  assert.equal(ctx.db.brazier.id.find(firstFire.id)?.lit, true);
+  assert.equal(ctx.db.stockpile.item.find(BRAZIER_UPKEEP_ITEM), undefined); // never touched
 });
 
 // --- Rename / recolor (validation + uniqueness) ---

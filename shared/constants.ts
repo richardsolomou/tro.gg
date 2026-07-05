@@ -91,6 +91,23 @@ export const INVENTORY_SLOT_COUNT = 20;
  *  past the cap is wasted effort. (initial) */
 export const STOCKPILE_CAP = 2000;
 
+/**
+ * Hearths and braziers (GDD "The fire and the dark" → Territory and
+ * permanence). `BRAZIER_LIT_RADIUS` is how far a brazier's light reaches, the
+ * "cannot enter a lit tile" boundary for dark creatures; the First Fire lights
+ * a wider ring since it anchors the whole hub. Upkeep is billed in Wood — a
+ * lit brazier draws `BRAZIER_UPKEEP_RATE` from the stockpile every
+ * `BRAZIER_UPKEEP_TICK_MS`; when the tribe can't cover total upkeep, braziers
+ * furthest from the First Fire gutter first (never the interior, never at
+ * random) until what's left is affordable. The First Fire itself never
+ * gutters, however long it goes unpaid. (initial)
+ */
+export const BRAZIER_LIT_RADIUS = 6;
+export const FIRST_FIRE_LIT_RADIUS = 10;
+export const BRAZIER_UPKEEP_ITEM: ItemId = "wood";
+export const BRAZIER_UPKEEP_RATE = 1;
+export const BRAZIER_UPKEEP_TICK_MS = 30_000;
+
 /** Trogg combat health, damage, and respawn timing. (initial) */
 export const PLAYER_MAX_HEALTH = 100;
 

@@ -35,7 +35,7 @@ import {
   type Zone,
 } from "@trogg/shared";
 import type { DbConnection } from "../net/module_bindings";
-import type { Boulder, GroundItem, Player, Tree } from "../net/module_bindings/types";
+import type { Boulder, Brazier, GroundItem, Player, Tree } from "../net/module_bindings/types";
 import { attachKeyboard, isTyping, type MoveIntent } from "../input.js";
 import { setupChat } from "../ui/chat.js";
 import { coachHit } from "../ui/coach.js";
@@ -47,7 +47,7 @@ import { interact, useEquipped } from "../net/procedures.js";
 import { isOlderPlayerMotion, playerMotionChanged, withPlayerMotion } from "../motion_sync.js";
 import { FarCrowd } from "./crowd.js";
 import { createEntities, disposeObject, type Entities, type Tracked } from "./entities.js";
-import { buildBoulder, buildTree } from "./items.js";
+import { buildBoulder, buildBrazier, buildTree, updateHeldFx, type HeldFx } from "./items.js";
 import { NodeField } from "./nodes.js";
 import { buildTerrain, type Terrain3D } from "./terrain.js";
 import { biomePalette, DAYLIGHT_3D, UI_3D } from "./palette.js";
@@ -201,6 +201,7 @@ export class World3D {
     canvas.style.opacity = "1";
   }
   private readonly groundItems = new Map<string, { row: GroundItem; group: THREE.Group }>();
+  private readonly braziers = new Map<string, { row: Brazier; group: THREE.Group; fx: HeldFx; ground: THREE.Mesh }>();
 
   private readonly boulderTiles = new Set<string>();
   private readonly treeTiles = new Set<string>();
@@ -464,6 +465,7 @@ export class World3D {
     this.wireGroundItems();
     this.wireBoulders();
     this.wireTrees();
+    this.wireBraziers();
     if (this.useGhost) this.wireGhostHaunts();
 
     attachKeyboard(
@@ -589,6 +591,7 @@ export class World3D {
       `SELECT * FROM ground_item WHERE zone_id = '${this.slug}'`,
       `SELECT * FROM boulder WHERE zone_id = '${this.slug}'`,
       `SELECT * FROM tree WHERE zone_id = '${this.slug}'`,
+      `SELECT * FROM brazier WHERE zone_id = '${this.slug}'`,
       "SELECT * FROM world_state",
       "SELECT * FROM stockpile",
     ];
@@ -750,6 +753,7 @@ export class World3D {
           trees: this.trees.size,
           boulders: this.boulders.size,
           groundItems: this.groundItems.size,
+          braziers: this.braziers.size,
         };
       };
     }
@@ -769,6 +773,11 @@ export class World3D {
     // hundred 4-vertex buffers is nothing), so it can never stall on cull state
     for (const view of this.groundItems.values()) {
       this.entities.animatePickupMotes(view.group, now);
+    }
+    // braziers are few (the First Fire, then whatever ignition has lit), so
+    // animating every lit one unconditionally costs nothing.
+    for (const view of this.braziers.values()) {
+      if (view.row.lit) updateHeldFx(view.fx, now);
     }
     this.crowd.commit();
     this.entities.updateGhosts(now);
@@ -1243,6 +1252,50 @@ export class World3D {
     conn.db.groundItem.onInsert((_ctx, row) => this.upsertGroundItem(row));
     conn.db.groundItem.onUpdate((_ctx, _old, row) => this.upsertGroundItem(row));
     conn.db.groundItem.onDelete((_ctx, row) => this.removeGroundItem(row));
+  }
+
+  /** A hearth or brazier: the stone ring + fire (`buildBrazier`) plus a flat
+   *  lit-ground disc scaled to its radius — the visible edge of claimed
+   *  territory (GDD "The fire and the dark" → Territory and permanence). */
+  private upsertBrazier(row: Brazier): void {
+    const key = row.id.toString();
+    let view = this.braziers.get(key);
+    if (!view) {
+      const group = buildBrazier();
+      const light = new THREE.PointLight(0xff8c2e, 9, Math.max(14, row.radius * 2.4), 1.6);
+      light.position.set(0.5, 0.7, 0.5);
+      light.castShadow = true;
+      group.add(light);
+      const ground = new THREE.Mesh(
+        new THREE.RingGeometry(0.6, row.radius, 32),
+        new THREE.MeshBasicMaterial({ color: 0xff8c2e, transparent: true, opacity: 0.05, side: THREE.DoubleSide, depthWrite: false }),
+      );
+      ground.rotation.x = -Math.PI / 2;
+      ground.position.set(0.5, 0.02, 0.5);
+      group.add(ground);
+      view = { row, group, fx: { cels: group.userData.flameCels as THREE.Group[], light }, ground };
+      this.braziers.set(key, view);
+      this.scene.add(group);
+      this.entities.place(group, row.x, row.y);
+    }
+    view.row = row;
+    view.fx.light!.visible = row.lit;
+    for (const cel of view.fx.cels ?? []) cel.visible = false;
+    if (view.fx.cels?.[0]) view.fx.cels[0].visible = row.lit;
+    view.ground.visible = row.lit;
+  }
+
+  private removeBrazier(row: Brazier): void {
+    const view = this.braziers.get(row.id.toString());
+    if (view) disposeObject(view.group);
+    this.braziers.delete(row.id.toString());
+  }
+
+  private wireBraziers(): void {
+    const conn = this.conn;
+    conn.db.brazier.onInsert((_ctx, row) => this.upsertBrazier(row));
+    conn.db.brazier.onUpdate((_ctx, _old, row) => this.upsertBrazier(row));
+    conn.db.brazier.onDelete((_ctx, row) => this.removeBrazier(row));
   }
 
   private wireGhostHaunts(): void {

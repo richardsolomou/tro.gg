@@ -300,6 +300,46 @@ export function buildTree(): THREE.Group {
   return g;
 }
 
+/** A hearth's or brazier's flame, cel-animated like a held torch but built at
+ *  world scale. Returns the group plus its cels so the caller can hard-swap
+ *  them and drive a point light off the same rhythm. */
+export function buildFire(seed: number, scale = 1): { group: THREE.Group; cels: THREE.Group[] } {
+  const group = new THREE.Group();
+  const rand = flameRng(seed);
+  const cels = Array.from({ length: TORCH_FLAME_CELS }, () => {
+    const cel = flameCel(rand);
+    cel.scale.setScalar(scale);
+    return cel;
+  });
+  for (const cel of cels) {
+    cel.visible = false;
+    group.add(cel);
+  }
+  cels[0]!.visible = true;
+  return { group, cels };
+}
+
+/** A hearth or brazier: a stone ring holding the fire (GDD "The fire and the
+ *  dark" → Territory and permanence). The flame and its light are wired
+ *  separately (`buildFire`/`wireBrazierFx`) so the caller can drive both off
+ *  the same `lit` state. */
+export function buildBrazier(): THREE.Group {
+  const g = new THREE.Group();
+  const ring = new THREE.Mesh(cylinder(0.5, 0.56, 0.22, 8), mat(ITEM_3D.rockDk));
+  ring.position.y = 0.11;
+  ring.castShadow = true;
+  ring.receiveShadow = true;
+  g.add(ring);
+  const bed = new THREE.Mesh(cylinder(0.4, 0.4, 0.1, 8), mat(ITEM_3D.rock));
+  bed.position.y = 0.2;
+  g.add(bed);
+  const { group: fire, cels } = buildFire(0x8110, 1.8);
+  fire.position.y = 0.24;
+  g.add(fire);
+  g.userData.flameCels = cels;
+  return g;
+}
+
 /** The mineable boulder: a chunky low-poly rock filling most of its tile. */
 export function buildBoulder(): THREE.Group {
   const g = new THREE.Group();

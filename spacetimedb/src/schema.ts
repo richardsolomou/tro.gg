@@ -9,13 +9,17 @@ import {
   BOULDER_MAX_HEALTH,
   TREE_MAX_HEALTH,
   PLAYER_MAX_HEALTH,
+  BRAZIER_UPKEEP_ITEM,
+  BRAZIER_UPKEEP_RATE,
 } from "../../shared/index";
 import {
   anyPlayerOnline,
   armRegen,
+  armBrazierUpkeep,
   respawnDue,
   scheduleRespawnAt,
   respawnPlayer,
+  withdrawStockpile,
 } from "./helpers";
 
 /**
@@ -270,6 +274,39 @@ const stockpile = table(
 );
 
 /**
+ * A fire that holds the dark back from the ground inside `radius` (GDD "The
+ * fire and the dark" → Territory and permanence). `isEternal` is true only for
+ * the First Fire at the Hearth, which never gutters regardless of upkeep.
+ * Every other row can go dark when the stockpile can't cover total upkeep —
+ * outermost from the First Fire first — and relights on a successful ignition.
+ */
+const brazier = table(
+  { name: "brazier", public: true },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    zoneId: t.string().index("btree"),
+    x: t.i32(),
+    y: t.i32(),
+    radius: t.i32(),
+    lit: t.bool(),
+    isEternal: t.bool(),
+  },
+);
+
+/**
+ * The brazier upkeep sweep's timer (GDD "The fire and the dark" → Territory
+ * and permanence) — a sanctioned scheduled-reducer exception, re-armed only
+ * while a player is online.
+ */
+const brazierUpkeepTimer = table(
+  { name: "brazier_upkeep_timer", scheduled: (): any => brazierUpkeep },
+  {
+    scheduledId: t.u64().primaryKey().autoInc(),
+    scheduledAt: t.scheduleAt(),
+  },
+);
+
+/**
  * Live socket presence per trogg (private). A player row is keyed by Identity, so
  * two tabs signed into the same account share one durable trogg. This table tracks
  * the individual connections behind that identity so an extra tab connecting does
@@ -328,7 +365,7 @@ const worldState = table(
   },
 );
 
-const spacetimedb = schema({ player, chatMessage, ghostHaunt, claimCode, boulder, tree, groundItem, inventory, stockpile, playerConnection, playerRespawn, creatureRegen, worldState });
+const spacetimedb = schema({ player, chatMessage, ghostHaunt, claimCode, boulder, tree, groundItem, inventory, stockpile, brazier, brazierUpkeepTimer, playerConnection, playerRespawn, creatureRegen, worldState });
 export default spacetimedb;
 
 /** The reducer context, typed against this module's schema (db view + sender). */
@@ -368,4 +405,45 @@ export const respawnPlayers = spacetimedb.reducer({ timer: playerRespawn.rowType
     return;
   }
   respawnPlayer(ctx, p);
+});
+
+/**
+ * Brazier upkeep sweep (GDD "The fire and the dark" → Territory and
+ * permanence): every lit, non-eternal brazier bills `BRAZIER_UPKEEP_RATE` of
+ * `BRAZIER_UPKEEP_ITEM` per tick. When the stockpile can't cover the total,
+ * the brazier(s) furthest from their zone's First Fire gutter first — never
+ * the interior, never at random — until what's left standing is affordable.
+ * The First Fire itself is never billed and never gutters.
+ */
+export const brazierUpkeep = spacetimedb.reducer({ timer: brazierUpkeepTimer.rowType }, (ctx) => {
+  const online = anyPlayerOnline(ctx);
+  if (online) {
+    const rows = [...ctx.db.brazier.iter()];
+    const byZone = new Map<string, (typeof rows)[number][]>();
+    for (const b of rows) {
+      let list = byZone.get(b.zoneId);
+      if (!list) {
+        list = [];
+        byZone.set(b.zoneId, list);
+      }
+      list.push(b);
+    }
+    for (const [, zoneBraziers] of byZone) {
+      const firstFire = zoneBraziers.find((b) => b.isEternal);
+      const lit = zoneBraziers
+        .filter((b) => b.lit && !b.isEternal)
+        .map((b) => ({ row: b, dist: firstFire ? Math.hypot(b.x - firstFire.x, b.y - firstFire.y) : 0 }))
+        .sort((a, b2) => b2.dist - a.dist); // furthest first
+      const stock = ctx.db.stockpile.item.find(BRAZIER_UPKEEP_ITEM)?.qty ?? 0;
+      let count = lit.length;
+      while (count > 0 && count * BRAZIER_UPKEEP_RATE > stock) {
+        const furthest = lit[lit.length - count]!.row;
+        ctx.db.brazier.id.update({ ...furthest, lit: false });
+        count--;
+      }
+      if (count > 0) withdrawStockpile(ctx, BRAZIER_UPKEEP_ITEM, count * BRAZIER_UPKEEP_RATE);
+    }
+  }
+  ctx.db.brazierUpkeepTimer.clear();
+  if (online) armBrazierUpkeep(ctx);
 });

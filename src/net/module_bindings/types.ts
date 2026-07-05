@@ -20,6 +20,23 @@ export const Boulder = __t.object("Boulder", {
 });
 export type Boulder = __Infer<typeof Boulder>;
 
+export const Brazier = __t.object("Brazier", {
+  id: __t.u64(),
+  zoneId: __t.string(),
+  x: __t.i32(),
+  y: __t.i32(),
+  radius: __t.i32(),
+  lit: __t.bool(),
+  isEternal: __t.bool(),
+});
+export type Brazier = __Infer<typeof Brazier>;
+
+export const BrazierUpkeepTimer = __t.object("BrazierUpkeepTimer", {
+  scheduledId: __t.u64(),
+  scheduledAt: __t.scheduleAt(),
+});
+export type BrazierUpkeepTimer = __Infer<typeof BrazierUpkeepTimer>;
+
 export const ChatMessage = __t.object("ChatMessage", {
   id: __t.u64(),
   zoneId: __t.string(),

@@ -3,6 +3,7 @@ import {
   GHOST_HAUNT_HISTORY_MAX,
   WANDER_IDLE_CHANCE,
   HEALTH_REGEN_TICK_MS,
+  BRAZIER_UPKEEP_TICK_MS,
   isValidName,
   isWalkable,
   BOULDER_MAX_HEALTH,
@@ -190,6 +191,14 @@ export function armRegen(ctx: Ctx): void {
   ctx.db.creatureRegen.insert({ scheduledId: 0n, scheduledAt: ScheduleAt.time(at) });
 }
 
+/** Arm the brazier upkeep sweep, unless one is already pending (GDD "The fire
+ *  and the dark" → Territory and permanence). */
+export function armBrazierUpkeep(ctx: Ctx): void {
+  if (ctx.db.brazierUpkeepTimer.count() > 0n) return;
+  const at = ctx.timestamp.microsSinceUnixEpoch + BigInt(BRAZIER_UPKEEP_TICK_MS) * 1000n;
+  ctx.db.brazierUpkeepTimer.insert({ scheduledId: 0n, scheduledAt: ScheduleAt.time(at) });
+}
+
 /** Whether the caller authenticated with a SpacetimeAuth OIDC token (an account, not a guest). */
 export function isSpacetimeAuthCaller(ctx: Ctx): boolean {
   return ctx.senderAuth.hasJWT && ctx.senderAuth.jwt?.issuer === SPACETIMEAUTH_ISSUER;
@@ -219,3 +228,4 @@ export * from "./tiles";
 export * from "./inventory";
 export * from "./combat";
 export * from "./stockpile";
+export * from "./brazier";

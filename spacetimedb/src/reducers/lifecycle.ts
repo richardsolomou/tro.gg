@@ -18,10 +18,12 @@ import {
   seedTrees,
   seedGroundItems,
   seedBirthInstance,
+  seedFirstFire,
   playerConnectionCount,
   rememberPlayerConnection,
   forgetPlayerConnection,
   armRegen,
+  armBrazierUpkeep,
   isSpacetimeAuthCaller,
   claimProviderName,
   settle,
@@ -45,7 +47,9 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
   seedBoulders(ctx, startingZone);
   seedTrees(ctx, startingZone);
   seedGroundItems(ctx, startingZone);
+  seedFirstFire(ctx, startingZone);
   armRegen(ctx);
+  armBrazierUpkeep(ctx);
 
   const hadLiveConnection = playerConnectionCount(ctx, ctx.sender) > 0;
   rememberPlayerConnection(ctx);

@@ -91,6 +91,8 @@ export function makeCtx(opts: FakeCtxOpts) {
       groundItem: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
       inventory: makeTable({ pk: "id", autoInc: true, indexes: ["playerId"] }),
       stockpile: makeTable({ pk: "item" }),
+      brazier: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
+      brazierUpkeepTimer: makeTable({ pk: "scheduledId", autoInc: true }),
       playerConnection: makeTable({ pk: "connectionId", indexes: ["playerId"] }),
       chatMessage: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
       ghostHaunt: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
