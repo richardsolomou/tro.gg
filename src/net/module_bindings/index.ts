@@ -51,7 +51,6 @@ import RedeemClaimReducer from "./redeem_claim_reducer";
 import RenameReducer from "./rename_reducer";
 import RescueReducer from "./rescue_reducer";
 import ResetBouldersReducer from "./reset_boulders_reducer";
-import ResetHogsReducer from "./reset_hogs_reducer";
 import RestyleReducer from "./restyle_reducer";
 import SetCheatsReducer from "./set_cheats_reducer";
 import SetLiftReducer from "./set_lift_reducer";
@@ -70,7 +69,6 @@ import * as InteractActionProcedure from "./interact_action_procedure";
 import * as RecolorActionProcedure from "./recolor_action_procedure";
 import * as RenameActionProcedure from "./rename_action_procedure";
 import * as ResetBouldersActionProcedure from "./reset_boulders_action_procedure";
-import * as ResetHogsActionProcedure from "./reset_hogs_action_procedure";
 import * as RestyleActionProcedure from "./restyle_action_procedure";
 import * as SpawnActionProcedure from "./spawn_action_procedure";
 import * as UseEquippedActionProcedure from "./use_equipped_action_procedure";
@@ -80,9 +78,9 @@ import BoulderRow from "./boulder_table";
 import ChatMessageRow from "./chat_message_table";
 import GhostHauntRow from "./ghost_haunt_table";
 import GroundItemRow from "./ground_item_table";
-import HogRow from "./hog_table";
 import InventoryRow from "./inventory_table";
 import PlayerRow from "./player_table";
+import StockpileRow from "./stockpile_table";
 import TreeRow from "./tree_table";
 import WorldStateRow from "./world_state_table";
 
@@ -146,20 +144,6 @@ const tablesSchema = __schema({
       { name: 'ground_item_id_key', constraint: 'unique', columns: ['id'] },
     ],
   }, GroundItemRow),
-  hog: __table({
-    name: 'hog',
-    indexes: [
-      { accessor: 'id', name: 'hog_id_idx_btree', algorithm: 'btree', columns: [
-        'id',
-      ] },
-      { accessor: 'zoneId', name: 'hog_zone_id_idx_btree', algorithm: 'btree', columns: [
-        'zoneId',
-      ] },
-    ],
-    constraints: [
-      { name: 'hog_id_key', constraint: 'unique', columns: ['id'] },
-    ],
-  }, HogRow),
   inventory: __table({
     name: 'inventory',
     indexes: [
@@ -188,6 +172,17 @@ const tablesSchema = __schema({
       { name: 'player_identity_key', constraint: 'unique', columns: ['identity'] },
     ],
   }, PlayerRow),
+  stockpile: __table({
+    name: 'stockpile',
+    indexes: [
+      { accessor: 'item', name: 'stockpile_item_idx_btree', algorithm: 'btree', columns: [
+        'item',
+      ] },
+    ],
+    constraints: [
+      { name: 'stockpile_item_key', constraint: 'unique', columns: ['item'] },
+    ],
+  }, StockpileRow),
   tree: __table({
     name: 'tree',
     indexes: [
@@ -234,7 +229,6 @@ const reducersSchema = __reducers(
   __reducerSchema("rename", RenameReducer),
   __reducerSchema("rescue", RescueReducer),
   __reducerSchema("reset_boulders", ResetBouldersReducer),
-  __reducerSchema("reset_hogs", ResetHogsReducer),
   __reducerSchema("restyle", RestyleReducer),
   __reducerSchema("set_cheats", SetCheatsReducer),
   __reducerSchema("set_lift", SetLiftReducer),
@@ -255,7 +249,6 @@ const proceduresSchema = __procedures(
   __procedureSchema("recolor_action", RecolorActionProcedure.params, RecolorActionProcedure.returnType),
   __procedureSchema("rename_action", RenameActionProcedure.params, RenameActionProcedure.returnType),
   __procedureSchema("reset_boulders_action", ResetBouldersActionProcedure.params, ResetBouldersActionProcedure.returnType),
-  __procedureSchema("reset_hogs_action", ResetHogsActionProcedure.params, ResetHogsActionProcedure.returnType),
   __procedureSchema("restyle_action", RestyleActionProcedure.params, RestyleActionProcedure.returnType),
   __procedureSchema("spawn_action", SpawnActionProcedure.params, SpawnActionProcedure.returnType),
   __procedureSchema("use_equipped_action", UseEquippedActionProcedure.params, UseEquippedActionProcedure.returnType),

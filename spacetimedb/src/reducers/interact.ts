@@ -14,20 +14,17 @@ import {
   settle,
   solidTiles,
   addInventory,
-  pickupTarget,
   nearestGroundItem,
-  effectiveHogStyle,
   placeCarried,
   cardinal,
 } from "../helpers";
 
 /**
  * Interact with nearby things (GDD "Interacting") — a generic action key (client
- * `E`). Empty-handed, pick up an adjacent ground item into inventory or lift an
- * adjacent Hog onto the trogg (delete its world row, stamp `carrying`); already
- * carrying, set it back down on the faced tile. The faced direction is
- * passed in because an idle trogg's standing facing isn't synced (GDD "Movement");
- * the server still re-derives the trogg's tile and only acts on adjacent targets,
+ * `E`). Empty-handed, pick up an adjacent ground item into inventory; already
+ * carrying, set it back down on the faced tile. The faced direction is passed in
+ * because an idle trogg's standing facing isn't synced (GDD "Movement"); the
+ * server still re-derives the trogg's tile and only acts on adjacent targets,
  * preferring the faced tile when there are multiple candidates, so the client can't
  * reach past its neighbours (invariant 3).
  */
@@ -51,7 +48,6 @@ function runInteract(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; dirY
     if (place) ctx.db.player.identity.update({ ...p, carrying: "", carryingStyle: "" });
     if (!place) return [];
     const properties: Record<string, string | number | boolean> = { ...props, kind };
-    if (kind === "hog" && p.carryingStyle !== "") properties.style = p.carryingStyle;
     return [{ distinctId: distinctId(ctx), event: "object_dropped", properties }];
   }
 
@@ -66,13 +62,6 @@ function runInteract(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; dirY
     return [{ distinctId: distinctId(ctx), event: "inventory_item_acquired", properties: { ...props, item: item.item, qty } }];
   }
 
-  const target = pickupTarget(ctx, p.zoneId, Math.round(pos.x), Math.round(pos.y), dir, ctx.timestamp);
-  if (target?.kind === "hog") {
-    const carryingStyle = effectiveHogStyle(target.row);
-    ctx.db.hog.id.delete(target.row.id);
-    ctx.db.player.identity.update({ ...p, carrying: "hog", carryingStyle });
-    return [{ distinctId: distinctId(ctx), event: "object_picked_up", properties: { ...props, kind: "hog", style: carryingStyle } }];
-  }
   return [];
 }
 

@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { buildHog, buildTrogg } from "./creatures.js";
+import { buildTrogg } from "./creatures.js";
 import { buildBoulder, buildHeldItem, buildTree } from "./items.js";
 import { ITEM_3D } from "./palette.js";
 
@@ -89,11 +89,6 @@ export function itemIcon(item: string): HTMLCanvasElement {
     model?.rotation.set(0, 0.5, 0); // upright, slightly turned — the shelf pose
     return model;
   });
-}
-
-/** A hog style's icon canvas (the Commands panel spawn buttons). */
-export function hogIcon(style: string): HTMLCanvasElement {
-  return cached(`hog:${style}`, () => buildHog(style).root);
 }
 
 /** A trogg style's icon canvas (the model preview's creature palette). */

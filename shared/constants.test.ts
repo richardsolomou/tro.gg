@@ -101,12 +101,6 @@ test("the starting zone seeds boulders on floor, clear of the spawn", () => {
   }
 });
 
-test("the starting zone seeds roaming hogs on walkable floor", () => {
-  const zone = getZone(STARTING_ZONE_SLUG)!;
-  assert.ok(zone.hogs.length > 0);
-  for (const h of zone.hogs) assert.equal(isWalkable(zone, h.x, h.y), true);
-});
-
 test("the starting zone seeds pickup items on walkable floor", () => {
   const zone = getZone(STARTING_ZONE_SLUG)!;
   assert.ok(zone.items.length > 0);

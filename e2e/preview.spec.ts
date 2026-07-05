@@ -33,12 +33,12 @@ async function nonBackgroundPixels(page: Page): Promise<number> {
 }
 
 const STATES = [
-  { name: "trogg wielding sword + shield, mid-attack", query: "creature=trogg:moss&item=sword&off=shield&mode=attack&paused=1&scrub=0.35" },
-  { name: "buff hog idle", query: "creature=hog:buff&item=none&mode=idle&paused=1" },
-  { name: "common hog ball form", query: "creature=hog:classic&item=none&mode=ball&paused=1" },
-  { name: "trogg hit-flinch", query: "creature=trogg:moss&item=sword&mode=hit&paused=1&scrub=0.2" },
+  { name: "trogg wielding sword + shield, mid-attack", query: "creature=moss&item=sword&off=shield&mode=attack&paused=1&scrub=0.35" },
+  { name: "ridge trogg idle", query: "creature=ridge&item=none&mode=idle&paused=1" },
+  { name: "stone trogg dead pose", query: "creature=stone&item=none&mode=dead&paused=1" },
+  { name: "trogg hit-flinch", query: "creature=moss&item=sword&mode=hit&paused=1&scrub=0.2" },
   { name: "item view: sword", query: "view=item&item=sword" },
-  { name: "bones overlay", query: "creature=trogg:moss&item=pickaxe&mode=walk&paused=1&bones=1" },
+  { name: "bones overlay", query: "creature=moss&item=pickaxe&mode=walk&paused=1&bones=1" },
 ];
 
 for (const state of STATES) {

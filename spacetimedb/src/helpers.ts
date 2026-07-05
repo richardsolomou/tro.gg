@@ -1,14 +1,10 @@
 import { ScheduleAt, Timestamp } from "spacetimedb";
 import {
   GHOST_HAUNT_HISTORY_MAX,
-  HOG_IDLE_CHANCE,
-  HOG_STEP_INTERVAL_MS,
-  HOG_TURN_CHANCE,
+  WANDER_IDLE_CHANCE,
   HEALTH_REGEN_TICK_MS,
   isValidName,
   isWalkable,
-  HOG_MAX_HEALTH,
-  hogMaxHealth,
   BOULDER_MAX_HEALTH,
   TREE_MAX_HEALTH,
   SPACETIMEAUTH_ISSUER,
@@ -64,25 +60,21 @@ export function unit(): {} {
 /**
  * Regenerating the committed world map under a live database leaves rows seeded
  * from the old layout sitting inside the new map's rock — visibly embedded in
- * walls, and poisoning collision (a hog projected from inside rock makes the
- * client and server disagree about blocked tiles). Detect any seedable row on
- * unwalkable ground and wipe the zone's boulders, Hogs, and ground items; the
- * idempotent seeders right after then re-seed from the current map.
+ * walls, and poisoning collision. Detect any seedable row on unwalkable ground
+ * and wipe the zone's boulders, trees, and ground items; the idempotent seeders
+ * right after then re-seed from the current map.
  */
 export function healStaleWorld(ctx: Ctx, zone: Zone): void {
   const boulders = [...ctx.db.boulder.zoneId.filter(zone.slug)];
   const trees = [...ctx.db.tree.zoneId.filter(zone.slug)];
-  const hogs = [...ctx.db.hog.zoneId.filter(zone.slug)];
   const items = [...ctx.db.groundItem.zoneId.filter(zone.slug)];
   const stale =
     boulders.some((b) => !isWalkable(zone, b.x, b.y)) ||
     trees.some((tr) => !isWalkable(zone, tr.x, tr.y)) ||
-    hogs.some((h) => !isWalkable(zone, Math.round(h.x), Math.round(h.y))) ||
     items.some((g) => !isWalkable(zone, g.x, g.y));
   if (!stale) return;
   for (const b of boulders) ctx.db.boulder.id.delete(b.id);
   for (const tr of trees) ctx.db.tree.id.delete(tr.id);
-  for (const h of hogs) ctx.db.hog.id.delete(h.id);
   for (const g of items) ctx.db.groundItem.id.delete(g.id);
 }
 
@@ -100,19 +92,6 @@ export function seedTrees(ctx: Ctx, zone: Zone): void {
   if ([...ctx.db.tree.zoneId.filter(zone.slug)].length > 0) return;
   for (const tr of zone.trees) {
     ctx.db.tree.insert({ id: 0n, zoneId: zone.slug, x: tr.x, y: tr.y, health: TREE_MAX_HEALTH });
-  }
-}
-
-/** Seed a zone's Hogs from the registry, unless it already has some — the common
- *  roamers (style "" → client-derived skin) and the rare 2×2 showpieces (explicit
- *  style, so `hogSize` makes them big). */
-export function seedHogs(ctx: Ctx, zone: Zone): void {
-  if ([...ctx.db.hog.zoneId.filter(zone.slug)].length > 0) return;
-  for (const h of zone.hogs) {
-    ctx.db.hog.insert({ id: 0n, zoneId: zone.slug, x: h.x, y: h.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, path: "", homeX: h.x, homeY: h.y, style: "", health: HOG_MAX_HEALTH, lastDamagedAt: Timestamp.UNIX_EPOCH, landingAt: Timestamp.UNIX_EPOCH });
-  }
-  for (const h of zone.bigHogs) {
-    ctx.db.hog.insert({ id: 0n, zoneId: zone.slug, x: h.x, y: h.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, path: "", homeX: h.x, homeY: h.y, style: h.style, health: hogMaxHealth(h.style), lastDamagedAt: Timestamp.UNIX_EPOCH, landingAt: Timestamp.UNIX_EPOCH });
   }
 }
 
@@ -143,8 +122,8 @@ export function seedBirthInstance(ctx: Ctx, zoneId: string): void {
   ctx.db.groundItem.insert({ id: 0n, zoneId, item: "pickaxe", x: cell.pickaxe.x, y: cell.pickaxe.y, qty: 1 });
 }
 
-/** Whether any player is currently online — the Hogs only roam while someone is
- *  watching (invariant 1: an empty zone does no work). */
+/** Whether any player is currently online — scheduled sweeps only run while
+ *  someone is watching (invariant 1: an empty zone does no work). */
 export function anyPlayerOnline(ctx: Ctx): boolean {
   for (const p of ctx.db.player.iter()) if (p.online) return true;
   return false;
@@ -185,21 +164,12 @@ export function trimGhostHaunts(ctx: Ctx, zoneId: string): void {
   for (let i = 0; i < excess; i++) ctx.db.ghostHaunt.id.delete(rows[i]!.id);
 }
 
-/** Arm a single one-shot Hog wander tick, unless one is already pending. The tick
- *  fires once per tile-crossing so a Hog re-bases (and re-checks collision) every tile
- *  (GDD "Hogs"). */
-export function armWander(ctx: Ctx): void {
-  if (ctx.db.hogWander.count() > 0n) return;
-  const at = ctx.timestamp.microsSinceUnixEpoch + BigInt(Math.round(HOG_STEP_INTERVAL_MS)) * 1000n;
-  ctx.db.hogWander.insert({ scheduledId: 0n, scheduledAt: ScheduleAt.time(at) });
-}
-
 /**
- * A fresh wander heading (GDD "Hogs"), picked when a run ends — blocked ahead,
- * a turn roll, or waking from idle. Idle with `HOG_IDLE_CHANCE` so Hogs pause,
- * else a random open step from all 8 directions (`walkableSteps` keeps
- * diagonals from squeezing wall corners). `bounds` already treats walls,
- * boulders, trees, troggs, and other Hogs as unwalkable.
+ * A fresh wander heading, picked when a run ends — blocked ahead, a turn roll,
+ * or waking from idle. Idle with `WANDER_IDLE_CHANCE` so a wanderer pauses, else
+ * a random open step from all 8 directions (`walkableSteps` keeps diagonals from
+ * squeezing wall corners). `bounds` already treats walls, boulders, trees, and
+ * troggs as unwalkable.
  */
 export function pickWanderDir(
   ctx: Ctx,
@@ -207,7 +177,7 @@ export function pickWanderDir(
   pos: { x: number; y: number },
   size: number,
 ): { dirX: number; dirY: number } {
-  if (ctx.random() < HOG_IDLE_CHANCE) return { dirX: 0, dirY: 0 };
+  if (ctx.random() < WANDER_IDLE_CHANCE) return { dirX: 0, dirY: 0 };
   const options = walkableSteps(bounds, pos.x, pos.y, size);
   if (options.length === 0) return { dirX: 0, dirY: 0 };
   return options[ctx.random.integerInRange(0, options.length - 1)]!;
@@ -248,3 +218,4 @@ export function nameTaken(ctx: Ctx, name: string, self: Ctx["sender"]): boolean 
 export * from "./tiles";
 export * from "./inventory";
 export * from "./combat";
+export * from "./stockpile";

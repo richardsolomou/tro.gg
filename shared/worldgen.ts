@@ -1,5 +1,5 @@
 import { DEEP_WATER_TILE, GLOWMOSS_TILE, GRAVEL_TILE, MOSS_TILE, WALL_TILE, WATER_TILE } from "./glyphs";
-import type { BigHog, BirthCellSeed, Coord, GroundItemSeed, Zone, ZoneExit } from "./constants";
+import type { BirthCellSeed, Coord, GroundItemSeed, Zone, ZoneExit } from "./constants";
 
 /**
  * Biomes: the same cave automaton dressed differently. A biome picks the
@@ -45,8 +45,7 @@ const BIOME_PARAMS: Record<BiomeId, BiomeParams> = {
  * - a clear spawn plaza around the zone centre (`spawnAt` is the centre tile);
  * - every walkable tile reachable from the spawn (disconnected pockets are
  *   filled back in), so click-to-move can route anywhere you can see;
- * - seeded boulders, roaming hogs, starter tools, and the two showpiece giants
- *   all land on open floor, giants on clear 2×2 footprints.
+ * - seeded boulders and starter tools all land on open floor.
  */
 
 /** How much of the interior starts as rock before smoothing. */
@@ -75,7 +74,6 @@ export interface CaveOptions {
   seed: number;
   boulders: number;
   trees?: number;
-  hogs: number;
   biome: BiomeId;
   /** Which edges open into which neighbour zones (gates carved mid-edge). */
   exits?: Partial<Record<"north" | "south" | "east" | "west", string>>;
@@ -197,7 +195,7 @@ export function generateCaveZone(opts: CaveOptions): Zone {
     }
   }
 
-  // ── seed the dynamics: boulders, hogs, tools, giants ────────────────────────────
+  // ── seed the dynamics: boulders, tools ────────────────────────────
   // nothing seeds inside a gate tunnel — an immovable boulder there would brick it
   const taken = new Set<string>(gateCorridor);
   const openTile = (minSpawnDist: number, fits?: (x: number, y: number) => boolean): Coord => {
@@ -219,28 +217,12 @@ export function generateCaveZone(opts: CaveOptions): Zone {
   for (let i = 0; i < opts.boulders; i++) boulders.push(openTile(SPAWN_CLEARING + 2));
   const trees: Coord[] = [];
   for (let i = 0; i < (opts.trees ?? 0); i++) trees.push(openTile(SPAWN_CLEARING + 2));
-  const hogs: Coord[] = [];
-  for (let i = 0; i < opts.hogs; i++) hogs.push(openTile(SPAWN_CLEARING + 3));
 
   // starter tools ring the spawn plaza, like the old cave's rack by the centre
   const items: GroundItemSeed[] = (["pickaxe", "shovel", "axe", "sword", "shield", "torch"] as const).map((item, i) => {
     const tile = { x: cx - 2 + i, y: cy - 2 };
     taken.add(`${tile.x},${tile.y}`);
     return { item, ...tile };
-  });
-
-  const giantFits = (x: number, y: number): boolean => {
-    for (let dy = 0; dy < 2; dy++) {
-      for (let dx = 0; dx < 2; dx++) {
-        if (rock[idx(x + dx, y + dy)] !== 0 || taken.has(`${x + dx},${y + dy}`)) return false;
-      }
-    }
-    return true;
-  };
-  const bigHogs: BigHog[] = (["buff", "dino"] as const).map((style) => {
-    const tile = openTile(10, giantFits);
-    for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) taken.add(`${tile.x + dx},${tile.y + dy}`);
-    return { ...tile, style };
   });
 
   return {
@@ -253,9 +235,7 @@ export function generateCaveZone(opts: CaveOptions): Zone {
     tiles: glyphs.map((row) => row.join("")),
     boulders,
     trees,
-    hogs,
     items,
-    bigHogs,
     cells: [],
   };
 }
@@ -405,9 +385,7 @@ export function generateBirthCave(): Zone {
     tiles: glyphs.map((row) => row.join("")),
     boulders: [],
     trees: [],
-    hogs: [],
     items: [],
-    bigHogs: [],
     cells: [{ x: spawn.x, y: spawn.y, corridor, pickaxe }],
   };
 }
@@ -433,7 +411,7 @@ export const WORLD_W = 224;
 export const WORLD_H = 208;
 
 export const WORLD_REGIONS: readonly WorldRegion[] = [
-  { slug: "hog-town", name: "Hog Town", biome: "cave", x: 112, y: 104 },
+  { slug: "hearth", name: "The Hearth", biome: "cave", x: 112, y: 104 },
   { slug: "glowvault", name: "Glowvault", biome: "glowvault", x: 88, y: 62 },
   { slug: "starwell", name: "Starwell", biome: "starwell", x: 138, y: 34 },
   { slug: "mossglen", name: "Mossglen", biome: "mossglen", x: 128, y: 148 },
@@ -486,9 +464,7 @@ export interface GeneratedWorld {
   regions: string[];
   boulders: Coord[];
   trees: Coord[];
-  hogs: Coord[];
   items: GroundItemSeed[];
-  bigHogs: BigHog[];
   cells: BirthCellSeed[];
   /** Where an emerging trogg lands: inside the coast's cave-mouth alcove. */
   arrival: Coord;
@@ -708,7 +684,6 @@ export function generateWorld(): GeneratedWorld {
   const taken = new Set<string>();
   const seedRand = mulberry32(0x70663008);
   const boulders: Coord[] = [];
-  const hogs: Coord[] = [];
   const openTiles: Coord[][] = WORLD_REGIONS.map(() => []);
   const DRY = new Set([".", MOSS_TILE, GRAVEL_TILE, GLOWMOSS_TILE]);
   for (let y = 1; y < H - 1; y++) {
@@ -736,33 +711,12 @@ export function generateWorld(): GeneratedWorld {
       const tile = drawFrom(region);
       if (tile) boulders.push(tile);
     }
-    for (let i = 0; i < 10; i++) {
-      const tile = drawFrom(region);
-      if (tile) hogs.push(tile);
-    }
   }
   const items: GroundItemSeed[] = (["pickaxe", "shovel", "axe", "sword", "shield", "torch"] as const).map((item, i) => {
     const tile = { x: spawn.x - 2 + i, y: spawn.y - 2 };
     taken.add(`${tile.x},${tile.y}`);
     return { item, ...tile };
   });
-  const bigHogs: BigHog[] = [];
-  const giantFits = (tile: Coord): boolean => {
-    for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) {
-      if (!DRY.has(glyphs[tile.y + dy]![tile.x + dx]!) || taken.has(`${tile.x + dx},${tile.y + dy}`)) return false;
-    }
-    return true;
-  };
-  for (const style of ["buff", "dino"] as const) {
-    for (let attempt = 0; attempt < 400; attempt++) {
-      const tile = openTiles[0]![Math.floor(seedRand() * openTiles[0]!.length)];
-      if (tile && giantFits(tile)) {
-        for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) taken.add(`${tile.x + dx},${tile.y + dy}`);
-        bigHogs.push({ ...tile, style });
-        break;
-      }
-    }
-  }
 
   // 9. trees: choppable woods scattered per region. A separate rng stream, drawn
   // after every other stage, so adding (or re-tuning) trees leaves the committed
@@ -800,5 +754,5 @@ export function generateWorld(): GeneratedWorld {
   const caveDoor: Coord = { x: MOUTH_X, y: Math.min(mouthY + ARRIVAL_DEPTH, H - 2) };
   const cells: BirthCellSeed[] = [];
 
-  return { tiles: glyphs.map((row) => row.join("")), regions: regionGrid.map((row) => row.join("")), boulders, trees, hogs, items, bigHogs, cells, arrival, caveDoor, spawn };
+  return { tiles: glyphs.map((row) => row.join("")), regions: regionGrid.map((row) => row.join("")), boulders, trees, items, cells, arrival, caveDoor, spawn };
 }
