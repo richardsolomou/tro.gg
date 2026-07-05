@@ -19,9 +19,9 @@ You're a trogg in a shared world. Gather to feed the tribe's one fire, hold the 
 
 ## Status
 
-Playable shared-world foundation: SpacetimeDB module + client wired, one zone with presence, grid movement, boulders, roaming Hogs, account claiming, 3D avatars, recolouring, and zone chat. State lives in durable SpacetimeDB tables, so players and chat resume across reconnects and restarts.
+Playable shared-world foundation, fire-and-dark build: SpacetimeDB module + client wired, one zone with presence, grid movement, boulders and trees feeding a shared stockpile, hearths and braziers holding a hostile dark back from claimed ground, troggs who keep working on instinct at a duller pace while their player is away, dark creatures, igniting new braziers to push the frontline outward, account claiming, 3D avatars, recolouring, and zone chat. State lives in durable SpacetimeDB tables, so players and chat resume across reconnects and restarts.
 
-The game design has since pivoted to a fire-and-dark direction (see [docs/gdd.md](docs/gdd.md)): a communal stockpile, hearths holding back a hostile dark, and troggs who keep working on instinct while their player is away. The status above describes the shipped, pre-pivot build; migrating it to the new spec is the current work (see the GDD's Roadmap section).
+A few corners of the fire-and-dark design (see [docs/gdd.md](docs/gdd.md)) are scoped down from the full spec for now — there's no ignition failure path yet, and ring-based world population reuses the already-fully-generated map rather than deferring terrain creation — noted inline in the GDD where they come up.
 
 ## Development
 
