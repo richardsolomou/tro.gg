@@ -84,7 +84,7 @@ export function disposeObject(obj: THREE.Object3D): void {
   });
 }
 
-function yawFor(dirX: number, dirY: number): number {
+export function yawFor(dirX: number, dirY: number): number {
   return Math.atan2(dirX, dirY);
 }
 
@@ -94,7 +94,7 @@ function facingYaw(facing: Facing): number {
 }
 
 /** Steer `obj` toward a heading, shortest way round, with a snappy exponential ease. */
-function steer(obj: THREE.Object3D, targetYaw: number, dt: number): void {
+export function steer(obj: THREE.Object3D, targetYaw: number, dt: number): void {
   const delta = THREE.MathUtils.euclideanModulo(targetYaw - obj.rotation.y + Math.PI, Math.PI * 2) - Math.PI;
   obj.rotation.y += delta * Math.min(1, dt * 14);
 }

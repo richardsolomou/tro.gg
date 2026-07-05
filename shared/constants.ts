@@ -1,7 +1,8 @@
 export * from "./glyphs";
 import { SOLID_GLYPHS, TILE_GLYPHS, WATER_TILE } from "./glyphs";
+import { DARK_CREATURE_SPECIES, type DarkCreatureSpecies } from "./creatures";
 import { generateBirthCave, setRegionRows, WORLD_H, WORLD_W } from "./worldgen";
-import { WORLD_ARRIVAL, WORLD_CAVE_DOOR, WORLD_BOULDERS, WORLD_CELLS, WORLD_ITEMS, WORLD_REGION_ROWS, WORLD_SPAWN, WORLD_TILES, WORLD_TREES } from "./world-map";
+import { WORLD_ARRIVAL, WORLD_CAVE_DOOR, WORLD_BOULDERS, WORLD_CELLS, WORLD_DARK_CREATURES, WORLD_ITEMS, WORLD_REGION_ROWS, WORLD_SPAWN, WORLD_TILES, WORLD_TREES } from "./world-map";
 
 // regionAt() reads the committed grid on both client and module
 setRegionRows(WORLD_REGION_ROWS);
@@ -347,6 +348,49 @@ export interface GroundItemSeed extends Coord {
 }
 
 /**
+ * Dark creatures (GDD "Dark creatures" / "The fire and the dark" → Territory
+ * and permanence): hostile inhabitants of the dark, aggressive on sight, kept
+ * off any lit ground by the hearth rule. `DARK_CREATURE_AGGRO_RANGE` is how
+ * close a bright trogg must come to break a creature's wander into a chase.
+ * `NPC_CORPSE_MS` is how long a killed creature lies as a corpse before the
+ * regen sweep reaps it — whether a fresh one then takes its place depends on
+ * whether the ground is lit at that moment (evaluated at the reap, not the
+ * kill — the two are seconds apart at most, and reap-time keeps the rule a
+ * pure function of current territory rather than a decision frozen at death).
+ * Per-species stats live in `DARK_CREATURES`, so a new species is a model
+ * builder (`src/game/creatures.ts`) and a row here. (initial)
+ */
+export const DARK_CREATURE_AGGRO_RANGE = 6;
+export const NPC_CORPSE_MS = 30_000;
+export const MAX_DARK_CREATURES_PER_ZONE = 120;
+
+export interface DarkCreatureDef {
+  species: DarkCreatureSpecies;
+  name: string;
+  maxHealth: number;
+  damage: readonly [number, number];
+  hitRadius: number;
+  loot: { item: ItemId; qty: readonly [number, number] };
+}
+
+export const DARK_CREATURES: Record<DarkCreatureSpecies, DarkCreatureDef> = {
+  grask: {
+    species: "grask",
+    name: "Grask",
+    maxHealth: 40,
+    damage: [6, 12],
+    hitRadius: 0.5,
+    // A placeholder drop until the bestiary earns its own loot table (see
+    // docs/gdd.md "Open design threads" — content, not engine work).
+    loot: { item: "stone", qty: [1, 2] },
+  },
+};
+
+export function isDarkCreatureSpecies(species: string): species is DarkCreatureSpecies {
+  return (DARK_CREATURE_SPECIES as readonly string[]).includes(species);
+}
+
+/**
  * Identity & accounts (GDD "Identity"). Guests are anonymous SpacetimeDB
  * identities; signing in upgrades a guest to an account whose identity SpacetimeDB
  * derives from a SpacetimeAuth OIDC token's `iss`+`sub`. The module trusts only
@@ -428,6 +472,13 @@ export function birthCellContains(cell: BirthCellSeed, x: number, y: number): bo
   return cell.corridor.some((t) => t.x === tx && t.y === ty);
 }
 
+/** A dark creature's starting tile and species (GDD "Dark creatures") —
+ *  seeded like a boulder or tree, but into the `dark_creature` table rather
+ *  than a static registry, since it wanders. */
+export interface DarkCreatureSeed extends Coord {
+  species: DarkCreatureSpecies;
+}
+
 export interface Zone {
   slug: string;
   name: string;
@@ -446,6 +497,8 @@ export interface Zone {
   items: readonly GroundItemSeed[];
   /** The birth warren's cells; empty for zones without one. */
   cells: readonly BirthCellSeed[];
+  /** Starting dark-creature population — empty for the private birth cave. */
+  darkCreatures: readonly DarkCreatureSeed[];
   /** Where `E` emerges from an instanced birth cave (GDD "Onboarding"). */
   exit?: Coord;
 }
@@ -473,6 +526,7 @@ export const ZONES: Record<string, Zone> = {
     trees: WORLD_TREES,
     items: WORLD_ITEMS,
     cells: WORLD_CELLS,
+    darkCreatures: WORLD_DARK_CREATURES,
   },
   birthcave: generateBirthCave(),
 };

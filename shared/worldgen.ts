@@ -1,5 +1,5 @@
 import { DEEP_WATER_TILE, GLOWMOSS_TILE, GRAVEL_TILE, MOSS_TILE, WALL_TILE, WATER_TILE } from "./glyphs";
-import type { BirthCellSeed, Coord, GroundItemSeed, Zone, ZoneExit } from "./constants";
+import type { BirthCellSeed, Coord, DarkCreatureSeed, GroundItemSeed, Zone, ZoneExit } from "./constants";
 
 /**
  * Biomes: the same cave automaton dressed differently. A biome picks the
@@ -237,6 +237,7 @@ export function generateCaveZone(opts: CaveOptions): Zone {
     trees,
     items,
     cells: [],
+    darkCreatures: [],
   };
 }
 
@@ -387,6 +388,7 @@ export function generateBirthCave(): Zone {
     trees: [],
     items: [],
     cells: [{ x: spawn.x, y: spawn.y, corridor, pickaxe }],
+    darkCreatures: [],
   };
 }
 
@@ -466,6 +468,7 @@ export interface GeneratedWorld {
   trees: Coord[];
   items: GroundItemSeed[];
   cells: BirthCellSeed[];
+  darkCreatures: DarkCreatureSeed[];
   /** Where an emerging trogg lands: inside the coast's cave-mouth alcove. */
   arrival: Coord;
   /** The alcove's deep end — walk into it to descend into your own cave. */
@@ -730,6 +733,29 @@ export function generateWorld(): GeneratedWorld {
     }
   }
 
+  // Dark creatures: a hostile population per region, drawn from the same
+  // pools with a wider clearance around the Hearth than boulders/trees get —
+  // light, not just crowding, needs the margin, so a newborn's first steps
+  // into the world are never spawn-camped. A separate stream, drawn last, so
+  // tuning the population never reshuffles any other seed.
+  const darkCreatureRand = mulberry32(0x7066300a);
+  const darkCreatures: DarkCreatureSeed[] = [];
+  const HEARTH_CLEARANCE = 18;
+  for (let region = 0; region < WORLD_REGIONS.length; region++) {
+    for (let i = 0; i < 5; i++) {
+      let tile: Coord | undefined;
+      for (let attempt = 0; attempt < 20; attempt++) {
+        const candidate = drawFrom(region, darkCreatureRand);
+        if (!candidate) break;
+        if (Math.hypot(candidate.x - spawn.x, candidate.y - spawn.y) >= HEARTH_CLEARANCE) {
+          tile = candidate;
+          break;
+        }
+      }
+      if (tile) darkCreatures.push({ ...tile, species: "grask" });
+    }
+  }
+
   // 10. the birth-cave mouth (GDD "Onboarding: the Warren"): newborns dig out
   // of their own instanced cave and step into the world HERE — a small dead-end
   // alcove burrowed into the south-coast rock, so every trogg's first steps
@@ -754,5 +780,5 @@ export function generateWorld(): GeneratedWorld {
   const caveDoor: Coord = { x: MOUTH_X, y: Math.min(mouthY + ARRIVAL_DEPTH, H - 2) };
   const cells: BirthCellSeed[] = [];
 
-  return { tiles: glyphs.map((row) => row.join("")), regions: regionGrid.map((row) => row.join("")), boulders, trees, items, cells, arrival, caveDoor, spawn };
+  return { tiles: glyphs.map((row) => row.join("")), regions: regionGrid.map((row) => row.join("")), boulders, trees, items, cells, darkCreatures, arrival, caveDoor, spawn };
 }

@@ -2,10 +2,12 @@ import spacetimedb, { type Ctx, type AnalyticsEvent } from "../schema";
 import { t } from "spacetimedb/server";
 import {
   getZone,
+  isDarkCreatureSpecies,
   isSpawnableItemId,
   BOULDER_MAX_HEALTH,
   TREE_MAX_HEALTH,
   MAX_BOULDERS_PER_ZONE,
+  MAX_DARK_CREATURES_PER_ZONE,
   MAX_GROUND_ITEMS_PER_ZONE,
   MAX_TREES_PER_ZONE,
   CHEAT_SPEED_MULTIPLIER,
@@ -17,6 +19,9 @@ import {
 import {
   spawnAt,
   seedBoulders,
+  seedDarkCreatures,
+  darkCreatureDef,
+  isLitTile,
   captureProcedureEvents,
   sourceProp,
   distinctId,
@@ -38,9 +43,10 @@ import {
  * or a boxed-in trogg is a silent no-op.
  */
 function runSpawn(ctx: Ctx, { kind, item = "", source = "" }: { kind: string; item?: string; source?: string }): AnalyticsEvent[] {
-  if (kind !== "boulder" && kind !== "tree" && kind !== "item") return [];
+  if (kind !== "boulder" && kind !== "tree" && kind !== "item" && kind !== "dark_creature") return [];
   if ((kind === "boulder" || kind === "tree") && item !== "") return [];
   if (kind === "item" && !isSpawnableItemId(item)) return [];
+  if (kind === "dark_creature" && !isDarkCreatureSpecies(item)) return [];
 
   const p = ctx.db.player.identity.find(ctx.sender);
   if (!p) return [];
@@ -53,29 +59,50 @@ function runSpawn(ctx: Ctx, { kind, item = "", source = "" }: { kind: string; it
       ? [...ctx.db.boulder.zoneId.filter(p.zoneId)].filter((b) => !b.cellId).length
       : kind === "tree"
         ? countRows(ctx.db.tree.zoneId.filter(p.zoneId))
-        : countRows(ctx.db.groundItem.zoneId.filter(p.zoneId));
-  const cap = kind === "boulder" ? MAX_BOULDERS_PER_ZONE : kind === "tree" ? MAX_TREES_PER_ZONE : MAX_GROUND_ITEMS_PER_ZONE;
+        : kind === "dark_creature"
+          ? countRows(ctx.db.darkCreature.zoneId.filter(p.zoneId))
+          : countRows(ctx.db.groundItem.zoneId.filter(p.zoneId));
+  const cap = kind === "boulder" ? MAX_BOULDERS_PER_ZONE : kind === "tree" ? MAX_TREES_PER_ZONE : kind === "dark_creature" ? MAX_DARK_CREATURES_PER_ZONE : MAX_GROUND_ITEMS_PER_ZONE;
   if (existing >= cap) return [];
 
   // Drop entities on free floor — never inside a wall or on top of anything solid
-  // (a boulder or another trogg) or another pickup item.
+  // (a boulder, a dark creature, or another trogg) or another pickup item. A
+  // spawned dark creature additionally avoids lit ground — it can't occupy a
+  // lit tile any more than a wandering one can (GDD "Dark creatures").
   const occupied = solidTiles(ctx, p.zoneId, ctx.timestamp, p.identity);
   addGroundItemTiles(ctx, p.zoneId, occupied);
   const pos = settle(ctx, p, ctx.timestamp);
   const face = facingDir(p);
-  const tile = spawnTile(zone, (x, y) => occupied.has(tileKey(x, y)), pos.x, pos.y, face.dirX, face.dirY);
+  const blocked =
+    kind === "dark_creature" ? (x: number, y: number) => occupied.has(tileKey(x, y)) || isLitTile(ctx, p.zoneId, x, y) : (x: number, y: number) => occupied.has(tileKey(x, y));
+  const tile = spawnTile(zone, blocked, pos.x, pos.y, face.dirX, face.dirY);
   if (!tile) return [];
 
   if (kind === "boulder") {
     ctx.db.boulder.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y, health: BOULDER_MAX_HEALTH, cellId: 0 });
   } else if (kind === "tree") {
     ctx.db.tree.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y, health: TREE_MAX_HEALTH });
+  } else if (kind === "dark_creature") {
+    ctx.db.darkCreature.insert({
+      id: 0n,
+      zoneId: p.zoneId,
+      x: tile.x,
+      y: tile.y,
+      dirX: 0,
+      dirY: 0,
+      movedAt: ctx.timestamp,
+      species: item,
+      health: darkCreatureDef(item).maxHealth,
+      lastDamagedAt: ctx.timestamp,
+      aggroTargetId: "",
+    });
   } else {
     ctx.db.groundItem.insert({ id: 0n, zoneId: p.zoneId, item, x: tile.x, y: tile.y, qty: 1 });
   }
 
   const properties: Record<string, string | number | boolean> = { zone: p.zoneId, kind, count: 1, ...sourceProp(source) };
   if (kind === "item") properties.item = item;
+  if (kind === "dark_creature") properties.style = item;
   return [{ distinctId: distinctId(ctx), event: "debug_entity_spawned", properties }];
 }
 
@@ -122,6 +149,35 @@ export const resetBouldersAction = spacetimedb.procedure(
   t.unit(),
   (ctx, args) => {
     const events = ctx.withTx((tx) => runResetBoulders(tx, args.source));
+    captureProcedureEvents(ctx, args.posthogKey, events);
+    return unit();
+  },
+);
+
+/**
+ * Reset the caller's zone dark creatures to their registry population (GDD
+ * "Dark creatures") — the mirror of `resetBoulders`. Clears every dark
+ * creature in the zone, corpse or living, and reseeds from the registry.
+ */
+function runResetDarkCreatures(ctx: Ctx, source = ""): AnalyticsEvent[] {
+  const p = ctx.db.player.identity.find(ctx.sender);
+  if (!p) return [];
+  const zone = getZone(p.zoneId);
+  if (!zone) return [];
+  for (const c of [...ctx.db.darkCreature.zoneId.filter(zone.slug)]) ctx.db.darkCreature.id.delete(c.id);
+  seedDarkCreatures(ctx, zone);
+  return [{ distinctId: distinctId(ctx), event: "dark_creatures_reset", properties: { zone: zone.slug, ...sourceProp(source) } }];
+}
+
+export const resetDarkCreatures = spacetimedb.reducer((ctx) => {
+  runResetDarkCreatures(ctx);
+});
+
+export const resetDarkCreaturesAction = spacetimedb.procedure(
+  { posthogKey: t.string(), source: t.string() },
+  t.unit(),
+  (ctx, args) => {
+    const events = ctx.withTx((tx) => runResetDarkCreatures(tx, args.source));
     captureProcedureEvents(ctx, args.posthogKey, events);
     return unit();
   },

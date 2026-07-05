@@ -2,6 +2,8 @@ import { Timestamp } from "spacetimedb";
 import {
   BOULDER_HIT_RADIUS,
   TREE_HIT_RADIUS,
+  DARK_CREATURES,
+  type DarkCreatureSpecies,
   DIR_SCALE,
   elapsedMs,
   meleeHit,
@@ -19,6 +21,13 @@ import {
   zoneBounds,
 } from "../../shared/index";
 import type { Ctx } from "./schema";
+
+/** A species' stats, falling back to the registry's first entry for a stale
+ *  or unrecognised id (never expected in practice; a row's species always
+ *  comes from `DARK_CREATURE_SPECIES`). */
+export function darkCreatureDef(species: string) {
+  return DARK_CREATURES[species as DarkCreatureSpecies] ?? Object.values(DARK_CREATURES)[0]!;
+}
 
 /** A fresh trogg's spawn tile: the zone's spawn point (the zone centre when unset). */
 export function spawnAt(zone: Zone): { x: number; y: number } {
@@ -77,15 +86,33 @@ export function obstacleTiles(ctx: Ctx, zoneId: string): Set<string> {
   return tiles;
 }
 
-/** The tiles solid to a trogg in a zone: boulders. Not other troggs — trogg↔trogg
- *  has no collision. */
+/** The tiles solid to a trogg in a zone: boulders, trees, and living dark
+ *  creatures (GDD "Dark creatures" — the dynamic obstacles that block a
+ *  trogg the same way a wall does). Not other troggs — trogg↔trogg has no
+ *  collision. */
 export function troggBlockers(ctx: Ctx, zoneId: string, now: Stamp): Set<string> {
-  return obstacleTiles(ctx, zoneId);
+  const tiles = obstacleTiles(ctx, zoneId);
+  addDarkCreatureTiles(ctx, zoneId, now, tiles);
+  return tiles;
 }
 
-/** Add each online trogg's current tile (projected to `now`, against walls + boulders)
- *  to `set`, skipping `exclude` (a trogg never blocks itself). Lets dropped objects
- *  avoid the tiles troggs stand on. */
+/** Add each living dark creature's current tile (projected to `now`, against
+ *  walls, boulders, and trees) to `set`. Corpses aren't solid. */
+export function addDarkCreatureTiles(ctx: Ctx, zoneId: string, now: Stamp, set: Set<string>): void {
+  const zone = getZone(zoneId);
+  if (!zone) return;
+  const blockers = obstacleTiles(ctx, zoneId);
+  const bounds = zoneBounds(zone, (x, y) => blockers.has(tileKey(x, y)));
+  for (const c of ctx.db.darkCreature.zoneId.filter(zoneId)) {
+    if (c.health <= 0) continue;
+    const pos = projectMotion(c, elapsedMs(c.movedAt, now), bounds);
+    set.add(tileKey(Math.round(pos.x), Math.round(pos.y)));
+  }
+}
+
+/** Add each online trogg's current tile (projected to `now`, against walls,
+ *  boulders, trees, and dark creatures) to `set`, skipping `exclude` (a trogg
+ *  never blocks itself). Lets dropped objects avoid the tiles troggs stand on. */
 export function addPlayerTiles(ctx: Ctx, zoneId: string, now: Stamp, set: Set<string>, exclude?: Ctx["sender"]): void {
   const zone = getZone(zoneId);
   if (!zone) return;
@@ -99,12 +126,14 @@ export function addPlayerTiles(ctx: Ctx, zoneId: string, now: Stamp, set: Set<st
   }
 }
 
-/** Every solid tile a freshly placed entity must avoid — boulders and other
- *  troggs — so a spawn or drop never lands on top of something. `exclude` skips the
- *  acting trogg's own tile, leaving it as a last-resort fallback when boxed in. */
+/** Every solid tile a freshly placed entity must avoid — boulders, trees,
+ *  other troggs, and dark creatures — so a spawn or drop never lands on top
+ *  of something. `exclude` skips the acting trogg's own tile, leaving it as a
+ *  last-resort fallback when boxed in. */
 export function solidTiles(ctx: Ctx, zoneId: string, now: Stamp, exclude?: Ctx["sender"]): Set<string> {
   const tiles = obstacleTiles(ctx, zoneId);
   addPlayerTiles(ctx, zoneId, now, tiles, exclude);
+  addDarkCreatureTiles(ctx, zoneId, now, tiles);
   return tiles;
 }
 
@@ -166,6 +195,40 @@ export function playerAt(ctx: Ctx, zoneId: string, x: number, y: number, now: St
     if (Math.round(pos.x) === x && Math.round(pos.y) === y) return p;
   }
   return undefined;
+}
+
+/**
+ * The living dark creature currently on a tile in a zone, or undefined
+ * (GDD "Dark creatures"). Corpses aren't targetable. Mirrors `playerAt`.
+ */
+export function darkCreatureAt(ctx: Ctx, zoneId: string, x: number, y: number, now: Stamp) {
+  const zone = getZone(zoneId);
+  if (!zone) return undefined;
+  const blockers = troggBlockers(ctx, zoneId, now);
+  const bounds = zoneBounds(zone, (tx, ty) => blockers.has(tileKey(tx, ty)));
+  for (const c of ctx.db.darkCreature.zoneId.filter(zoneId)) {
+    if (c.health <= 0) continue;
+    const pos = projectMotion(c, elapsedMs(c.movedAt, now), bounds);
+    if (Math.round(pos.x) === x && Math.round(pos.y) === y) return c;
+  }
+  return undefined;
+}
+
+/** The nearest living dark creature whose (species-scaled) hit circle a swing
+ *  reaches — the mirror of `meleePlayerTarget`. */
+export function meleeDarkCreatureTarget(ctx: Ctx, zoneId: string, cx: number, cy: number, aim: { dirX: number; dirY: number }, now: Stamp) {
+  const zone = getZone(zoneId);
+  if (!zone) return undefined;
+  const blockers = troggBlockers(ctx, zoneId, now);
+  const bounds = zoneBounds(zone, (tx, ty) => blockers.has(tileKey(tx, ty)));
+  let best: { target: NonNullable<ReturnType<typeof darkCreatureAt>>; dist: number } | undefined;
+  for (const c of ctx.db.darkCreature.zoneId.filter(zoneId)) {
+    if (c.health <= 0) continue;
+    const pos = projectMotion(c, elapsedMs(c.movedAt, now), bounds);
+    const dist = meleeHit(cx, cy, aim.dirX, aim.dirY, { x: pos.x + 0.5, y: pos.y + 0.5, radius: darkCreatureDef(c.species).hitRadius });
+    if (dist !== undefined && (!best || dist < best.dist)) best = { target: c, dist };
+  }
+  return best;
 }
 
 /**

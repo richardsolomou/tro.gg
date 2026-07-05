@@ -51,3 +51,13 @@ export function forward(facing: Facing): { x: number; y: number } {
  *  creature's rig resolves the same slots, so any slot-targeted item can attach
  *  to any creature (GDD "Layered avatars and cross-species equipment"). */
 export type EquipSlot = "mainHand" | "offHand";
+
+/**
+ * Dark-creature species (GDD "Dark creatures"). Species are open — the
+ * bestiary starts with one entry; a new species is a model builder (see
+ * `src/game/creatures.ts`) plus a stat row (`DARK_CREATURES` in
+ * `shared/constants.ts`), reusing the same joint vocabulary and motion model
+ * as every other creature.
+ */
+export const DARK_CREATURE_SPECIES = ["grask"] as const;
+export type DarkCreatureSpecies = (typeof DARK_CREATURE_SPECIES)[number];

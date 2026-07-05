@@ -2,12 +2,17 @@ import { schema, table, t, type InferSchema, type ProcedureCtx, type ReducerCtx 
 import { Timestamp } from "spacetimedb";
 import {
   COLOR_UNSET,
+  DARK_CREATURE_AGGRO_RANGE,
+  DIR_SCALE,
   elapsedMs,
   STYLE_UNSET,
   HEALTH_REGEN_DELAY_MS,
   HEALTH_REGEN_FRACTION,
   BOULDER_MAX_HEALTH,
   TREE_MAX_HEALTH,
+  meleeHit,
+  NPC_CORPSE_MS,
+  PLAYER_HIT_RADIUS,
   PLAYER_MAX_HEALTH,
   BRAZIER_UPKEEP_ITEM,
   BRAZIER_UPKEEP_RATE,
@@ -37,6 +42,9 @@ import {
   isLitTile,
   nearestLitBrazier,
   pickWanderDir,
+  settle,
+  darkCreatureDef,
+  damagePlayer,
 } from "./helpers";
 
 /**
@@ -252,6 +260,35 @@ const tree = table(
 );
 
 /**
+ * A hostile inhabitant of the dark and the penumbra (GDD "Dark creatures").
+ * Intent-based motion like a player or the retired `hog` row — position is
+ * derived with `projectMotion`, never advanced on a timer. `aggroTargetId` is
+ * the identity hex of the trogg it's chasing, "" while wandering. Solid, the
+ * same way a Hog used to be: blocks troggs and other dark creatures. Cannot
+ * occupy a lit tile (`isLitTile`), which is what keeps it out of claimed
+ * ground rather than a targeting rule. `health` at zero is a corpse — settled,
+ * inert, reaped by the `regenCreatures` sweep after `NPC_CORPSE_MS`; whether a
+ * fresh one then takes its place depends on whether the ground is lit at that
+ * moment (Territory and permanence), not anything stored on the row.
+ */
+const darkCreature = table(
+  { name: "dark_creature", public: true },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    zoneId: t.string().index("btree"),
+    x: t.f64(),
+    y: t.f64(),
+    dirX: t.i32(),
+    dirY: t.i32(),
+    movedAt: t.timestamp(),
+    species: t.string(),
+    health: t.i32(),
+    lastDamagedAt: t.timestamp(),
+    aggroTargetId: t.string().default(""),
+  },
+);
+
+/**
  * A pickup item lying on a tile (GDD "Inventory"). It is seeded from the zone
  * registry, then removed by `interact` when a trogg picks it up. Items are not
  * solid; a trogg can stand on a tool, but must face its tile to take it.
@@ -333,14 +370,16 @@ const brazierUpkeepTimer = table(
 );
 
 /**
- * The ember-trogg (and, later, dark-creature) wander timer (GDD "The fire and
- * the dark" → Presence) — the direct successor of the retired `hog_wander`,
- * the same sanctioned scheduled-reducer exception: re-armed only while a
- * player is online, so an empty world does no ember work. Private (no client
- * reads it).
+ * The ember-trogg and dark-creature wander timer (GDD "The fire and the
+ * dark" → Presence; "Dark creatures") — the direct successor of the retired
+ * `hog_wander`, the same sanctioned scheduled-reducer exception: re-armed
+ * only while a player is online, so an empty world does no work. Private (no
+ * client reads it). `wanderPresence` is the one reducer bound to it — a
+ * SpacetimeDB scheduled table calls exactly one reducer — steering both an
+ * ember trogg's instinct amble and a dark creature's wander/aggro/chase.
  */
 const emberWanderTimer = table(
-  { name: "ember_wander", scheduled: (): any => wanderEmber },
+  { name: "ember_wander", scheduled: (): any => wanderPresence },
   {
     scheduledId: t.u64().primaryKey().autoInc(),
     scheduledAt: t.scheduleAt(),
@@ -406,7 +445,7 @@ const worldState = table(
   },
 );
 
-const spacetimedb = schema({ player, chatMessage, ghostHaunt, claimCode, boulder, tree, groundItem, inventory, stockpile, brazier, brazierUpkeepTimer, emberWanderTimer, playerConnection, playerRespawn, creatureRegen, worldState });
+const spacetimedb = schema({ player, chatMessage, ghostHaunt, claimCode, boulder, tree, darkCreature, groundItem, inventory, stockpile, brazier, brazierUpkeepTimer, emberWanderTimer, playerConnection, playerRespawn, creatureRegen, worldState });
 export default spacetimedb;
 
 /** The reducer context, typed against this module's schema (db view + sender). */
@@ -430,6 +469,39 @@ export const regenCreatures = spacetimedb.reducer({ timer: creatureRegen.rowType
       if (p.dead || p.health >= PLAYER_MAX_HEALTH || !rested(p.lastDamagedAt)) continue;
       const heal = Math.ceil(PLAYER_MAX_HEALTH * HEALTH_REGEN_FRACTION);
       ctx.db.player.identity.update({ ...p, health: Math.min(PLAYER_MAX_HEALTH, p.health + heal) });
+    }
+
+    // Dark creatures: the same out-of-combat heal, plus corpse reaping (GDD
+    // "Combat" / "Dark creatures"). A corpse lies for NPC_CORPSE_MS, then this
+    // sweep removes it; whether the dark replenishes what was here is decided
+    // right here, at the reap, by whether the ground is lit *now* — not
+    // frozen at the moment of the kill (Territory and permanence).
+    for (const c of ctx.db.darkCreature.iter()) {
+      const def = darkCreatureDef(c.species);
+      if (c.health <= 0) {
+        if (elapsedMs(c.lastDamagedAt, now) < NPC_CORPSE_MS) continue;
+        const unlit = !isLitTile(ctx, c.zoneId, Math.round(c.x), Math.round(c.y));
+        ctx.db.darkCreature.id.delete(c.id);
+        if (unlit) {
+          ctx.db.darkCreature.insert({
+            id: 0n,
+            zoneId: c.zoneId,
+            x: c.x,
+            y: c.y,
+            dirX: 0,
+            dirY: 0,
+            movedAt: now,
+            species: c.species,
+            health: def.maxHealth,
+            lastDamagedAt: now,
+            aggroTargetId: "",
+          });
+        }
+        continue;
+      }
+      if (c.health >= def.maxHealth || !rested(c.lastDamagedAt)) continue;
+      const heal = Math.ceil(def.maxHealth * HEALTH_REGEN_FRACTION);
+      ctx.db.darkCreature.id.update({ ...c, health: Math.min(def.maxHealth, c.health + heal) });
     }
   }
   ctx.db.creatureRegen.clear();
@@ -490,15 +562,19 @@ export const brazierUpkeep = spacetimedb.reducer({ timer: brazierUpkeepTimer.row
 });
 
 /**
- * Ember-trogg wander sweep (GDD "The fire and the dark" → Presence): every
- * offline trogg still carrying kindling charge ambles safe interior ground on
- * instinct — confined to lit tiles, the same boundary that keeps dark
- * creatures out (`isLitTile`) — and gathers passively from an adjacent
- * boulder or tree at `EMBER_EFFICIENCY_FRACTION` of a bright trogg's rate,
- * with no XP. The instant its charge reaches zero it goes dormant, settled at
- * its zone's nearest hearth. The timer re-arms only while a player is online.
+ * The ember-trogg and dark-creature wander sweep (GDD "The fire and the
+ * dark" → Presence; "Dark creatures"). Every offline trogg still carrying
+ * kindling charge ambles safe interior ground on instinct — confined to lit
+ * tiles — and gathers passively from an adjacent boulder or tree at
+ * `EMBER_EFFICIENCY_FRACTION` of a bright trogg's rate, with no XP; the
+ * instant its charge reaches zero it goes dormant, settled at its zone's
+ * nearest hearth. Every living dark creature ambles the dark — confined to
+ * *unlit* tiles, the mirror boundary — until a bright trogg comes within
+ * `DARK_CREATURE_AGGRO_RANGE`, then turns to close the distance and attacks
+ * once in reach; a target that disconnects, dies, or leaves the zone drops
+ * the chase. The timer re-arms only while a player is online.
  */
-export const wanderEmber = spacetimedb.reducer({ timer: emberWanderTimer.rowType }, (ctx) => {
+export const wanderPresence = spacetimedb.reducer({ timer: emberWanderTimer.rowType }, (ctx) => {
   const online = anyPlayerOnline(ctx);
   const now = ctx.timestamp;
   if (online) {
@@ -573,6 +649,99 @@ export const wanderEmber = spacetimedb.reducer({ timer: emberWanderTimer.rowType
       const unchanged = at.x === p.x && at.y === p.y && dir.dirX === p.dirX && dir.dirY === p.dirY;
       if (unchanged) continue;
       ctx.db.player.identity.update({ ...p, x: at.x, y: at.y, dirX: dir.dirX, dirY: dir.dirY, path: "", movedAt: now });
+    }
+
+    // Dark creatures: settle every living one to where its stored intent has
+    // carried it and collect the tiles they occupy first (mirroring the
+    // retired Hog wander's two-pass shape), so the second pass can keep them
+    // off each other's tiles without reading stale positions.
+    const staticBlockersByZone = new Map<string, Set<string>>();
+    const staticBlockersFor = (zoneId: string): Set<string> => {
+      let set = staticBlockersByZone.get(zoneId);
+      if (!set) {
+        set = obstacleTiles(ctx, zoneId);
+        staticBlockersByZone.set(zoneId, set);
+      }
+      return set;
+    };
+    const creatureList = [...ctx.db.darkCreature.iter()];
+    type CreatureRow = (typeof creatureList)[number];
+    const settledCreatures: { row: CreatureRow; x: number; y: number; zoneId: string }[] = [];
+    const creatureTilesByZone = new Map<string, Set<string>>();
+    for (const c of creatureList) {
+      if (c.health <= 0) continue; // corpses lie where they fell
+      const zone = getZone(c.zoneId);
+      if (!zone) continue;
+      const statics = staticBlockersFor(c.zoneId);
+      const bounds = zoneBounds(zone, (x, y) => statics.has(tileKey(x, y)) || isLitTile(ctx, c.zoneId, x, y));
+      const at = projectMotionState(c, elapsedMs(c.movedAt, now), bounds);
+      settledCreatures.push({ row: c, x: at.x, y: at.y, zoneId: c.zoneId });
+      let tiles = creatureTilesByZone.get(c.zoneId);
+      if (!tiles) {
+        tiles = new Set<string>();
+        creatureTilesByZone.set(c.zoneId, tiles);
+      }
+      tiles.add(tileKey(Math.round(at.x), Math.round(at.y)));
+    }
+
+    for (const s of settledCreatures) {
+      const c = s.row;
+      const zone = getZone(s.zoneId)!;
+      const statics = staticBlockersFor(s.zoneId);
+      const creatureTiles = creatureTilesByZone.get(s.zoneId)!;
+      const ownTile = tileKey(Math.round(s.x), Math.round(s.y));
+
+      // Keep a live target (same zone, online, alive); else look for a fresh
+      // bright trogg within aggro range. Sighting is range-based, like earshot.
+      let target: NonNullable<ReturnType<typeof ctx.db.player.identity.find>> | undefined;
+      for (const pl of ctx.db.player.zoneId.filter(s.zoneId)) {
+        if (!pl.online || pl.dead) continue;
+        if (c.aggroTargetId && pl.identity.toHexString() === c.aggroTargetId) {
+          target = pl;
+          break;
+        }
+      }
+      if (!target) {
+        for (const pl of ctx.db.player.zoneId.filter(s.zoneId)) {
+          if (!pl.online || pl.dead) continue;
+          const tp = settle(ctx, pl, now);
+          if (Math.hypot(tp.x - s.x, tp.y - s.y) <= DARK_CREATURE_AGGRO_RANGE) {
+            target = pl;
+            break;
+          }
+        }
+      }
+      const aggroTargetId = target ? target.identity.toHexString() : "";
+
+      let dir = { dirX: 0, dirY: 0 };
+      if (target) {
+        const tp = settle(ctx, target, now);
+        const dx = tp.x - s.x;
+        const dy = tp.y - s.y;
+        const dlen = Math.hypot(dx, dy);
+        const toward = dlen > 0 ? { dirX: Math.round((dx / dlen) * DIR_SCALE), dirY: Math.round((dy / dlen) * DIR_SCALE) } : { dirX: 0, dirY: 0 };
+        const reach = meleeHit(s.x, s.y, toward.dirX, toward.dirY, { x: tp.x + 0.5, y: tp.y + 0.5, radius: PLAYER_HIT_RADIUS });
+        if (reach !== undefined) {
+          // Close enough to fight: stop closing (never walks through what it's
+          // attacking) and land one hit at this tick's cadence — the same
+          // "no twitch checks" slow rhythm as a trogg's own swing (invariant 7).
+          const def = darkCreatureDef(c.species);
+          damagePlayer(ctx, target, ctx.random.integerInRange(def.damage[0], def.damage[1]));
+        } else {
+          dir = toward;
+        }
+      } else {
+        const bounds = zoneBounds(zone, (x, y) => {
+          const k = tileKey(x, y);
+          if (statics.has(k) || isLitTile(ctx, s.zoneId, x, y)) return true;
+          return k !== ownTile && creatureTiles.has(k);
+        });
+        dir = pickWanderDir(ctx, bounds, { x: Math.round(s.x), y: Math.round(s.y) }, 1);
+      }
+
+      const unchanged = s.x === c.x && s.y === c.y && dir.dirX === c.dirX && dir.dirY === c.dirY && aggroTargetId === c.aggroTargetId;
+      if (unchanged) continue;
+      ctx.db.darkCreature.id.update({ ...c, x: s.x, y: s.y, dirX: dir.dirX, dirY: dir.dirY, movedAt: now, aggroTargetId });
     }
   }
   ctx.db.emberWanderTimer.clear();

@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { GHOST_3D, TROGG_SKINS_3D } from "./palette.js";
+import { GHOST_3D, GRASK_3D, TROGG_SKINS_3D } from "./palette.js";
 import { finishCreature, joint, Parts, type CreatureModel, type GaitSpec } from "./rig.js";
 
 /**
@@ -59,6 +59,47 @@ export function buildTrogg(style: string, tint?: number): CreatureModel {
   p.box(head, 0.06, 0.13, 0.05, skin.tooth, 0.17, -0.05, 0.26);
 
   return finishCreature(root, p, TROGG_GAIT, 1.75);
+}
+
+const GRASK_GAIT: GaitSpec = { restTorso: 0.7, restArm: 0.35, legSwing: 0.7, armSwing: 0.55, walkDip: 0.07, runDip: 0.12, runLean: 0.1, breathe: 0.02 };
+
+/** The grask (GDD "Dark creatures"): a low, feral thing the dark has claimed —
+ *  hunched near-flat over its own short legs, long clawed forelimbs trailing
+ *  toward the ground, a single baleful eye-glow low in its snout. Built on the
+ *  same joint vocabulary as a trogg, just proportioned squat and forward-leaning. */
+export function buildGrask(): CreatureModel {
+  const skin = GRASK_3D;
+  const p = new Parts();
+  const root = new THREE.Group();
+  const bob = joint(root, "Bob", 0, 0, 0);
+
+  for (const side of [-1, 1] as const) {
+    const leg = joint(bob, side < 0 ? "LegL" : "LegR", side * 0.16, 0.28, 0);
+    p.box(leg, 0.16, 0.2, 0.18, skin.base, 0, -0.08);
+    p.box(leg, 0.13, 0.14, 0.14, skin.shade, 0, -0.2);
+    p.box(leg, 0.17, 0.07, 0.22, skin.claw, 0, -0.26, 0.05);
+  }
+
+  const torso = joint(bob, "Torso", 0, 0.34, 0, GRASK_GAIT.restTorso);
+  p.box(torso, 0.4, 0.3, 0.62, skin.base, 0, 0.2); // low, elongated back
+  p.box(torso, 0.3, 0.08, 0.5, skin.light, 0, 0.34, 0.02); // ridge of scales down the spine
+  p.box(torso, 0.44, 0.22, 0.3, skin.base, 0, 0.42); // hunched shoulder mass
+
+  for (const side of [-1, 1] as const) {
+    const arm = joint(torso, side < 0 ? "ArmL" : "ArmR", side * 0.28, 0.42, 0.1, GRASK_GAIT.restArm);
+    p.box(arm, 0.14, 0.36, 0.15, skin.base, 0, -0.18);
+    p.box(arm, 0.12, 0.28, 0.13, skin.shade, 0, -0.44);
+    p.box(arm, 0.17, 0.1, 0.22, skin.claw, 0, -0.62, 0.05); // clawed forelimb
+    joint(arm, side < 0 ? "HandL" : "HandR", 0, -0.64, 0.1);
+  }
+
+  const head = joint(torso, "Head", 0, 0.5, 0.28, 0.3);
+  p.box(head, 0.3, 0.24, 0.42, skin.base, 0, 0.16); // low snout skull
+  p.box(head, 0.24, 0.06, 0.36, skin.light, 0, 0.28, -0.02);
+  p.box(head, 0.06, 0.05, 0.04, skin.eye, 0, 0.14, 0.36, true); // one low baleful eye-glow
+  p.box(head, 0.22, 0.08, 0.1, skin.shade, 0, -0.06, 0.34); // underslung jaw
+
+  return finishCreature(root, p, GRASK_GAIT, 1.05, 0.75);
 }
 
 /** The pale draped ghost (cosmetic easter egg): a sheet dome, eye holes, stub feet. */

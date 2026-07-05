@@ -17,6 +17,7 @@ import {
   healStaleWorld,
   seedBoulders,
   seedTrees,
+  seedDarkCreatures,
   seedGroundItems,
   seedBirthInstance,
   seedFirstFire,
@@ -51,6 +52,7 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
   seedTrees(ctx, startingZone);
   seedGroundItems(ctx, startingZone);
   seedFirstFire(ctx, startingZone);
+  seedDarkCreatures(ctx, startingZone);
   armRegen(ctx);
   armBrazierUpkeep(ctx);
   armEmberWander(ctx);

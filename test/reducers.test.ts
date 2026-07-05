@@ -46,6 +46,10 @@ import {
   CHARGE_ACCRUAL_RATE,
   CHARGE_DECAY_RATE,
   EMBER_GATHER_DAMAGE,
+  DARK_CREATURE_AGGRO_RANGE,
+  DARK_CREATURES,
+  MAX_DARK_CREATURES_PER_ZONE,
+  NPC_CORPSE_MS,
 } from "@trogg/shared";
 import {
   chat,
@@ -74,12 +78,13 @@ import {
   respawnPlayers,
   regenCreatures,
   brazierUpkeep,
-  wanderEmber,
+  wanderPresence,
   spawn,
+  resetDarkCreatures,
   startClaim,
   useEquipped,
 } from "../spacetimedb/src/index.ts";
-import { id, makeCtx, playerRow } from "./spacetime.ts";
+import { darkCreatureRow, id, makeCtx, playerRow } from "./spacetime.ts";
 
 const ZONE = "world";
 const micros = (ms: number) => BigInt(ms) * 1000n;
@@ -1045,7 +1050,7 @@ test("onConnect resumes bright instantly, settling however much ember decay happ
   assert.deepEqual({ online: p.online, kindlingCharge: p.kindlingCharge }, { online: true, kindlingCharge: CHARGE_MAX - CHARGE_DECAY_RATE }); // one hour of ember decay
 });
 
-test("wanderEmber keeps a charged ember trogg confined to lit territory while it wanders", () => {
+test("wanderPresence keeps a charged ember trogg confined to lit territory while it wanders", () => {
   const watcher = id("watcher");
   const ember = id("embertrogg");
   // random 0.9 clears both the idle and gather rolls; 5s at walk speed is far
@@ -1054,24 +1059,24 @@ test("wanderEmber keeps a charged ember trogg confined to lit territory while it
   ctx.db.player.insert(playerRow(watcher, { online: true, x: 0, y: 0 }));
   const hearth = ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
   ctx.db.player.insert(playerRow(ember, { x: 69, y: 96, online: false, kindlingCharge: 10, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
-  wanderEmber(ctx, {});
+  wanderPresence(ctx, {});
   const p = ctx.db.player.identity.find(ember);
   assert.ok(Math.hypot(p.x - hearth.x, p.y - hearth.y) <= hearth.radius);
 });
 
-test("wanderEmber settles a trogg whose kindling charge has just run out at the nearest hearth", () => {
+test("wanderPresence settles a trogg whose kindling charge has just run out at the nearest hearth", () => {
   const watcher = id("watcher");
   const ember = id("goingdormant");
   const ctx = makeCtx({ sender: watcher, now: micros(999_999_999) }); // long enough to fully decay
   ctx.db.player.insert(playerRow(watcher, { online: true }));
   const hearth = ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
   ctx.db.player.insert(playerRow(ember, { x: 80, y: 96, online: false, kindlingCharge: 1, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
-  wanderEmber(ctx, {});
+  wanderPresence(ctx, {});
   const p = ctx.db.player.identity.find(ember);
   assert.deepEqual({ x: p.x, y: p.y, kindlingCharge: p.kindlingCharge }, { x: hearth.x, y: hearth.y, kindlingCharge: 0 });
 });
 
-test("wanderEmber gathers on instinct from an adjacent boulder and deposits into the stockpile", () => {
+test("wanderPresence gathers on instinct from an adjacent boulder and deposits into the stockpile", () => {
   const watcher = id("watcher");
   const ember = id("gathering");
   // 0.2 clears the idle roll (stands still) and the gather roll (< EMBER_EFFICIENCY_FRACTION) alike.
@@ -1080,19 +1085,209 @@ test("wanderEmber gathers on instinct from an adjacent boulder and deposits into
   ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
   ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96, health: EMBER_GATHER_DAMAGE }); // breaks on one chip
   ctx.db.player.insert(playerRow(ember, { x: 69, y: 96, online: false, kindlingCharge: 10, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
-  wanderEmber(ctx, {});
+  wanderPresence(ctx, {});
   assert.deepEqual(
     { boulders: ctx.db.boulder.rows().length, stone: ctx.db.stockpile.item.find("stone")?.qty },
     { boulders: 0, stone: 1 },
   );
 });
 
-test("wanderEmber re-arms only while a player is online", () => {
+test("wanderPresence re-arms only while a player is online", () => {
   const ember = id("alone");
   const ctx = makeCtx({ sender: ember });
   ctx.db.player.insert(playerRow(ember, { online: false, kindlingCharge: 10, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
-  wanderEmber(ctx, {});
+  wanderPresence(ctx, {});
   assert.equal(ctx.db.emberWanderTimer.rows().length, 0); // nobody's watching, so no further work
+});
+
+// --- Dark creatures ---
+
+test("onConnect seeds the world zone's dark creature population, idempotently", () => {
+  const me = id("newguest2");
+  const ctx = makeCtx({ sender: me });
+  onConnect(ctx);
+  const count = ctx.db.darkCreature.rows().filter((c: any) => c.zoneId === ZONE).length;
+  assert.ok(count > 0);
+
+  (ctx as any).sender = id("anotherguest2");
+  onConnect(ctx);
+  assert.equal(ctx.db.darkCreature.rows().filter((c: any) => c.zoneId === ZONE).length, count);
+});
+
+test("wanderPresence keeps an unaggroed dark creature off lit ground while it wanders", () => {
+  const watcher = id("watcher");
+  const ctx = makeCtx({ sender: watcher, random: 0.9, integerInRange: () => 0, now: micros(5_000) });
+  ctx.db.player.insert(playerRow(watcher, { online: true, x: 0, y: 0 }));
+  const hearth = ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
+  const c = ctx.db.darkCreature.insert(darkCreatureRow({ x: 80, y: 96 })); // outside the lit radius
+  wanderPresence(ctx, {});
+  const after = ctx.db.darkCreature.id.find(c.id);
+  assert.ok(Math.hypot(after.x - hearth.x, after.y - hearth.y) > hearth.radius);
+});
+
+test("wanderPresence aggroes onto a bright trogg within DARK_CREATURE_AGGRO_RANGE", () => {
+  const me = id("prey");
+  const ctx = makeCtx({ sender: me, random: 0.9 });
+  ctx.db.player.insert(playerRow(me, { online: true, x: 69, y: 96 }));
+  const c = ctx.db.darkCreature.insert(darkCreatureRow({ x: 70, y: 96 })); // 1 tile away, well within range
+  wanderPresence(ctx, {});
+  assert.equal(ctx.db.darkCreature.id.find(c.id)?.aggroTargetId, me.toHexString());
+  assert.ok(DARK_CREATURE_AGGRO_RANGE >= 1);
+});
+
+test("wanderPresence drops aggro once its target is no longer online", () => {
+  const watcher = id("watcher");
+  const target = id("wasHere");
+  const ctx = makeCtx({ sender: watcher, random: 0.9, integerInRange: () => 0 });
+  ctx.db.player.insert(playerRow(watcher, { online: true, x: 0, y: 0 }));
+  ctx.db.player.insert(playerRow(target, { online: false, x: 70, y: 96 }));
+  const c = ctx.db.darkCreature.insert(darkCreatureRow({ x: 69, y: 96, aggroTargetId: target.toHexString() }));
+  wanderPresence(ctx, {});
+  assert.equal(ctx.db.darkCreature.id.find(c.id)?.aggroTargetId, ""); // no bright trogg nearby to re-aggro onto
+});
+
+test("wanderPresence turns an aggroed dark creature toward a target out of melee range", () => {
+  const target = id("faraway");
+  const ctx = makeCtx({ sender: target });
+  ctx.db.player.insert(playerRow(target, { online: true, x: 72, y: 96, health: PLAYER_MAX_HEALTH })); // 3 tiles east, out of reach
+  const c = ctx.db.darkCreature.insert(darkCreatureRow({ x: 69, y: 96, aggroTargetId: target.toHexString() }));
+  wanderPresence(ctx, {});
+  const after = ctx.db.darkCreature.id.find(c.id);
+  assert.deepEqual({ headingEast: after.dirX > 0, dirY: after.dirY }, { headingEast: true, dirY: 0 });
+  assert.equal(ctx.db.player.identity.find(target).health, PLAYER_MAX_HEALTH); // too far to land a hit yet
+});
+
+test("wanderPresence attacks an aggroed target in melee range and stops advancing", () => {
+  const target = id("closeby");
+  const ctx = makeCtx({ sender: target });
+  ctx.db.player.insert(playerRow(target, { online: true, x: 70, y: 96, health: PLAYER_MAX_HEALTH }));
+  const c = ctx.db.darkCreature.insert(darkCreatureRow({ x: 69, y: 96, aggroTargetId: target.toHexString() }));
+  wanderPresence(ctx, {});
+  const after = ctx.db.darkCreature.id.find(c.id);
+  const def = DARK_CREATURES.grask!;
+  assert.deepEqual(
+    { dirX: after.dirX, dirY: after.dirY, health: ctx.db.player.identity.find(target).health },
+    { dirX: 0, dirY: 0, health: PLAYER_MAX_HEALTH - def.damage[0] }, // the mock RNG rolls the floor
+  );
+});
+
+test("useEquipped damages a faced dark creature with a sword", () => {
+  const { ctx, me } = withPlayer({ x: 69, y: 96, equippedMainHand: "sword" });
+  const sword = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });
+  ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedMainHandInventoryId: sword.id });
+  const c = ctx.db.darkCreature.insert(darkCreatureRow({ x: 70, y: 96, health: 40 }));
+
+  useEquipped(ctx, { dirX: 1, dirY: 0 });
+
+  assert.equal(ctx.db.darkCreature.id.find(c.id)?.health, 40 - WEAPON_DAMAGE.sword![0]);
+});
+
+test("a swing hits a dark creature over an equally distant trogg", () => {
+  const { ctx, me } = withPlayer({ x: 69, y: 96, equippedMainHand: "sword" });
+  const sword = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });
+  ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedMainHandInventoryId: sword.id });
+  const bystander = id("bystander");
+  ctx.db.player.insert(playerRow(bystander, { x: 70, y: 96, health: PLAYER_MAX_HEALTH }));
+  const c = ctx.db.darkCreature.insert(darkCreatureRow({ x: 70, y: 96, health: 40 }));
+
+  useEquipped(ctx, { dirX: 1, dirY: 0 });
+
+  assert.deepEqual(
+    { creatureHealth: ctx.db.darkCreature.id.find(c.id)?.health, troggHealth: ctx.db.player.identity.find(bystander).health },
+    { creatureHealth: 40 - WEAPON_DAMAGE.sword![0], troggHealth: PLAYER_MAX_HEALTH },
+  );
+});
+
+test("the killing blow settles a dark creature as a corpse and drops its loot", () => {
+  const { ctx, me } = withPlayer({ x: 69, y: 96, equippedMainHand: "sword" });
+  const sword = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });
+  ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedMainHandInventoryId: sword.id });
+  const c = ctx.db.darkCreature.insert(darkCreatureRow({ x: 70, y: 96, health: WEAPON_DAMAGE.sword![0], aggroTargetId: me.toHexString() }));
+
+  useEquipped(ctx, { dirX: 1, dirY: 0 });
+
+  const corpse = ctx.db.darkCreature.id.find(c.id);
+  assert.deepEqual(
+    { health: corpse.health, dirX: corpse.dirX, dirY: corpse.dirY, aggroTargetId: corpse.aggroTargetId, dropped: ctx.db.groundItem.rows().length },
+    { health: 0, dirX: 0, dirY: 0, aggroTargetId: "", dropped: 1 },
+  );
+  assert.equal(ctx.db.groundItem.rows()[0]!.item, DARK_CREATURES.grask!.loot.item);
+});
+
+test("regenCreatures leaves a fresh corpse in place before NPC_CORPSE_MS elapses", () => {
+  const me = id("watcher5");
+  const ctx = makeCtx({ sender: me, now: micros(1000) });
+  ctx.db.player.insert(playerRow(me, { online: true }));
+  ctx.db.darkCreature.insert(darkCreatureRow({ x: 200, y: 150, health: 0, lastDamagedAt: { microsSinceUnixEpoch: 0n } }));
+  regenCreatures(ctx, {});
+  assert.equal(ctx.db.darkCreature.rows().length, 1);
+});
+
+test("regenCreatures reaps a corpse on unlit ground and respawns a fresh creature there", () => {
+  const me = id("watcher3");
+  const ctx = makeCtx({ sender: me, now: micros(NPC_CORPSE_MS + 1000) });
+  ctx.db.player.insert(playerRow(me, { online: true }));
+  const c = ctx.db.darkCreature.insert(darkCreatureRow({ x: 200, y: 150, health: 0, lastDamagedAt: { microsSinceUnixEpoch: 0n } }));
+
+  regenCreatures(ctx, {});
+
+  const rows = ctx.db.darkCreature.rows().filter((r: any) => r.x === 200 && r.y === 150);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].health, DARK_CREATURES.grask!.maxHealth);
+  assert.notEqual(rows[0].id, c.id); // a fresh row, not the reaped corpse
+});
+
+test("regenCreatures reaps a corpse on lit ground without respawning", () => {
+  const me = id("watcher4");
+  const ctx = makeCtx({ sender: me, now: micros(NPC_CORPSE_MS + 1000) });
+  ctx.db.player.insert(playerRow(me, { online: true }));
+  ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
+  ctx.db.darkCreature.insert(darkCreatureRow({ x: 69, y: 96, health: 0, lastDamagedAt: { microsSinceUnixEpoch: 0n } }));
+
+  regenCreatures(ctx, {});
+
+  assert.equal(ctx.db.darkCreature.rows().length, 0);
+});
+
+test("regenCreatures heals a living dark creature untouched past HEALTH_REGEN_DELAY_MS", () => {
+  const me = id("watcher6");
+  const ctx = makeCtx({ sender: me, now: micros(HEALTH_REGEN_DELAY_MS + 1000) });
+  ctx.db.player.insert(playerRow(me, { online: true }));
+  const def = DARK_CREATURES.grask!;
+  const c = ctx.db.darkCreature.insert(darkCreatureRow({ x: 200, y: 150, health: def.maxHealth - 20, lastDamagedAt: { microsSinceUnixEpoch: 0n } }));
+
+  regenCreatures(ctx, {});
+
+  const heal = Math.ceil(def.maxHealth * HEALTH_REGEN_FRACTION);
+  assert.equal(ctx.db.darkCreature.id.find(c.id)?.health, Math.min(def.maxHealth, def.maxHealth - 20 + heal));
+});
+
+test("spawn places a dark creature of the requested species", () => {
+  const { ctx } = withPlayer({ x: 69, y: 96 });
+  spawn(ctx, { kind: "dark_creature", item: "grask" });
+  assert.equal(ctx.db.darkCreature.rows().length, 1);
+  assert.equal(ctx.db.darkCreature.rows()[0]!.species, "grask");
+});
+
+test("spawn refuses an unrecognised dark-creature species", () => {
+  const { ctx } = withPlayer({ x: 69, y: 96 });
+  spawn(ctx, { kind: "dark_creature", item: "not-a-species" });
+  assert.equal(ctx.db.darkCreature.rows().length, 0);
+});
+
+test("spawn refuses a dark creature once the zone is at its cap", () => {
+  const { ctx } = withPlayer({ x: 69, y: 96 });
+  for (let i = 0; i < MAX_DARK_CREATURES_PER_ZONE; i++) ctx.db.darkCreature.insert(darkCreatureRow({ x: 65, y: 89 }));
+  spawn(ctx, { kind: "dark_creature", item: "grask" });
+  assert.equal(ctx.db.darkCreature.rows().length, MAX_DARK_CREATURES_PER_ZONE);
+});
+
+test("resetDarkCreatures clears the zone (corpses included) and reseeds from the registry", () => {
+  const { ctx } = withPlayer({ x: 69, y: 96 });
+  ctx.db.darkCreature.insert(darkCreatureRow({ x: 65, y: 89, health: 0 })); // a stray corpse
+  resetDarkCreatures(ctx, {});
+  const zone = getZone(ZONE)!;
+  assert.equal(ctx.db.darkCreature.rows().length, zone.darkCreatures.length);
 });
 
 // --- Rename / recolor (validation + uniqueness) ---

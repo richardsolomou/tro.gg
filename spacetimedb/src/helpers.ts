@@ -16,7 +16,7 @@ import {
   type Zone,
   type ZoneBounds,
 } from "../../shared/index";
-import { countRows } from "./tiles";
+import { countRows, darkCreatureDef } from "./tiles";
 import type { Ctx, ProcCtx, AnalyticsEvent } from "./schema";
 
 const POSTHOG_CAPTURE_URL = "https://us.i.posthog.com/capture/";
@@ -63,21 +63,24 @@ export function unit(): {} {
  * Regenerating the committed world map under a live database leaves rows seeded
  * from the old layout sitting inside the new map's rock — visibly embedded in
  * walls, and poisoning collision. Detect any seedable row on unwalkable ground
- * and wipe the zone's boulders, trees, and ground items; the idempotent seeders
- * right after then re-seed from the current map.
+ * and wipe the zone's boulders, trees, dark creatures, and ground items; the
+ * idempotent seeders right after then re-seed from the current map.
  */
 export function healStaleWorld(ctx: Ctx, zone: Zone): void {
   const boulders = [...ctx.db.boulder.zoneId.filter(zone.slug)];
   const trees = [...ctx.db.tree.zoneId.filter(zone.slug)];
   const items = [...ctx.db.groundItem.zoneId.filter(zone.slug)];
+  const creatures = [...ctx.db.darkCreature.zoneId.filter(zone.slug)];
   const stale =
     boulders.some((b) => !isWalkable(zone, b.x, b.y)) ||
     trees.some((tr) => !isWalkable(zone, tr.x, tr.y)) ||
-    items.some((g) => !isWalkable(zone, g.x, g.y));
+    items.some((g) => !isWalkable(zone, g.x, g.y)) ||
+    creatures.some((c) => !isWalkable(zone, Math.round(c.x), Math.round(c.y)));
   if (!stale) return;
   for (const b of boulders) ctx.db.boulder.id.delete(b.id);
   for (const tr of trees) ctx.db.tree.id.delete(tr.id);
   for (const g of items) ctx.db.groundItem.id.delete(g.id);
+  for (const c of creatures) ctx.db.darkCreature.id.delete(c.id);
 }
 
 /** Seed a zone's boulders from the registry, unless it already has some.
@@ -94,6 +97,27 @@ export function seedTrees(ctx: Ctx, zone: Zone): void {
   if ([...ctx.db.tree.zoneId.filter(zone.slug)].length > 0) return;
   for (const tr of zone.trees) {
     ctx.db.tree.insert({ id: 0n, zoneId: zone.slug, x: tr.x, y: tr.y, health: TREE_MAX_HEALTH });
+  }
+}
+
+/** Seed a zone's dark creatures from the registry, unless it already has some
+ *  (GDD "Dark creatures"). */
+export function seedDarkCreatures(ctx: Ctx, zone: Zone): void {
+  if ([...ctx.db.darkCreature.zoneId.filter(zone.slug)].length > 0) return;
+  for (const seed of zone.darkCreatures) {
+    ctx.db.darkCreature.insert({
+      id: 0n,
+      zoneId: zone.slug,
+      x: seed.x,
+      y: seed.y,
+      dirX: 0,
+      dirY: 0,
+      movedAt: Timestamp.UNIX_EPOCH,
+      species: seed.species,
+      health: darkCreatureDef(seed.species).maxHealth,
+      lastDamagedAt: Timestamp.UNIX_EPOCH,
+      aggroTargetId: "",
+    });
   }
 }
 

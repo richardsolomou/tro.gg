@@ -21,6 +21,10 @@ export const TROGG_SKINS_3D: Record<string, TroggSkin3D> = {
   ridge: { base: 0x70673a, shade: 0x342c18, light: 0xc0b06a, muzzle: 0x95884c, eye: 0xf04828, tooth: 0xf0e0bc, ridge: true },
 };
 
+/** The grask (GDD "Dark creatures"): a low, feral thing the dark has claimed —
+ *  near-black hide, sickly violet undertones, one baleful eye-glow. */
+export const GRASK_3D = { base: 0x1c1a20, shade: 0x0c0b0e, light: 0x3a2e42, claw: 0x2a2530, eye: 0x9a3dff } as const;
+
 export const GHOST_3D = { sheet: 0xf6f4ec, sheetDk: 0xd4d4cd, eye: 0x161616, foot: 0x9c6f3f, face: 0xf0dcab, faceDk: 0xcdac72 } as const;
 
 /** Tool and prop materials (tools/gen-item-art.ts). */

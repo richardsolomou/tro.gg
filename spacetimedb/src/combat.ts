@@ -8,6 +8,7 @@ import {
   STARTING_ZONE_SLUG,
   PLAYER_MAX_HEALTH,
   PLAYER_RESPAWN_MS,
+  projectMotion,
   snapToTile,
   spawnTile,
   spawnTiles,
@@ -15,12 +16,16 @@ import {
   THROWN_OBJECT_RANGE,
   type Stamp,
   tileKey,
+  zoneBounds,
   type Zone,
 } from "../../shared/index";
 import {
   settle,
   solidTiles,
+  obstacleTiles,
   playerAt,
+  darkCreatureAt,
+  darkCreatureDef,
   placeCarried,
   placeCarriedAt,
   facingDir,
@@ -156,6 +161,44 @@ export function damagePlayer(ctx: Ctx, target: NonNullable<ReturnType<typeof pla
   return { health: 0, killed: true, dealt, droppedItemRows: dropped.rows, droppedItemQty: dropped.qty, respawnMs: PLAYER_RESPAWN_MS };
 }
 
+type DarkCreatureDamageResult = DamageResult;
+
+/**
+ * Apply weapon damage to a dark creature (GDD "Combat" / "Dark creatures").
+ * Zero health settles it as a corpse — stopped, cleared of aggro, at its
+ * current (projected) position — and drops its species loot nearby. Whether
+ * a fresh one later takes its place is decided at reap time, not here (see
+ * the `dark_creature` table doc in schema.ts).
+ */
+export function damageDarkCreature(ctx: Ctx, target: NonNullable<ReturnType<typeof darkCreatureAt>>, amount: number): DarkCreatureDamageResult {
+  const health = Math.max(0, target.health - amount);
+  if (health > 0) {
+    ctx.db.darkCreature.id.update({ ...target, health, lastDamagedAt: ctx.timestamp });
+    return { health, killed: false, dealt: amount };
+  }
+
+  const zone = getZone(target.zoneId);
+  let x = target.x;
+  let y = target.y;
+  if (zone) {
+    const blockers = obstacleTiles(ctx, target.zoneId);
+    const bounds = zoneBounds(zone, (tx, ty) => blockers.has(tileKey(tx, ty)));
+    const pos = projectMotion(target, elapsedMs(target.movedAt, ctx.timestamp), bounds);
+    x = pos.x;
+    y = pos.y;
+  }
+  ctx.db.darkCreature.id.update({ ...target, x, y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, health: 0, lastDamagedAt: ctx.timestamp, aggroTargetId: "" });
+
+  if (zone) {
+    const def = darkCreatureDef(target.species);
+    const qty = ctx.random.integerInRange(def.loot.qty[0], def.loot.qty[1]);
+    const occupied = solidTiles(ctx, target.zoneId, ctx.timestamp);
+    const tile = spawnTile(zone, (tx, ty) => occupied.has(tileKey(tx, ty)), Math.round(x), Math.round(y), 0, 0);
+    if (tile) ctx.db.groundItem.insert({ id: 0n, zoneId: target.zoneId, item: def.loot.item, x: tile.x, y: tile.y, qty });
+  }
+  return { health: 0, killed: true, dealt: amount };
+}
+
 /** Throw a carried boulder along the exact aim (free-direction, not the four
  *  cardinals), damaging the first trogg hit and landing on the tile the throw
  *  reaches. */
@@ -169,7 +212,7 @@ export function throwCarried(
   | {
       kind: "boulder";
       range: number;
-      hitTarget?: "trogg";
+      hitTarget?: "trogg" | "dark_creature";
       damage?: number;
       killed: boolean;
       playerDeath?: PlayerDamageResult & { distinctId: string };
@@ -187,10 +230,13 @@ export function throwCarried(
   const pathOccupied = solidTiles(ctx, p.zoneId, ctx.timestamp, p.identity);
   let lastFree: { x: number; y: number } | undefined;
   let hit: NonNullable<ReturnType<typeof playerAt>> | undefined;
+  let hitCreature: NonNullable<ReturnType<typeof darkCreatureAt>> | undefined;
+  let hitTile: { x: number; y: number } | undefined;
 
   // Walk the aim ray tile by tile out to range: sample every half tile and act
   // on each new tile the ray enters, so a diagonal throw travels diagonally
-  // instead of snapping to an axis.
+  // instead of snapping to an axis. A dark creature outranks a trogg at the
+  // same tile, the same priority a melee swing gives it (GDD "Combat").
   let prevKey = tileKey(sx, sy);
   for (let d = 0.5; d <= THROWN_OBJECT_RANGE + 1e-6; d += 0.5) {
     const tx = Math.round(sx + ux * d);
@@ -200,15 +246,22 @@ export function throwCarried(
     prevKey = key;
     if (!isWalkable(zone, tx, ty)) break;
 
-    hit = playerAt(ctx, p.zoneId, tx, ty, ctx.timestamp, p.identity);
-    if (hit) break;
+    hitCreature = darkCreatureAt(ctx, p.zoneId, tx, ty, ctx.timestamp);
+    if (!hitCreature) hit = playerAt(ctx, p.zoneId, tx, ty, ctx.timestamp, p.identity);
+    if (hitCreature || hit) {
+      hitTile = { x: tx, y: ty };
+      break;
+    }
 
     if (pathOccupied.has(key)) break;
     lastFree = { x: tx, y: ty };
   }
 
   let landing = lastFree;
-  if (hit) {
+  if (hitCreature) {
+    const landingOccupied = solidTiles(ctx, p.zoneId, ctx.timestamp);
+    landing = spawnTile(zone, (tx, ty) => landingOccupied.has(tileKey(tx, ty)), hitTile!.x, hitTile!.y, ux, uy) ?? lastFree;
+  } else if (hit) {
     const targetTile = snapToTile(settle(ctx, hit, ctx.timestamp));
     const landingOccupied = solidTiles(ctx, p.zoneId, ctx.timestamp);
     landing = spawnTile(zone, (tx, ty) => landingOccupied.has(tileKey(tx, ty)), targetTile.x, targetTile.y, ux, uy) ?? lastFree;
@@ -220,12 +273,17 @@ export function throwCarried(
   const result: {
     kind: "boulder";
     range: number;
-    hitTarget?: "trogg";
+    hitTarget?: "trogg" | "dark_creature";
     damage?: number;
     killed: boolean;
     playerDeath?: PlayerDamageResult & { distinctId: string };
   } = { kind: p.carrying, range, killed: false };
-  if (hit) {
+  if (hitCreature) {
+    const damage = damageDarkCreature(ctx, hitCreature, THROWN_OBJECT_DAMAGE);
+    result.hitTarget = "dark_creature";
+    result.damage = damage.dealt;
+    result.killed = damage.killed;
+  } else if (hit) {
     const damage = damagePlayer(ctx, hit, THROWN_OBJECT_DAMAGE);
     result.hitTarget = "trogg";
     result.damage = damage.dealt;

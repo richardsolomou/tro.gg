@@ -13,7 +13,7 @@ const out = `/**
  * hand: edit tiles or seeds here directly (assertZones + the worldgen tests
  * validate edits); rerunning the generator overwrites the whole file.
  */
-import type { BirthCellSeed, Coord, GroundItemSeed } from "./constants";
+import type { BirthCellSeed, Coord, DarkCreatureSeed, GroundItemSeed } from "./constants";
 
 export const WORLD_SPAWN: Coord = ${JSON.stringify(world.spawn)};
 
@@ -36,6 +36,9 @@ export const WORLD_ITEMS: readonly GroundItemSeed[] = ${JSON.stringify(world.ite
 export const WORLD_CELLS: readonly BirthCellSeed[] = [
 ${world.cells.map((cell) => `  ${JSON.stringify(cell)},`).join("\n")}
 ];
+
+/** Starting dark-creature population (GDD "Dark creatures"). */
+export const WORLD_DARK_CREATURES: readonly DarkCreatureSeed[] = ${JSON.stringify(world.darkCreatures)};
 
 /** Where an emerging trogg lands: the coast's cave-mouth alcove. */
 export const WORLD_ARRIVAL: Coord = ${JSON.stringify(world.arrival)};

@@ -88,6 +88,7 @@ export function makeCtx(opts: FakeCtxOpts) {
       player: makeTable({ pk: "identity", indexes: ["zoneId"] }),
       boulder: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
       tree: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
+      darkCreature: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
       groundItem: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
       inventory: makeTable({ pk: "id", autoInc: true, indexes: ["playerId"] }),
       stockpile: makeTable({ pk: "item" }),
@@ -144,6 +145,24 @@ export function playerRow(identity: Id, over: Record<string, unknown> = {}) {
     dirZ: 0,
     kindlingCharge: 0,
     kindlingChargeAt: { microsSinceUnixEpoch: 0n },
+    ...over,
+  };
+}
+
+/** Build a dark creature row with sensible defaults; override what the test cares about. */
+export function darkCreatureRow(over: Record<string, unknown> = {}) {
+  return {
+    id: 0n,
+    zoneId: "world",
+    x: 5,
+    y: 5,
+    dirX: 0,
+    dirY: 0,
+    movedAt: { microsSinceUnixEpoch: 0n },
+    species: "grask",
+    health: 40,
+    lastDamagedAt: { microsSinceUnixEpoch: 0n },
+    aggroTargetId: "",
     ...over,
   };
 }

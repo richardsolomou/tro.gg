@@ -60,6 +60,21 @@ export const CreatureRegen = __t.object("CreatureRegen", {
 });
 export type CreatureRegen = __Infer<typeof CreatureRegen>;
 
+export const DarkCreature = __t.object("DarkCreature", {
+  id: __t.u64(),
+  zoneId: __t.string(),
+  x: __t.f64(),
+  y: __t.f64(),
+  dirX: __t.i32(),
+  dirY: __t.i32(),
+  movedAt: __t.timestamp(),
+  species: __t.string(),
+  health: __t.i32(),
+  lastDamagedAt: __t.timestamp(),
+  aggroTargetId: __t.string(),
+});
+export type DarkCreature = __Infer<typeof DarkCreature>;
+
 export const EmberWander = __t.object("EmberWander", {
   scheduledId: __t.u64(),
   scheduledAt: __t.scheduleAt(),
