@@ -28,6 +28,7 @@ import {
   solidTiles,
   placeCarried,
   facingDir,
+  migrateInventoryResources,
 } from "../helpers";
 
 export const init = spacetimedb.init(() => {});
@@ -52,6 +53,7 @@ function purgeRetiredHogState(ctx: Ctx): void {
  */
 export const onConnect = spacetimedb.clientConnected((ctx) => {
   purgeRetiredHogState(ctx);
+  migrateInventoryResources(ctx);
   // init runs first-publish only, so it can't seed a table added to an already-published
   // module; seed lazily on connect, idempotently.
   const startingZone = getZone(STARTING_ZONE_SLUG)!;

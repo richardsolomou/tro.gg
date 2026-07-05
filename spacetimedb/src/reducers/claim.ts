@@ -16,6 +16,7 @@ import {
   moveInventory,
   placeCarried,
   facingDir,
+  moveStockpileContributions,
 } from "../helpers";
 
 /** A claim nonce is a v4 UUID minted by the client (`crypto.randomUUID`). */
@@ -88,6 +89,7 @@ export const redeemClaim = spacetimedb.reducer({ code: t.string() }, (ctx, { cod
   // returning account's own name), staying within the uniqueness rule.
   const inheritName = !isGeneratedName(guestName) && isGeneratedName(account.name) && !nameTaken(ctx, guestName, ctx.sender);
   const movedInventoryIds = moveInventory(ctx, guest.identity, account.identity);
+  moveStockpileContributions(ctx, guest.identity, account.identity);
   const accountEquipped = equippedInventoryRow(ctx, account);
   const guestEquippedId = movedInventoryIds.get(guest.equippedMainHandInventoryId) ?? 0n;
   const guestEquipped = guestEquippedId !== 0n ? ownedInventoryRow(ctx, account.identity, guestEquippedId) : undefined;
@@ -103,4 +105,3 @@ export const redeemClaim = spacetimedb.reducer({ code: t.string() }, (ctx, { cod
     isGuest: false,
   });
 });
-

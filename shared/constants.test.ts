@@ -9,6 +9,7 @@ import {
   isGeneratedName,
   isValidName,
   isWalkable,
+  isStockpileItemId,
   SOLID_GLYPHS,
   STARTING_ZONE_SLUG,
   TILE_GLYPHS,
@@ -21,6 +22,12 @@ test("the starting zone resolves from the registry", () => {
   assert.ok(zone);
   assert.equal(zone.slug, STARTING_ZONE_SLUG);
   assert.ok(zone.width > 0 && zone.height > 0);
+});
+
+test("only bulk raw resources belong in the stockpile", () => {
+  assert.equal(isStockpileItemId("stone"), true);
+  assert.equal(isStockpileItemId("wood"), true);
+  assert.equal(isStockpileItemId("pickaxe"), false);
 });
 
 test("an unknown slug resolves to undefined", () => {

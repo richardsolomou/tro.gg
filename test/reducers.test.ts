@@ -37,6 +37,7 @@ import {
   UNARMED_DAMAGE,
   HEALTH_REGEN_DELAY_MS,
   HEALTH_REGEN_FRACTION,
+  STOCKPILE_CAP,
 } from "@trogg/shared";
 import {
   chat,
@@ -133,11 +134,15 @@ test("claiming an account mid-carry folds the carried entity onto the account", 
   ctx.db.player.insert(playerRow(guest, { carrying: "boulder", isGuest: true, name: "trogg-aaaa" }));
   ctx.db.player.insert(playerRow(account, { carrying: "", isGuest: false, name: "trogg-bbbb" }));
   ctx.db.claimCode.insert({ code: "code-1", guest, createdAt: { microsSinceUnixEpoch: 0n } });
+  ctx.db.stockpileContribution.insert({ id: 0n, playerId: guest, item: "stone", qty: 4 });
+  ctx.db.stockpileContribution.insert({ id: 0n, playerId: account, item: "stone", qty: 2 });
 
   redeemClaim(ctx, { code: "code-1" });
 
   assert.equal(ctx.db.player.identity.find(guest), undefined); // guest folded away
   assert.equal(ctx.db.player.identity.find(account).carrying, "boulder"); // carry preserved
+  assert.equal(ctx.db.stockpileContribution.playerId.filter(guest).length, 0);
+  assert.equal(ctx.db.stockpileContribution.playerId.filter(account)[0]?.qty, 6);
 });
 
 test("redeemClaim consumes a stale nonce but does not fold a TTL-expired claim", () => {
@@ -263,17 +268,28 @@ test("interact leaves a ground item in place when inventory has no free slot", (
   assert.equal(ctx.db.groundItem.id.find(item.id)?.item, "pickaxe");
 });
 
-test("stackable pickups merge into an existing row even when inventory slots are full", () => {
+test("raw-resource pickups deposit into the stockpile even when inventory slots are full", () => {
   const { ctx, me } = withPlayer({ x: 69, y: 96, carrying: "" });
-  const stone = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "stone", qty: 3 });
-  for (let i = 1; i < INVENTORY_SLOT_COUNT; i++) ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });
+  for (let i = 0; i < INVENTORY_SLOT_COUNT; i++) ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });
   ctx.db.groundItem.insert({ id: 0n, zoneId: ZONE, item: "stone", x: 70, y: 96, qty: 2 });
 
   interact(ctx, { dirX: 1, dirY: 0 });
 
   assert.equal(ctx.db.inventory.rows().length, INVENTORY_SLOT_COUNT);
-  assert.equal(ctx.db.inventory.id.find(stone.id)?.qty, 5);
+  assert.equal(ctx.db.stockpile.item.find("stone")?.qty, 2);
+  assert.equal(ctx.db.stockpileContribution.rows()[0]?.qty, 2);
   assert.equal(ctx.db.groundItem.rows().length, 0);
+});
+
+test("a full stockpile leaves a raw-resource ground stack in place", () => {
+  const { ctx } = withPlayer({ x: 69, y: 96, carrying: "" });
+  ctx.db.stockpile.insert({ item: "wood", qty: STOCKPILE_CAP });
+  const stone = ctx.db.groundItem.insert({ id: 0n, zoneId: ZONE, item: "stone", x: 70, y: 96, qty: 2 });
+
+  interact(ctx, { dirX: 1, dirY: 0 });
+
+  assert.equal(ctx.db.groundItem.id.find(stone.id)?.qty, 2);
+  assert.equal(ctx.db.stockpile.item.find("stone"), undefined);
 });
 
 test("equipItem equips only a specific owned equippable row", () => {
@@ -387,7 +403,7 @@ test("discardItem unequips the main hand when the discarded row was equipped", (
   assert.equal(p.equippedMainHandInventoryId, 0n);
 });
 
-test("mining takes swings: each hit chips the boulder, the breaking hit grants stone", () => {
+test("mining takes swings and deposits the breaking yield into the shared stockpile", () => {
   const { ctx, me } = withPlayer({ x: 69, y: 96, dirX: 1, dirY: 0, running: true, equippedMainHand: "pickaxe" });
   const pickaxe = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "pickaxe", qty: 1 });
   ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedMainHandInventoryId: pickaxe.id });
@@ -405,10 +421,9 @@ test("mining takes swings: each hit chips the boulder, the breaking hit grants s
     }
   }
   assert.equal(ctx.db.boulder.rows().length, 0);
-  // the yield lands on the floor by the node — picking it up is a conscious E
-  const stone = ctx.db.groundItem.rows().find((r: any) => r.item === "stone");
-  assert.equal(stone?.qty, 1);
-  assert.ok(Math.abs(stone.x - 70) <= 1 && Math.abs(stone.y - 96) <= 1, "stone by the broken boulder");
+  assert.equal(ctx.db.stockpile.item.find("stone")?.qty, 1);
+  assert.deepEqual(ctx.db.stockpileContribution.rows().map((row: any) => [row.item, row.qty]), [["stone", 1]]);
+  assert.equal(ctx.db.groundItem.rows().some((r: any) => r.item === "stone"), false);
   assert.equal(ctx.db.inventory.rows().some((r: any) => r.item === "stone"), false);
   const p = ctx.db.player.identity.find(me);
   assert.equal(p.equipmentAction, "pickaxe");
@@ -430,7 +445,9 @@ test("an axe chips a fresh tree, and the breaking blow on a worn one grants wood
   ctx.timestamp = { microsSinceUnixEpoch: micros(1000) }; // past the use cooldown
   useEquipped(ctx, { dirX: 1, dirY: 0 });
   assert.equal(ctx.db.tree.rows().length, 0);
-  assert.equal(ctx.db.groundItem.rows().find((r: any) => r.item === "wood")?.qty, 1);
+  assert.equal(ctx.db.stockpile.item.find("wood")?.qty, 1);
+  assert.equal(ctx.db.stockpileContribution.rows().find((r: any) => r.item === "wood")?.qty, 1);
+  assert.equal(ctx.db.groundItem.rows().find((r: any) => r.item === "wood"), undefined);
   assert.equal(ctx.db.inventory.rows().some((r: any) => r.item === "wood"), false);
   assert.equal(ctx.db.player.identity.find(me).equipmentAction, "axe");
 });
@@ -446,7 +463,7 @@ test("an axe only scratches a boulder — the wrong tool works at a fraction", (
   assert.equal(ctx.db.inventory.rows().some((r: any) => r.item === "stone" || r.item === "wood"), false);
 });
 
-test("a full inventory can't block mining — the yield goes to the floor regardless", () => {
+test("a full inventory can't block mining into the stockpile", () => {
   const { ctx, me } = withPlayer({ x: 69, y: 96, equippedMainHand: "pickaxe" });
   const pickaxe = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "pickaxe", qty: 1 });
   ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedMainHandInventoryId: pickaxe.id });
@@ -456,7 +473,23 @@ test("a full inventory can't block mining — the yield goes to the floor regard
   useEquipped(ctx, { dirX: 1, dirY: 0 });
 
   assert.equal(ctx.db.boulder.rows().length, 0); // broken
-  assert.equal(ctx.db.groundItem.rows().some((r: any) => r.item === "stone"), true); // stone on the floor
+  assert.equal(ctx.db.stockpile.item.find("stone")?.qty, 1);
+  assert.equal(ctx.db.groundItem.rows().some((r: any) => r.item === "stone"), false);
+});
+
+test("breaking a node at the stockpile cap consumes the yield without exceeding the cap", () => {
+  const { ctx, me } = withPlayer({ x: 69, y: 96, equippedMainHand: "pickaxe" });
+  const pickaxe = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "pickaxe", qty: 1 });
+  ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedMainHandInventoryId: pickaxe.id });
+  ctx.db.stockpile.insert({ item: "wood", qty: STOCKPILE_CAP });
+  ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96, health: WEAPON_DAMAGE.pickaxe![0] });
+
+  useEquipped(ctx, { dirX: 1, dirY: 0 });
+
+  assert.equal(ctx.db.boulder.rows().length, 0);
+  assert.equal(ctx.db.stockpile.item.find("wood")?.qty, STOCKPILE_CAP);
+  assert.equal(ctx.db.stockpile.item.find("stone"), undefined);
+  assert.equal(ctx.db.stockpileContribution.rows().length, 0);
 });
 
 test("bare fists swing: unarmed damage lands and the fists impulse animates", () => {
@@ -585,7 +618,7 @@ test("an off-tool weapon scratches a node — and only when no creature is in re
   assert.equal(ctx.db.tree.id.find(tr.id)?.health, TREE_MAX_HEALTH - chip); // untouched this swing
 });
 
-test("the breaking hit drops the yield whatever weapon dealt it", () => {
+test("the breaking hit deposits the yield whatever weapon dealt it", () => {
   const { ctx, me } = withPlayer({ x: 69, y: 96, equippedMainHand: "sword" });
   const sword = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });
   ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedMainHandInventoryId: sword.id });
@@ -594,7 +627,8 @@ test("the breaking hit drops the yield whatever weapon dealt it", () => {
   useEquipped(ctx, { dirX: 1, dirY: 0 });
 
   assert.equal(ctx.db.tree.rows().length, 0);
-  assert.equal(ctx.db.groundItem.rows().find((r: any) => r.item === "wood")?.qty, 1);
+  assert.equal(ctx.db.stockpile.item.find("wood")?.qty, 1);
+  assert.equal(ctx.db.groundItem.rows().find((r: any) => r.item === "wood"), undefined);
 });
 
 test("a tool takes its gathering node over a creature in the same swing", () => {
@@ -798,11 +832,13 @@ test("reconnecting flips an existing trogg back online without duplicating it", 
   assert.equal(mine[0].name, "Keepme");
 });
 
-test("connecting purges retired Hog carry and quill rows", () => {
+test("connecting purges retired Hog state and migrates personal raw resources", () => {
   const me = id("legacy");
   const ctx = makeCtx({ sender: me });
   ctx.db.player.insert(playerRow(me, { online: false, carrying: "hog", carryingStyle: "ember" }));
   ctx.db.inventory.insert({ id: 0n, playerId: me, item: "quill", qty: 4 });
+  ctx.db.inventory.insert({ id: 0n, playerId: me, item: "stone", qty: 4 });
+  ctx.db.inventory.insert({ id: 0n, playerId: me, item: "wood", qty: 2 });
   ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });
   ctx.db.groundItem.insert({ id: 0n, zoneId: ZONE, item: "quill", x: 65, y: 89, qty: 2 });
 
@@ -812,6 +848,8 @@ test("connecting purges retired Hog carry and quill rows", () => {
   assert.equal(player.carrying, "");
   assert.equal(player.carryingStyle, "");
   assert.deepEqual(ctx.db.inventory.rows().map((row: any) => row.item), ["sword"]);
+  assert.deepEqual(ctx.db.stockpile.rows().map((row: any) => [row.item, row.qty]).sort(), [["stone", 4], ["wood", 2]]);
+  assert.deepEqual(ctx.db.stockpileContribution.rows().map((row: any) => [row.item, row.qty]).sort(), [["stone", 4], ["wood", 2]]);
   assert.equal(ctx.db.groundItem.rows().some((row: any) => row.item === "quill"), false);
 });
 

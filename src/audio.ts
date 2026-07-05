@@ -118,8 +118,7 @@ class AudioCues {
     this.play("boulderSettle", { volume: 0.16, minGapMs: 120, rate: [0.86, 1.02] });
   }
 
-  /** Something entered the pack — a different voice per material: stone
-   *  rattles, wood knocks, everything else lands with the soft item thump. */
+  /** Stone rattles, wood knocks, and other collected items land with a soft thump. */
   playPickup(item: string) {
     const cue = item === "stone" ? "itemStone" : item === "wood" ? "itemWood" : "itemMisc";
     this.play(cue, { volume: 0.16, minGapMs: 90, rate: [0.96, 1.08] });

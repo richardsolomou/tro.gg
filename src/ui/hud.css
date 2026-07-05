@@ -397,6 +397,63 @@ textarea {
 #hud .inventory-body[hidden] {
   display: none;
 }
+#hud .stockpile {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(245, 221, 177, 0.2);
+}
+#hud .stockpile-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  font-size: 13px;
+  color: var(--hud-bone-dim);
+}
+#hud .stockpile-header strong {
+  color: var(--hud-bone);
+}
+#hud .stockpile-meter {
+  height: 5px;
+  overflow: hidden;
+  background: var(--hud-well);
+  border-radius: 3px;
+  box-shadow: var(--well-shade);
+}
+#hud .stockpile-meter > span {
+  display: block;
+  height: 100%;
+  background: var(--hud-ember);
+  transition: width 0.2s ease;
+}
+#hud .stockpile-resources {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+}
+#hud .stockpile-resource {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 92px;
+  padding: 4px 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--hud-bone);
+  background: var(--hud-well);
+  clip-path: var(--facet);
+  --cut: 5px;
+  box-shadow: var(--well-shade);
+}
+#hud .stockpile-resource .item-icon {
+  width: 28px;
+  height: 28px;
+}
+#hud .stockpile-contribution {
+  font-size: 12px;
+  color: var(--hud-bone-dim);
+}
 #hud .inventory-equipped {
   display: flex;
   justify-content: space-between;

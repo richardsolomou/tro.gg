@@ -28,37 +28,45 @@ function rackEl(): HTMLElement {
   return rack;
 }
 
-function dismissLater(item: string, el: HTMLElement): number {
+function dismissLater(key: string, el: HTMLElement): number {
   return window.setTimeout(() => {
-    active.delete(item);
+    active.delete(key);
     el.classList.add("is-leaving");
     window.setTimeout(() => el.remove(), LEAVE_MS);
   }, HOLD_MS);
 }
 
-/** A pickup toast — the item's icon and name, bottom centre. One card per item
- *  id: rapid pickups (a radius-`E` gather sweeping a pile) bump the card's
- *  count and its clock instead of stacking duplicates. */
-export function pickupToast(item: string, qty: number): void {
-  const entry = active.get(item);
+/** Coalesce rapid gains of the same item and destination into one toast. */
+function itemToast(item: string, qty: number, destination: "pack" | "stockpile"): void {
+  const key = `${destination}:${item}`;
+  const entry = active.get(key);
   if (entry) {
     entry.qty += qty;
     entry.count.textContent = `×${entry.qty}`;
     entry.count.hidden = false;
     window.clearTimeout(entry.timer);
-    entry.timer = dismissLater(item, entry.el);
+    entry.timer = dismissLater(key, entry.el);
     return;
   }
   const el = document.createElement("div");
   el.className = "pickup-toast";
   const name = document.createElement("span");
   name.className = "pickup-toast-name";
-  name.textContent = ITEMS[item as keyof typeof ITEMS]?.name ?? item;
+  const itemName = ITEMS[item as keyof typeof ITEMS]?.name ?? item;
+  name.textContent = destination === "stockpile" ? `${itemName} to the Stockpile` : itemName;
   const count = document.createElement("span");
   count.className = "pickup-toast-qty";
   count.textContent = `×${qty}`;
   count.hidden = qty <= 1;
   el.append(itemIcon(item), name, count);
   rackEl().appendChild(el);
-  active.set(item, { el, count, qty, timer: dismissLater(item, el) });
+  active.set(key, { el, count, qty, timer: dismissLater(key, el) });
+}
+
+export function pickupToast(item: string, qty: number): void {
+  itemToast(item, qty, "pack");
+}
+
+export function stockpileToast(item: string, qty: number): void {
+  itemToast(item, qty, "stockpile");
 }

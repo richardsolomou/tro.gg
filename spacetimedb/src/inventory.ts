@@ -2,6 +2,7 @@ import {
   INVENTORY_SLOT_COUNT,
   isEquippableItem,
   isItemId,
+  isStockpileItemId,
   isStackableItem,
 } from "../../shared/index";
 import type { Ctx } from "./schema";
@@ -43,7 +44,7 @@ export function removeInventoryUnit(ctx: Ctx, playerId: Ctx["sender"], inventory
 
 /** Add an item to inventory. Stackable items merge; new rows require a free carry slot. */
 export function addInventory(ctx: Ctx, playerId: Ctx["sender"], item: string, qty: number): boolean {
-  if (!isItemId(item) || qty <= 0) return false;
+  if (!isItemId(item) || isStockpileItemId(item) || qty <= 0) return false;
   if (isStackableItem(item)) {
     for (const row of ctx.db.inventory.playerId.filter(playerId)) {
       if (row.item === item) {

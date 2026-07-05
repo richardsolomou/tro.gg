@@ -18,8 +18,8 @@ const HINTS: Record<MilestoneId, string> = {
   "first-pickup": "In your pack. Press I to open it, then right-click an item to equip it.",
   "first-equip": "Equipped! Hold F to swing it — break boulders and fell trees.",
   "first-use": "Keep at it — face a boulder or tree and hold F until it breaks.",
-  "mined-stone": "Stone! Boulders break into it — the stuff you'll build with.",
-  "chopped-wood": "Wood! Felled trees give it.",
+  "mined-stone": "Stone feeds the Stockpile — every trogg draws from the same store.",
+  "chopped-wood": "Wood feeds the Stockpile too — gathering belongs to the tribe.",
 };
 
 const STORE_KEY = "tro.gg:coach";

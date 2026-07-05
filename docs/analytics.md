@@ -40,7 +40,7 @@ snake_case. Low-volume by design — anything that could fire more than ~once/se
 | `inventory_item_discarded` | `zone, item, source?` | Player permanently destroys one unit of an inventory item (no ground item created) |
 | `zone_entered` | `zone, from_zone` | Zone transition |
 | `action_started` | `action, node_type, zone` | Action begins |
-| `resource_gathered` | `node_type, item, zone` | Action completes |
+| `resource_gathered` | `node_type, item, qty, deposited_qty, stockpile_total, stockpile_full, zone, source?` | A boulder/tree breaking blow or raw-resource ground pickup deposits into the communal stockpile. `deposited_qty` can be zero when a node breaks against a full stockpile; `stockpile_total` and `stockpile_full` describe the accepted result |
 | `xp_gained` | `skill, amount, level` | XP granted (batch if volume demands) |
 | `level_up` | `skill, level` | Derived level increases |
 | `chat_sent` | `zone, source?` | Message sent — **no content** |

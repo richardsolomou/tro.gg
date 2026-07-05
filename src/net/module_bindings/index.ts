@@ -80,6 +80,8 @@ import GhostHauntRow from "./ghost_haunt_table";
 import GroundItemRow from "./ground_item_table";
 import InventoryRow from "./inventory_table";
 import PlayerRow from "./player_table";
+import StockpileRow from "./stockpile_table";
+import StockpileContributionRow from "./stockpile_contribution_table";
 import TreeRow from "./tree_table";
 import WorldStateRow from "./world_state_table";
 
@@ -171,6 +173,31 @@ const tablesSchema = __schema({
       { name: 'player_identity_key', constraint: 'unique', columns: ['identity'] },
     ],
   }, PlayerRow),
+  stockpile: __table({
+    name: 'stockpile',
+    indexes: [
+      { accessor: 'item', name: 'stockpile_item_idx_btree', algorithm: 'btree', columns: [
+        'item',
+      ] },
+    ],
+    constraints: [
+      { name: 'stockpile_item_key', constraint: 'unique', columns: ['item'] },
+    ],
+  }, StockpileRow),
+  stockpileContribution: __table({
+    name: 'stockpile_contribution',
+    indexes: [
+      { accessor: 'id', name: 'stockpile_contribution_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+      { accessor: 'playerId', name: 'stockpile_contribution_player_id_idx_btree', algorithm: 'btree', columns: [
+        'playerId',
+      ] },
+    ],
+    constraints: [
+      { name: 'stockpile_contribution_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, StockpileContributionRow),
   tree: __table({
     name: 'tree',
     indexes: [

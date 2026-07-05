@@ -587,9 +587,13 @@ export class World3D {
       `SELECT * FROM ground_item WHERE zone_id = '${this.slug}'`,
       `SELECT * FROM boulder WHERE zone_id = '${this.slug}'`,
       `SELECT * FROM tree WHERE zone_id = '${this.slug}'`,
+      "SELECT * FROM stockpile",
       "SELECT * FROM world_state",
     ];
-    if (this.myId) queries.push(`SELECT * FROM inventory WHERE player_id = '${this.myId}'`);
+    if (this.myId) {
+      queries.push(`SELECT * FROM inventory WHERE player_id = '${this.myId}'`);
+      queries.push(`SELECT * FROM stockpile_contribution WHERE player_id = '${this.myId}'`);
+    }
     if (this.useGhost) queries.push(`SELECT * FROM ghost_haunt WHERE zone_id = '${this.slug}'`);
 
     conn

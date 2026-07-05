@@ -183,7 +183,7 @@ const claimCode = table(
  * dynamic obstacles — walkability is the static tilemap minus the tiles boulders
  * sit on — so the same collision that stops a trogg at a wall stops it at a
  * boulder. Seeded per zone from the `ZONES` registry on first connect; a pickaxe
- * mines one into Stone (removing the row), and a trogg can carry or throw one.
+ * mines one into Stone, depositing it directly into the stockpile.
  */
 const boulder = table(
   { name: "boulder", public: true },
@@ -251,6 +251,26 @@ const inventory = table(
   },
 );
 
+/** The tribe's global, read-only pool of gathered raw resources. */
+const stockpile = table(
+  { name: "stockpile", public: true },
+  {
+    item: t.string().primaryKey(),
+    qty: t.i32(),
+  },
+);
+
+/** Accepted stockpile deposits by trogg and resource, retained for contribution totals. */
+const stockpileContribution = table(
+  { name: "stockpile_contribution", public: true },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    playerId: t.identity().index("btree"),
+    item: t.string(),
+    qty: t.i32(),
+  },
+);
+
 /**
  * Live socket presence per trogg (private). A player row is keyed by Identity, so
  * two tabs signed into the same account share one durable trogg. This table tracks
@@ -310,7 +330,7 @@ const worldState = table(
   },
 );
 
-const spacetimedb = schema({ player, chatMessage, ghostHaunt, claimCode, boulder, tree, groundItem, inventory, playerConnection, playerRespawn, creatureRegen, worldState });
+const spacetimedb = schema({ player, chatMessage, ghostHaunt, claimCode, boulder, tree, groundItem, inventory, stockpile, stockpileContribution, playerConnection, playerRespawn, creatureRegen, worldState });
 export default spacetimedb;
 
 /** The reducer context, typed against this module's schema (db view + sender). */

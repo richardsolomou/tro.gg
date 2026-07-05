@@ -195,3 +195,4 @@ export function nameTaken(ctx: Ctx, name: string, self: Ctx["sender"]): boolean 
 export * from "./tiles";
 export * from "./inventory";
 export * from "./combat";
+export * from "./stockpile";

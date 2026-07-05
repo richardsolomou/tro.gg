@@ -62,8 +62,13 @@ export interface Coord {
 /** Item ids are canonical across inventory rows, equipment slots, and UI labels. */
 export const ITEM_IDS = ["stone", "wood", "pickaxe", "shovel", "axe", "sword", "shield", "torch"] as const;
 export type ItemId = (typeof ITEM_IDS)[number];
+export const STOCKPILE_ITEM_IDS = ["stone", "wood"] as const satisfies readonly ItemId[];
+export type StockpileItemId = (typeof STOCKPILE_ITEM_IDS)[number];
 export const SPAWNABLE_ITEM_IDS = ["pickaxe", "shovel", "axe", "sword", "shield", "torch", "stone", "wood"] as const satisfies readonly ItemId[];
 export type SpawnableItemId = (typeof SPAWNABLE_ITEM_IDS)[number];
+
+/** Total raw-resource units the shared stockpile can hold across every item. (initial) */
+export const STOCKPILE_CAP = 10_000;
 
 /** Inventory capacity (GDD "Inventory"): each row occupies one visible carry slot. (initial) */
 export const INVENTORY_SLOT_COUNT = 20;
@@ -198,13 +203,13 @@ export const ITEMS: Record<ItemId, ItemDef> = {
     id: "stone",
     name: "Stone",
     stackable: true,
-    blurb: "A useful chunk of cave rock.",
+    blurb: "A useful chunk of cave rock, held for the tribe in the Stockpile.",
   },
   wood: {
     id: "wood",
     name: "Wood",
     stackable: true,
-    blurb: "A stout length of felled trunk.",
+    blurb: "A stout length of felled trunk, held for the tribe in the Stockpile.",
   },
   pickaxe: {
     id: "pickaxe",
@@ -261,6 +266,10 @@ export function isItemId(item: string): item is ItemId {
 
 export function isSpawnableItemId(item: string): item is SpawnableItemId {
   return (SPAWNABLE_ITEM_IDS as readonly string[]).includes(item);
+}
+
+export function isStockpileItemId(item: string): item is StockpileItemId {
+  return (STOCKPILE_ITEM_IDS as readonly string[]).includes(item);
 }
 
 export function isEquippableItem(item: string): item is ItemId {

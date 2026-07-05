@@ -89,11 +89,7 @@ export function playerDiedEvent(distinctId: string, props: Record<string, string
   };
 }
 
-/** Lay loot down as ground items on the nearest free tiles around where its
- *  source fell — a corpse, a broken boulder, a felled tree (none are solid once
- *  gone, so the source tile itself counts) — honouring the per-zone ground-item
- *  cap: a full zone just drops less. Nothing enters an inventory here; picking
- *  loot up is a conscious `E` (GDD "Interacting"). */
+/** Lay creature loot near its corpse, capped by the zone's ground-item limit. */
 export function dropLoot(ctx: Ctx, zoneId: string, loot: readonly LootRoll[], at: { x: number; y: number }): void {
   const zone = getZone(zoneId);
   if (!zone) return;

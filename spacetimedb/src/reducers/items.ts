@@ -29,11 +29,11 @@ import {
   equippedInventoryRow,
   removeInventoryUnit,
   playerDiedEvent,
-  dropLoot,
   damagePlayer,
   throwCarried,
   facingDir,
   directionVector,
+  depositStockpile,
 } from "../helpers";
 
 /**
@@ -226,24 +226,24 @@ function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; d
   // meleeHit), not tile adjacency — free movement means the eye judges reach in
   // world units. The server re-derives every position; nearest hit wins.
   //
-  // A swing lands on the first of: the weapon's own gathering node at full
-  // damage (pickaxe → boulder, axe → tree), a creature, then any node at
-  // OFF_TOOL_NODE_FACTOR of the roll — a sword can whittle a tree down for the
-  // first wood, it's just a terrible saw. Each node hit rolls into the node's
-  // health; the breaking hit drops the yield on the floor whatever weapon dealt it.
+  // A swing lands on the weapon's matching node, a creature, then any node at
+  // OFF_TOOL_NODE_FACTOR. Breaking a node deposits its yield in the stockpile.
   const cx = pos.x + 0.5;
   const cy = pos.y + 0.5;
   const range = equipped ? weaponDamageRange(item) : UNARMED_DAMAGE;
 
-  // A breaking hit never fills the inventory directly: the yield lands on the
-  // floor by the node (dropLoot), and picking it up is a conscious `E`.
   const strikeBoulder = (b: NonNullable<ReturnType<typeof meleeBoulderTarget>>["target"], damage: number): boolean => {
     if (b.health > damage) {
       ctx.db.boulder.id.update({ ...b, health: b.health - damage });
       return true;
     }
     ctx.db.boulder.id.delete(b.id);
-    dropLoot(ctx, p.zoneId, [{ item: "stone", min: 1, max: 1 }], { x: b.x, y: b.y });
+    const deposit = depositStockpile(ctx, p.identity, "stone", 1);
+    events.push({
+      distinctId: distinctId(ctx),
+      event: "resource_gathered",
+      properties: { ...props, node_type: "boulder", item: "stone", qty: 1, deposited_qty: deposit.accepted, stockpile_total: deposit.total, stockpile_full: deposit.full },
+    });
     return true;
   };
   const strikeTree = (tr: NonNullable<ReturnType<typeof meleeTreeTarget>>["target"], damage: number): boolean => {
@@ -252,7 +252,12 @@ function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; d
       return true;
     }
     ctx.db.tree.id.delete(tr.id);
-    dropLoot(ctx, p.zoneId, [{ item: "wood", min: 1, max: 1 }], { x: tr.x, y: tr.y });
+    const deposit = depositStockpile(ctx, p.identity, "wood", 1);
+    events.push({
+      distinctId: distinctId(ctx),
+      event: "resource_gathered",
+      properties: { ...props, node_type: "tree", item: "wood", qty: 1, deposited_qty: deposit.accepted, stockpile_total: deposit.total, stockpile_full: deposit.full },
+    });
     return true;
   };
 

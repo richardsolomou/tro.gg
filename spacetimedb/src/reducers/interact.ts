@@ -3,6 +3,7 @@ import { t } from "spacetimedb/server";
 import {
   getZone,
   isItemId,
+  isStockpileItemId,
   ITEM_PICKUP_RADIUS,
 } from "../../../shared/index";
 import {
@@ -16,6 +17,7 @@ import {
   nearestGroundItem,
   placeCarried,
   cardinal,
+  depositStockpile,
 } from "../helpers";
 
 /**
@@ -55,6 +57,17 @@ function runInteract(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; dirY
   if (item) {
     if (!isItemId(item.item)) return [];
     const qty = item.qty ?? 1;
+    if (isStockpileItemId(item.item)) {
+      const deposit = depositStockpile(ctx, p.identity, item.item, qty);
+      if (deposit.accepted <= 0) return [];
+      if (deposit.accepted === qty) ctx.db.groundItem.id.delete(item.id);
+      else ctx.db.groundItem.id.update({ ...item, qty: qty - deposit.accepted });
+      return [{
+        distinctId: distinctId(ctx),
+        event: "resource_gathered",
+        properties: { ...props, node_type: "ground_item", item: item.item, qty: deposit.accepted, deposited_qty: deposit.accepted, stockpile_total: deposit.total, stockpile_full: deposit.full },
+      }];
+    }
     if (!addInventory(ctx, p.identity, item.item, qty)) return [];
     ctx.db.groundItem.id.delete(item.id);
     return [{ distinctId: distinctId(ctx), event: "inventory_item_acquired", properties: { ...props, item: item.item, qty } }];

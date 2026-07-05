@@ -123,6 +123,20 @@ export const PlayerRespawn = __t.object("PlayerRespawn", {
 });
 export type PlayerRespawn = __Infer<typeof PlayerRespawn>;
 
+export const Stockpile = __t.object("Stockpile", {
+  item: __t.string(),
+  qty: __t.i32(),
+});
+export type Stockpile = __Infer<typeof Stockpile>;
+
+export const StockpileContribution = __t.object("StockpileContribution", {
+  id: __t.u64(),
+  playerId: __t.identity(),
+  item: __t.string(),
+  qty: __t.i32(),
+});
+export type StockpileContribution = __Infer<typeof StockpileContribution>;
+
 export const Tree = __t.object("Tree", {
   id: __t.u64(),
   zoneId: __t.string(),
