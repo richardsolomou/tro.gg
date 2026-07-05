@@ -37,20 +37,27 @@ export interface Terrain3D {
 /** Tiles per streamed chunk (a region is 64×44, so seams stay region-aligned on x). */
 const CHUNK = 32;
 
-/** The fog tint blended over penumbra ground — the same cool haze the sky
- *  fog uses, so "scoutable but not tamed" reads as one more shade of the
- *  same uncertainty, not a separate effect. */
-const PENUMBRA_HAZE = new THREE.Color(DAYLIGHT_3D.haze);
-const PENUMBRA_HAZE_CSS = `#${DAYLIGHT_3D.haze.toString(16).padStart(6, "0")}`;
-const PENUMBRA_HAZE_MIX = 0.55;
+/** The fog tint blended over anything short of interior — the same cool haze
+ *  the sky fog uses, so "not yours yet" reads as one more shade of the same
+ *  uncertainty, not a separate effect. Penumbra gets a light wash (scoutable,
+ *  still legible); unreached gets a heavy one (present but unclear, so the
+ *  world's true extent past it stays a mystery) — never a solid substitute
+ *  tile, since that would show a wall where the fog should be. */
+const FOG_TINT = new THREE.Color(DAYLIGHT_3D.haze);
+const FOG_TINT_CSS = `#${DAYLIGHT_3D.haze.toString(16).padStart(6, "0")}`;
+const PENUMBRA_FOG_MIX = 0.55;
+const UNREACHED_FOG_MIX = 0.92;
+const FOG_MIX: Record<RegionVisibility, number> = { interior: 0, penumbra: PENUMBRA_FOG_MIX, unreached: UNREACHED_FOG_MIX };
 
 /**
- * `regionState` gates which of the fully-generated committed tilemap
- * actually renders, and how (GDD "Generation: only as far as the light
- * reaches"): unreached ground draws as solid, unbiomed rock, exactly like
- * the void beyond the continent; penumbra ground draws for real — its true
- * tiles and walls — blended toward a haze tint, since it's scoutable but not
- * tamed. The terrain generator and its committed map are untouched either way.
+ * `regionState` gates how much of the fully-generated committed tilemap
+ * reads as clear (GDD "Generation: only as far as the light reaches"):
+ * interior renders and collides plainly; penumbra and unreached both draw
+ * their real tiles and walls, fogged rather than replaced, so ground you
+ * can't yet reach still reads as a landscape rather than a rock face — just
+ * one you can't see well enough to cross. Unreached still collides as solid
+ * (Zones), the fog is the only visible sign of the boundary. The terrain
+ * generator and its committed map are untouched either way.
  */
 export function buildTerrain(zone: Zone, regionState: (x: number, y: number) => RegionVisibility): Terrain3D {
   const group = new THREE.Group();
@@ -142,7 +149,7 @@ export function buildTerrain(zone: Zone, regionState: (x: number, y: number) => 
     canvas.width = w * ART;
     canvas.height = h * ART;
     const ctx = canvas.getContext("2d")!;
-    const wallTiles: { x: number; y: number; biome: string; hazy: boolean }[] = [];
+    const wallTiles: { x: number; y: number; biome: string; fogMix: number }[] = [];
     const glowTiles: { x: number; y: number; biome: string }[] = [];
     const deepTiles: { x: number; y: number }[] = [];
     for (let y = 0; y < h; y++) {
@@ -151,9 +158,9 @@ export function buildTerrain(zone: Zone, regionState: (x: number, y: number) => 
         const wx = x0 + x;
         const wy = y0 + y;
         const state = regionState(wx, wy);
-        const glyph = state === "unreached" ? WALL_TILE : row[wx]!;
-        const biome = state === "unreached" ? "cave" : tileBiome(wx, wy);
-        const hazy = state === "penumbra";
+        const glyph = row[wx]!;
+        const biome = tileBiome(wx, wy);
+        const fogMix = FOG_MIX[state];
         const patches = patchesFor(biome);
         const sx = (wx % PATCH) * ART;
         const sy = (wy % PATCH) * ART;
@@ -167,18 +174,18 @@ export function buildTerrain(zone: Zone, regionState: (x: number, y: number) => 
         }
         ctx.drawImage(patches.floor!, sx, sy, ART, ART, x * ART, y * ART, ART, ART);
         if (glyph === WALL_TILE) {
-          wallTiles.push({ x: wx, y: wy, biome, hazy });
+          wallTiles.push({ x: wx, y: wy, biome, fogMix });
           continue;
         }
         const decal = patches[glyph];
         if (decal) ctx.drawImage(decal, sx, sy, ART, ART, x * ART, y * ART, ART, ART);
         if (glyph === GLOWMOSS_TILE) glowTiles.push({ x: wx, y: wy, biome });
-        // penumbra ground is real, just hazed — a scoutable region reads as
-        // "not tamed yet," not as a wall (GDD "Generation: only as far as
-        // the light reaches").
-        if (hazy) {
-          ctx.fillStyle = PENUMBRA_HAZE_CSS;
-          ctx.globalAlpha = PENUMBRA_HAZE_MIX;
+        // Non-interior ground is real, just fogged — a region you can't yet
+        // enter reads as "out there," not as a wall (GDD "Generation: only
+        // as far as the light reaches").
+        if (fogMix > 0) {
+          ctx.fillStyle = FOG_TINT_CSS;
+          ctx.globalAlpha = fogMix;
           ctx.fillRect(x * ART, y * ART, ART, ART);
           ctx.globalAlpha = 1;
         }
@@ -219,7 +226,7 @@ export function buildTerrain(zone: Zone, regionState: (x: number, y: number) => 
         place.scale(shape.set(1, height, 1));
         walls.setMatrixAt(i, place);
         wallColour.setHex(biomePalette(tile.biome).wall.face);
-        if (tile.hazy) wallColour.lerp(PENUMBRA_HAZE, PENUMBRA_HAZE_MIX);
+        if (tile.fogMix > 0) wallColour.lerp(FOG_TINT, tile.fogMix);
         walls.setColorAt(i, wallColour);
       });
       walls.castShadow = true;

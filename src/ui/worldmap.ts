@@ -17,8 +17,8 @@ const css = (colour: number): string => `#${colour.toString(16).padStart(6, "0")
 /** Halve each channel — rock reads as clearly darker than the floor it borders. */
 const darker = (colour: number): number => (colour >> 1) & 0x7f7f7f;
 const HAZE_CSS = css(DAYLIGHT_3D.haze);
-/** Matches the same fog mix `terrain.ts` blends over penumbra ground. */
-const HAZE_MIX = 0.55;
+/** Matches the same fog mixes `terrain.ts` blends over non-interior ground. */
+const FOG_MIX: Record<RegionVisibility, number> = { interior: 0, penumbra: 0.55, unreached: 0.92 };
 
 function paintMap(zone: Zone, regionState: (x: number, y: number) => RegionVisibility, canvas: HTMLCanvasElement): void {
   canvas.width = Math.ceil(zone.width / CELL) * PX;
@@ -30,10 +30,9 @@ function paintMap(zone: Zone, regionState: (x: number, y: number) => RegionVisib
       const x0 = cx * CELL;
       const y0 = cy * CELL;
       const region = regionAt(x0, y0);
-      const state = region ? regionState(x0, y0) : "unreached";
-      // unreached ground doesn't exist yet (GDD "Generation: only as far as
-      // the light reaches") — it stays panel-dark, exactly like the void
-      if (!region || state === "unreached") continue;
+      // off the region grid entirely — the void, not a region — stays panel-dark
+      if (!region) continue;
+      const state = regionState(x0, y0);
       const pal = biomePalette(region.biome);
       let open = 0;
       let water = false;
@@ -64,10 +63,12 @@ function paintMap(zone: Zone, regionState: (x: number, y: number) => RegionVisib
         ctx.fillRect(cx * PX + 2, cy * PX + 2, 1, 1);
         ctx.globalAlpha = 1;
       }
-      // penumbra reads as real ground under fog — scoutable, not tamed — the
-      // same haze `terrain.ts` blends over its 3D walls and floor.
-      if (state === "penumbra") {
-        ctx.globalAlpha = HAZE_MIX;
+      // Non-interior ground reads as real ground under fog, never a blank
+      // panel — penumbra lightly, unreached heavily — the same fog `terrain.ts`
+      // blends over its 3D walls and floor.
+      const fogMix = FOG_MIX[state];
+      if (fogMix > 0) {
+        ctx.globalAlpha = fogMix;
         ctx.fillStyle = HAZE_CSS;
         ctx.fillRect(cx * PX, cy * PX, PX, PX);
         ctx.globalAlpha = 1;

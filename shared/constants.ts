@@ -579,7 +579,8 @@ export function getZone(slug: string): Zone | undefined {
  * region is **interior** (`revealedSlugs`, claimed), **penumbra** (adjacent to
  * an interior region via the committed `WORLD_REGION_ADJACENCY` graph, not yet
  * claimed — walkable, dangerous, scoutable), or **unreached** (neither — a
- * hard wall, doesn't exist yet). Penumbra is derived on demand, never stored.
+ * hard collision wall regardless of what's rendered there; see `regionVisibility`
+ * for how that differs from what's drawn). Penumbra is derived on demand, never stored.
  */
 /** The regions adjacent to `slug`, per the committed `WORLD_REGION_ADJACENCY`
  *  graph — empty for an unknown slug. */
@@ -610,9 +611,12 @@ export function isRevealed(zone: Zone, revealedSlugs: ReadonlySet<string>, penum
 
 /** The three fog-of-war states a world-zone tile can be in (GDD "Generation:
  *  only as far as the light reaches"): **interior** renders and plays
- *  normally; **penumbra** renders — real terrain, walkable, dangerous — but
- *  hazed, since it's scoutable, not tamed; **unreached** doesn't render at
- *  all. Always "interior" outside the world zone or off the region grid. */
+ *  normally; **penumbra** renders its real terrain — walkable, dangerous —
+ *  under a light fog, since it's scoutable, not tamed; **unreached** renders
+ *  its real terrain too, under a heavy fog, but stays a hard collision wall
+ *  regardless (`isRevealed`) — fogged, never a solid substitute tile, so what
+ *  lies beyond always reads as unclear rather than nonexistent. Always
+ *  "interior" outside the world zone or off the region grid. */
 export type RegionVisibility = "interior" | "penumbra" | "unreached";
 
 export function regionVisibility(zone: Zone, revealedSlugs: ReadonlySet<string>, penumbraSlugs: ReadonlySet<string>, x: number, y: number): RegionVisibility {
