@@ -81,3 +81,11 @@ export function armBrazierUpkeep(ctx: Ctx): void {
   const at = ctx.timestamp.microsSinceUnixEpoch + BigInt(BRAZIER_UPKEEP_TICK_MS) * 1000n;
   ctx.db.brazierUpkeep.insert({ scheduledId: 0n, scheduledAt: ScheduleAt.time(at) });
 }
+
+/** Seed a zone's frontier row — the already-committed core counts as ring 1,
+ *  already revealed (GDD "The fire and the dark" → Generation) — unless it
+ *  already has one. Idempotent, like the boulder/tree/First-Fire seeders. */
+export function seedFrontier(ctx: Ctx, zone: Zone): void {
+  if (ctx.db.frontier.zoneId.find(zone.slug)) return;
+  ctx.db.frontier.insert({ zoneId: zone.slug, ringsRevealed: 1 });
+}

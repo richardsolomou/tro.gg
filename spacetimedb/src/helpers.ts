@@ -200,3 +200,4 @@ export * from "./stockpile";
 export * from "./braziers";
 export * from "./darkcreatures";
 export * from "./embertroggs";
+export * from "./ignition";

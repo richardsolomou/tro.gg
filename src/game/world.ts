@@ -39,7 +39,7 @@ import {
   type Zone,
 } from "@trogg/shared";
 import type { DbConnection } from "../net/module_bindings";
-import type { Boulder, DarkCreature, GroundItem, Player, Tree } from "../net/module_bindings/types";
+import type { Boulder, Brazier, DarkCreature, GroundItem, Player, Tree } from "../net/module_bindings/types";
 import { attachKeyboard, isTyping, type MoveIntent } from "../input.js";
 import { setupChat } from "../ui/chat.js";
 import { coachHit } from "../ui/coach.js";
@@ -51,7 +51,7 @@ import { interact, useEquipped } from "../net/procedures.js";
 import { isOlderPlayerMotion, playerMotionChanged, withPlayerMotion } from "../motion_sync.js";
 import { FarCrowd } from "./crowd.js";
 import { applyFlinch, createEntities, disposeObject, poseDead, setDowned, setPresenceTint, type Entities, type Tracked } from "./entities.js";
-import { buildBoulder, buildTree } from "./items.js";
+import { buildBoulder, buildHearthFire, buildTree } from "./items.js";
 import { buildWretch } from "./creatures.js";
 import { makeHealthBar, type Overlay } from "./overlays.js";
 import { NodeField } from "./nodes.js";
@@ -229,6 +229,7 @@ export class World3D {
   }
   private readonly groundItems = new Map<string, { row: GroundItem; group: THREE.Group }>();
   private readonly darkCreatures = new Map<string, TrackedDark>();
+  private readonly braziers = new Map<string, { row: Brazier; group: THREE.Group }>();
 
   private readonly boulderTiles = new Set<string>();
   private readonly treeTiles = new Set<string>();
@@ -493,6 +494,8 @@ export class World3D {
     this.wireBoulders();
     this.wireTrees();
     this.wireDarkCreatures();
+    this.wireBraziers();
+    this.wireProjects();
     if (this.useGhost) this.wireGhostHaunts();
 
     attachKeyboard(
@@ -624,6 +627,7 @@ export class World3D {
       `SELECT * FROM tree WHERE zone_id = '${this.slug}'`,
       `SELECT * FROM dark_creature WHERE zone_id = '${this.slug}'`,
       `SELECT * FROM brazier WHERE zone_id = '${this.slug}'`,
+      `SELECT * FROM project WHERE zone_id = '${this.slug}'`,
       "SELECT * FROM world_state",
       "SELECT * FROM stockpile",
     ];
@@ -1382,6 +1386,63 @@ export class World3D {
       view.model.mixer.update(dt);
       applyFlinch(view, now, 0.5);
     }
+  }
+
+  // ── hearths and braziers (GDD "The fire and the dark") ────────────────────
+
+  private upsertBrazier(row: Brazier): void {
+    const key = row.id.toString();
+    const existing = this.braziers.get(key);
+    if (existing && existing.row.lit === row.lit) {
+      existing.row = row;
+      return;
+    }
+    if (existing) disposeObject(existing.group);
+    const group = buildHearthFire(row.lit);
+    group.position.set(row.x + 0.5, 0, row.y + 0.5);
+    this.scene.add(group);
+    this.braziers.set(key, { row, group });
+  }
+
+  private removeBrazier(row: Brazier): void {
+    const key = row.id.toString();
+    const view = this.braziers.get(key);
+    if (!view) return;
+    disposeObject(view.group);
+    this.braziers.delete(key);
+  }
+
+  private wireBraziers(): void {
+    const conn = this.conn;
+    for (const row of conn.db.brazier.iter()) {
+      if (row.zoneId === this.slug) this.upsertBrazier(row);
+    }
+    conn.db.brazier.onInsert((_ctx, row) => {
+      if (row.zoneId === this.slug) this.upsertBrazier(row);
+    });
+    conn.db.brazier.onUpdate((_ctx, _old, row) => {
+      if (row.zoneId === this.slug) this.upsertBrazier(row);
+    });
+    conn.db.brazier.onDelete((_ctx, row) => this.removeBrazier(row));
+  }
+
+  /**
+   * A project's status is a shared, zone-wide authoritative row transition,
+   * not a per-player one — driven by the scheduled `sweepEmberWander`
+   * reducer, which (like the scheduled respawn timer) can't capture its own
+   * PostHog event. Every client watching the zone observes the same
+   * transition and captures it independently, the same client-side pattern
+   * `player_respawned` uses (GDD analytics.md).
+   */
+  private wireProjects(): void {
+    const conn = this.conn;
+    conn.db.project.onUpdate((_ctx, old, row) => {
+      if (row.zoneId !== this.slug) return;
+      if (old.status !== "succeeded" && row.status === "succeeded") {
+        captureEvent("project_completed", { project: row.slug, source: "project-row-sync" });
+        logInfo("Project completed", { surface: "world", action: "project_completed", zone: row.zoneId, project: row.slug });
+      }
+    });
   }
 
   private wireGroundItems(): void {

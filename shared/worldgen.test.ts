@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { assertZones, isDryFloor, isWalkable, regionAt, WALL_TILE, WORLD_REGIONS, ZONES, type Zone } from "./index";
-import { generateCaveZone } from "./worldgen";
+import { generateCaveZone, generateFrontierRing } from "./worldgen";
 
 const OPTS = { slug: "t", name: "t", width: 64, height: 44, seed: 0x70660001, boulders: 14, biome: "cave" as const };
 
@@ -104,4 +104,31 @@ test("rivers are crossable: the far banks stay reachable from spawn", () => {
   let deep = 0;
   for (const row of world.tiles) for (const glyph of row) if (glyph === "=") deep++;
   assert.ok(deep > 200, `expected real rivers, found ${deep} deep tiles`);
+});
+
+test("generateFrontierRing is a pure function of the tilemap and ring index", () => {
+  const world = ZONES["world"]!;
+  const a = generateFrontierRing(world.tiles, world.spawn!, 1, 20, 8);
+  const b = generateFrontierRing(world.tiles, world.spawn!, 1, 20, 8);
+  assert.deepEqual(a, b, "the same ring index always yields the same tiles");
+});
+
+test("generateFrontierRing only offers dry, open floor within its own annulus", () => {
+  const world = ZONES["world"]!;
+  const ringIndex = 1;
+  const ringWidth = 20;
+  const tiles = generateFrontierRing(world.tiles, world.spawn!, ringIndex, ringWidth, 8);
+  assert.ok(tiles.length > 0);
+  for (const tile of tiles) {
+    assert.ok(isDryFloor(world, tile.x, tile.y), `(${tile.x},${tile.y}) is not dry open floor`);
+    const dist = Math.hypot(tile.x - world.spawn!.x, tile.y - world.spawn!.y);
+    assert.ok(dist >= ringIndex * ringWidth && dist < (ringIndex + 1) * ringWidth, `(${tile.x},${tile.y}) is outside ring ${ringIndex}`);
+  }
+});
+
+test("different ring indices draw independent, differently-seeded tiles", () => {
+  const world = ZONES["world"]!;
+  const ring1 = generateFrontierRing(world.tiles, world.spawn!, 1, 20, 8);
+  const ring2 = generateFrontierRing(world.tiles, world.spawn!, 2, 20, 8);
+  assert.notDeepEqual(ring1, ring2);
 });

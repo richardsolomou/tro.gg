@@ -135,6 +135,12 @@ export const IGNITION_FUEL_COST = 500;
 export const IGNITION_WINDOW_MS = 3 * 60_000;
 export const IGNITION_RANGE_TILES = 3;
 
+/** How many fresh dark creatures a newly revealed ring offers, on top of the
+ *  hold-the-point wave at the brazier itself (GDD "Generation" — "the
+ *  penumbra is exactly one ring deep, always populated... so scouting always
+ *  has fresh ground to work"). (initial) */
+export const RING_WAVE_SIZE = 8;
+
 /** Chat. (initial) */
 export const CHAT_MAX_CHARS = 200;
 export const CHAT_BUBBLE_MS = 5_000;

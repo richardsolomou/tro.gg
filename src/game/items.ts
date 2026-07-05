@@ -321,3 +321,35 @@ export function buildEmberHeart(): THREE.Group {
   g.add(light);
   return g;
 }
+
+/** A hearth or brazier (GDD "The fire and the dark"): a ring of stones around
+ *  a stack of flame cels and a strong point light while `lit` — the visible
+ *  reason nothing dark can stand nearby. A guttered brazier keeps the stone
+ *  ring standing, cold: cheaper to re-ignite than virgin ground, because the
+ *  site is still there. Static flame (no per-frame cel swap; a handheld
+ *  torch's flicker would be lost at this scale and distance). */
+export function buildHearthFire(lit: boolean): THREE.Group {
+  const g = new THREE.Group();
+  const ringStones = 8;
+  for (let i = 0; i < ringStones; i++) {
+    const a = (i / ringStones) * Math.PI * 2;
+    const stone = new THREE.Mesh(ico(0.16, 0), mat(lit ? ITEM_3D.rock : ITEM_3D.rockDk));
+    stone.position.set(Math.cos(a) * 0.55, 0.1, Math.sin(a) * 0.55);
+    stone.castShadow = true;
+    g.add(stone);
+  }
+  if (lit) {
+    const rand = flameRng(0x4e3b);
+    for (let i = 0; i < 5; i++) {
+      const cel = flameCel(rand);
+      cel.scale.setScalar(1.6 + rand() * 0.5);
+      cel.position.set((rand() - 0.5) * 0.25, 0, (rand() - 0.5) * 0.25);
+      g.add(cel);
+    }
+    const light = new THREE.PointLight(FLAME_MID, 2.2, 9);
+    light.position.y = 0.9;
+    light.castShadow = true;
+    g.add(light);
+  }
+  return g;
+}

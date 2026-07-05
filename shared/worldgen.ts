@@ -1,4 +1,4 @@
-import { DEEP_WATER_TILE, GLOWMOSS_TILE, GRAVEL_TILE, MOSS_TILE, WALL_TILE, WATER_TILE } from "./glyphs";
+import { DEEP_WATER_TILE, GLOWMOSS_TILE, GRAVEL_TILE, MOSS_TILE, SOLID_GLYPHS, WALL_TILE, WATER_TILE } from "./glyphs";
 import type { BirthCellSeed, Coord, GroundItemSeed, Zone, ZoneExit } from "./constants";
 
 /**
@@ -776,4 +776,47 @@ export function generateWorld(): GeneratedWorld {
   const cells: BirthCellSeed[] = [];
 
   return { tiles: glyphs.map((row) => row.join("")), regions: regionGrid.map((row) => row.join("")), boulders, trees, items, cells, arrival, caveDoor, spawn, darkCreatures };
+}
+
+// ── lazy, ring-at-a-time generation (GDD "The fire and the dark" → Generation) ──
+// The committed continent above is the world's already-revealed core — built and
+// played on before this system existed, so it's pre-frozen, the same way
+// `healStaleWorld` already treats the shipped map as ground truth. Beyond it,
+// each successive ring (a fixed-width annulus centred on the world's spawn) is a
+// pure function of the tilemap and the ring's own index: the same inputs always
+// yield the same tiles, so a ring is generated once, when an ignition reaches it,
+// and never reshuffled after (invariant 7).
+
+/** Tiles per ring (GDD "Generation" — "the penumbra is exactly one ring deep"). (initial) */
+export const RING_WIDTH_TILES = 20;
+
+/**
+ * The `count` tiles a fresh ring offers to scout — dry, open floor between
+ * `ringIndex * ringWidthTiles` and `(ringIndex + 1) * ringWidthTiles` tiles
+ * from `spawn`, deterministically shuffled by a seed keyed to `ringIndex`
+ * alone. Pure: the same tilemap and ring index always produce the same set,
+ * so revealing ring N twice (a resumed connection, a replay) can't disagree
+ * with itself. Yields fewer than `count` (down to none) once a ring's annulus
+ * runs past the edge of the committed tilemap.
+ */
+export function generateFrontierRing(tiles: readonly string[], spawn: Coord, ringIndex: number, ringWidthTiles: number, count: number): Coord[] {
+  const innerR = ringIndex * ringWidthTiles;
+  const outerR = (ringIndex + 1) * ringWidthTiles;
+  const candidates: Coord[] = [];
+  for (let y = 0; y < tiles.length; y++) {
+    const row = tiles[y]!;
+    for (let x = 0; x < row.length; x++) {
+      const dist = Math.hypot(x - spawn.x, y - spawn.y);
+      if (dist < innerR || dist >= outerR) continue;
+      const glyph = row[x]!;
+      if (SOLID_GLYPHS.has(glyph) || glyph === WATER_TILE) continue; // dry, open floor only
+      candidates.push({ x, y });
+    }
+  }
+  const rand = mulberry32((0x9a1e2000 ^ ringIndex) >>> 0);
+  for (let i = candidates.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [candidates[i], candidates[j]] = [candidates[j]!, candidates[i]!];
+  }
+  return candidates.slice(0, count);
 }

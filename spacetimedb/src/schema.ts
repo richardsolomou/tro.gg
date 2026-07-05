@@ -26,6 +26,7 @@ import {
   wanderDarkCreatures,
   regenDarkCreatures,
   armEmberWander,
+  resolveIgnitions,
 } from "./helpers";
 
 /**
@@ -339,6 +340,46 @@ const brazierUpkeep = table(
 );
 
 /**
+ * A communal project (GDD "The fire and the dark" → Ignition): currently used
+ * only for igniting a brazier. `status` is "active" while the hold-the-point
+ * window is open, "succeeded" once it lights, "failed" if abandoned. `x`/`y`
+ * is the brazier site; `ignitionEndsAt` is when the scheduled sweep resolves
+ * it. `fuelSpent` and `emberHeartSpent` are the paid-upfront stake (GDD "Two
+ * keys, one door") — contribution is tracked per project even though the
+ * stockpile it drew from isn't per-player.
+ */
+const project = table(
+  { name: "project", public: true },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    slug: t.string(),
+    zoneId: t.string().index("btree"),
+    x: t.i32(),
+    y: t.i32(),
+    status: t.string(),
+    fuelSpent: t.i32().default(0),
+    emberHeartSpent: t.bool().default(false),
+    ignitionEndsAt: t.timestamp().default(Timestamp.UNIX_EPOCH),
+  },
+);
+
+/**
+ * How far a zone's frontier has advanced (GDD "The fire and the dark" →
+ * Generation): `ringsRevealed` counts the already-committed core as its own
+ * first ring, then one more per successful ignition. Each newly revealed
+ * ring seeds a fresh batch of dark creatures via the deterministic
+ * `generateFrontierRing` — a pure function of the tilemap and the ring
+ * index, so revealing the same ring twice can never disagree with itself.
+ */
+const frontier = table(
+  { name: "frontier", public: true },
+  {
+    zoneId: t.string().primaryKey(),
+    ringsRevealed: t.i32().default(1),
+  },
+);
+
+/**
  * A hostile inhabitant of the dark and the penumbra (GDD "Dark creatures") —
  * the direct successor of the retired ambient Hog: the same intent-based
  * motion (origin, direction, `movedAt`), server-owned with no identity, solid
@@ -440,6 +481,8 @@ const spacetimedb = schema({
   stockpile,
   brazier,
   brazierUpkeep,
+  project,
+  frontier,
   darkCreature,
   emberWanderTimer,
   playerRespawn,
@@ -491,6 +534,7 @@ export const sweepEmberWander = spacetimedb.reducer({ timer: emberWanderTimer.ro
   if (online) {
     wanderEmberTroggs(ctx, now);
     wanderDarkCreatures(ctx, now);
+    resolveIgnitions(ctx, now);
   }
   ctx.db.emberWanderTimer.clear();
   if (online) armEmberWander(ctx);

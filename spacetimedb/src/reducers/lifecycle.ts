@@ -32,6 +32,7 @@ import {
   seedFirstFire,
   armBrazierUpkeep,
   seedDarkCreatures,
+  seedFrontier,
   armEmberWander,
   recallToHearth,
 } from "../helpers";
@@ -53,6 +54,7 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
   seedGroundItems(ctx, startingZone);
   seedFirstFire(ctx, startingZone);
   seedDarkCreatures(ctx, startingZone);
+  seedFrontier(ctx, startingZone);
   armRegen(ctx);
   armBrazierUpkeep(ctx);
   armEmberWander(ctx);

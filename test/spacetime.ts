@@ -97,6 +97,8 @@ export function makeCtx(opts: FakeCtxOpts) {
       stockpile: makeTable({ pk: "item" }),
       brazier: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
       brazierUpkeep: makeTable({ pk: "scheduledId", autoInc: true }),
+      project: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
+      frontier: makeTable({ pk: "zoneId" }),
       darkCreature: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
       emberWanderTimer: makeTable({ pk: "scheduledId", autoInc: true }),
       playerRespawn: makeTable({ pk: "scheduledId", autoInc: true, indexes: ["playerId"] }),

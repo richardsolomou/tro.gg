@@ -82,6 +82,12 @@ export const EmberWander = __t.object("EmberWander", {
 });
 export type EmberWander = __Infer<typeof EmberWander>;
 
+export const Frontier = __t.object("Frontier", {
+  zoneId: __t.string(),
+  ringsRevealed: __t.i32(),
+});
+export type Frontier = __Infer<typeof Frontier>;
+
 export const GhostHaunt = __t.object("GhostHaunt", {
   id: __t.u64(),
   zoneId: __t.string(),
@@ -164,6 +170,19 @@ export const PlayerRespawn = __t.object("PlayerRespawn", {
   scheduledAt: __t.scheduleAt(),
 });
 export type PlayerRespawn = __Infer<typeof PlayerRespawn>;
+
+export const Project = __t.object("Project", {
+  id: __t.u64(),
+  slug: __t.string(),
+  zoneId: __t.string(),
+  x: __t.i32(),
+  y: __t.i32(),
+  status: __t.string(),
+  fuelSpent: __t.i32(),
+  emberHeartSpent: __t.bool(),
+  ignitionEndsAt: __t.timestamp(),
+});
+export type Project = __Infer<typeof Project>;
 
 export const Stockpile = __t.object("Stockpile", {
   item: __t.string(),
