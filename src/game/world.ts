@@ -39,6 +39,7 @@ import {
   zoneBounds,
   type Coord,
   type RegionVisibility,
+  type Presence,
   type Stamp,
   type ZoneBounds,
   type Zone,
@@ -1131,7 +1132,8 @@ export class World3D {
     this.entities.destroy(entry);
     entry.style = troggStyleFor(entry.player.style, id);
     entry.baseColor = troggColorFor(entry.player.color, id);
-    const built = this.entities.makeMarker(entry.player.name, entry.baseColor, entry.style, id === this.myId, entry.facing, entry.player.health, entry.player.dead, entry.player.respawnAt);
+    entry.presence = this.presenceNow(entry.player);
+    const built = this.entities.makeMarker(entry.player.name, entry.baseColor, entry.style, id === this.myId, entry.facing, entry.player.health, entry.player.dead, entry.presence, entry.player.respawnAt);
     entry.marker = built.marker;
     entry.model = built.model;
     entry.overlays = built.overlays;
@@ -1235,8 +1237,10 @@ export class World3D {
     const facing = facingFromDir(face.dirX, face.dirY, "down");
     const style = troggStyleFor(p.style, id);
     const color = troggColorFor(p.color, id);
-    const built = this.entities.makeMarker(p.name, color, style, id === this.myId, facing, p.health, p.dead, p.respawnAt);
+    const presence = this.presenceNow(p);
+    const built = this.entities.makeMarker(p.name, color, style, id === this.myId, facing, p.health, p.dead, presence, p.respawnAt);
     const entry: Tracked = {
+      presence,
       marker: built.marker,
       model: built.model,
       overlays: built.overlays,
@@ -1264,14 +1268,20 @@ export class World3D {
     this.applyPresence(entry);
   }
 
+  private presenceNow(p: Player): Presence {
+    const now: Stamp = { microsSinceUnixEpoch: BigInt(Date.now()) * 1000n };
+    return presenceOf(p.online, deriveKindlingCharge(p.kindlingCharge, p.kindlingChargeAt, p.online, now));
+  }
+
   /** Dim a tracked trogg's body to its current presence (GDD "The fire and
-   *  the dark" → Presence). Skipped while dead — `setDowned`'s translucency
-   *  owns that state instead. */
+   *  the dark" → Presence) and, on a transition, rebuild its marker so the
+   *  name tag re-styles. Skipped while dead — `setDowned`'s translucency and
+   *  the dead name colour own that state instead. */
   private applyPresence(entry: Tracked): void {
     if (entry.player.dead) return;
-    const now: Stamp = { microsSinceUnixEpoch: BigInt(Date.now()) * 1000n };
-    const charge = deriveKindlingCharge(entry.player.kindlingCharge, entry.player.kindlingChargeAt, entry.player.online, now);
-    setPresenceDim(entry.model, presenceOf(entry.player.online, charge));
+    const presence = this.presenceNow(entry.player);
+    if (presence !== entry.presence) this.rebuildMarker(entry.player.identity.toHexString(), entry);
+    setPresenceDim(entry.model, presence);
   }
 
   private removePlayer(id: string): void {

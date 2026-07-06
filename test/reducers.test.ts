@@ -1104,6 +1104,37 @@ test("wanderPresence gathers on instinct from an adjacent boulder and deposits i
   );
 });
 
+test("wanderPresence routes an ember trogg toward the nearest node instead of drifting", () => {
+  const watcher = id("watcher");
+  const ember = id("seeker");
+  // 0.9 misses the gather roll; no adjacent node anyway, so the trogg must route.
+  const ctx = makeCtx({ sender: watcher, random: 0.9, integerInRange: () => 0 });
+  ctx.db.player.insert(playerRow(watcher, { online: true, x: 0, y: 0 }));
+  ctx.db.revealedRegion.insert(revealedRegionRow({ slug: "r1x1" })); // the region holding (69, 96)
+  ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
+  ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 66, y: 96, health: 100 }); // three tiles of open floor west
+  ctx.db.player.insert(playerRow(ember, { x: 69, y: 96, online: false, kindlingCharge: 10, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
+  wanderPresence(ctx, {});
+  const p = ctx.db.player.identity.find(ember);
+  assert.deepEqual({ pathing: p.path !== "", dirX: p.dirX }, { pathing: true, dirX: -1 }); // en route west, toward the boulder
+});
+
+test("wanderPresence camps an ember trogg beside its node between chips", () => {
+  const watcher = id("watcher");
+  const ember = id("camper");
+  const ctx = makeCtx({ sender: watcher, random: 0.9 }); // misses the gather roll
+  ctx.db.player.insert(playerRow(watcher, { online: true, x: 0, y: 0 }));
+  ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
+  ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96, health: 100 });
+  ctx.db.player.insert(playerRow(ember, { x: 69, y: 96, online: false, kindlingCharge: 10, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
+  wanderPresence(ctx, {});
+  const p = ctx.db.player.identity.find(ember);
+  assert.deepEqual(
+    { x: p.x, y: p.y, dirX: p.dirX, dirY: p.dirY, path: p.path, health: ctx.db.boulder.rows()[0].health },
+    { x: 69, y: 96, dirX: 0, dirY: 0, path: "", health: 100 }, // stays put, node intact until a chip lands
+  );
+});
+
 test("wanderPresence re-arms only while a player is online", () => {
   const ember = id("alone");
   const ctx = makeCtx({ sender: ember });

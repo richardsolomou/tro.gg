@@ -119,15 +119,18 @@ export const CHARGE_DECAY_RATE = 10; // charge per hour while ember
 /**
  * An ember trogg works safe interior ground on instinct (GDD "Presence"): the
  * scheduled `ember_wander` sweep re-derives its position every
- * `EMBER_WANDER_TICK_MS` and, when it's adjacent to a boulder or tree, rolls
- * `EMBER_EFFICIENCY_FRACTION` for an instinct-driven gather chip roughly the
- * weight of one weak tool hit — a trickle next to a bright trogg spamming
- * swings, deposited into the stockpile the same way a real hit is, earning no
- * XP. (initial)
+ * `EMBER_WANDER_TICK_MS`, routes it to the nearest boulder or tree within
+ * `EMBER_SEEK_RADIUS` (manhattan tiles, on lit revealed ground), and camps it
+ * there, rolling `EMBER_EFFICIENCY_FRACTION` per tick for an instinct-driven
+ * gather chip roughly the weight of one weak tool hit — a trickle next to a
+ * bright trogg spamming swings, deposited into the stockpile the same way a
+ * real hit is, earning no XP. With no node in range it falls back to an
+ * aimless wander. (initial)
  */
 export const EMBER_EFFICIENCY_FRACTION = 0.3;
 export const EMBER_WANDER_TICK_MS = 1_000;
 export const EMBER_GATHER_DAMAGE = 6;
+export const EMBER_SEEK_RADIUS = 24;
 
 /** Trogg combat health, damage, and respawn timing. (initial) */
 export const PLAYER_MAX_HEALTH = 100;

@@ -84,6 +84,8 @@ export const UI_3D = {
   healthLow: 0xc75c52,
   deadBar: 0x4a3826,
   deadName: 0x9b8a6c,
+  emberName: 0xd99a5b,
+  dormantName: 0x8f877c,
 } as const;
 
 // ── biome palettes ─────────────────────────────────────────────────────────────

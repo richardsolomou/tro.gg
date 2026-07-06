@@ -19,6 +19,10 @@ import {
   deriveKindlingCharge,
   EMBER_EFFICIENCY_FRACTION,
   EMBER_GATHER_DAMAGE,
+  EMBER_SEEK_RADIUS,
+  findPath,
+  serializePath,
+  smoothPath,
   WANDER_TURN_CHANCE,
   footprintWalkable,
   getZone,
@@ -649,46 +653,92 @@ export const wanderPresence = spacetimedb.reducer({ timer: emberWanderTimer.rowT
       const blockers = obstacleTiles(ctx, p.zoneId);
       const bounds = zoneBounds(zone, (x, y) => blockers.has(tileKey(x, y)) || !isLitTile(ctx, p.zoneId, x, y) || !revealed(zone, x, y));
       const at = projectMotionState(p, elapsedMs(p.movedAt, now), bounds);
-      const moving = p.dirX !== 0 || p.dirY !== 0;
-      const aheadClear = moving && footprintWalkable(bounds, at.x + Math.sign(p.dirX), at.y + Math.sign(p.dirY), 1);
-      const dir =
-        moving && aheadClear && ctx.random() > WANDER_TURN_CHANCE
-          ? { dirX: p.dirX, dirY: p.dirY }
-          : pickWanderDir(ctx, bounds, { x: Math.round(at.x), y: Math.round(at.y) }, 1);
+      const cx = Math.round(at.x);
+      const cy = Math.round(at.y);
 
-      // Gathering on instinct: a chance per tick, scaled by the same fraction
-      // that governs its whole stockpile rate, to chip an adjacent node.
-      if (ctx.random() < EMBER_EFFICIENCY_FRACTION) {
-        const cx = Math.round(at.x);
-        const cy = Math.round(at.y);
-        const neighbors: Array<[number, number]> = [
-          [cx + 1, cy],
-          [cx - 1, cy],
-          [cx, cy + 1],
-          [cx, cy - 1],
-        ];
-        for (const [nx, ny] of neighbors) {
-          const b = boulderAt(ctx, p.zoneId, nx, ny);
-          if (b) {
+      // Camped beside a node: chip it on a chance per tick, scaled by the same
+      // fraction that governs its whole stockpile rate, and stay put — the
+      // trogg works the node until it breaks, then seeks the next one.
+      const neighbors: Array<[number, number]> = [
+        [cx + 1, cy],
+        [cx - 1, cy],
+        [cx, cy + 1],
+        [cx, cy - 1],
+      ];
+      let camped = false;
+      for (const [nx, ny] of neighbors) {
+        const b = boulderAt(ctx, p.zoneId, nx, ny);
+        if (b) {
+          camped = true;
+          if (ctx.random() < EMBER_EFFICIENCY_FRACTION) {
             if (b.health > EMBER_GATHER_DAMAGE) ctx.db.boulder.id.update({ ...b, health: b.health - EMBER_GATHER_DAMAGE });
             else {
               ctx.db.boulder.id.delete(b.id);
               depositStockpile(ctx, "stone", 1);
             }
-            break;
           }
-          const tr = treeAt(ctx, p.zoneId, nx, ny);
-          if (tr) {
+          break;
+        }
+        const tr = treeAt(ctx, p.zoneId, nx, ny);
+        if (tr) {
+          camped = true;
+          if (ctx.random() < EMBER_EFFICIENCY_FRACTION) {
             if (tr.health > EMBER_GATHER_DAMAGE) ctx.db.tree.id.update({ ...tr, health: tr.health - EMBER_GATHER_DAMAGE });
             else {
               ctx.db.tree.id.delete(tr.id);
               depositStockpile(ctx, "wood", 1);
             }
-            break;
           }
+          break;
         }
       }
+      if (camped) {
+        if (p.dirX !== 0 || p.dirY !== 0 || p.path !== "" || at.x !== p.x || at.y !== p.y)
+          ctx.db.player.identity.update({ ...p, x: at.x, y: at.y, dirX: 0, dirY: 0, path: "", movedAt: now });
+        continue;
+      }
 
+      // En route to a node: the stored path carries it (projection is anchored
+      // at the row, so an untouched row keeps gliding). A stall — the mid-hop
+      // clamp reports no heading — falls through and re-routes.
+      if (p.path !== "" && !at.arrived && (at.dirX !== 0 || at.dirY !== 0)) continue;
+
+      // Seek: route to the nearest node on lit, revealed ground. The node tile
+      // itself is an obstacle, so `findPath` lands on a walkable tile beside it
+      // — the camping spot. A* only runs while a trogg is between nodes.
+      const nodes: { x: number; y: number; d: number }[] = [];
+      for (const b of ctx.db.boulder.zoneId.filter(p.zoneId)) {
+        const d = Math.abs(b.x - cx) + Math.abs(b.y - cy);
+        if (d <= EMBER_SEEK_RADIUS) nodes.push({ x: b.x, y: b.y, d });
+      }
+      for (const tr of ctx.db.tree.zoneId.filter(p.zoneId)) {
+        const d = Math.abs(tr.x - cx) + Math.abs(tr.y - cy);
+        if (d <= EMBER_SEEK_RADIUS) nodes.push({ x: tr.x, y: tr.y, d });
+      }
+      nodes.sort((a, b) => a.d - b.d);
+      let routed = false;
+      for (const node of nodes.slice(0, 4)) {
+        const path = smoothPath(bounds, at, findPath(bounds, at, { x: node.x, y: node.y }));
+        const first = path[0];
+        if (!first) continue;
+        const hopX = first.x - at.x;
+        const hopY = first.y - at.y;
+        const faceX = Math.abs(hopX) >= Math.abs(hopY) ? Math.sign(hopX) : 0;
+        const faceY = Math.abs(hopX) >= Math.abs(hopY) ? 0 : Math.sign(hopY);
+        ctx.db.player.identity.update({ ...p, x: at.x, y: at.y, dirX: faceX, dirY: faceY, path: serializePath(path), movedAt: now });
+        routed = true;
+        break;
+      }
+      if (routed) continue;
+
+      // Nothing to work: drift the old aimless wander so the settlement still
+      // reads as inhabited.
+      const moving = p.dirX !== 0 || p.dirY !== 0;
+      const aheadClear = moving && footprintWalkable(bounds, at.x + Math.sign(p.dirX), at.y + Math.sign(p.dirY), 1);
+      const dir =
+        moving && aheadClear && ctx.random() > WANDER_TURN_CHANCE
+          ? { dirX: p.dirX, dirY: p.dirY }
+          : pickWanderDir(ctx, bounds, { x: cx, y: cy }, 1);
       const unchanged = at.x === p.x && at.y === p.y && dir.dirX === p.dirX && dir.dirY === p.dirY;
       if (unchanged) continue;
       ctx.db.player.identity.update({ ...p, x: at.x, y: at.y, dirX: dir.dirX, dirY: dir.dirY, path: "", movedAt: now });

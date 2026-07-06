@@ -68,6 +68,9 @@ export interface Tracked {
   bubbleTimer?: ReturnType<typeof setTimeout>;
   respawn?: { overlay: Overlay; text: string; at: Stamp };
   overlays: Overlay[];
+  /** The presence the marker was last built for — a change rebuilds it so the
+   *  name tag re-styles (GDD "Presence": offline troggs read as such). */
+  presence: Presence;
 }
 
 /** Recursively free an object's GPU resources and detach it. Pooled resources
@@ -263,7 +266,7 @@ export function createEntities(scene: THREE.Scene) {
     (selfReach.wedge.material as THREE.MeshBasicMaterial).opacity = attacking ? 0.35 : 0.12;
   };
 
-  const makeMarker = (name: string, color: number, style: string, self: boolean, facing: Facing, health: number, dead: boolean, respawnAt?: Stamp) => {
+  const makeMarker = (name: string, color: number, style: string, self: boolean, facing: Facing, health: number, dead: boolean, presence: Presence, respawnAt?: Stamp) => {
     const marker = new THREE.Group();
     const model = buildTrogg(style, color);
     model.root.position.set(0.5, 0, 0.5);
@@ -286,7 +289,12 @@ export function createEntities(scene: THREE.Scene) {
     }
     addHitbox(marker, hitRing(PLAYER_HIT_RADIUS, 0x6fdc9c), 0.5);
     if (self) addReach(marker);
-    const label = makeLabel(name, dead ? UI_3D.deadName : UI_3D.parchment);
+    // An offline trogg's name tag says so (GDD "Presence"): the dim body alone
+    // is easy to miss, so ember and dormant get a suffix and a muted colour.
+    const label = makeLabel(
+      dead || presence === "bright" ? name : `${name} · ${presence}`,
+      dead ? UI_3D.deadName : presence === "ember" ? UI_3D.emberName : presence === "dormant" ? UI_3D.dormantName : UI_3D.parchment,
+    );
     label.sprite.position.set(0.5, model.height + 0.5, 0.5);
     marker.add(label.sprite);
     overlays.push(label);
