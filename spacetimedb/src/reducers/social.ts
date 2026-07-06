@@ -193,7 +193,7 @@ export const recolorAction = spacetimedb.procedure(
  * into the shared `TROGG_STYLES` list, replacing the id-derived default. The mirror
  * of `recolor` on the other appearance axis (shape, not tint). The index is
  * validated server-side (invariant 3); an out-of-range index or one already set is
- * a silent no-op. The style rides the zone player sync, so the sprite swaps for
+ * a silent no-op. The style rides the zone player sync, so the model swaps for
  * everyone.
  */
 function runRestyle(ctx: Ctx, { style, source = "" }: { style: number; source?: string }): AnalyticsEvent[] {

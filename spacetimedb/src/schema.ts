@@ -87,7 +87,7 @@ import {
  * trogg's main hand (GDD "Inventory" / "Avatars and equipment").
  * `equippedMainHandInventoryId` points at the specific owned inventory row, so
  * duplicate swords/picks are distinct in the HUD even though everyone else only
- * needs the item id to render the held sprite. `equipmentAction` +
+ * needs the item id to render the held model. `equipmentAction` +
  * `equipmentActionAt` are the last visible equipment use impulse, so every client
  * can briefly animate a swing or chop from synced player state. `health`, `dead`,
  * and `respawnAt` are the pre-alpha combat state: damage reduces health, a dead
@@ -273,11 +273,10 @@ const tree = table(
 
 /**
  * A hostile inhabitant of the dark and the penumbra (GDD "Dark creatures").
- * Intent-based motion like a player or the retired `hog` row — position is
- * derived with `projectMotion`, never advanced on a timer. `aggroTargetId` is
- * either the identity hex of the trogg it's chasing or "" while wandering.
- * Solid, the same way a Hog used to be: blocks troggs and other dark
- * creatures. Cannot occupy a lit tile (`isLitTile`), which is what keeps it
+ * Intent-based motion like a player — position is derived with
+ * `projectMotion`, never advanced on a timer. `aggroTargetId` is either the
+ * identity hex of the trogg it's chasing or "" while wandering. Solid:
+ * blocks troggs and other dark creatures. Cannot occupy a lit tile (`isLitTile`), which is what keeps it
  * out of claimed ground rather than a targeting rule. `health` at zero is a
  * corpse — settled, inert, reaped by the `regenCreatures` sweep after
  * `NPC_CORPSE_MS`; whether a fresh one then takes its place depends on
@@ -391,9 +390,9 @@ const brazierUpkeepTimer = table(
 
 /**
  * The ember-trogg and dark-creature wander timer (GDD "The fire and the
- * dark" → Presence; "Dark creatures") — the direct successor of the retired
- * `hog_wander`, the same sanctioned scheduled-reducer exception: re-armed
- * only while a player is online, so an empty world does no work. Private (no
+ * dark" → Presence; "Dark creatures") — a sanctioned scheduled-reducer
+ * exception: re-armed only while a player is online, so an empty world does
+ * no work. Private (no
  * client reads it). `wanderPresence` is the one reducer bound to it — a
  * SpacetimeDB scheduled table calls exactly one reducer — steering both an
  * ember trogg's instinct amble and a dark creature's wander/aggro/chase.
@@ -814,9 +813,8 @@ export const wanderPresence = spacetimedb.reducer({ timer: emberWanderTimer.rowT
     }
 
     // Dark creatures: settle every living one to where its stored intent has
-    // carried it and collect the tiles they occupy first (mirroring the
-    // retired Hog wander's two-pass shape), so the second pass can keep them
-    // off each other's tiles without reading stale positions.
+    // carried it and collect the tiles they occupy first, so the second pass
+    // can keep them off each other's tiles without reading stale positions.
     const staticBlockersByZone = new Map<string, Set<string>>();
     const staticBlockersFor = (zoneId: string): Set<string> => {
       let set = staticBlockersByZone.get(zoneId);

@@ -61,8 +61,8 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
   rememberPlayerConnection(ctx);
 
   let existing = ctx.db.player.identity.find(ctx.sender);
-  // Rows from the retired zone-instanced world carry old slugs; fold them into
-  // the seamless world at spawn.
+  // A player row whose zone slug no longer resolves (a removed or renamed
+  // zone) folds into the seamless world at spawn.
   if (existing && !getZone(existing.zoneId)) {
     const at = spawnAt(startingZone);
     existing = { ...existing, zoneId: STARTING_ZONE_SLUG, x: at.x, y: at.y, dirX: 0, dirY: 0, running: false, path: "" };

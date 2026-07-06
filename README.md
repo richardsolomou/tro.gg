@@ -21,7 +21,7 @@ You're a trogg in a shared world. Gather to feed the tribe's one fire, hold the 
 
 Playable shared-world foundation: SpacetimeDB module + client wired, one zone with presence, grid movement, boulders, a communal stockpile fed by mining and woodcutting, account claiming, 3D avatars, recolouring, and zone chat. State lives in durable SpacetimeDB tables, so players and chat resume across reconnects and restarts.
 
-The game design has pivoted to a fire-and-dark direction (see [docs/gdd.md](docs/gdd.md)): hearths holding back a hostile dark, and troggs who keep working on instinct while their player is away. Hogs are retired, gathering feeds the shared stockpile directly, and the rest of the migration — presence, dark creatures, territory claiming, lazy worldgen — has shipped (see the GDD's Roadmap section for what's next).
+The game is a fire-and-dark survival world (see [docs/gdd.md](docs/gdd.md)): hearths holding back a hostile dark, and troggs who keep working on instinct while their player is away. Presence, dark creatures, territory claiming, and lazy infinite worldgen are all live in production at [tro.gg](https://tro.gg). See the GDD's Roadmap section for what's next.
 
 ## Development
 
