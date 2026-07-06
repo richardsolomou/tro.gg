@@ -1,5 +1,5 @@
 import { capitalOf, isBirthZone, REGION_LATTICE_CELL, regionAt, tileGlyph, type RegionVisibility, type Zone } from "@trogg/shared";
-import { biomePalette, DAYLIGHT_3D } from "../game/palette.js";
+import { biomePalette, DAYLIGHT_3D, FOG_MIX } from "../game/palette.js";
 import { hudRoot } from "./hud.js";
 import { registerKeybind } from "./keybinds.js";
 
@@ -21,8 +21,6 @@ const css = (colour: number): string => `#${colour.toString(16).padStart(6, "0")
 /** Halve each channel — rock reads as clearly darker than the floor it borders. */
 const darker = (colour: number): number => (colour >> 1) & 0x7f7f7f;
 const HAZE_CSS = css(DAYLIGHT_3D.haze);
-/** Matches the same fog mixes `terrain.ts` blends over non-interior ground. */
-const FOG_MIX: Record<RegionVisibility, number> = { interior: 0, penumbra: 0.55, unreached: 0.92 };
 
 interface Viewport {
   /** World tile of the canvas's top-left corner. */

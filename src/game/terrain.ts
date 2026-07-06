@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { DEEP_WATER_TILE, GLOWMOSS_TILE, GRAVEL_TILE, MOSS_TILE, regionAt, rockHeightAt, tileGlyph, WALL_TILE, WATER_TILE, type RegionVisibility, type Zone } from "@trogg/shared";
-import { biomePalette, DAYLIGHT_3D } from "./palette.js";
+import { biomePalette, DAYLIGHT_3D, FOG_MIX } from "./palette.js";
 
 /**
  * Procedural cave terrain. The floor and void are pixel-painted patch
@@ -37,17 +37,68 @@ export interface Terrain3D {
 /** Tiles per streamed chunk (a region is 64×44, so seams stay region-aligned on x). */
 const CHUNK = 32;
 
-/** The fog tint blended over anything short of interior — the same cool haze
+/** The haze tint washed over anything short of interior — the same cool haze
  *  the sky fog uses, so "not yours yet" reads as one more shade of the same
- *  uncertainty, not a separate effect. Penumbra gets a light wash (scoutable,
- *  still legible); unreached gets a heavy one (present but unclear, so the
- *  world's true extent past it stays a mystery) — never a solid substitute
- *  tile, since that would show a wall where the fog should be. */
+ *  uncertainty, not a separate effect. The wash alone reads as frost, not
+ *  weather, so it stays light (`FOG_MIX`, shared with the M map) and the
+ *  actual fog is the drifting translucent layer below — never a solid
+ *  substitute tile, since that would show a wall where the fog should be. */
 const FOG_TINT = new THREE.Color(DAYLIGHT_3D.haze);
 const FOG_TINT_CSS = `#${DAYLIGHT_3D.haze.toString(16).padStart(6, "0")}`;
-const PENUMBRA_FOG_MIX = 0.55;
-const UNREACHED_FOG_MIX = 0.92;
-const FOG_MIX: Record<RegionVisibility, number> = { interior: 0, penumbra: PENUMBRA_FOG_MIX, unreached: UNREACHED_FOG_MIX };
+
+/** The drifting mist over unclaimed ground: per fogged chunk, ONE merged mesh
+ *  of soft puffs — each a horizontal quad plus two vertical cross quads, with
+ *  vertex alpha falling to zero at the rim — textured by a shared noise sheet
+ *  scrolled slowly in `update()`, so fog visibly flows from any camera angle
+ *  (a lone ground plane vanishes edge-on at the game's shoulder-height view)
+ *  instead of reading as a frozen painted-on white. (initial) */
+const FOG_PUFF: Record<RegionVisibility, { density: number; alpha: number }> = {
+  interior: { density: 0, alpha: 0 },
+  penumbra: { density: 0.07, alpha: 0.3 },
+  unreached: { density: 0.14, alpha: 0.5 },
+};
+const FOG_SHEET_TILES = 24; // world tiles per repeat of the noise sheet
+const FOG_DRIFT_TILES_PER_SEC = 0.55;
+
+function fogHash(x: number, y: number, salt: number): number {
+  let h = (x * 374761393 + y * 668265263) ^ salt;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
+
+/** A tileable sheet of soft fog blobs, alpha-on-white, shared by every chunk. */
+function fogSheet(): HTMLCanvasElement {
+  const SIZE = 256;
+  const canvas = document.createElement("canvas");
+  canvas.width = SIZE;
+  canvas.height = SIZE;
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = "rgba(255, 255, 255, 0.28)"; // a thin base so the fog never fully opens
+  ctx.fillRect(0, 0, SIZE, SIZE);
+  let seed = 0x706646;
+  const rand = () => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    return seed / 4294967296;
+  };
+  for (let blob = 0; blob < 90; blob++) {
+    const x = rand() * SIZE;
+    const y = rand() * SIZE;
+    const r = 14 + rand() * 34;
+    const a = 0.1 + rand() * 0.2;
+    // draw wrapped so the sheet tiles seamlessly
+    for (const ox of [-SIZE, 0, SIZE]) {
+      for (const oy of [-SIZE, 0, SIZE]) {
+        const g = ctx.createRadialGradient(x + ox, y + oy, 0, x + ox, y + oy, r);
+        g.addColorStop(0, `rgba(255, 255, 255, ${a})`);
+        g.addColorStop(1, "rgba(255, 255, 255, 0)");
+        ctx.fillStyle = g;
+        ctx.fillRect(x + ox - r, y + oy - r, r * 2, r * 2);
+      }
+    }
+  }
+  return canvas;
+}
 
 /**
  * `regionState` gates how much of the fully-generated committed tilemap
@@ -103,6 +154,9 @@ export function buildTerrain(zone: Zone, regionState: (x: number, y: number) => 
   voidPlane.receiveShadow = true;
   group.add(voidPlane);
 
+  // One fog sheet, shared by every fogged chunk's drifting layer.
+  const fogImage = fogSheet();
+
   // Walls tint per tile through instance colours, so biome borders stay
   // tile-exact even when a chunk straddles two regions.
   const wallMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1 });
@@ -128,6 +182,10 @@ export function buildTerrain(zone: Zone, regionState: (x: number, y: number) => 
     group: THREE.Group;
     disposables: { dispose(): void }[];
     lights: THREE.PointLight[];
+    /** The drifting fog layer's texture and its world-aligned base offset —
+     *  `update()` scrolls it so unclaimed ground smokes instead of sitting
+     *  under a frozen wash. */
+    fog?: { tex: THREE.Texture; baseX: number; baseY: number };
   }
   const chunks = new Map<string, BuiltChunk>();
   const wallColour = new THREE.Color();
@@ -152,11 +210,14 @@ export function buildTerrain(zone: Zone, regionState: (x: number, y: number) => 
     const wallTiles: { x: number; y: number; biome: string; fogMix: number }[] = [];
     const glowTiles: { x: number; y: number; biome: string }[] = [];
     const deepTiles: { x: number; y: number }[] = [];
+    const fogTiles: { x: number; y: number; puff: { density: number; alpha: number } }[] = [];
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
         const wx = x0 + x;
         const wy = y0 + y;
         const state = regionState(wx, wy);
+        const puff = FOG_PUFF[state];
+        if (puff.density > 0) fogTiles.push({ x: wx, y: wy, puff });
         const glyph = tileGlyph(zone, wx, wy)!;
         const biome = tileBiome(wx, wy);
         const fogMix = FOG_MIX[state];
@@ -249,8 +310,82 @@ export function buildTerrain(zone: Zone, regionState: (x: number, y: number) => 
       lights.push(glow);
     }
 
+    // The drifting mist: merge every puff (a horizontal quad plus two vertical
+    // cross quads, each subdivided so vertex alpha can fall to zero at the rim)
+    // into one geometry — one draw call per fogged chunk, readable from any
+    // camera angle. The shared noise sheet scrolls in `update()`, so the mist
+    // flows through the puff volumes. Lambert, so night dims it.
+    let fog: BuiltChunk["fog"];
+    const puffs: { x: number; y: number; r: number; alpha: number }[] = [];
+    for (const tile of fogTiles) {
+      if (fogHash(tile.x, tile.y, 0x1066) >= tile.puff.density) continue;
+      puffs.push({
+        x: tile.x + fogHash(tile.x, tile.y, 0x2066) * 2 - 0.5,
+        y: tile.y + fogHash(tile.x, tile.y, 0x3066) * 2 - 0.5,
+        r: 2.4 + fogHash(tile.x, tile.y, 0x4066) * 2.2,
+        alpha: tile.puff.alpha * (0.75 + fogHash(tile.x, tile.y, 0x5066) * 0.5),
+      });
+    }
+    if (puffs.length > 0) {
+      const positions: number[] = [];
+      const uvs: number[] = [];
+      const colors: number[] = [];
+      const indices: number[] = [];
+      // one 3×3-vertex quad: centre at full alpha, rim at zero, so every puff
+      // fades out instead of showing a square edge
+      const addQuad = (centre: THREE.Vector3, axisU: THREE.Vector3, axisV: THREE.Vector3, uvBase: { u: number; v: number }, uvSpan: number, alpha: number) => {
+        const base = positions.length / 3;
+        for (let gv = 0; gv <= 2; gv++) {
+          for (let gu = 0; gu <= 2; gu++) {
+            const fu = gu / 2 - 0.5;
+            const fv = gv / 2 - 0.5;
+            positions.push(centre.x + axisU.x * fu + axisV.x * fv, centre.y + axisU.y * fu + axisV.y * fv, centre.z + axisU.z * fu + axisV.z * fv);
+            uvs.push(uvBase.u + (fu + 0.5) * uvSpan, uvBase.v + (fv + 0.5) * uvSpan);
+            colors.push(1, 1, 1, gu === 1 && gv === 1 ? alpha : 0);
+          }
+        }
+        for (let gv = 0; gv < 2; gv++) {
+          for (let gu = 0; gu < 2; gu++) {
+            const a = base + gv * 3 + gu;
+            indices.push(a, a + 3, a + 1, a + 1, a + 3, a + 4);
+          }
+        }
+      };
+      for (const puff of puffs) {
+        const height = 0.8 + puff.r * 0.22;
+        const centre = new THREE.Vector3(puff.x + 0.5, height, puff.y + 0.5);
+        const uvBase = { u: puff.x / FOG_SHEET_TILES, v: puff.y / FOG_SHEET_TILES };
+        const uvSpan = puff.r / FOG_SHEET_TILES;
+        const d = puff.r * 2;
+        addQuad(centre, new THREE.Vector3(d, 0, 0), new THREE.Vector3(0, 0, d), uvBase, uvSpan, puff.alpha);
+        addQuad(centre, new THREE.Vector3(d, 0, 0), new THREE.Vector3(0, height * 1.7, 0), uvBase, uvSpan, puff.alpha * 0.85);
+        addQuad(centre, new THREE.Vector3(0, 0, d), new THREE.Vector3(0, height * 1.7, 0), uvBase, uvSpan, puff.alpha * 0.85);
+      }
+      const fogGeo = new THREE.BufferGeometry();
+      fogGeo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+      fogGeo.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+      fogGeo.setAttribute("color", new THREE.Float32BufferAttribute(colors, 4));
+      fogGeo.setIndex(indices);
+      const sheetTex = new THREE.CanvasTexture(fogImage);
+      sheetTex.wrapS = THREE.RepeatWrapping;
+      sheetTex.wrapT = THREE.RepeatWrapping;
+      const fogMat = new THREE.MeshLambertMaterial({
+        color: new THREE.Color(DAYLIGHT_3D.haze).lerp(new THREE.Color(0xffffff), 0.15),
+        map: sheetTex,
+        vertexColors: true,
+        transparent: true,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      });
+      const fogMesh = new THREE.Mesh(fogGeo, fogMat);
+      fogMesh.renderOrder = 3;
+      chunkGroup.add(fogMesh);
+      disposables.push(sheetTex, fogMat, fogGeo);
+      fog = { tex: sheetTex, baseX: 0, baseY: 0 };
+    }
+
     group.add(chunkGroup);
-    return { group: chunkGroup, disposables, lights };
+    return { group: chunkGroup, disposables, lights, fog };
   };
 
   const dropChunk = (key: string) => {
@@ -303,6 +438,13 @@ export function buildTerrain(zone: Zone, regionState: (x: number, y: number) => 
       const [cx, cy] = key.split(",").map(Number);
       const dist = Math.hypot(cx! * CHUNK + CHUNK / 2 - focusX, cy! * CHUNK + CHUNK / 2 - focusY);
       if (dist > radius + CHUNK * 2) dropChunk(key);
+    }
+
+    // Drift the fog: one shared clock, per-chunk world-aligned offsets, so the
+    // haze over unclaimed ground visibly crawls instead of reading as frost.
+    const driftT = (performance.now() / 1000) * (FOG_DRIFT_TILES_PER_SEC / FOG_SHEET_TILES);
+    for (const chunk of chunks.values()) {
+      if (chunk.fog) chunk.fog.tex.offset.set(chunk.fog.baseX + driftT, chunk.fog.baseY + driftT * 0.45);
     }
 
     // The light budget: a forward renderer pays every light on every fragment, so

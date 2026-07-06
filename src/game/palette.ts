@@ -65,6 +65,15 @@ export const DAYLIGHT_3D = {
   bounce: 0x8a7050,
 } as const;
 
+/**
+ * How heavily non-interior ground is tinted toward the haze (GDD "Generation:
+ * only as far as the light reaches") — penumbra lightly (scoutable, still
+ * legible), unreached heavily (present but unclear). Shared by the 3D terrain
+ * and the M map, so the chart always agrees with the world. The 3D view layers
+ * drifting fog on top of this baked wash (`src/game/terrain.ts`).
+ */
+export const FOG_MIX: Record<"interior" | "penumbra" | "unreached", number> = { interior: 0, penumbra: 0.22, unreached: 0.55 };
+
 /** HUD/world accent colours, matching the HTML HUD (`src/ui/hud.css`). */
 export const UI_3D = {
   parchment: 0xe8dcc4,
