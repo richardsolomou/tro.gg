@@ -681,6 +681,12 @@ export const wanderPresence = spacetimedb.reducer({ timer: emberWanderTimer.rowT
       const cx = Math.round(at.x);
       const cy = Math.round(at.y);
 
+      // Instinct walks: an offline trogg sheds run state and debug motion
+      // cheats, so it projects at plain walk speed. `at` above was projected
+      // under the old flags, so the settle below anchors it correctly.
+      const sober = { running: false, cheatSpeed: 1, cheatFly: false, cheatNoclip: false, z: 0, dirZ: 0 };
+      const fast = p.running || p.cheatSpeed !== 1 || p.cheatFly || p.cheatNoclip;
+
       // Camped beside a node: chip it on a chance per tick, scaled by the same
       // fraction that governs its whole stockpile rate, and stay put — the
       // trogg works the node until it breaks, then seeks the next one.
@@ -690,25 +696,40 @@ export const wanderPresence = spacetimedb.reducer({ timer: emberWanderTimer.rowT
         [cx, cy + 1],
         [cx, cy - 1],
       ];
-      let camped = false;
+      let camped: { kind: "boulder" | "tree"; x: number; y: number } | undefined;
       for (const [nx, ny] of neighbors) {
-        const b = boulderAt(ctx, p.zoneId, nx, ny);
-        if (b) {
-          camped = true;
-          if (ctx.random() < gatherFraction) {
+        if (boulderAt(ctx, p.zoneId, nx, ny)) {
+          camped = { kind: "boulder", x: nx, y: ny };
+          break;
+        }
+        if (treeAt(ctx, p.zoneId, nx, ny)) {
+          camped = { kind: "tree", x: nx, y: ny };
+          break;
+        }
+      }
+      if (camped) {
+        // Reach for the node's proper tool if the trogg owns one (pickaxe →
+        // boulder, axe → tree); otherwise it swings whatever it already holds
+        // — bare fists included.
+        const wanted = camped.kind === "boulder" ? "pickaxe" : "axe";
+        let equip: { equippedMainHand: string; equippedMainHandInventoryId: bigint } | undefined;
+        if (p.equippedMainHand !== wanted) {
+          const owned = [...ctx.db.inventory.playerId.filter(p.identity)].find((r) => r.item === wanted && r.qty > 0);
+          if (owned) equip = { equippedMainHand: wanted, equippedMainHandInventoryId: owned.id };
+        }
+
+        const chipping = ctx.random() < gatherFraction;
+        if (chipping) {
+          if (camped.kind === "boulder") {
+            const b = boulderAt(ctx, p.zoneId, camped.x, camped.y)!;
             if (b.health > EMBER_GATHER_DAMAGE) ctx.db.boulder.id.update({ ...b, health: b.health - EMBER_GATHER_DAMAGE });
             else {
               ctx.db.boulder.id.delete(b.id);
               depositStockpile(ctx, "stone", 1);
               scheduleNodeRespawn(ctx, p.zoneId, "boulder", b.x, b.y);
             }
-          }
-          break;
-        }
-        const tr = treeAt(ctx, p.zoneId, nx, ny);
-        if (tr) {
-          camped = true;
-          if (ctx.random() < gatherFraction) {
+          } else {
+            const tr = treeAt(ctx, p.zoneId, camped.x, camped.y)!;
             if (tr.health > EMBER_GATHER_DAMAGE) ctx.db.tree.id.update({ ...tr, health: tr.health - EMBER_GATHER_DAMAGE });
             else {
               ctx.db.tree.id.delete(tr.id);
@@ -716,12 +737,32 @@ export const wanderPresence = spacetimedb.reducer({ timer: emberWanderTimer.rowT
               scheduleNodeRespawn(ctx, p.zoneId, "tree", tr.x, tr.y);
             }
           }
-          break;
         }
-      }
-      if (camped) {
-        if (p.dirX !== 0 || p.dirY !== 0 || p.path !== "" || at.x !== p.x || at.y !== p.y)
-          ctx.db.player.identity.update({ ...p, x: at.x, y: at.y, dirX: 0, dirY: 0, path: "", movedAt: now });
+
+        // Face the node, and stamp the swing impulse on a chip — the same
+        // synced fields a bright trogg's F writes, so every client animates
+        // the strike with the held tool.
+        const faceX = Math.sign(camped.x - cx);
+        const faceY = Math.sign(camped.y - cy);
+        const settled =
+          !fast && !equip && !chipping && p.dirX === 0 && p.dirY === 0 && p.path === "" && at.x === p.x && at.y === p.y && p.faceX === faceX && p.faceY === faceY;
+        if (!settled) {
+          const held = (equip?.equippedMainHand ?? p.equippedMainHand) || "fists";
+          ctx.db.player.identity.update({
+            ...p,
+            ...sober,
+            ...equip,
+            ...(chipping ? { equipmentAction: held, equipmentActionAt: now } : {}),
+            x: at.x,
+            y: at.y,
+            dirX: 0,
+            dirY: 0,
+            path: "",
+            faceX,
+            faceY,
+            movedAt: now,
+          });
+        }
         continue;
       }
 
@@ -753,7 +794,7 @@ export const wanderPresence = spacetimedb.reducer({ timer: emberWanderTimer.rowT
         const hopY = first.y - at.y;
         const faceX = Math.abs(hopX) >= Math.abs(hopY) ? Math.sign(hopX) : 0;
         const faceY = Math.abs(hopX) >= Math.abs(hopY) ? 0 : Math.sign(hopY);
-        ctx.db.player.identity.update({ ...p, x: at.x, y: at.y, dirX: faceX, dirY: faceY, path: serializePath(path), movedAt: now });
+        ctx.db.player.identity.update({ ...p, ...sober, x: at.x, y: at.y, dirX: faceX, dirY: faceY, faceX, faceY, path: serializePath(path), movedAt: now });
         routed = true;
         break;
       }
@@ -767,9 +808,9 @@ export const wanderPresence = spacetimedb.reducer({ timer: emberWanderTimer.rowT
         moving && aheadClear && ctx.random() > WANDER_TURN_CHANCE
           ? { dirX: p.dirX, dirY: p.dirY }
           : pickWanderDir(ctx, bounds, { x: cx, y: cy }, 1);
-      const unchanged = at.x === p.x && at.y === p.y && dir.dirX === p.dirX && dir.dirY === p.dirY;
+      const unchanged = !fast && at.x === p.x && at.y === p.y && dir.dirX === p.dirX && dir.dirY === p.dirY;
       if (unchanged) continue;
-      ctx.db.player.identity.update({ ...p, x: at.x, y: at.y, dirX: dir.dirX, dirY: dir.dirY, path: "", movedAt: now });
+      ctx.db.player.identity.update({ ...p, ...sober, x: at.x, y: at.y, dirX: dir.dirX, dirY: dir.dirY, path: "", movedAt: now });
     }
 
     // Dark creatures: settle every living one to where its stored intent has

@@ -1122,6 +1122,50 @@ test("wanderPresence gathers on instinct from an adjacent boulder and deposits i
   );
 });
 
+test("wanderPresence equips the pickaxe from the trogg's own inventory to work a boulder", () => {
+  const watcher = id("watcher");
+  const ember = id("toolswap");
+  const ctx = makeCtx({ sender: watcher, random: 0.2, now: micros(5_000) }); // 0.2 chips (ember rate)
+  ctx.db.player.insert(playerRow(watcher, { online: true }));
+  ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
+  ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96, health: 100 });
+  const pick = ctx.db.inventory.insert({ id: 0n, playerId: ember, item: "pickaxe", qty: 1 });
+  ctx.db.player.insert(playerRow(ember, { x: 69, y: 96, online: false, equippedMainHand: "axe", kindlingCharge: 10, kindlingChargeAt: { microsSinceUnixEpoch: micros(5_000) } }));
+  wanderPresence(ctx, {});
+  const p = ctx.db.player.identity.find(ember);
+  assert.deepEqual(
+    { held: p.equippedMainHand, heldRow: p.equippedMainHandInventoryId, swing: p.equipmentAction, swungAt: p.equipmentActionAt.microsSinceUnixEpoch },
+    { held: "pickaxe", heldRow: pick.id, swing: "pickaxe", swungAt: micros(5_000) },
+  );
+});
+
+test("wanderPresence swings bare fists at a node when the trogg owns no tool", () => {
+  const watcher = id("watcher");
+  const ember = id("nofists");
+  const ctx = makeCtx({ sender: watcher, random: 0.2, now: micros(5_000) });
+  ctx.db.player.insert(playerRow(watcher, { online: true }));
+  ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
+  ctx.db.tree.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96, health: 100 });
+  ctx.db.player.insert(playerRow(ember, { x: 69, y: 96, online: false, kindlingCharge: 10, kindlingChargeAt: { microsSinceUnixEpoch: micros(5_000) } }));
+  wanderPresence(ctx, {});
+  const p = ctx.db.player.identity.find(ember);
+  assert.deepEqual({ held: p.equippedMainHand, swing: p.equipmentAction }, { held: "", swing: "fists" });
+});
+
+test("wanderPresence sheds run state and speed cheats — instinct moves at walk speed", () => {
+  const watcher = id("watcher");
+  const ember = id("speedster");
+  const ctx = makeCtx({ sender: watcher, random: 0.9, integerInRange: () => 0 });
+  ctx.db.player.insert(playerRow(watcher, { online: true, x: 0, y: 0 }));
+  ctx.db.revealedRegion.insert(revealedRegionRow({ slug: "r1x1" }));
+  ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
+  ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 66, y: 96, health: 100 });
+  ctx.db.player.insert(playerRow(ember, { x: 69, y: 96, online: false, running: true, cheatSpeed: 5, kindlingCharge: 10, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
+  wanderPresence(ctx, {});
+  const p = ctx.db.player.identity.find(ember);
+  assert.deepEqual({ running: p.running, cheatSpeed: p.cheatSpeed, pathing: p.path !== "" }, { running: false, cheatSpeed: 1, pathing: true });
+});
+
 test("respawnNodes re-plants a broken boulder in place at full health", () => {
   const watcher = id("watcher");
   const ctx = makeCtx({ sender: watcher });
