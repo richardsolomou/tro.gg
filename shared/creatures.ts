@@ -3,7 +3,7 @@
  * facings, footprints, and equip slots — where the cast lives.
  */
 
-export type Kind = "trogg" | "hog";
+export type Kind = "trogg";
 export type Facing = "down" | "up" | "left" | "right";
 
 /**
@@ -12,26 +12,12 @@ export type Facing = "down" | "up" | "left" | "right";
  * rules. The first entry of each list is the default.
  */
 export const TROGG_STYLES = ["moss", "stone", "ridge"] as const;
-/** Every hog style. The common three fill the random roaming crowd; the big two
- *  (buff, dino) are placed showpieces that span a 2x2 footprint and render at
- *  double size; the chicken is an easter egg, summoned, never random. */
-export const HOG_STYLES = ["classic", "snow", "ember", "buff", "dino", "chicken"] as const;
-/** The small hogs that fill the id-derived random crowd (see `hogStyleFor`). */
-export const COMMON_HOG_STYLES = ["classic", "snow", "ember"] as const;
-/** Hogs that occupy a 2x2 tile footprint and render at double size (GDD "Hogs"). */
-export const BIG_HOG_STYLES = ["buff", "dino"] as const;
 export type TroggStyle = (typeof TROGG_STYLES)[number];
-export type HogStyle = (typeof HOG_STYLES)[number];
-export type Style = TroggStyle | HogStyle;
-
-/** A hog style's tile-footprint span: 2 for the big showpieces, 1 for the rest. */
-export function hogSize(style: string): number {
-  return (BIG_HOG_STYLES as readonly string[]).includes(style) ? 2 : 1;
-}
+export type Style = TroggStyle;
 
 /** The styles a kind offers, default first. */
 export function stylesOf(kind: Kind): readonly string[] {
-  return kind === "trogg" ? TROGG_STYLES : HOG_STYLES;
+  return TROGG_STYLES;
 }
 
 /**
@@ -65,3 +51,13 @@ export function forward(facing: Facing): { x: number; y: number } {
  *  creature's rig resolves the same slots, so any slot-targeted item can attach
  *  to any creature (GDD "Layered avatars and cross-species equipment"). */
 export type EquipSlot = "mainHand" | "offHand";
+
+/**
+ * Dark-creature species (GDD "Dark creatures"). Species are open — the
+ * bestiary starts with one entry; a new species is a model builder (see
+ * `src/game/creatures.ts`) plus a stat row (`DARK_CREATURES` in
+ * `shared/constants.ts`), reusing the same joint vocabulary and motion model
+ * as every other creature.
+ */
+export const DARK_CREATURE_SPECIES = ["grask"] as const;
+export type DarkCreatureSpecies = (typeof DARK_CREATURE_SPECIES)[number];

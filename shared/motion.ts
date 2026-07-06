@@ -15,7 +15,7 @@ import { rockHeightAt } from "./heights";
  * it hits a wall, the zone edge, or the clock runs out; a diagonal intent moves
  * at unit speed along the diagonal and **slides** — when one axis meets a wall,
  * the other keeps going (GDD "Movement"). Origins are fractional; nothing snaps
- * to tiles. Hogs still walk tile-to-tile with cardinal intents.
+ * to tiles, though a tile-by-tile wanderer can still walk with cardinal intents.
  *
  * The server passes elapsed against its own clock to settle the origin on each
  * input transition; the client passes elapsed since it received the intent to
@@ -31,11 +31,11 @@ export interface Motion {
   path?: string;
   /** Holding shift runs at `RUN_SPEED_TILES_PER_SEC` instead of walking (GDD
    *  "Movement"). Part of the intent so every client derives the same speed;
-   *  absent/false = walk. Hogs never set it, so they always walk. */
+   *  absent/false = walk. */
   running?: boolean;
-  /** Tile-footprint span anchored at (x, y) as the top-left corner: 1 for a trogg
-   *  or common Hog, 2 for a big 2×2 Hog (GDD "Hogs"). Absent = 1. The footprint
-   *  clamps against walls across its whole width/height, not a single tile. */
+  /** Tile-footprint span anchored at (x, y) as the top-left corner: 1 for a
+   *  trogg, more for a multi-tile creature. Absent = 1. The footprint clamps
+   *  against walls across its whole width/height, not a single tile. */
   size?: number;
   /** Debug speed multiplier (GDD "Commands panel" cheats). Rides the synced
    *  intent like `running`, so every client derives the same faster position.
@@ -78,6 +78,9 @@ export interface ProjectedMotion {
 export interface ZoneBounds {
   width: number;
   height: number;
+  /** No rectangle to clamp against: coordinates (negative included) are valid
+   *  everywhere and only `isWalkable` says no (the unbounded world zone). */
+  unbounded?: boolean;
   isWalkable?(tileX: number, tileY: number): boolean;
   /** Whether a flyer at altitude `z` clears this tile (GDD "Debug cheats"):
    *  open floor always; deep water above `FLY_CLEAR_WATER`; dynamic obstacles
@@ -97,6 +100,7 @@ export function zoneBounds(zone: Zone, occupied?: (tileX: number, tileY: number)
   return {
     width: zone.width,
     height: zone.height,
+    unbounded: zone.unbounded,
     isWalkable: (x, y) => isWalkable(zone, x, y) && !(occupied?.(x, y) ?? false),
     flyWalkable: (x, y, z) => {
       // rock clears at its rendered height, so the eye and the projection agree
@@ -132,11 +136,12 @@ export function facingTile(x: number, y: number, dirX: number, dirY: number, tol
  * Wire scale for movement headings: a direction is an integer vector with each
  * axis in [-DIR_SCALE, DIR_SCALE] (the columns are i32). Only the vector's
  * *direction* matters — projection normalises, so magnitude never buys speed.
- * Hogs and legacy rows use plain ±1 vectors, which are just short headings.
+ * A tile-by-tile wanderer and legacy rows use plain ±1 vectors, which are just
+ * short headings.
  */
 export const DIR_SCALE = 1000;
 
-/** The four cardinal movement directions — the headings Hog wander picks from. */
+/** The four cardinal movement directions — the headings a tile-by-tile wanderer picks from. */
 export const CARDINALS: readonly { dirX: number; dirY: number }[] = [
   { dirX: 0, dirY: -1 },
   { dirX: 0, dirY: 1 },
@@ -145,13 +150,14 @@ export const CARDINALS: readonly { dirX: number; dirY: number }[] = [
 ];
 
 /**
- * The cardinal directions a Hog at (x, y) could step onto — where its whole
- * `size`-tile footprint, shifted one tile that way, lands on walkable floor inside
- * the zone (GDD "Hogs"). The tile-by-tile wander reducer picks a Hog's heading from
- * these, so it ambles around walls, boulders, troggs, and other Hogs (whatever the
- * `ZoneBounds` `occupied` predicate marks unwalkable). For a 2×2 Hog the `occupied`
- * predicate must exclude the Hog's own footprint, else its next step (which overlaps
- * where it stands) reads as blocked. (x, y) is the footprint's top-left tile.
+ * The cardinal directions a tile-by-tile wanderer at (x, y) could step onto —
+ * where its whole `size`-tile footprint, shifted one tile that way, lands on
+ * walkable floor inside the zone. The wander reducer picks its heading from
+ * these, so it ambles around walls, boulders, and troggs (whatever the
+ * `ZoneBounds` `occupied` predicate marks unwalkable). For a multi-tile wanderer
+ * the `occupied` predicate must exclude its own footprint, else its next step
+ * (which overlaps where it stands) reads as blocked. (x, y) is the footprint's
+ * top-left tile.
  */
 export function walkableCardinals(zone: ZoneBounds, x: number, y: number, size = 1): { dirX: number; dirY: number }[] {
   return CARDINALS.filter(({ dirX, dirY }) => footprintWalkable(zone, x + dirX, y + dirY, size));
@@ -177,7 +183,7 @@ export function walkableSteps(zone: ZoneBounds, x: number, y: number, size = 1):
 /** Whether the whole `size`-tile footprint anchored at top-left (x, y) is inside the
  *  zone and on walkable floor. (x, y, size) are tile units. */
 export function footprintWalkable(zone: ZoneBounds, x: number, y: number, size = 1): boolean {
-  if (x < 0 || y < 0 || x + size > zone.width || y + size > zone.height) return false;
+  if (!zone.unbounded && (x < 0 || y < 0 || x + size > zone.width || y + size > zone.height)) return false;
   if (!zone.isWalkable) return true;
   for (let dy = 0; dy < size; dy++) for (let dx = 0; dx < size; dx++) {
     if (!zone.isWalkable(x + dx, y + dy)) return false;
@@ -225,9 +231,9 @@ export function parsePath(path: string | undefined): Coord[] {
  *  seamless world grid. */
 export const MOVETO_MAX_TILES = 72;
 
-export function findPath(zone: ZoneBounds, start: Coord, target: Coord): Coord[] {
+export function findPath(zone: ZoneBounds, start: Coord, target: Coord, maxTiles = MOVETO_MAX_TILES): Coord[] {
   if (!inBounds(zone, target.x, target.y)) return [];
-  if (Math.abs(target.x - Math.round(start.x)) + Math.abs(target.y - Math.round(start.y)) > MOVETO_MAX_TILES) return [];
+  if (Math.abs(target.x - Math.round(start.x)) + Math.abs(target.y - Math.round(start.y)) > maxTiles) return [];
 
   const sx = Math.round(start.x);
   const sy = Math.round(start.y);
@@ -251,6 +257,9 @@ export function findPath(zone: ZoneBounds, start: Coord, target: Coord): Coord[]
     if (closed.has(currentKey)) continue;
     if (candidateKeys.has(currentKey)) return reconstructPath(best, currentKey, tileKey(sx, sy));
     closed.add(currentKey);
+    // a boxed-in target can't flood the plane: the world has no zone edge to
+    // stop at, so cap the expansion instead (`maxTiles` bounds any real route)
+    if (closed.size > Math.max(4096, maxTiles * 64)) return [];
 
     for (const { dirX, dirY } of CARDINALS) {
       const nx = current.x + dirX;
@@ -320,7 +329,7 @@ export function spawnTiles(
   add(px, py - 1);
   add(px, py);
 
-  const maxRadius = zone.width + zone.height;
+  const maxRadius = zone.unbounded ? 64 : zone.width + zone.height;
   for (let radius = 2; tiles.length < wanted && radius <= maxRadius; radius++) {
     for (let dy = -radius; dy <= radius && tiles.length < wanted; dy++) {
       const dx = radius - Math.abs(dy);
@@ -389,12 +398,12 @@ export function projectAltitude(motion: Motion, elapsedMs: number): number {
  *  the zone rectangle (`isWalkable` omitted = open floor); a flyer clears
  *  whatever sits below its origin altitude (`flyWalkable`). */
 function motionBounds(motion: Motion, zone: ZoneBounds): ZoneBounds {
-  if (motion.cheatNoclip) return { width: zone.width, height: zone.height };
+  if (motion.cheatNoclip) return { width: zone.width, height: zone.height, unbounded: zone.unbounded };
   if (motion.cheatFly) {
     const fly = zone.flyWalkable;
-    if (!fly) return { width: zone.width, height: zone.height };
+    if (!fly) return { width: zone.width, height: zone.height, unbounded: zone.unbounded };
     const z = motion.z ?? 0;
-    return { width: zone.width, height: zone.height, isWalkable: (x, y) => fly(x, y, z) };
+    return { width: zone.width, height: zone.height, unbounded: zone.unbounded, isWalkable: (x, y) => fly(x, y, z) };
   }
   return zone;
 }
@@ -425,12 +434,12 @@ export function projectMotionState(motion: Motion, elapsedMs: number, zone: Zone
 function slideAdvance(x: number, y: number, dirX: number, dirY: number, dist: number, zone: ZoneBounds, size: number): { x: number; y: number } {
   if (dirY === 0) {
     const step = Math.sign(dirX);
-    const target = clamp(x + step * dist, 0, zone.width - size);
+    const target = zone.unbounded ? x + step * dist : clamp(x + step * dist, 0, zone.width - size);
     return { x: zone.isWalkable ? wallX(zone, x, y, target, step, size) : target, y };
   }
   if (dirX === 0) {
     const step = Math.sign(dirY);
-    const target = clamp(y + step * dist, 0, zone.height - size);
+    const target = zone.unbounded ? y + step * dist : clamp(y + step * dist, 0, zone.height - size);
     return { x, y: zone.isWalkable ? wallY(zone, x, y, target, step, size) : target };
   }
   return projectAngled(x, y, dirX, dirY, dist, zone, size);
@@ -501,13 +510,13 @@ function projectAngled(ox: number, oy: number, dirX: number, dirY: number, dist:
     const segment = Math.min(remaining, untilX, untilY);
 
     if (!blockedX) {
-      const target = clamp(x + nx * segment, 0, zone.width - size);
+      const target = zone.unbounded ? x + nx * segment : clamp(x + nx * segment, 0, zone.width - size);
       const cx = zone.isWalkable ? wallX(zone, x, y, target, stepX, size) : target;
       blockedX = stepX > 0 ? cx < target - EPS : cx > target + EPS;
       x = cx;
     }
     if (!blockedY) {
-      const target = clamp(y + ny * segment, 0, zone.height - size);
+      const target = zone.unbounded ? y + ny * segment : clamp(y + ny * segment, 0, zone.height - size);
       const cy = zone.isWalkable ? wallY(zone, x, y, target, stepY, size) : target;
       blockedY = stepY > 0 ? cy < target - EPS : cy > target + EPS;
       y = cy;
@@ -540,11 +549,11 @@ function projectPathMotion(motion: Motion, path: readonly Coord[], elapsedMs: nu
 
     if (remaining <= hop) {
       // Mid-hop: glide along the segment through the live collision walker, so an
-      // obstacle that arrived after routing (a Hog, a shoved boulder) clamps the
+      // obstacle that arrived after routing (a shoved boulder) clamps the
       // glide instead of being passed through. A clamp or slide means the hop is
       // no longer clean — report no heading, which is the stall signal the client
       // re-routes on. Hops already consumed are behind us: forward-only projection,
-      // so a Hog landing on ground already covered never rewinds the trogg.
+      // so an obstacle landing on ground already covered never rewinds the trogg.
       const end = slideAdvance(current.x, current.y, dx, dy, remaining, zone, size);
       const expectedX = current.x + (dx / hop) * remaining;
       const expectedY = current.y + (dy / hop) * remaining;
@@ -608,7 +617,7 @@ function tileWalkable(zone: ZoneBounds, x: number, y: number): boolean {
 }
 
 function inBounds(zone: ZoneBounds, x: number, y: number): boolean {
-  return x >= 0 && y >= 0 && x < zone.width && y < zone.height;
+  return zone.unbounded === true || (x >= 0 && y >= 0 && x < zone.width && y < zone.height);
 }
 
 /** The "x,y" occupancy key for a tile. Client and server must agree on this format —
@@ -629,13 +638,15 @@ function wallX(zone: ZoneBounds, ox: number, oy: number, target: number, step: n
   const r1 = Math.ceil(oy + size - EPS) - 1;
   if (step > 0) {
     const from = Math.ceil(ox + size - EPS) - 1; // rightmost occupied column
-    for (let k = from + 1; k <= zone.width - 1; k++) {
+    const last = Math.ceil(target + size - EPS) - 1; // furthest column the move can touch
+    for (let k = from + 1; k <= (zone.unbounded ? last : Math.min(last, zone.width - 1)); k++) {
       if (!colWalkable(zone, k, r0, r1)) return Math.min(target, k - size);
     }
     return target;
   }
   const from = Math.floor(ox + EPS); // leftmost occupied column
-  for (let k = from - 1; k >= 0; k--) {
+  const last = Math.floor(target + EPS);
+  for (let k = from - 1; k >= (zone.unbounded ? last : Math.max(last, 0)); k--) {
     if (!colWalkable(zone, k, r0, r1)) return Math.max(target, k + 1);
   }
   return target;
@@ -647,13 +658,15 @@ function wallY(zone: ZoneBounds, ox: number, oy: number, target: number, step: n
   const c1 = Math.ceil(ox + size - EPS) - 1;
   if (step > 0) {
     const from = Math.ceil(oy + size - EPS) - 1; // lowest occupied row
-    for (let k = from + 1; k <= zone.height - 1; k++) {
+    const last = Math.ceil(target + size - EPS) - 1;
+    for (let k = from + 1; k <= (zone.unbounded ? last : Math.min(last, zone.height - 1)); k++) {
       if (!rowWalkable(zone, k, c0, c1)) return Math.min(target, k - size);
     }
     return target;
   }
   const from = Math.floor(oy + EPS); // topmost occupied row
-  for (let k = from - 1; k >= 0; k--) {
+  const last = Math.floor(target + EPS);
+  for (let k = from - 1; k >= (zone.unbounded ? last : Math.max(last, 0)); k--) {
     if (!rowWalkable(zone, k, c0, c1)) return Math.max(target, k + 1);
   }
   return target;

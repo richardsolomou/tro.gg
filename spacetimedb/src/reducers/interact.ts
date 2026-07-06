@@ -1,11 +1,6 @@
 import spacetimedb, { type Ctx, type AnalyticsEvent } from "../schema";
 import { t } from "spacetimedb/server";
-import { ScheduleAt, Timestamp } from "spacetimedb";
-import {
-  getZone,
-  isItemId,
-  ITEM_PICKUP_RADIUS,
-} from "../../../shared/index";
+import { BRAZIER_LIT_RADIUS, getZone, isItemId, ITEM_PICKUP_RADIUS, penumbraOf, regionAt, spawnTile, tileKey } from "../../../shared/index";
 import {
   captureProcedureEvents,
   sourceProp,
@@ -14,22 +9,25 @@ import {
   settle,
   solidTiles,
   addInventory,
-  pickupTarget,
+  claimRegionAndExposePenumbra,
+  currentRevealedRegions,
+  livingDarkCreaturesInRegion,
   nearestGroundItem,
-  effectiveHogStyle,
   placeCarried,
   cardinal,
 } from "../helpers";
 
 /**
- * Interact with nearby things (GDD "Interacting") — a generic action key (client
- * `E`). Empty-handed, pick up an adjacent ground item into inventory or lift an
- * adjacent Hog onto the trogg (delete its world row, stamp `carrying`); already
- * carrying, set it back down on the faced tile. The faced direction is
- * passed in because an idle trogg's standing facing isn't synced (GDD "Movement");
- * the server still re-derives the trogg's tile and only acts on adjacent targets,
- * preferring the faced tile when there are multiple candidates, so the client can't
- * reach past its neighbours (invariant 3).
+ * Interact with nearby things (GDD "Interacting") — a generic action key
+ * (client `E`). Empty-handed: relight an adjacent guttered brazier for free,
+ * or — standing in a penumbra region with every one of its dark creatures
+ * dead — set a new brazier down and claim the region (GDD "Territory and
+ * permanence"); failing either of those, pick up a ground item. Already
+ * carrying something, set it back down on the faced tile. The faced
+ * direction is passed in because an idle trogg's standing facing isn't
+ * synced (GDD "Movement"); the server still re-derives the trogg's tile and
+ * only acts on adjacent targets, so the client can't reach past its
+ * neighbours (invariant 3).
  */
 function runInteract(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; dirY: number; source?: string }): AnalyticsEvent[] {
   const p = ctx.db.player.identity.find(ctx.sender);
@@ -51,8 +49,33 @@ function runInteract(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; dirY
     if (place) ctx.db.player.identity.update({ ...p, carrying: "", carryingStyle: "" });
     if (!place) return [];
     const properties: Record<string, string | number | boolean> = { ...props, kind };
-    if (kind === "hog" && p.carryingStyle !== "") properties.style = p.carryingStyle;
     return [{ distinctId: distinctId(ctx), event: "object_dropped", properties }];
+  }
+
+  const px = Math.round(pos.x);
+  const py = Math.round(pos.y);
+
+  // Relighting an existing guttered brazier is always free — the region
+  // stayed claimed the whole time it was dark (GDD "Territory and permanence").
+  const guttered = [...ctx.db.brazier.zoneId.filter(p.zoneId)].find((b) => !b.isEternal && !b.lit && Math.hypot(b.x - px, b.y - py) <= 1);
+  if (guttered) {
+    ctx.db.brazier.id.update({ ...guttered, lit: true });
+    return [{ distinctId: distinctId(ctx), event: "brazier_relit", properties: props }];
+  }
+
+  // Standing in a penumbra region with nothing left alive in it: set a new
+  // brazier down and claim the region (GDD "Generation: only as far as the
+  // light reaches" / "Territory and permanence") — clearing it is what
+  // claims it, not a separate event, and it costs nothing.
+  const slug = regionAt(px, py)?.slug;
+  if (slug && penumbraOf(currentRevealedRegions(ctx)).has(slug) && livingDarkCreaturesInRegion(ctx, p.zoneId, slug) === 0) {
+    const occupied = solidTiles(ctx, p.zoneId, ctx.timestamp, p.identity);
+    const tile = spawnTile(zone, (tx, ty) => occupied.has(tileKey(tx, ty)), px, py, dir?.dirX ?? 0, dir?.dirY ?? 0);
+    if (tile) {
+      ctx.db.brazier.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
+      claimRegionAndExposePenumbra(ctx, zone, slug);
+      return [{ distinctId: distinctId(ctx), event: "region_claimed", properties: { ...props, region: slug } }];
+    }
   }
 
   // Ground items are lifted by radius, not facing — the nearest one within
@@ -66,13 +89,6 @@ function runInteract(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; dirY
     return [{ distinctId: distinctId(ctx), event: "inventory_item_acquired", properties: { ...props, item: item.item, qty } }];
   }
 
-  const target = pickupTarget(ctx, p.zoneId, Math.round(pos.x), Math.round(pos.y), dir, ctx.timestamp);
-  if (target?.kind === "hog") {
-    const carryingStyle = effectiveHogStyle(target.row);
-    ctx.db.hog.id.delete(target.row.id);
-    ctx.db.player.identity.update({ ...p, carrying: "hog", carryingStyle });
-    return [{ distinctId: distinctId(ctx), event: "object_picked_up", properties: { ...props, kind: "hog", style: carryingStyle } }];
-  }
   return [];
 }
 

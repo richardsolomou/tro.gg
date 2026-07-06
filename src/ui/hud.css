@@ -495,6 +495,55 @@ textarea {
   border: 0;
   border-radius: 3px;
 }
+
+/* The tribe's shared stockpile: a small read-only strip, top-centre — nothing
+   to click, so it's never a toggle like the other panels (stockpile.ts). */
+#hud .stockpile {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  pointer-events: auto;
+  display: flex;
+  gap: 6px;
+}
+#hud .stockpile[hidden] {
+  display: none;
+}
+#hud .stockpile-item {
+  position: relative;
+  box-sizing: border-box;
+  width: 34px;
+  height: 34px;
+  padding: 2px;
+  display: grid;
+  place-items: center;
+  background: var(--hud-well);
+  clip-path: var(--facet);
+  --cut: 6px;
+}
+#hud .stockpile-item .item-icon {
+  width: 26px;
+  height: 26px;
+}
+#hud .stockpile-qty {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  min-width: 13px;
+  height: 13px;
+  padding: 0 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 13px;
+  color: var(--hud-ink);
+  background: var(--hud-moss);
+  border: 0;
+  border-radius: 3px;
+}
 /* The shared HUD tooltip: name + blurb beside the hovered control. It lives in
    the HUD root (a control's facet clip-path would crop a child) and is placed —
    position and transform — from the anchor's rect by tooltip.ts. */
@@ -586,6 +635,37 @@ textarea {
 }
 @media (prefers-reduced-motion: reduce) {
   #hud .pickup-toast {
+    animation: none;
+    transition: opacity 0.25s ease;
+  }
+}
+
+/* Region-crossing banner: top centre, clear of the top-left icon bar and the
+   top-right Commands toggle. */
+#hud .region-toast {
+  position: absolute;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 20px;
+  background: var(--hud-timber);
+  clip-path: var(--facet);
+  --cut: 7px;
+  box-shadow: var(--slab-light);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--hud-bone);
+  letter-spacing: 0.02em;
+  pointer-events: none;
+  animation: pickup-toast-in 0.16s ease-out;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+#hud .region-toast.is-leaving {
+  opacity: 0;
+  transform: translate(-50%, -8px);
+}
+@media (prefers-reduced-motion: reduce) {
+  #hud .region-toast {
     animation: none;
     transition: opacity 0.25s ease;
   }

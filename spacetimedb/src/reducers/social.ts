@@ -18,6 +18,7 @@ import {
   distinctId,
   unit,
   randomWalkableTile,
+  settle,
   trimGhostHaunts,
   nameTaken,
 } from "../helpers";
@@ -84,7 +85,7 @@ function runHauntGhostOnce(ctx: Ctx): string | undefined {
   const zone = getZone(p.zoneId);
   if (!zone) return undefined;
 
-  const tile = randomWalkableTile(ctx, zone);
+  const tile = randomWalkableTile(ctx, zone, settle(ctx, p, ctx.timestamp));
   if (!tile) return undefined;
 
   ctx.db.ghostHaunt.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y, createdAt: ctx.timestamp });

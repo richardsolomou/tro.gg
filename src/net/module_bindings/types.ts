@@ -20,6 +20,23 @@ export const Boulder = __t.object("Boulder", {
 });
 export type Boulder = __Infer<typeof Boulder>;
 
+export const Brazier = __t.object("Brazier", {
+  id: __t.u64(),
+  zoneId: __t.string(),
+  x: __t.i32(),
+  y: __t.i32(),
+  radius: __t.i32(),
+  lit: __t.bool(),
+  isEternal: __t.bool(),
+});
+export type Brazier = __Infer<typeof Brazier>;
+
+export const BrazierUpkeepTimer = __t.object("BrazierUpkeepTimer", {
+  scheduledId: __t.u64(),
+  scheduledAt: __t.scheduleAt(),
+});
+export type BrazierUpkeepTimer = __Infer<typeof BrazierUpkeepTimer>;
+
 export const ChatMessage = __t.object("ChatMessage", {
   id: __t.u64(),
   zoneId: __t.string(),
@@ -43,6 +60,27 @@ export const CreatureRegen = __t.object("CreatureRegen", {
 });
 export type CreatureRegen = __Infer<typeof CreatureRegen>;
 
+export const DarkCreature = __t.object("DarkCreature", {
+  id: __t.u64(),
+  zoneId: __t.string(),
+  x: __t.f64(),
+  y: __t.f64(),
+  dirX: __t.i32(),
+  dirY: __t.i32(),
+  movedAt: __t.timestamp(),
+  species: __t.string(),
+  health: __t.i32(),
+  lastDamagedAt: __t.timestamp(),
+  aggroTargetId: __t.string(),
+});
+export type DarkCreature = __Infer<typeof DarkCreature>;
+
+export const EmberWander = __t.object("EmberWander", {
+  scheduledId: __t.u64(),
+  scheduledAt: __t.scheduleAt(),
+});
+export type EmberWander = __Infer<typeof EmberWander>;
+
 export const GhostHaunt = __t.object("GhostHaunt", {
   id: __t.u64(),
   zoneId: __t.string(),
@@ -62,30 +100,6 @@ export const GroundItem = __t.object("GroundItem", {
 });
 export type GroundItem = __Infer<typeof GroundItem>;
 
-export const Hog = __t.object("Hog", {
-  id: __t.u64(),
-  zoneId: __t.string(),
-  x: __t.i32(),
-  y: __t.i32(),
-  dirX: __t.i32(),
-  dirY: __t.i32(),
-  movedAt: __t.timestamp(),
-  path: __t.string(),
-  homeX: __t.i32(),
-  homeY: __t.i32(),
-  style: __t.string(),
-  health: __t.i32(),
-  lastDamagedAt: __t.timestamp(),
-  landingAt: __t.timestamp(),
-});
-export type Hog = __Infer<typeof Hog>;
-
-export const HogWander = __t.object("HogWander", {
-  scheduledId: __t.u64(),
-  scheduledAt: __t.scheduleAt(),
-});
-export type HogWander = __Infer<typeof HogWander>;
-
 export const Inventory = __t.object("Inventory", {
   id: __t.u64(),
   playerId: __t.identity(),
@@ -93,6 +107,16 @@ export const Inventory = __t.object("Inventory", {
   qty: __t.i32(),
 });
 export type Inventory = __Infer<typeof Inventory>;
+
+export const NodeRespawn = __t.object("NodeRespawn", {
+  scheduledId: __t.u64(),
+  scheduledAt: __t.scheduleAt(),
+  zoneId: __t.string(),
+  kind: __t.string(),
+  x: __t.i32(),
+  y: __t.i32(),
+});
+export type NodeRespawn = __Infer<typeof NodeRespawn>;
 
 export const Player = __t.object("Player", {
   identity: __t.identity(),
@@ -130,6 +154,8 @@ export const Player = __t.object("Player", {
   cheatNoclip: __t.bool(),
   z: __t.f64(),
   dirZ: __t.i32(),
+  kindlingCharge: __t.f64(),
+  kindlingChargeAt: __t.timestamp(),
 });
 export type Player = __Infer<typeof Player>;
 
@@ -146,6 +172,20 @@ export const PlayerRespawn = __t.object("PlayerRespawn", {
   scheduledAt: __t.scheduleAt(),
 });
 export type PlayerRespawn = __Infer<typeof PlayerRespawn>;
+
+export const RevealedRegion = __t.object("RevealedRegion", {
+  slug: __t.string(),
+  name: __t.string(),
+  interior: __t.bool(),
+  revealedAt: __t.timestamp(),
+});
+export type RevealedRegion = __Infer<typeof RevealedRegion>;
+
+export const Stockpile = __t.object("Stockpile", {
+  item: __t.string(),
+  qty: __t.i32(),
+});
+export type Stockpile = __Infer<typeof Stockpile>;
 
 export const Tree = __t.object("Tree", {
   id: __t.u64(),

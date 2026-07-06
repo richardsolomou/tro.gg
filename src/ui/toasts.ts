@@ -62,3 +62,27 @@ export function pickupToast(item: string, qty: number): void {
   rackEl().appendChild(el);
   active.set(item, { el, count, qty, timer: dismissLater(item, el) });
 }
+
+const REGION_HOLD_MS = 3200;
+let regionBanner: { el: HTMLElement; timer: number } | undefined;
+
+/** A one-line banner, top centre, marking a region-tier crossing (e.g. leaving
+ *  claimed ground for a penumbra region) — the frontier has no gate or wall, so
+ *  this is the only cue a trogg gets. Replaces any banner already showing
+ *  rather than stacking, since only one is ever relevant at a time. */
+export function regionToast(text: string): void {
+  if (regionBanner) {
+    window.clearTimeout(regionBanner.timer);
+    regionBanner.el.remove();
+  }
+  const el = document.createElement("div");
+  el.className = "region-toast";
+  el.textContent = text;
+  hudRoot().appendChild(el);
+  const timer = window.setTimeout(() => {
+    el.classList.add("is-leaving");
+    window.setTimeout(() => el.remove(), LEAVE_MS);
+    regionBanner = undefined;
+  }, REGION_HOLD_MS);
+  regionBanner = { el, timer };
+}

@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { buildHog, buildTrogg } from "./creatures.js";
+import { buildGrask, buildTrogg } from "./creatures.js";
 import { buildBoulder, buildHeldItem, buildTree } from "./items.js";
 import { ITEM_3D } from "./palette.js";
 
@@ -91,14 +91,14 @@ export function itemIcon(item: string): HTMLCanvasElement {
   });
 }
 
-/** A hog style's icon canvas (the Commands panel spawn buttons). */
-export function hogIcon(style: string): HTMLCanvasElement {
-  return cached(`hog:${style}`, () => buildHog(style).root);
-}
-
 /** A trogg style's icon canvas (the model preview's creature palette). */
 export function troggIcon(style: string): HTMLCanvasElement {
   return cached(`trogg:${style}`, () => buildTrogg(style).root);
+}
+
+/** A dark-creature species' icon canvas (Commands panel spawn buttons). */
+export function darkCreatureIcon(species: string): HTMLCanvasElement {
+  return cached(`dark-creature:${species}`, () => (species === "grask" ? buildGrask().root : undefined));
 }
 
 // ── HUD toggle props ─────────────────────────────────────────────────────────────
