@@ -86,6 +86,7 @@ import {
   regenCreatures,
   brazierUpkeep,
   wanderPresence,
+  respawnNodes,
   spawn,
   resetDarkCreatures,
   startClaim,
@@ -1076,7 +1077,7 @@ test("wanderPresence keeps a charged ember trogg confined to lit territory while
   assert.ok(Math.hypot(p.x - hearth.x, p.y - hearth.y) <= hearth.radius);
 });
 
-test("wanderPresence settles a trogg whose kindling charge has just run out at the nearest hearth", () => {
+test("wanderPresence settles a trogg whose kindling charge has just run out beside the nearest hearth", () => {
   const watcher = id("watcher");
   const ember = id("goingdormant");
   const ctx = makeCtx({ sender: watcher, now: micros(999_999_999) }); // long enough to fully decay
@@ -1085,7 +1086,20 @@ test("wanderPresence settles a trogg whose kindling charge has just run out at t
   ctx.db.player.insert(playerRow(ember, { x: 80, y: 96, online: false, kindlingCharge: 1, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
   wanderPresence(ctx, {});
   const p = ctx.db.player.identity.find(ember);
-  assert.deepEqual({ x: p.x, y: p.y, kindlingCharge: p.kindlingCharge }, { x: hearth.x, y: hearth.y, kindlingCharge: 0 });
+  const dist = Math.abs(p.x - hearth.x) + Math.abs(p.y - hearth.y);
+  assert.deepEqual({ besideNotOn: dist >= 1 && dist <= 2, kindlingCharge: p.kindlingCharge }, { besideNotOn: true, kindlingCharge: 0 });
+});
+
+test("wanderPresence nudges a dormant trogg parked on a brazier tile off the fire", () => {
+  const watcher = id("watcher");
+  const parked = id("onthefire");
+  const ctx = makeCtx({ sender: watcher });
+  ctx.db.player.insert(playerRow(watcher, { online: true }));
+  const hearth = ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
+  ctx.db.player.insert(playerRow(parked, { x: 69, y: 96, online: false, kindlingCharge: 0, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
+  wanderPresence(ctx, {});
+  const p = ctx.db.player.identity.find(parked);
+  assert.notDeepEqual({ x: p.x, y: p.y }, { x: hearth.x, y: hearth.y });
 });
 
 test("wanderPresence gathers on instinct from an adjacent boulder and deposits into the stockpile", () => {
@@ -1099,9 +1113,31 @@ test("wanderPresence gathers on instinct from an adjacent boulder and deposits i
   ctx.db.player.insert(playerRow(ember, { x: 69, y: 96, online: false, kindlingCharge: 10, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
   wanderPresence(ctx, {});
   assert.deepEqual(
-    { boulders: ctx.db.boulder.rows().length, stone: ctx.db.stockpile.item.find("stone")?.qty },
-    { boulders: 0, stone: 1 },
+    { boulders: ctx.db.boulder.rows().length, stone: ctx.db.stockpile.item.find("stone")?.qty, respawnsArmed: ctx.db.nodeRespawn.rows().length },
+    { boulders: 0, stone: 1, respawnsArmed: 1 },
   );
+});
+
+test("respawnNodes re-plants a broken boulder in place at full health", () => {
+  const watcher = id("watcher");
+  const ctx = makeCtx({ sender: watcher });
+  ctx.db.player.insert(playerRow(watcher, { online: true }));
+  ctx.db.nodeRespawn.insert({ scheduledId: 0n, scheduledAt: 0n, zoneId: ZONE, kind: "boulder", x: 70, y: 96 });
+  respawnNodes(ctx, { timer: ctx.db.nodeRespawn.rows()[0] });
+  const b = ctx.db.boulder.rows()[0];
+  assert.deepEqual(
+    { x: b?.x, y: b?.y, health: b?.health, timers: ctx.db.nodeRespawn.rows().length },
+    { x: 70, y: 96, health: BOULDER_MAX_HEALTH, timers: 0 },
+  );
+});
+
+test("respawnNodes re-arms instead of trapping a trogg standing on the node's tile", () => {
+  const watcher = id("watcher");
+  const ctx = makeCtx({ sender: watcher });
+  ctx.db.player.insert(playerRow(watcher, { online: true, x: 70, y: 96 }));
+  ctx.db.nodeRespawn.insert({ scheduledId: 0n, scheduledAt: 0n, zoneId: ZONE, kind: "tree", x: 70, y: 96 });
+  respawnNodes(ctx, { timer: ctx.db.nodeRespawn.rows()[0] });
+  assert.deepEqual({ trees: ctx.db.tree.rows().length, timers: ctx.db.nodeRespawn.rows().length }, { trees: 0, timers: 1 });
 });
 
 test("wanderPresence routes an ember trogg toward the nearest node instead of drifting", () => {

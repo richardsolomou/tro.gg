@@ -5,6 +5,7 @@ import {
   HEALTH_REGEN_TICK_MS,
   BRAZIER_UPKEEP_TICK_MS,
   EMBER_WANDER_TICK_MS,
+  NODE_RESPAWN_MS,
   isValidName,
   isWalkable,
   BOULDER_MAX_HEALTH,
@@ -220,6 +221,14 @@ export function armBrazierUpkeep(ctx: Ctx): void {
   if (ctx.db.brazierUpkeepTimer.count() > 0n) return;
   const at = ctx.timestamp.microsSinceUnixEpoch + BigInt(BRAZIER_UPKEEP_TICK_MS) * 1000n;
   ctx.db.brazierUpkeepTimer.insert({ scheduledId: 0n, scheduledAt: ScheduleAt.time(at) });
+}
+
+/** Arm a one-shot respawn for a just-broken node (GDD "Territory claiming":
+ *  a broken node returns in place after `NODE_RESPAWN_MS`), so settled ground
+ *  never runs dry however long it's farmed. */
+export function scheduleNodeRespawn(ctx: Ctx, zoneId: string, kind: "boulder" | "tree", x: number, y: number): void {
+  const at = ctx.timestamp.microsSinceUnixEpoch + BigInt(NODE_RESPAWN_MS) * 1000n;
+  ctx.db.nodeRespawn.insert({ scheduledId: 0n, scheduledAt: ScheduleAt.time(at), zoneId, kind, x, y });
 }
 
 /** Arm the ember-trogg wander sweep, unless one is already pending (GDD "The

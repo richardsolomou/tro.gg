@@ -38,6 +38,7 @@ import {
   facingDir,
   directionVector,
   revealGate,
+  scheduleNodeRespawn,
 } from "../helpers";
 
 /**
@@ -249,6 +250,7 @@ function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; d
     }
     ctx.db.boulder.id.delete(b.id);
     depositStockpile(ctx, "stone", 1);
+    scheduleNodeRespawn(ctx, p.zoneId, "boulder", b.x, b.y);
     return true;
   };
   const strikeTree = (tr: NonNullable<ReturnType<typeof meleeTreeTarget>>["target"], damage: number): boolean => {
@@ -258,6 +260,7 @@ function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; d
     }
     ctx.db.tree.id.delete(tr.id);
     depositStockpile(ctx, "wood", 1);
+    scheduleNodeRespawn(ctx, p.zoneId, "tree", tr.x, tr.y);
     return true;
   };
 

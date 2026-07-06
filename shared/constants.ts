@@ -119,18 +119,19 @@ export const CHARGE_DECAY_RATE = 10; // charge per hour while ember
 /**
  * An ember trogg works safe interior ground on instinct (GDD "Presence"): the
  * scheduled `ember_wander` sweep re-derives its position every
- * `EMBER_WANDER_TICK_MS`, routes it to the nearest boulder or tree within
- * `EMBER_SEEK_RADIUS` (manhattan tiles, on lit revealed ground), and camps it
- * there, rolling `EMBER_EFFICIENCY_FRACTION` per tick for an instinct-driven
- * gather chip roughly the weight of one weak tool hit — a trickle next to a
- * bright trogg spamming swings, deposited into the stockpile the same way a
- * real hit is, earning no XP. With no node in range it falls back to an
- * aimless wander. (initial)
+ * `EMBER_WANDER_TICK_MS`, routes it to the nearest boulder or tree on lit
+ * revealed ground, and camps it there, rolling `EMBER_EFFICIENCY_FRACTION`
+ * per tick for an instinct-driven gather chip roughly the weight of one weak
+ * tool hit — a trickle next to a bright trogg spamming swings, deposited into
+ * the stockpile the same way a real hit is, earning no XP. `EMBER_SEEK_RADIUS`
+ * (manhattan tiles) is the routing budget, sized to span a whole settled zone
+ * rather than a neighbourhood — park a trogg anywhere lit and it works that
+ * ground. With no reachable node it falls back to an aimless wander. (initial)
  */
 export const EMBER_EFFICIENCY_FRACTION = 0.3;
 export const EMBER_WANDER_TICK_MS = 1_000;
 export const EMBER_GATHER_DAMAGE = 6;
-export const EMBER_SEEK_RADIUS = 24;
+export const EMBER_SEEK_RADIUS = 400;
 
 /** Trogg combat health, damage, and respawn timing. (initial) */
 export const PLAYER_MAX_HEALTH = 100;
@@ -154,6 +155,11 @@ export const ITEM_PICKUP_RADIUS = 1.75;
  *  roughly three average hits each. (initial) */
 export const BOULDER_MAX_HEALTH = 45;
 export const TREE_MAX_HEALTH = 54;
+
+/** How long a broken node stays gone before it respawns in place (GDD
+ *  "Territory claiming"): a one-shot `node_respawn` row per breaking hit, so
+ *  settled ground never runs dry however long a trogg farms it. (initial) */
+export const NODE_RESPAWN_MS = 30_000;
 
 /**
  * Per-weapon melee damage as an inclusive [floor, ceiling] — every accepted hit

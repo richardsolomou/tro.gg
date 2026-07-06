@@ -115,6 +115,7 @@ export function makeCtx(opts: FakeCtxOpts) {
       ghostHaunt: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
       claimCode: makeTable({ pk: "code" }),
       playerRespawn: makeTable({ pk: "scheduledId", autoInc: true, indexes: ["playerId"] }),
+      nodeRespawn: makeTable({ pk: "scheduledId", autoInc: true }),
       worldState: makeTable({ pk: "id" }),
       creatureRegen: makeTable({ pk: "scheduledId", autoInc: true }),
       revealedRegion,

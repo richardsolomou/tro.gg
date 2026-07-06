@@ -108,6 +108,16 @@ export const Inventory = __t.object("Inventory", {
 });
 export type Inventory = __Infer<typeof Inventory>;
 
+export const NodeRespawn = __t.object("NodeRespawn", {
+  scheduledId: __t.u64(),
+  scheduledAt: __t.scheduleAt(),
+  zoneId: __t.string(),
+  kind: __t.string(),
+  x: __t.i32(),
+  y: __t.i32(),
+});
+export type NodeRespawn = __Infer<typeof NodeRespawn>;
+
 export const Player = __t.object("Player", {
   identity: __t.identity(),
   name: __t.string(),

@@ -1,5 +1,5 @@
 import { schema, table, t, type InferSchema, type ProcedureCtx, type ReducerCtx } from "spacetimedb/server";
-import { Timestamp } from "spacetimedb";
+import { ScheduleAt, Timestamp } from "spacetimedb";
 import {
   COLOR_UNSET,
   DARK_CREATURE_AGGRO_RANGE,
@@ -21,8 +21,10 @@ import {
   EMBER_GATHER_DAMAGE,
   EMBER_SEEK_RADIUS,
   findPath,
+  NODE_RESPAWN_MS,
   serializePath,
   smoothPath,
+  spawnTiles,
   WANDER_TURN_CHANCE,
   footprintWalkable,
   getZone,
@@ -55,6 +57,7 @@ import {
   damagePlayer,
   currentRevealedRegions,
   regionHopDepths,
+  scheduleNodeRespawn,
 } from "./helpers";
 
 /**
@@ -435,6 +438,24 @@ const playerRespawn = table(
 );
 
 /**
+ * One-shot node respawn timers (GDD "Territory claiming"): each breaking hit
+ * on a boulder or tree arms one, and the firing re-plants the node in place
+ * at full health after `NODE_RESPAWN_MS` — settled ground never runs dry, for
+ * bright farming and ember instinct alike.
+ */
+const nodeRespawn = table(
+  { name: "node_respawn", scheduled: (): any => respawnNodes },
+  {
+    scheduledId: t.u64().primaryKey().autoInc(),
+    scheduledAt: t.scheduleAt(),
+    zoneId: t.string(),
+    kind: t.string(), // "boulder" | "tree"
+    x: t.i32(),
+    y: t.i32(),
+  },
+);
+
+/**
  * The out-of-combat regeneration sweep's timer (GDD "Combat") — a sanctioned
  * scheduled-reducer exception: re-armed only while a player is online, so an
  * empty world does no regen work.
@@ -487,7 +508,7 @@ const worldState = table(
   },
 );
 
-const spacetimedb = schema({ player, chatMessage, ghostHaunt, claimCode, boulder, tree, darkCreature, groundItem, inventory, stockpile, brazier, brazierUpkeepTimer, emberWanderTimer, playerConnection, playerRespawn, creatureRegen, revealedRegion, worldState });
+const spacetimedb = schema({ player, chatMessage, ghostHaunt, claimCode, boulder, tree, darkCreature, groundItem, inventory, stockpile, brazier, brazierUpkeepTimer, emberWanderTimer, playerConnection, playerRespawn, nodeRespawn, creatureRegen, revealedRegion, worldState });
 export default spacetimedb;
 
 /** The reducer context, typed against this module's schema (db view + sender). */
@@ -548,6 +569,26 @@ export const regenCreatures = spacetimedb.reducer({ timer: creatureRegen.rowType
   }
   ctx.db.creatureRegen.clear();
   if (online) armRegen(ctx);
+});
+
+/** Re-plant a broken node whose one-shot respawn timer has elapsed. If
+ *  something now stands on the tile (a trogg, a creature, another node), the
+ *  timer re-arms shortly instead of trapping the occupant inside an obstacle. */
+export const respawnNodes = spacetimedb.reducer({ timer: nodeRespawn.rowType }, (ctx, { timer }) => {
+  ctx.db.nodeRespawn.scheduledId.delete(timer.scheduledId);
+  const { zoneId, kind, x, y } = timer;
+  const taken =
+    boulderAt(ctx, zoneId, x, y) !== undefined ||
+    treeAt(ctx, zoneId, x, y) !== undefined ||
+    [...ctx.db.player.iter()].some((p) => p.zoneId === zoneId && Math.round(p.x) === x && Math.round(p.y) === y) ||
+    [...ctx.db.darkCreature.zoneId.filter(zoneId)].some((c) => c.health > 0 && Math.round(c.x) === x && Math.round(c.y) === y);
+  if (taken) {
+    const at = ctx.timestamp.microsSinceUnixEpoch + 5_000_000n;
+    ctx.db.nodeRespawn.insert({ scheduledId: 0n, scheduledAt: ScheduleAt.time(at), zoneId, kind, x, y });
+    return;
+  }
+  if (kind === "boulder") ctx.db.boulder.insert({ id: 0n, zoneId, x, y, health: BOULDER_MAX_HEALTH, cellId: 0 });
+  else ctx.db.tree.insert({ id: 0n, zoneId, x, y, health: TREE_MAX_HEALTH });
 });
 
 /** Respawn a dead trogg whose one-shot death timer has elapsed. */
@@ -629,20 +670,35 @@ export const wanderPresence = spacetimedb.reducer({ timer: emberWanderTimer.rowT
       if (p.online) continue; // bright troggs act on player input, not instinct
       const charge = deriveKindlingCharge(p.kindlingCharge, p.kindlingChargeAt, false, now);
       if (charge <= 0) {
-        // Just crossed to dormant (skip once it's already settled at 0): settle
-        // in place at the nearest hearth and stop.
-        if (p.kindlingCharge > 0) {
-          const hearth = nearestLitBrazier(ctx, p.zoneId, p.x, p.y);
+        // Settle a trogg whose charge just faded at the nearest hearth —
+        // beside the fire, never on it — and nudge one already parked on a
+        // brazier tile (the pre-fix settle put them there). Otherwise dormant
+        // troggs are left alone: present, waiting, visibly idle.
+        const hearth = nearestLitBrazier(ctx, p.zoneId, p.x, p.y);
+        const justFaded = p.kindlingCharge > 0;
+        const onFire = hearth !== undefined && Math.round(p.x) === hearth.x && Math.round(p.y) === hearth.y;
+        if (justFaded || onFire) {
+          let rest = hearth ? { x: hearth.x, y: hearth.y } : { x: p.x, y: p.y };
+          const zone = getZone(p.zoneId);
+          if (hearth && zone) {
+            const blockers = obstacleTiles(ctx, p.zoneId);
+            const spots = spawnTiles(zone, (x, y) => blockers.has(tileKey(x, y)) || (x === hearth.x && y === hearth.y), hearth.x, hearth.y, 0, 0, 6);
+            if (spots.length > 0) {
+              let h = 0;
+              for (const c of p.identity.toHexString()) h = (h * 31 + c.charCodeAt(0)) | 0;
+              rest = spots[Math.abs(h) % spots.length]!;
+            }
+          }
           ctx.db.player.identity.update({
             ...p,
-            x: hearth?.x ?? p.x,
-            y: hearth?.y ?? p.y,
+            x: rest.x,
+            y: rest.y,
             dirX: 0,
             dirY: 0,
             path: "",
             movedAt: now,
             kindlingCharge: 0,
-            kindlingChargeAt: now,
+            kindlingChargeAt: justFaded ? now : p.kindlingChargeAt,
           });
         }
         continue;
@@ -675,6 +731,7 @@ export const wanderPresence = spacetimedb.reducer({ timer: emberWanderTimer.rowT
             else {
               ctx.db.boulder.id.delete(b.id);
               depositStockpile(ctx, "stone", 1);
+              scheduleNodeRespawn(ctx, p.zoneId, "boulder", b.x, b.y);
             }
           }
           break;
@@ -687,6 +744,7 @@ export const wanderPresence = spacetimedb.reducer({ timer: emberWanderTimer.rowT
             else {
               ctx.db.tree.id.delete(tr.id);
               depositStockpile(ctx, "wood", 1);
+              scheduleNodeRespawn(ctx, p.zoneId, "tree", tr.x, tr.y);
             }
           }
           break;
@@ -703,9 +761,10 @@ export const wanderPresence = spacetimedb.reducer({ timer: emberWanderTimer.rowT
       // clamp reports no heading — falls through and re-routes.
       if (p.path !== "" && !at.arrived && (at.dirX !== 0 || at.dirY !== 0)) continue;
 
-      // Seek: route to the nearest node on lit, revealed ground. The node tile
-      // itself is an obstacle, so `findPath` lands on a walkable tile beside it
-      // — the camping spot. A* only runs while a trogg is between nodes.
+      // Seek: route to the nearest node on lit, revealed ground, anywhere in
+      // the zone (`EMBER_SEEK_RADIUS` is a routing budget, not a leash). The
+      // node tile itself is an obstacle, so `findPath` lands on a walkable
+      // tile beside it — the camping spot. A* only runs between nodes.
       const nodes: { x: number; y: number; d: number }[] = [];
       for (const b of ctx.db.boulder.zoneId.filter(p.zoneId)) {
         const d = Math.abs(b.x - cx) + Math.abs(b.y - cy);
@@ -718,7 +777,7 @@ export const wanderPresence = spacetimedb.reducer({ timer: emberWanderTimer.rowT
       nodes.sort((a, b) => a.d - b.d);
       let routed = false;
       for (const node of nodes.slice(0, 4)) {
-        const path = smoothPath(bounds, at, findPath(bounds, at, { x: node.x, y: node.y }));
+        const path = smoothPath(bounds, at, findPath(bounds, at, { x: node.x, y: node.y }, EMBER_SEEK_RADIUS));
         const first = path[0];
         if (!first) continue;
         const hopX = first.x - at.x;

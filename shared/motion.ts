@@ -231,9 +231,9 @@ export function parsePath(path: string | undefined): Coord[] {
  *  seamless world grid. */
 export const MOVETO_MAX_TILES = 72;
 
-export function findPath(zone: ZoneBounds, start: Coord, target: Coord): Coord[] {
+export function findPath(zone: ZoneBounds, start: Coord, target: Coord, maxTiles = MOVETO_MAX_TILES): Coord[] {
   if (!inBounds(zone, target.x, target.y)) return [];
-  if (Math.abs(target.x - Math.round(start.x)) + Math.abs(target.y - Math.round(start.y)) > MOVETO_MAX_TILES) return [];
+  if (Math.abs(target.x - Math.round(start.x)) + Math.abs(target.y - Math.round(start.y)) > maxTiles) return [];
 
   const sx = Math.round(start.x);
   const sy = Math.round(start.y);
@@ -258,8 +258,8 @@ export function findPath(zone: ZoneBounds, start: Coord, target: Coord): Coord[]
     if (candidateKeys.has(currentKey)) return reconstructPath(best, currentKey, tileKey(sx, sy));
     closed.add(currentKey);
     // a boxed-in target can't flood the plane: the world has no zone edge to
-    // stop at, so cap the expansion instead (MOVETO_MAX_TILES bounds any real route)
-    if (closed.size > 4096) return [];
+    // stop at, so cap the expansion instead (`maxTiles` bounds any real route)
+    if (closed.size > Math.max(4096, maxTiles * 64)) return [];
 
     for (const { dirX, dirY } of CARDINALS) {
       const nx = current.x + dirX;
