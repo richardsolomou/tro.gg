@@ -14,7 +14,7 @@ The PostHog plan: every product gets a real job when it is useful. This document
 | Experiments | A/B on tuning values (gather times, respawns), announced to players |
 | Error tracking | Client + server errors |
 | Surveys | In-game feedback prompts |
-| AI observability | Open — the prior plan (LLM-driven Hog NPCs) was retired with the Hog-town design; no current use case, revisit if one emerges |
+| AI observability | Open — no current use case; revisit if one emerges |
 | Logs | Structured client diagnostics tied to user/session context |
 
 ## Events
@@ -45,7 +45,7 @@ snake_case. Low-volume by design — anything that could fire more than ~once/se
 | `level_up` | `skill, level` | Derived level increases |
 | `chat_sent` | `zone, source?` | Message sent — **no content** |
 | `boulders_reset` | `zone, source` | Player resets boulders via the Commands panel |
-| `dark_creatures_reset` | `zone, source` | Player resets dark creatures via the Commands panel (replaces the retired `hedgehogs_reset`) |
+| `dark_creatures_reset` | `zone, source` | Player resets dark creatures via the Commands panel |
 | `debug_entity_spawned` | `zone, kind, count, source, item?, style?` | Player requests a Commands panel spawn for a supported debug entity — `kind` is `boulder`, `tree`, `dark_creature`, or `item`; `style` is present for exact species spawns and `item` for spawned pickup items |
 | `ghost_summoned` | `zone, source, count` | Player requests one or more synced cosmetic ghost haunts via the Commands panel |
 | `object_dropped` | `zone, kind, source?` | Player puts down what they were carrying. No carryable exists at this design's outset (see gdd.md "carry" in the glossary), so this is dormant until one does |
@@ -88,9 +88,9 @@ Code currently reads these flag keys:
 | `trogg-recolor` | Colour swatches in the Appearance panel | On |
 | `trogg-restyle` | Body-style buttons in the Appearance panel | On |
 
-**Retired flags, no longer read anywhere in code:** `avatar-sprites` (the 3D client always renders models), `boulder-pushing` (boulders are mining nodes, not pushable), and `roaming-hogs` / `hog-reset` (Hogs retired with the fire-and-dark pivot, replaced by the `dark-creature-rendering` / `dark-creature-reset` flags above). The pivot shipped to production on 2026-07-06, so all four should be archived in PostHog project 314596; until that archival happens they are inert — nothing evaluates them.
+**Unused flags:** `avatar-sprites`, `boulder-pushing`, `roaming-hogs`, and `hog-reset` are not read anywhere in code — nothing evaluates them — and should be archived in PostHog project 314596.
 
-PostHog project audit (2026-06-27, pre-pivot): the code-read flags at that time were configured in PostHog project 314596 and active. `dark-creature-rendering` and `dark-creature-reset` entered code with the pivot; verify they exist in project 314596 (create at 100% on if missing — their client fallback is on). Flags are intentionally kept live because they cover remote rollback, production-only debug command governance, or visible UI capabilities that should not advertise disabled controls. Planned future flags should be added here, and created in PostHog, when code starts reading them.
+PostHog project audit (2026-06-27): the code-read flags at that time were configured in PostHog project 314596 and active. `dark-creature-rendering` and `dark-creature-reset` are newer than the audit; verify they exist in project 314596 (create at 100% on if missing — their client fallback is on). Flags are intentionally kept live because they cover remote rollback, production-only debug command governance, or visible UI capabilities that should not advertise disabled controls. Planned future flags should be added here, and created in PostHog, when code starts reading them.
 
 ## Error tracking and logs
 
