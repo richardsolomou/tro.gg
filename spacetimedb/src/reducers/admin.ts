@@ -1,28 +1,33 @@
 import spacetimedb, { type Ctx, type AnalyticsEvent } from "../schema";
 import { t } from "spacetimedb/server";
-import { ScheduleAt, Timestamp } from "spacetimedb";
 import {
   getZone,
-  isHogStyle,
+  isDarkCreatureSpecies,
+  isDryFloor,
   isSpawnableItemId,
-  hogMaxHealth,
-  HOG_MAX_HEALTH,
   BOULDER_MAX_HEALTH,
+  BRAZIER_LIT_RADIUS,
   TREE_MAX_HEALTH,
   MAX_BOULDERS_PER_ZONE,
+  MAX_DARK_CREATURES_PER_ZONE,
   MAX_GROUND_ITEMS_PER_ZONE,
-  MAX_HOGS_PER_ZONE,
   MAX_TREES_PER_ZONE,
   CHEAT_SPEED_MULTIPLIER,
+  penumbraOf,
   PLAYER_MAX_HEALTH,
   nearestSafeTile,
+  regionAt,
+  STARTING_ZONE_SLUG,
   spawnTile,
   tileKey,
+  type Zone,
 } from "../../../shared/index";
 import {
   spawnAt,
   seedBoulders,
-  seedHogs,
+  seedDarkCreatures,
+  darkCreatureDef,
+  isLitTile,
   captureProcedureEvents,
   sourceProp,
   distinctId,
@@ -32,6 +37,10 @@ import {
   solidTiles,
   addGroundItemTiles,
   facingDir,
+  claimRegionAndExposePenumbra,
+  currentRevealedRegions,
+  HEARTH_REGION_SLUG,
+  revealGate,
 } from "../helpers";
 
 /**
@@ -44,10 +53,10 @@ import {
  * or a boxed-in trogg is a silent no-op.
  */
 function runSpawn(ctx: Ctx, { kind, item = "", source = "" }: { kind: string; item?: string; source?: string }): AnalyticsEvent[] {
-  if (kind !== "boulder" && kind !== "tree" && kind !== "hog" && kind !== "item") return [];
+  if (kind !== "boulder" && kind !== "tree" && kind !== "item" && kind !== "dark_creature") return [];
   if ((kind === "boulder" || kind === "tree") && item !== "") return [];
   if (kind === "item" && !isSpawnableItemId(item)) return [];
-  if (kind === "hog" && item !== "" && !isHogStyle(item)) return [];
+  if (kind === "dark_creature" && !isDarkCreatureSpecies(item)) return [];
 
   const p = ctx.db.player.identity.find(ctx.sender);
   if (!p) return [];
@@ -60,36 +69,53 @@ function runSpawn(ctx: Ctx, { kind, item = "", source = "" }: { kind: string; it
       ? [...ctx.db.boulder.zoneId.filter(p.zoneId)].filter((b) => !b.cellId).length
       : kind === "tree"
         ? countRows(ctx.db.tree.zoneId.filter(p.zoneId))
-        : kind === "hog"
-          ? countRows(ctx.db.hog.zoneId.filter(p.zoneId))
+        : kind === "dark_creature"
+          ? countRows(ctx.db.darkCreature.zoneId.filter(p.zoneId))
           : countRows(ctx.db.groundItem.zoneId.filter(p.zoneId));
-  const cap = kind === "boulder" ? MAX_BOULDERS_PER_ZONE : kind === "tree" ? MAX_TREES_PER_ZONE : kind === "hog" ? MAX_HOGS_PER_ZONE : MAX_GROUND_ITEMS_PER_ZONE;
+  const cap = kind === "boulder" ? MAX_BOULDERS_PER_ZONE : kind === "tree" ? MAX_TREES_PER_ZONE : kind === "dark_creature" ? MAX_DARK_CREATURES_PER_ZONE : MAX_GROUND_ITEMS_PER_ZONE;
   if (existing >= cap) return [];
 
   // Drop entities on free floor — never inside a wall or on top of anything solid
-  // (a boulder, a Hog, or another trogg) or another pickup item.
+  // (a boulder, a dark creature, or another trogg) or another pickup item. A
+  // spawned dark creature additionally avoids lit ground — it can't occupy a
+  // lit tile any more than a wandering one can (GDD "Dark creatures").
   const occupied = solidTiles(ctx, p.zoneId, ctx.timestamp, p.identity);
   addGroundItemTiles(ctx, p.zoneId, occupied);
   const pos = settle(ctx, p, ctx.timestamp);
   const face = facingDir(p);
-  const tile = spawnTile(zone, (x, y) => occupied.has(tileKey(x, y)), pos.x, pos.y, face.dirX, face.dirY);
+  const gate = revealGate(ctx, zone);
+  const blocked =
+    kind === "dark_creature"
+      ? (x: number, y: number) => occupied.has(tileKey(x, y)) || isLitTile(ctx, p.zoneId, x, y) || gate(x, y)
+      : (x: number, y: number) => occupied.has(tileKey(x, y)) || gate(x, y);
+  const tile = spawnTile(zone, blocked, pos.x, pos.y, face.dirX, face.dirY);
   if (!tile) return [];
 
   if (kind === "boulder") {
     ctx.db.boulder.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y, health: BOULDER_MAX_HEALTH, cellId: 0 });
   } else if (kind === "tree") {
     ctx.db.tree.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y, health: TREE_MAX_HEALTH });
-  } else if (kind === "hog") {
-    // A spawned Hog starts at rest and joins the roamers — the next wander tick
-    // gives it a heading like any other. `item` carries an explicit sprite style.
-    ctx.db.hog.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y, dirX: 0, dirY: 0, movedAt: ctx.timestamp, path: "", homeX: tile.x, homeY: tile.y, style: item, health: hogMaxHealth(item), lastDamagedAt: Timestamp.UNIX_EPOCH, landingAt: Timestamp.UNIX_EPOCH });
+  } else if (kind === "dark_creature") {
+    ctx.db.darkCreature.insert({
+      id: 0n,
+      zoneId: p.zoneId,
+      x: tile.x,
+      y: tile.y,
+      dirX: 0,
+      dirY: 0,
+      movedAt: ctx.timestamp,
+      species: item,
+      health: darkCreatureDef(item).maxHealth,
+      lastDamagedAt: ctx.timestamp,
+      aggroTargetId: "",
+    });
   } else {
     ctx.db.groundItem.insert({ id: 0n, zoneId: p.zoneId, item, x: tile.x, y: tile.y, qty: 1 });
   }
 
   const properties: Record<string, string | number | boolean> = { zone: p.zoneId, kind, count: 1, ...sourceProp(source) };
   if (kind === "item") properties.item = item;
-  if (kind === "hog" && item !== "") properties.style = item;
+  if (kind === "dark_creature") properties.style = item;
   return [{ distinctId: distinctId(ctx), event: "debug_entity_spawned", properties }];
 }
 
@@ -142,38 +168,33 @@ export const resetBouldersAction = spacetimedb.procedure(
 );
 
 /**
- * Reset the caller's zone Hogs to their `ZONES` registry population (GDD "Hogs").
- * Clears the zone's Hogs and reseeds from the registry — the single source of
- * truth — so a zone overrun with extra panel-spawned Hogs snaps back to its intended
- * count. The mirror of `resetBoulders`. A Hog a trogg is carrying lives on the
- * player row, not the `hog` table, so it survives the cull and re-materialises on
- * put-down (GDD "Interacting"). Fired by the Commands panel; open like every reducer,
- * with the optional `hog-reset` flag gating the client control.
+ * Reset the caller's zone dark creatures to their registry population (GDD
+ * "Dark creatures") — the mirror of `resetBoulders`. Clears every dark
+ * creature in the zone, corpse or living, and reseeds from the registry.
  */
-function runResetHogs(ctx: Ctx, source = ""): AnalyticsEvent[] {
+function runResetDarkCreatures(ctx: Ctx, source = ""): AnalyticsEvent[] {
   const p = ctx.db.player.identity.find(ctx.sender);
   if (!p) return [];
   const zone = getZone(p.zoneId);
   if (!zone) return [];
-  for (const h of [...ctx.db.hog.zoneId.filter(zone.slug)]) ctx.db.hog.id.delete(h.id);
-  seedHogs(ctx, zone);
-  return [{ distinctId: distinctId(ctx), event: "hedgehogs_reset", properties: { zone: zone.slug, ...sourceProp(source) } }];
+  for (const c of [...ctx.db.darkCreature.zoneId.filter(zone.slug)]) ctx.db.darkCreature.id.delete(c.id);
+  seedDarkCreatures(ctx, zone);
+  return [{ distinctId: distinctId(ctx), event: "dark_creatures_reset", properties: { zone: zone.slug, ...sourceProp(source) } }];
 }
 
-export const resetHogs = spacetimedb.reducer((ctx) => {
-  runResetHogs(ctx);
+export const resetDarkCreatures = spacetimedb.reducer((ctx) => {
+  runResetDarkCreatures(ctx);
 });
 
-export const resetHogsAction = spacetimedb.procedure(
+export const resetDarkCreaturesAction = spacetimedb.procedure(
   { posthogKey: t.string(), source: t.string() },
   t.unit(),
   (ctx, args) => {
-    const events = ctx.withTx((tx) => runResetHogs(tx, args.source));
+    const events = ctx.withTx((tx) => runResetDarkCreatures(tx, args.source));
     captureProcedureEvents(ctx, args.posthogKey, events);
     return unit();
   },
 );
-
 
 /**
  * Debug cheats (GDD "Commands panel"): a move-speed multiplier, flight (hover;
@@ -283,6 +304,78 @@ export const rescue = spacetimedb.reducer((ctx) => {
     movedAt: ctx.timestamp,
   });
 });
+
+/** The first dry, open tile found in a region — deterministic, not random;
+ *  fine for a rarely-called debug tool. Undefined only if the region is
+ *  somehow entirely wet or walled off, which never happens in practice. */
+function firstDryTileInRegion(zone: Zone, slug: string): { x: number; y: number } | undefined {
+  for (let y = 0; y < zone.height; y++) {
+    for (let x = 0; x < zone.width; x++) {
+      if (regionAt(x, y)?.slug === slug && isDryFloor(zone, x, y)) return { x, y };
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Debug: claim one currently-penumbra region directly, skipping the usual
+ * clear-the-zone requirement (GDD "Generation: only as far as the light
+ * reaches" / "Territory and permanence") — for testing the frontier without
+ * fighting anything. Inserts a lit brazier too, so the shortcut leaves the
+ * same end state a real claim would. A no-op once every region is interior.
+ */
+function runRevealNextRegion(ctx: Ctx, source = ""): AnalyticsEvent[] {
+  const zone = getZone(STARTING_ZONE_SLUG);
+  if (!zone) return [];
+  const next = [...penumbraOf(currentRevealedRegions(ctx))][0];
+  if (!next) return [];
+  const tile = firstDryTileInRegion(zone, next);
+  if (!tile) return [];
+  ctx.db.brazier.insert({ id: 0n, zoneId: zone.slug, x: tile.x, y: tile.y, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
+  claimRegionAndExposePenumbra(ctx, zone, next);
+  return [{ distinctId: distinctId(ctx), event: "region_revealed", properties: { region: next, ...sourceProp(source) } }];
+}
+
+export const revealNextRegion = spacetimedb.reducer((ctx) => {
+  runRevealNextRegion(ctx);
+});
+
+export const revealNextRegionAction = spacetimedb.procedure(
+  { posthogKey: t.string(), source: t.string() },
+  t.unit(),
+  (ctx, args) => {
+    const events = ctx.withTx((tx) => runRevealNextRegion(tx, args.source));
+    captureProcedureEvents(ctx, args.posthogKey, events);
+    return unit();
+  },
+);
+
+/**
+ * Debug: reset the frontier back to just the Hearth (GDD "Generation: only as
+ * far as the light reaches"). Entities already seeded in now-unclaimed
+ * regions are left in place — they're simply unreachable behind the reveal
+ * gate again, exactly like a frontier no scout has found yet.
+ */
+function runResetFrontier(ctx: Ctx, source = ""): AnalyticsEvent[] {
+  for (const row of [...ctx.db.revealedRegion.iter()]) {
+    if (row.slug !== HEARTH_REGION_SLUG) ctx.db.revealedRegion.slug.delete(row.slug);
+  }
+  return [{ distinctId: distinctId(ctx), event: "frontier_reset", properties: { ...sourceProp(source) } }];
+}
+
+export const resetFrontier = spacetimedb.reducer((ctx) => {
+  runResetFrontier(ctx);
+});
+
+export const resetFrontierAction = spacetimedb.procedure(
+  { posthogKey: t.string(), source: t.string() },
+  t.unit(),
+  (ctx, args) => {
+    const events = ctx.withTx((tx) => runResetFrontier(tx, args.source));
+    captureProcedureEvents(ctx, args.posthogKey, events);
+    return unit();
+  },
+);
 
 /**
  * Pin (or release) the shared day-night cycle (GDD "Debug cheats"). The sky is

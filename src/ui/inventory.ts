@@ -211,8 +211,6 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
     pickupToast(item, qty);
     audio.playPickup(item);
     coachHit("first-pickup");
-    if (item === "stone") coachHit("mined-stone");
-    if (item === "wood") coachHit("chopped-wood");
   };
   conn.db.inventory.onInsert((ctx, row) => {
     if (!mine(row)) return;

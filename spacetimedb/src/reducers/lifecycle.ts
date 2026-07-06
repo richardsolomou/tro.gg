@@ -5,7 +5,9 @@ import {
   EMERGE_ARRIVAL,
   nearestSafeTile,
   COLOR_UNSET,
+  deriveKindlingCharge,
   getZone,
+  neighborsOf,
   STYLE_UNSET,
   isWalkable,
   PLAYER_MAX_HEALTH,
@@ -16,17 +18,22 @@ import {
   healStaleWorld,
   seedBoulders,
   seedTrees,
-  seedHogs,
   seedGroundItems,
   seedBirthInstance,
+  seedFirstFire,
+  seedRevealedHearth,
+  seedRegionPopulation,
+  HEARTH_REGION_SLUG,
   playerConnectionCount,
   rememberPlayerConnection,
   forgetPlayerConnection,
-  armWander,
   armRegen,
+  armBrazierUpkeep,
+  armEmberWander,
   isSpacetimeAuthCaller,
   claimProviderName,
   settle,
+  settlePresence,
   solidTiles,
   placeCarried,
   facingDir,
@@ -46,11 +53,17 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
   healStaleWorld(ctx, startingZone);
   seedBoulders(ctx, startingZone);
   seedTrees(ctx, startingZone);
-  seedHogs(ctx, startingZone);
   seedGroundItems(ctx, startingZone);
-  // A player is here, so make sure the Hogs are roaming (no-op if already armed).
-  armWander(ctx);
+  seedFirstFire(ctx, startingZone);
+  // The Hearth is interior from the start (GDD "Generation: only as far as
+  // the light reaches"); its initial penumbra is seeded right alongside it,
+  // not via a real claim, so a fresh world has somewhere to scout on day one.
+  seedRevealedHearth(ctx);
+  seedRegionPopulation(ctx, startingZone, HEARTH_REGION_SLUG);
+  for (const neighborSlug of neighborsOf(HEARTH_REGION_SLUG)) seedRegionPopulation(ctx, startingZone, neighborSlug);
   armRegen(ctx);
+  armBrazierUpkeep(ctx);
+  armEmberWander(ctx);
 
   const hadLiveConnection = playerConnectionCount(ctx, ctx.sender) > 0;
   rememberPlayerConnection(ctx);
@@ -79,7 +92,24 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
     // (A trogg mid-birth resumes inside its own private cave, untouched.)
     const stuck = zone && !isWalkable(zone, Math.round(existing.x), Math.round(existing.y));
     const pos = stuck ? (nearestSafeTile(zone, existing.x, existing.y) ?? spawnAt(zone)) : { x: existing.x, y: existing.y };
-    ctx.db.player.identity.update({ ...existing, x: pos.x, y: pos.y, dirX: 0, dirY: 0, running: false, path: "", online: true, movedAt: ctx.timestamp });
+    // Reconnecting returns a trogg to bright instantly (GDD "Presence"): settle
+    // whatever ember decay happened while it was away into a fresh anchor, so
+    // accrual resumes from its true current charge, not the stale one from
+    // whenever it went offline.
+    const charge = deriveKindlingCharge(existing.kindlingCharge, existing.kindlingChargeAt, false, ctx.timestamp);
+    ctx.db.player.identity.update({
+      ...existing,
+      x: pos.x,
+      y: pos.y,
+      dirX: 0,
+      dirY: 0,
+      running: false,
+      path: "",
+      online: true,
+      movedAt: ctx.timestamp,
+      kindlingCharge: charge,
+      kindlingChargeAt: ctx.timestamp,
+    });
     return;
   }
 
@@ -138,13 +168,17 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
     cheatNoclip: false,
     z: 0,
     dirZ: 0,
+    kindlingCharge: 0,
+    kindlingChargeAt: ctx.timestamp,
   });
 });
 
 /**
- * A client disconnected. Settle the trogg to where it is *now* and mark it
- * offline (clients subscribe to online players only, so it leaves their view
- * without losing durable progress).
+ * A client disconnected. Settle the trogg to where it is *now*, resolve its
+ * presence (GDD "The fire and the dark" → Presence: ember if kindling charge
+ * remains, recalled to the nearest hearth first if it's off lit ground;
+ * dormant, settled at the hearth, once charge is spent), and mark it offline.
+ * Ember and dormant troggs stay in view — only the live-socket presence drops.
  */
 export const onDisconnect = spacetimedb.clientDisconnected((ctx) => {
   const p = ctx.db.player.identity.find(ctx.sender);
@@ -152,22 +186,41 @@ export const onDisconnect = spacetimedb.clientDisconnected((ctx) => {
   if (forgetPlayerConnection(ctx) > 0) return;
 
   const settled = settle(ctx, p, ctx.timestamp);
+  const presence = settlePresence(ctx, p, settled, ctx.timestamp);
+
   // Drop whatever the trogg was carrying where it stops, so a carried entity is
-  // never orphaned while its carrier is offline (GDD "Interacting"). If it's boxed
-  // in and can't be placed, keep it on the row — it's durable and still droppable
-  // when the trogg returns.
+  // never orphaned while its carrier is offline (GDD "Interacting"). A recall to
+  // a hearth skips this — the carried kind is durable on the row, so it rides
+  // along instead of dropping at an abandoned spot. If it's boxed in and can't
+  // be placed, keep it on the row — it's durable and still droppable when the
+  // trogg returns.
   let carrying = p.carrying;
   let carryingStyle = p.carryingStyle;
-  if (carrying !== "") {
+  if (carrying !== "" && !presence.recalled) {
     const zone = getZone(p.zoneId);
     const occupied = solidTiles(ctx, p.zoneId, ctx.timestamp, p.identity);
     const face = facingDir(p);
-    if (zone && placeCarried(ctx, zone, carrying, carryingStyle, occupied, settled.x, settled.y, face.dirX, face.dirY)) {
+    if (zone && placeCarried(ctx, zone, carrying, carryingStyle, occupied, presence.x, presence.y, face.dirX, face.dirY)) {
       carrying = "";
       carryingStyle = "";
     }
   }
-  ctx.db.player.identity.update({ ...p, x: settled.x, y: settled.y, z: settled.z, dirZ: 0, dirX: 0, dirY: 0, running: false, path: "", online: false, carrying, carryingStyle });
+  ctx.db.player.identity.update({
+    ...p,
+    x: presence.x,
+    y: presence.y,
+    z: presence.z,
+    dirZ: 0,
+    dirX: 0,
+    dirY: 0,
+    running: false,
+    path: "",
+    online: false,
+    carrying,
+    carryingStyle,
+    kindlingCharge: presence.kindlingCharge,
+    kindlingChargeAt: presence.kindlingChargeAt,
+  });
 });
 
 

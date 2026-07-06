@@ -1,5 +1,5 @@
-import { isBirthZone, regionAt, WORLD_REGIONS, type Zone } from "@trogg/shared";
-import { biomePalette } from "../game/palette.js";
+import { isBirthZone, regionAt, WORLD_REGIONS, type RegionVisibility, type Zone } from "@trogg/shared";
+import { biomePalette, DAYLIGHT_3D } from "../game/palette.js";
 import { hudRoot } from "./hud.js";
 import { registerKeybind } from "./keybinds.js";
 
@@ -16,9 +16,11 @@ const PX = 5; // canvas pixels per map cell
 const css = (colour: number): string => `#${colour.toString(16).padStart(6, "0")}`;
 /** Halve each channel — rock reads as clearly darker than the floor it borders. */
 const darker = (colour: number): number => (colour >> 1) & 0x7f7f7f;
+const HAZE_CSS = css(DAYLIGHT_3D.haze);
+/** Matches the same fog mixes `terrain.ts` blends over non-interior ground. */
+const FOG_MIX: Record<RegionVisibility, number> = { interior: 0, penumbra: 0.55, unreached: 0.92 };
 
-function paintMap(zone: Zone): HTMLCanvasElement {
-  const canvas = document.createElement("canvas");
+function paintMap(zone: Zone, regionState: (x: number, y: number) => RegionVisibility, canvas: HTMLCanvasElement): void {
   canvas.width = Math.ceil(zone.width / CELL) * PX;
   canvas.height = Math.ceil(zone.height / CELL) * PX;
   const ctx = canvas.getContext("2d")!;
@@ -28,7 +30,9 @@ function paintMap(zone: Zone): HTMLCanvasElement {
       const x0 = cx * CELL;
       const y0 = cy * CELL;
       const region = regionAt(x0, y0);
-      if (!region) continue; // the void outside the plus stays panel-dark
+      // off the region grid entirely — the void, not a region — stays panel-dark
+      if (!region) continue;
+      const state = regionState(x0, y0);
       const pal = biomePalette(region.biome);
       let open = 0;
       let water = false;
@@ -59,13 +63,25 @@ function paintMap(zone: Zone): HTMLCanvasElement {
         ctx.fillRect(cx * PX + 2, cy * PX + 2, 1, 1);
         ctx.globalAlpha = 1;
       }
+      // Non-interior ground reads as real ground under fog, never a blank
+      // panel — penumbra lightly, unreached heavily — the same fog `terrain.ts`
+      // blends over its 3D walls and floor.
+      const fogMix = FOG_MIX[state];
+      if (fogMix > 0) {
+        ctx.globalAlpha = fogMix;
+        ctx.fillStyle = HAZE_CSS;
+        ctx.fillRect(cx * PX, cy * PX, PX, PX);
+        ctx.globalAlpha = 1;
+      }
     }
   }
 
-  // region names at their capitals
+  // region names at their capitals — only for a region that's at least
+  // penumbra, so an unfound name never leaks where it is
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   for (const region of WORLD_REGIONS) {
+    if (regionState(region.x, region.y) === "unreached") continue;
     const x = (region.x / CELL) * PX;
     const y = (region.y / CELL) * PX;
     ctx.font = '700 15px "Baloo 2", "Trebuchet MS", system-ui, sans-serif';
@@ -74,25 +90,28 @@ function paintMap(zone: Zone): HTMLCanvasElement {
     ctx.fillStyle = "#e8dcc4";
     ctx.fillText(region.name, x, y);
   }
-  return canvas;
 }
 
 export interface WorldMapContext {
   zone: Zone;
   /** The local trogg's live tile position, when known. */
   selfPosition(): { x: number; y: number } | undefined;
+  /** Interior, penumbra, or unreached (GDD "Generation: only as far as the
+   *  light reaches") — the fog-of-war tier a tile is in. */
+  regionState(x: number, y: number): RegionVisibility;
 }
 
 /** Mount the M-key overworld map overlay. */
-export function mountWorldMap({ zone, selfPosition }: WorldMapContext): void {
+export function mountWorldMap({ zone, selfPosition, regionState }: WorldMapContext): void {
   const panel = document.createElement("div");
   panel.className = "panel worldmap";
   panel.hidden = true;
 
   const frame = document.createElement("div");
   frame.className = "worldmap-frame";
-  const map = paintMap(zone);
+  const map = document.createElement("canvas");
   map.className = "worldmap-canvas";
+  paintMap(zone, regionState, map);
   const marker = document.createElement("div");
   marker.className = "worldmap-marker";
   frame.append(map, marker);
@@ -120,6 +139,7 @@ export function mountWorldMap({ zone, selfPosition }: WorldMapContext): void {
     if (panel.hidden === !open) return;
     panel.hidden = !open;
     if (open) {
+      paintMap(zone, regionState, map);
       window.dispatchEvent(new CustomEvent("hud-menu-open", { detail: "worldmap" }));
       track();
     } else {

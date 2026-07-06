@@ -1,6 +1,6 @@
 import * as THREE from "three";
-import { DEEP_WATER_TILE, GLOWMOSS_TILE, GRAVEL_TILE, MOSS_TILE, regionAt, rockHeightAt, WALL_TILE, WATER_TILE, type Zone } from "@trogg/shared";
-import { biomePalette } from "./palette.js";
+import { DEEP_WATER_TILE, GLOWMOSS_TILE, GRAVEL_TILE, MOSS_TILE, regionAt, rockHeightAt, WALL_TILE, WATER_TILE, type RegionVisibility, type Zone } from "@trogg/shared";
+import { biomePalette, DAYLIGHT_3D } from "./palette.js";
 
 /**
  * Procedural cave terrain. The floor and void are pixel-painted patch
@@ -27,13 +27,39 @@ export interface Terrain3D {
   group: THREE.Group;
   /** Stream chunks around the camera focus; call once per frame. */
   update(focusX: number, focusY: number, camDistance: number): void;
+  /** Drop every currently-built chunk so the next `update()` rebuilds them
+   *  against a changed `revealed` boundary (GDD "Generation: only as far as
+   *  the light reaches") — cheap since region reveals are rare events. */
+  invalidate(): void;
   dispose(): void;
 }
 
 /** Tiles per streamed chunk (a region is 64×44, so seams stay region-aligned on x). */
 const CHUNK = 32;
 
-export function buildTerrain(zone: Zone): Terrain3D {
+/** The fog tint blended over anything short of interior — the same cool haze
+ *  the sky fog uses, so "not yours yet" reads as one more shade of the same
+ *  uncertainty, not a separate effect. Penumbra gets a light wash (scoutable,
+ *  still legible); unreached gets a heavy one (present but unclear, so the
+ *  world's true extent past it stays a mystery) — never a solid substitute
+ *  tile, since that would show a wall where the fog should be. */
+const FOG_TINT = new THREE.Color(DAYLIGHT_3D.haze);
+const FOG_TINT_CSS = `#${DAYLIGHT_3D.haze.toString(16).padStart(6, "0")}`;
+const PENUMBRA_FOG_MIX = 0.55;
+const UNREACHED_FOG_MIX = 0.92;
+const FOG_MIX: Record<RegionVisibility, number> = { interior: 0, penumbra: PENUMBRA_FOG_MIX, unreached: UNREACHED_FOG_MIX };
+
+/**
+ * `regionState` gates how much of the fully-generated committed tilemap
+ * reads as clear (GDD "Generation: only as far as the light reaches"):
+ * interior renders and collides plainly; penumbra and unreached both draw
+ * their real tiles and walls, fogged rather than replaced, so ground you
+ * can't yet reach still reads as a landscape rather than a rock face — just
+ * one you can't see well enough to cross. Unreached still collides as solid
+ * (Zones), the fog is the only visible sign of the boundary. The terrain
+ * generator and its committed map are untouched either way.
+ */
+export function buildTerrain(zone: Zone, regionState: (x: number, y: number) => RegionVisibility): Terrain3D {
   const group = new THREE.Group();
   const globalDisposables: { dispose(): void }[] = [];
 
@@ -123,7 +149,7 @@ export function buildTerrain(zone: Zone): Terrain3D {
     canvas.width = w * ART;
     canvas.height = h * ART;
     const ctx = canvas.getContext("2d")!;
-    const wallTiles: { x: number; y: number; biome: string }[] = [];
+    const wallTiles: { x: number; y: number; biome: string; fogMix: number }[] = [];
     const glowTiles: { x: number; y: number; biome: string }[] = [];
     const deepTiles: { x: number; y: number }[] = [];
     for (let y = 0; y < h; y++) {
@@ -131,8 +157,10 @@ export function buildTerrain(zone: Zone): Terrain3D {
       for (let x = 0; x < w; x++) {
         const wx = x0 + x;
         const wy = y0 + y;
+        const state = regionState(wx, wy);
         const glyph = row[wx]!;
         const biome = tileBiome(wx, wy);
+        const fogMix = FOG_MIX[state];
         const patches = patchesFor(biome);
         const sx = (wx % PATCH) * ART;
         const sy = (wy % PATCH) * ART;
@@ -146,12 +174,21 @@ export function buildTerrain(zone: Zone): Terrain3D {
         }
         ctx.drawImage(patches.floor!, sx, sy, ART, ART, x * ART, y * ART, ART, ART);
         if (glyph === WALL_TILE) {
-          wallTiles.push({ x: wx, y: wy, biome });
+          wallTiles.push({ x: wx, y: wy, biome, fogMix });
           continue;
         }
         const decal = patches[glyph];
         if (decal) ctx.drawImage(decal, sx, sy, ART, ART, x * ART, y * ART, ART, ART);
         if (glyph === GLOWMOSS_TILE) glowTiles.push({ x: wx, y: wy, biome });
+        // Non-interior ground is real, just fogged — a region you can't yet
+        // enter reads as "out there," not as a wall (GDD "Generation: only
+        // as far as the light reaches").
+        if (fogMix > 0) {
+          ctx.fillStyle = FOG_TINT_CSS;
+          ctx.globalAlpha = fogMix;
+          ctx.fillRect(x * ART, y * ART, ART, ART);
+          ctx.globalAlpha = 1;
+        }
       }
     }
     const floorTex = new THREE.CanvasTexture(canvas);
@@ -188,7 +225,9 @@ export function buildTerrain(zone: Zone): Terrain3D {
         place.makeTranslation(tile.x + 0.5, height / 2, tile.y + 0.5);
         place.scale(shape.set(1, height, 1));
         walls.setMatrixAt(i, place);
-        walls.setColorAt(i, wallColour.setHex(biomePalette(tile.biome).wall.face));
+        wallColour.setHex(biomePalette(tile.biome).wall.face);
+        if (tile.fogMix > 0) wallColour.lerp(FOG_TINT, tile.fogMix);
+        walls.setColorAt(i, wallColour);
       });
       walls.castShadow = true;
       walls.receiveShadow = true;
@@ -281,6 +320,9 @@ export function buildTerrain(zone: Zone): Terrain3D {
   return {
     group,
     update,
+    invalidate() {
+      for (const key of [...chunks.keys()]) dropChunk(key);
+    },
     dispose() {
       for (const key of [...chunks.keys()]) dropChunk(key);
       for (const d of globalDisposables) d.dispose();

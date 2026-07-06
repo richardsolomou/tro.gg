@@ -12,10 +12,6 @@ All assets currently in this folder are listed as Creative Commons Zero (CC0) by
 | `footsteps/gbox-footsteps/` | Extra short footstep variants. | https://opengameart.org/content/footsteps-0 | GboxMikeFozzy | CC0 |
 | `boulders/breaking-falling-hit/` | Boulder push start, boulder stop/impact, failed shove, stone hits. Prefer the `rock_*`, `hit_*`, and `falling_*` files first. | https://opengameart.org/content/75-cc0-breaking-falling-hit-sfx | rubberduck | CC0 |
 | `boulders/sfx-100-v2/` | Extra stone, hit, footstep, ambient, wood, and item effects. Prefer `sfx100v2_stones_*` and `sfx100v2_hit_*` for boulders. | https://opengameart.org/content/100-cc0-sfx-2 | rubberduck | CC0 |
-| `hogs/freesound-cc0-previews/` | Hog idle, sniff, run, and eating vocal/foley candidates. These are public high-quality MP3 previews; Freesound original downloads require login. | https://freesound.org/people/ffdown/sounds/570301/ | ffdown | CC0 |
-| `hogs/freesound-cc0-previews/` | Hog sniffing candidates. These are public high-quality MP3 previews; Freesound original downloads require login. | https://freesound.org/people/fthgurdy/sounds/528183/ | fthgurdy | CC0 |
-| `hogs/freesound-cc0-previews/` | Hog sniffing/eating ambience candidate. These are public high-quality MP3 previews; Freesound original downloads require login. | https://freesound.org/people/fthgurdy/sounds/528196/ | fthgurdy | CC0 |
-| `hogs/freesound-cc0-previews/` | Hog eating candidate. These are public high-quality MP3 previews; Freesound original downloads require login. | https://freesound.org/people/tatratank/sounds/541421/ | tatratank | CC0 |
 | `ui/kenney-ui-audio/` | Chat send, button click, account panel, recolor, and command feedback. Includes Kenney's original `License.txt`. | https://kenney.nl/assets/ui-audio | Kenney | CC0 |
 | `ui/assorted-menu-level-up/` | Additional menu confirm/error, item pickup, and success/failure candidates. | https://opengameart.org/content/7-assorted-sound-effects-menu-level-up | Joth | CC0 |
 | `ghost/opengameart-ghost/` | `/ghost` haunt, launch haunt, and low-volume spooky one-shots. | https://opengameart.org/content/ghost | Ogrebane | CC0 |

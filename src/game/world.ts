@@ -4,17 +4,18 @@ import { CLICK_SLOP_PX, createOrbit } from "./controls.js";
 import {
   CAVE_DOOR,
   isBirthZone,
-  isDryFloor,
+  DARK_CREATURES,
+  deriveKindlingCharge,
   EQUIPMENT_ACTION_MS,
   CHAT_BUBBLE_MS,
   DIR_SCALE,
   facingFromDir,
-  footprintTiles,
   getZone,
   GHOST_HAUNT_FRESH_MS,
   GLOWMOSS_TILE,
-  hogSize,
-  hogStyleFor,
+  isRevealed,
+  penumbraOf,
+  presenceOf,
   PLAYER_RESPAWN_MS,
   BOULDER_MAX_HEALTH,
   TREE_MAX_HEALTH,
@@ -22,6 +23,8 @@ import {
   MAX_TREES_PER_ZONE,
   projectMotion,
   projectMotionState,
+  regionAt,
+  regionVisibility,
   rockHeightAt,
   snapToTile,
   STARTING_ZONE_SLUG,
@@ -34,25 +37,30 @@ import {
   WALL_TILE,
   zoneBounds,
   type Coord,
+  type RegionVisibility,
   type Stamp,
   type ZoneBounds,
   type Zone,
 } from "@trogg/shared";
 import type { DbConnection } from "../net/module_bindings";
-import type { Boulder, GroundItem, Hog, Player, Tree } from "../net/module_bindings/types";
+import type { Boulder, Brazier, DarkCreature, GroundItem, Player, Tree } from "../net/module_bindings/types";
 import { attachKeyboard, isTyping, type MoveIntent } from "../input.js";
 import { setupChat } from "../ui/chat.js";
 import { coachHit } from "../ui/coach.js";
 import { mountCommands } from "../ui/commands.js";
+import { regionToast } from "../ui/toasts.js";
 import { createSelfController, type SelfController } from "../movement.js";
 import { captureEvent, isFeatureEnabled, logError, logInfo } from "../analytics.js";
 import { audio } from "../audio.js";
 import { interact, useEquipped } from "../net/procedures.js";
 import { isOlderPlayerMotion, playerMotionChanged, withPlayerMotion } from "../motion_sync.js";
 import { FarCrowd } from "./crowd.js";
-import { createEntities, disposeObject, type Entities, type HogView, type Tracked } from "./entities.js";
-import { buildBoulder, buildTree } from "./items.js";
+import { createEntities, disposeObject, FLINCH_MS, poseDead, setDowned, setPresenceDim, steer, yawFor, type Entities, type Tracked } from "./entities.js";
+import { buildGrask } from "./creatures.js";
+import { buildBoulder, buildBrazier, buildTree, updateHeldFx, type HeldFx } from "./items.js";
 import { NodeField } from "./nodes.js";
+import { makeHealthBar, type Overlay } from "./overlays.js";
+import type { CreatureModel } from "./rig.js";
 import { buildTerrain, type Terrain3D } from "./terrain.js";
 import { biomePalette, DAYLIGHT_3D, UI_3D } from "./palette.js";
 
@@ -76,6 +84,20 @@ export interface WorldData {
   slug: string;
 }
 
+/** A tracked dark creature (GDD "Dark creatures"): the mirror of `Tracked` for
+ *  a much simpler cast — no equipment, carrying, or appearance, just motion,
+ *  a health bar, and a corpse pose. */
+interface DarkCreatureView {
+  row: DarkCreature;
+  group: THREE.Group;
+  model: CreatureModel;
+  health: Overlay;
+  gait: "idle" | "walk";
+  baseMs: number;
+  flashUntil?: number;
+  downed: boolean;
+}
+
 /**
  * The 3D game world (GDD "Camera and rendering"): renders the zone in Three.js and
  * runs the per-frame extrapolation loop. Movement stays intent-based — the `player`
@@ -88,8 +110,8 @@ const DAY_CYCLE_MS = 12 * 60 * 1000;
 /** World objects beyond this many tiles from the camera focus stop rendering. */
 const CULL_RANGE = 72;
 
-/** How many troggs (and, separately, Hogs) render at once: the nearest N within
- *  CULL_RANGE. A rig is ~20 draw calls, so an unbounded crowd is a slideshow. */
+/** How many troggs render at once: the nearest N within CULL_RANGE. A rig is
+ *  ~20 draw calls, so an unbounded crowd is a slideshow. */
 const CREATURE_BUDGET = 16;
 
 /** How many equipped torches shed real light at once (nearest first). */
@@ -143,9 +165,6 @@ export class World3D {
   /** In-flight thrown objects: a ghost model arcing from thrower to landing;
    *  on arrival the real object row is placed and the ghost disposed. */
   private throwsInFlight: { ghost: THREE.Object3D; from: THREE.Vector3; to: THREE.Vector3; arc: number; startMs: number; durMs: number; spin: number; land: () => void }[] = [];
-  /** Thrown Hog ids whose real row is held out of the scene mid-arc, so a stray
-   *  update can't reveal them before they land. */
-  private deferredHogs = new Set<string>();
   /** A threshold transfer is in flight; don't re-fire while the row updates. */
   private transferPending = false;
   /** Cleared until the camera has snapped to the local trogg once (first snapshot). */
@@ -159,6 +178,39 @@ export class World3D {
   private hearingDistance(x: number, y: number): number {
     if (!this.selfPos) return Infinity;
     return Math.hypot(x - this.selfPos.x, y - this.selfPos.y);
+  }
+
+  /** Whether (x, y) sits in ground the tribe currently holds against the
+   *  dark — the client mirror of the server's `isLitTile`, read off the
+   *  already-subscribed brazier rows. Region-wide in the world zone: a whole
+   *  region counts as lit the moment any brazier inside it is lit. */
+  private isLitTileClient(x: number, y: number): boolean {
+    if (this.slug !== STARTING_ZONE_SLUG) {
+      for (const view of this.braziers.values()) if (view.row.lit) return true;
+      return false;
+    }
+    const slug = regionAt(x, y)?.slug;
+    if (!slug) return false;
+    for (const view of this.braziers.values()) {
+      if (view.row.lit && regionAt(view.row.x, view.row.y)?.slug === slug) return true;
+    }
+    return false;
+  }
+
+  /** How far the tribe's fire has reached (GDD "Generation: only as far as
+   *  the light reaches") — the client mirror of the server's `isRevealed`,
+   *  read off the already-subscribed `revealed_region` rows. */
+  private readonly revealedRegions = new Set<string>();
+  private penumbraRegions: ReadonlySet<string> = new Set();
+  isRegionRevealed(x: number, y: number): boolean {
+    return isRevealed(this.zone, this.revealedRegions, this.penumbraRegions, x, y);
+  }
+
+  /** Interior, penumbra, or unreached (GDD "Generation: only as far as the
+   *  light reaches") — the fog-of-war tier terrain/worldmap rendering reads,
+   *  a finer-grained sibling of `isRegionRevealed`'s plain walkable/not. */
+  regionVisibilityAt(x: number, y: number): RegionVisibility {
+    return regionVisibility(this.zone, this.revealedRegions, this.penumbraRegions, x, y);
   }
 
   /** Hide world objects beyond what the fog reveals: the seamless world renders
@@ -185,7 +237,9 @@ export class World3D {
       });
     };
     budget([...this.tracked.entries()].map(([id, entry]) => ({ marker: entry.marker, keep: id === this.myId })));
-    budget([...this.hogs.values()].map((view) => ({ marker: view.marker })));
+    // Dark creatures are budgeted separately from troggs (GDD "Camera and
+    // rendering") — a crowd of each kind shouldn't starve the other's rigs.
+    budget([...this.darkCreatures.values()].map((view) => ({ marker: view.group })));
     // Torch firelight has its own, tighter budget: point lights cost every
     // fragment in a forward renderer (the glowmoss budget's reasoning), so only
     // the nearest few visible torch-bearers actually shed light — the rest still
@@ -209,11 +263,12 @@ export class World3D {
     canvas.style.opacity = "1";
   }
   private readonly groundItems = new Map<string, { row: GroundItem; group: THREE.Group }>();
-  private readonly hogs = new Map<string, HogView>();
+  private readonly braziers = new Map<string, { row: Brazier; group: THREE.Group; fx: HeldFx; ground: THREE.Mesh }>();
+  private readonly darkCreatures = new Map<string, DarkCreatureView>();
+  private darkCreatureBounds!: ZoneBounds;
 
   private readonly boulderTiles = new Set<string>();
   private readonly treeTiles = new Set<string>();
-  private readonly hogTiles = new Set<string>();
   private keyLight!: THREE.DirectionalLight;
   private hemi!: THREE.HemisphereLight;
   private sun!: THREE.Sprite;
@@ -307,7 +362,7 @@ export class World3D {
     fog.far = 150 - 80 * dark;
   }
   private selfPos?: { x: number; y: number };
-  private hogBounds!: ZoneBounds;
+  private lastRegionSlug?: string;
   private troggBounds!: ZoneBounds;
 
   private destinationTile?: Coord;
@@ -319,10 +374,10 @@ export class World3D {
   private rawIntent: MoveIntent = { dirX: 0, dirY: 0, running: false };
   private lastMapped: MoveIntent = { dirX: 0, dirY: 0, running: false };
 
-  private useHogs = false;
   private useGhost = false;
   private canRun = false;
   private useInteract = false;
+  private useDarkCreatures = false;
 
   /** Held lift input (Space climbs, C sinks) and the last vertical intent sent —
    *  lift is synced like any other input transition (`setLift`), so altitude is
@@ -351,23 +406,24 @@ export class World3D {
     this.parent.appendChild(this.renderer.domElement);
     this.mountVignette();
 
-    this.useHogs = isFeatureEnabled("roaming-hogs");
     this.useGhost = isFeatureEnabled("ghost-trogg");
     this.canRun = isFeatureEnabled("running");
     this.useInteract = isFeatureEnabled("interact");
+    this.useDarkCreatures = isFeatureEnabled("dark-creature-rendering");
     logInfo("World scene created", {
       zone: this.slug,
       renderer: "three",
-      roaming_hogs: this.useHogs,
       ghost_trogg: this.useGhost,
       running: this.canRun,
       interact: this.useInteract,
     });
 
-    // mirrors the server: water blocks a Hog like a boulder or tree (GDD "Zones")
-    const obstructed = (x: number, y: number) => this.boulderTiles.has(tileKey(x, y)) || this.treeTiles.has(tileKey(x, y));
-    this.hogBounds = zoneBounds(this.zone, (x, y) => obstructed(x, y) || !isDryFloor(this.zone, x, y));
-    this.troggBounds = zoneBounds(this.zone, (x, y) => obstructed(x, y) || this.hogTiles.has(tileKey(x, y)));
+    const obstructed = (x: number, y: number) => this.boulderTiles.has(tileKey(x, y)) || this.treeTiles.has(tileKey(x, y)) || !this.isRegionRevealed(x, y);
+    this.troggBounds = zoneBounds(this.zone, obstructed);
+    // A dark creature can't stand on lit ground (GDD "Dark creatures"), the
+    // mirror of an ember trogg's confinement — read live off the subscribed
+    // brazier rows, so it stays correct as braziers light or gutter.
+    this.darkCreatureBounds = zoneBounds(this.zone, (x, y) => obstructed(x, y) || this.isLitTileClient(x, y));
 
     // Torch-lit cave: dim warm ambient, one shadowing key light, dark fog closing in
     // past the zone. Glowmoss tiles add their own teal point lights (terrain3d).
@@ -395,7 +451,7 @@ export class World3D {
     this.moon = World3D.skyBody("rgba(214, 226, 248, 0.85)", 9);
     this.scene.add(this.sun, this.moon);
 
-    this.terrain = buildTerrain(this.zone);
+    this.terrain = buildTerrain(this.zone, (x, y) => this.regionVisibilityAt(x, y));
     this.scene.add(this.terrain.group);
     this.entities = createEntities(this.scene);
     this.treeField = new NodeField(this.scene, buildTree(), MAX_TREES_PER_ZONE);
@@ -480,7 +536,9 @@ export class World3D {
     this.wireGroundItems();
     this.wireBoulders();
     this.wireTrees();
-    if (this.useHogs) this.wireHogs();
+    this.wireBraziers();
+    this.wireRevealedRegions();
+    if (this.useDarkCreatures) this.wireDarkCreatures();
     if (this.useGhost) this.wireGhostHaunts();
 
     attachKeyboard(
@@ -601,16 +659,21 @@ export class World3D {
     mountCommands({ conn, zone: this.zone });
 
     const queries = [
-      `SELECT * FROM player WHERE zone_id = '${this.slug}' AND online = true`,
+      // Ember and dormant troggs stay in view after disconnect (GDD "The fire
+      // and the dark" → Presence), so this doesn't filter on `online`.
+      `SELECT * FROM player WHERE zone_id = '${this.slug}'`,
       `SELECT * FROM chat_message WHERE zone_id = '${this.slug}'`,
       `SELECT * FROM ground_item WHERE zone_id = '${this.slug}'`,
       `SELECT * FROM boulder WHERE zone_id = '${this.slug}'`,
       `SELECT * FROM tree WHERE zone_id = '${this.slug}'`,
+      `SELECT * FROM brazier WHERE zone_id = '${this.slug}'`,
       "SELECT * FROM world_state",
+      "SELECT * FROM stockpile",
+      "SELECT * FROM revealed_region",
     ];
     if (this.myId) queries.push(`SELECT * FROM inventory WHERE player_id = '${this.myId}'`);
-    if (this.useHogs) queries.push(`SELECT * FROM hog WHERE zone_id = '${this.slug}'`);
     if (this.useGhost) queries.push(`SELECT * FROM ghost_haunt WHERE zone_id = '${this.slug}'`);
+    if (this.useDarkCreatures) queries.push(`SELECT * FROM dark_creature WHERE zone_id = '${this.slug}'`);
 
     conn
       .subscriptionBuilder()
@@ -637,28 +700,7 @@ export class World3D {
     const dt = Math.min(0.1, (now - this.lastMs) / 1000);
     this.lastMs = now;
 
-    // Hogs first, so trogg collision this frame sees where the Hogs actually are.
-    this.hogTiles.clear();
     this.crowd.begin();
-    for (const view of this.hogs.values()) {
-      const size = hogSize(view.style);
-      const motion = projectMotionState({ ...view.row, size }, now - view.baseMs, this.hogBounds);
-      this.entities.smoothPlace(view, motion.x, motion.y, dt);
-      // a corpse lies where it fell: no gait, no patter, and no collision
-      if (view.row.health <= 0) continue;
-      // hidden creatures (budgeted out or out of range) skip their animation
-      // mixers — position, collision, and sound still derive above; a moving
-      // silhouette stands in so a zoomed-out world still looks inhabited
-      if (view.marker.visible) this.entities.animateHog(view, now, dt, motion);
-      else this.crowd.add("hog", motion.x, motion.y, Math.atan2(motion.dirX, motion.dirY), size, view.style);
-      const tile = snapToTile({ x: motion.x, y: motion.y });
-      const stepKey = tileKey(tile.x, tile.y);
-      if (view.lastStepTile !== undefined && view.lastStepTile !== stepKey) {
-        audio.playHogStepAt(this.hearingDistance(motion.x, motion.y), size);
-      }
-      view.lastStepTile = stepKey;
-      for (const t of footprintTiles(tile.x, tile.y, size)) this.hogTiles.add(tileKey(t.x, t.y));
-    }
 
     for (const entry of this.tracked.values()) {
       const isSelf = entry.player.identity.toHexString() === this.myId;
@@ -668,7 +710,7 @@ export class World3D {
       // (and the flyer itself) renders the same height.
       entry.marker.position.y = motion.z;
       if (entry.marker.visible) this.entities.animate(entry, now, dt, motion);
-      else if (!entry.player.dead) this.crowd.add("trogg", motion.x, motion.y, Math.atan2(motion.dirX, motion.dirY), 1, entry.style, entry.baseColor);
+      else if (!entry.player.dead) this.crowd.add(motion.x, motion.y, Math.atan2(motion.dirX, motion.dirY), 1, entry.style, entry.baseColor);
 
       if (!isSelf) {
         const stepKey = tileKey(Math.round(motion.x), Math.round(motion.y));
@@ -731,6 +773,15 @@ export class World3D {
       // Exposed for the e2e harness: the local trogg's projected tile position and
       // a click-to-move injection, so probes can route with the real pathfinding.
       this.selfPos = { x: motion.x, y: motion.y };
+      // The frontier has no gate or wall (GDD "Generation: only as far as the
+      // light reaches") — a haze tint is the only visual cue crossing into
+      // penumbra, easy to miss mid-exploration. Announce it once per region
+      // entered, only when the new ground is unclaimed.
+      const here = this.slug === STARTING_ZONE_SLUG ? regionAt(Math.round(motion.x), Math.round(motion.y)) : undefined;
+      if (here?.slug !== this.lastRegionSlug) {
+        this.lastRegionSlug = here?.slug;
+        if (here && !this.revealedRegions.has(here.slug)) regionToast(`Entering ${here.name} — unclaimed`);
+      }
       // Threshold transfers (GDD "Onboarding: the Warren"): walking onto the
       // cave's exit landing emerges into the world; pushing into the alcove's
       // deep end descends into your own cave. The walk is the door — the
@@ -785,10 +836,11 @@ export class World3D {
           troggMeshes,
           sceneObjects,
           totalObjects,
-          hogs: this.hogs.size,
           trees: this.trees.size,
           boulders: this.boulders.size,
           groundItems: this.groundItems.size,
+          braziers: this.braziers.size,
+          darkCreatures: this.darkCreatures.size,
         };
       };
     }
@@ -808,6 +860,42 @@ export class World3D {
     // hundred 4-vertex buffers is nothing), so it can never stall on cull state
     for (const view of this.groundItems.values()) {
       this.entities.animatePickupMotes(view.group, now);
+    }
+    // braziers are few (the First Fire, then whatever's been claimed since), so
+    // animating every lit one unconditionally costs nothing.
+    for (const view of this.braziers.values()) {
+      if (view.row.lit) updateHeldFx(view.fx, now);
+    }
+    // Dark creatures: the same intent-driven extrapolation as troggs
+    // (`projectMotionState`), just driven directly rather than through the
+    // heavier player `Tracked` pipeline — no equipment, carrying, or
+    // appearance to reconcile, only motion, a gait, and a corpse pose.
+    for (const view of this.darkCreatures.values()) {
+      const motion = projectMotionState(view.row, now - view.baseMs, this.darkCreatureBounds);
+      this.entities.place(view.group, motion.x, motion.y);
+      if (!view.downed && view.group.visible) {
+        const moving = motion.dirX !== 0 || motion.dirY !== 0;
+        if (moving) steer(view.model.root, yawFor(motion.dirX, motion.dirY), dt);
+        const nextGait = moving ? "walk" : "idle";
+        if (nextGait !== view.gait) {
+          const from = view.model.actions[view.gait];
+          const to = view.model.actions[nextGait];
+          from.legs.fadeOut(0.12);
+          to.legs.reset().fadeIn(0.12).play();
+          from.arms.fadeOut(0.12);
+          to.arms.reset().fadeIn(0.12).play();
+          view.gait = nextGait;
+        }
+        view.model.mixer.update(dt);
+      }
+      if (view.flashUntil !== undefined) {
+        if (now >= view.flashUntil) {
+          view.model.flash(false);
+          view.flashUntil = undefined;
+        } else {
+          view.model.flash(true);
+        }
+      }
     }
     this.crowd.commit();
     this.entities.updateGhosts(now);
@@ -1055,7 +1143,7 @@ export class World3D {
     // The boot's own-row subscription (main.ts) may have delivered rows before
     // these callbacks existed; adopt anything already cached for this zone.
     for (const p of conn.db.player.iter()) {
-      if (p.zoneId === this.slug && p.online) this.addPlayer(p);
+      if (p.zoneId === this.slug) this.addPlayer(p);
     }
     conn.db.player.onInsert((_ctx, p) => this.addPlayer(p));
     conn.db.player.onUpdate((_ctx, _old, p) => {
@@ -1109,6 +1197,7 @@ export class World3D {
         _old.equippedOffHand !== p.equippedOffHand ||
         _old.equippedOffHandInventoryId !== p.equippedOffHandInventoryId;
       if (equipmentChanged) this.entities.applyEquipment(entry);
+      this.applyPresence(entry);
     });
     conn.db.player.onDelete((_ctx, p) => this.removePlayer(p.identity.toHexString()));
   }
@@ -1156,6 +1245,17 @@ export class World3D {
     this.scene.add(entry.marker);
     this.entities.applyCarry(entry);
     this.entities.applyEquipment(entry);
+    this.applyPresence(entry);
+  }
+
+  /** Dim a tracked trogg's body to its current presence (GDD "The fire and
+   *  the dark" → Presence). Skipped while dead — `setDowned`'s translucency
+   *  owns that state instead. */
+  private applyPresence(entry: Tracked): void {
+    if (entry.player.dead) return;
+    const now: Stamp = { microsSinceUnixEpoch: BigInt(Date.now()) * 1000n };
+    const charge = deriveKindlingCharge(entry.player.kindlingCharge, entry.player.kindlingChargeAt, entry.player.online, now);
+    setPresenceDim(entry.model, presenceOf(entry.player.online, charge));
   }
 
   private removePlayer(id: string): void {
@@ -1284,93 +1384,114 @@ export class World3D {
     conn.db.groundItem.onDelete((_ctx, row) => this.removeGroundItem(row));
   }
 
-  private addHog(h: Hog): void {
-    const id = h.id.toString();
-    if (this.hogs.has(id)) return;
-    const facing = facingFromDir(h.dirX, h.dirY, "down");
-    const style = h.style || hogStyleFor(id, h.style);
-    const built = this.entities.makeHog(style, facing, h.health);
-    const baseMs = timestampBaseMs(h.movedAt);
-    const view: HogView = { marker: built.marker, model: built.model, overlays: built.overlays, row: h, baseMs, facing, style, gait: "idle", flashOn: false, corrX: 0, corrY: 0 };
-    const { x, y } = projectMotion({ ...h, size: hogSize(style) }, performance.now() - baseMs, this.hogBounds);
-    this.entities.place(view.marker, x, y);
-    this.hogs.set(id, view);
-    this.scene.add(view.marker);
+  /** Refresh the claimed/penumbra region sets and rebuild terrain against the
+   *  new boundary (GDD "Generation: only as far as the light reaches") —
+   *  unrevealed ground is a hard wall until a group clears it and claims it. */
+  private refreshRevealedRegions(): void {
+    this.revealedRegions.clear();
+    for (const row of this.conn.db.revealedRegion.iter()) this.revealedRegions.add(row.slug);
+    this.penumbraRegions = penumbraOf(this.revealedRegions);
+    this.terrain.invalidate();
   }
 
-  private updateHog(h: Hog): void {
-    const view = this.hogs.get(h.id.toString());
-    if (!view) return this.addHog(h);
-    const style = hogStyleFor(h.id.toString(), h.style);
-    if (view.style !== style || view.row.health !== h.health) {
-      const { x, y } = projectMotion(view.row, performance.now() - view.baseMs, this.hogBounds);
-      this.entities.destroy(view);
-      const built = this.entities.makeHog(style, view.facing, h.health);
-      view.marker = built.marker;
-      view.model = built.model;
-      view.overlays = built.overlays;
-      view.style = style;
-      view.gait = "idle";
-      view.flashOn = false;
-      this.entities.place(view.marker, x, y);
-      this.scene.add(view.marker);
-    }
-    view.row = h;
-    view.baseMs = timestampBaseMs(h.movedAt);
-  }
-
-  private removeHog(h: Hog): void {
-    const view = this.hogs.get(h.id.toString());
-    if (view) this.entities.destroy(view);
-    this.hogs.delete(h.id.toString());
-  }
-
-  private wireHogs(): void {
+  private wireRevealedRegions(): void {
     const conn = this.conn;
-    conn.db.hog.onInsert((_ctx, h) => {
-      // A grounded Hog (seeded, dropped, or an ordinary roamer) just appears. A
-      // thrown one carries a future landingAt: hold it out of the scene, arc a
-      // ghost in from the thrower's hands, and reveal the real Hog when it lands.
-      // The server keeps it at rest past landingAt (THROWN_HOG_SETTLE_MS), so it
-      // can't stride off before the arc sets it down.
-      if (!h.landingAt || timestampMs(h.landingAt) - Date.now() <= 30) return this.addHog(h);
-      const id = h.id.toString();
-      this.deferredHogs.add(id);
-      // resolve on a microtask so the release is recorded first (see boulders)
-      queueMicrotask(() => {
-        const from = this.takeThrowOrigin("hog");
-        const land = () => {
-          this.deferredHogs.delete(id);
-          this.addHog(h);
-        };
-        if (from) {
-          const style = h.style || hogStyleFor(id, h.style);
-          const ghost = this.entities.makeHog(style, "down", h.health).marker;
-          this.flyGhost(ghost, from, h.x, h.y, thrownFlightMs(from.distanceTo(new THREE.Vector3(h.x, 0, h.y))), land);
-        } else {
-          // never saw the release: keep it hidden until the arc would have ended,
-          // then show it at rest (the server won't let it move yet anyway)
-          window.setTimeout(land, THROWN_FLIGHT_MAX_MS);
-        }
-      });
-    });
-    conn.db.hog.onUpdate((_ctx, _old, h) => {
-      if (this.deferredHogs.has(h.id.toString())) return; // still mid-arc; reveal on landing
-      const damaged = h.health < _old.health;
-      this.updateHog(h);
-      if (damaged) {
-        const view = this.hogs.get(h.id.toString());
-        if (view) {
-          view.flinchBaseMs = performance.now();
-          this.entities.showDamage(view.marker.position, _old.health - h.health, view.model.height * hogSize(view.style));
-        }
-      }
-      if (!this.sub.live) return;
-      // corpses don't snuffle (death zeroes the heading, which reads as a turn)
-      const changedHeading = h.health > 0 && (_old.dirX !== h.dirX || _old.dirY !== h.dirY);
-      if (changedHeading && Math.random() < 0.35) audio.playHogAt(this.hearingDistance(h.x, h.y));
-    });
-    conn.db.hog.onDelete((_ctx, h) => this.removeHog(h));
+    conn.db.revealedRegion.onInsert(() => this.refreshRevealedRegions());
+    conn.db.revealedRegion.onDelete(() => this.refreshRevealedRegions());
+  }
+
+  /** A hearth or brazier: the stone ring + fire (`buildBrazier`) plus a flat
+   *  lit-ground disc scaled to its radius — the visible edge of claimed
+   *  territory (GDD "The fire and the dark" → Territory and permanence). */
+  private upsertBrazier(row: Brazier): void {
+    const key = row.id.toString();
+    let view = this.braziers.get(key);
+    if (!view) {
+      const group = buildBrazier();
+      const light = new THREE.PointLight(0xff8c2e, 9, Math.max(14, row.radius * 2.4), 1.6);
+      light.position.set(0.5, 0.7, 0.5);
+      light.castShadow = true;
+      group.add(light);
+      const ground = new THREE.Mesh(
+        new THREE.RingGeometry(0.6, row.radius, 32),
+        new THREE.MeshBasicMaterial({ color: 0xff8c2e, transparent: true, opacity: 0.05, side: THREE.DoubleSide, depthWrite: false }),
+      );
+      ground.rotation.x = -Math.PI / 2;
+      ground.position.set(0.5, 0.02, 0.5);
+      group.add(ground);
+      view = { row, group, fx: { cels: group.userData.flameCels as THREE.Group[], light }, ground };
+      this.braziers.set(key, view);
+      this.scene.add(group);
+      this.entities.place(group, row.x, row.y);
+    }
+    view.row = row;
+    view.fx.light!.visible = row.lit;
+    for (const cel of view.fx.cels ?? []) cel.visible = false;
+    if (view.fx.cels?.[0]) view.fx.cels[0].visible = row.lit;
+    view.ground.visible = row.lit;
+  }
+
+  private removeBrazier(row: Brazier): void {
+    const view = this.braziers.get(row.id.toString());
+    if (view) disposeObject(view.group);
+    this.braziers.delete(row.id.toString());
+  }
+
+  private wireBraziers(): void {
+    const conn = this.conn;
+    conn.db.brazier.onInsert((_ctx, row) => this.upsertBrazier(row));
+    conn.db.brazier.onUpdate((_ctx, _old, row) => this.upsertBrazier(row));
+    conn.db.brazier.onDelete((_ctx, row) => this.removeBrazier(row));
+  }
+
+  private upsertDarkCreature(row: DarkCreature): void {
+    const key = row.id.toString();
+    let view = this.darkCreatures.get(key);
+    const def = DARK_CREATURES[row.species as keyof typeof DARK_CREATURES] ?? Object.values(DARK_CREATURES)[0]!;
+    if (!view) {
+      const group = new THREE.Group();
+      const model = buildGrask();
+      model.root.position.set(0.5, 0, 0.5);
+      group.add(model.root);
+      model.actions.idle.legs.play();
+      model.actions.idle.arms.play();
+      const health = makeHealthBar(Math.max(0, Math.min(1, row.health / def.maxHealth)), row.health <= 0);
+      health.sprite.position.set(0.5, model.height + 0.28, 0.5);
+      group.add(health.sprite);
+      view = { row, group, model, health, gait: "idle", baseMs: timestampBaseMs(row.movedAt), downed: false };
+      this.darkCreatures.set(key, view);
+      this.scene.add(group);
+      this.entities.place(group, row.x, row.y);
+    }
+    if (row.health < view.row.health) {
+      view.flashUntil = performance.now() + FLINCH_MS;
+      view.health.dispose();
+      const health = makeHealthBar(Math.max(0, Math.min(1, row.health / def.maxHealth)), row.health <= 0);
+      health.sprite.position.set(0.5, view.model.height + 0.28, 0.5);
+      view.group.add(health.sprite);
+      view.health = health;
+    }
+    if (row.movedAt.microsSinceUnixEpoch !== view.row.movedAt.microsSinceUnixEpoch) view.baseMs = timestampBaseMs(row.movedAt);
+    if (row.health <= 0 && !view.downed) {
+      view.downed = true;
+      setDowned(view.model, true);
+      poseDead(view.model, 0.5, 0.18);
+    }
+    view.row = row;
+  }
+
+  private removeDarkCreature(row: DarkCreature): void {
+    const key = row.id.toString();
+    const view = this.darkCreatures.get(key);
+    if (view) disposeObject(view.group);
+    this.darkCreatures.delete(key);
+  }
+
+  private wireDarkCreatures(): void {
+    const conn = this.conn;
+    conn.db.darkCreature.onInsert((_ctx, row) => this.upsertDarkCreature(row));
+    conn.db.darkCreature.onUpdate((_ctx, _old, row) => this.upsertDarkCreature(row));
+    conn.db.darkCreature.onDelete((_ctx, row) => this.removeDarkCreature(row));
   }
 
   private wireGhostHaunts(): void {

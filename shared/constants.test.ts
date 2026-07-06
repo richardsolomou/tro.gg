@@ -4,6 +4,9 @@ import {
   assertZones,
   blockFractionOf,
   getZone,
+  isRevealed,
+  neighborsOf,
+  penumbraOf,
   SHIELD_BLOCK_FRACTION,
   wieldOf,
   isGeneratedName,
@@ -15,6 +18,7 @@ import {
   WALL_TILE,
   ZONES,
 } from "./constants";
+import { regionAt, WORLD_REGIONS } from "./worldgen";
 
 test("the starting zone resolves from the registry", () => {
   const zone = getZone(STARTING_ZONE_SLUG);
@@ -101,12 +105,6 @@ test("the starting zone seeds boulders on floor, clear of the spawn", () => {
   }
 });
 
-test("the starting zone seeds roaming hogs on walkable floor", () => {
-  const zone = getZone(STARTING_ZONE_SLUG)!;
-  assert.ok(zone.hogs.length > 0);
-  for (const h of zone.hogs) assert.equal(isWalkable(zone, h.x, h.y), true);
-});
-
 test("the starting zone seeds pickup items on walkable floor", () => {
   const zone = getZone(STARTING_ZONE_SLUG)!;
   assert.ok(zone.items.length > 0);
@@ -128,4 +126,39 @@ test("blockFractionOf only credits the shield's toughness stat", () => {
   assert.equal(blockFractionOf("torch"), 0);
   assert.equal(blockFractionOf(""), 0);
   assert.equal(blockFractionOf("not-an-item"), 0);
+});
+
+test("penumbraOf returns a revealed region's unclaimed neighbours", () => {
+  const revealed = new Set(["hearth"]);
+  assert.deepEqual([...penumbraOf(revealed)].sort(), [...neighborsOf("hearth")].sort());
+});
+
+test("penumbraOf never re-includes an already-revealed region", () => {
+  const revealed = new Set(["hearth", "glowvault"]);
+  const penumbra = penumbraOf(revealed);
+  assert.ok(!penumbra.has("hearth"));
+  assert.ok(!penumbra.has("glowvault"));
+  assert.ok(penumbra.has("starwell")); // hearth's other neighbour, not yet claimed
+});
+
+test("isRevealed treats interior and penumbra ground as revealed, everything else as a hard wall", () => {
+  const zone = getZone(STARTING_ZONE_SLUG)!;
+  const revealed = new Set(["hearth"]);
+  const penumbra = penumbraOf(revealed);
+  assert.equal(isRevealed(zone, revealed, penumbra, zone.spawn!.x, zone.spawn!.y), true); // interior
+
+  const unreachedSlug = WORLD_REGIONS.map((r) => r.slug).find((slug) => slug !== "hearth" && !penumbra.has(slug))!;
+  let unreachedTile: { x: number; y: number } | undefined;
+  for (let y = 0; y < zone.height && !unreachedTile; y++) {
+    for (let x = 0; x < zone.width && !unreachedTile; x++) {
+      if (regionAt(x, y)?.slug === unreachedSlug) unreachedTile = { x, y };
+    }
+  }
+  assert.ok(unreachedTile, `no tile found for ${unreachedSlug}`);
+  assert.equal(isRevealed(zone, revealed, penumbra, unreachedTile!.x, unreachedTile!.y), false);
+});
+
+test("isRevealed is always true outside the world zone", () => {
+  const cave = getZone("birth:deadbeef")!;
+  assert.equal(isRevealed(cave, new Set(), new Set(), 0, 0), true);
 });

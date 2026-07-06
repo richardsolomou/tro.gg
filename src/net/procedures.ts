@@ -9,7 +9,7 @@ export function sendChat(conn: DbConnection, text: string) {
   return conn.procedures.chatAction({ text, ...telemetry("chat") });
 }
 
-export function spawnDebugEntity(conn: DbConnection, kind: "boulder" | "tree" | "hog" | "item", item: string, source: string) {
+export function spawnDebugEntity(conn: DbConnection, kind: "boulder" | "tree" | "item" | "dark_creature", item: string, source: string) {
   return conn.procedures.spawnAction({ kind, item, ...telemetry(source) });
 }
 
@@ -17,8 +17,16 @@ export function resetBoulders(conn: DbConnection, source: string) {
   return conn.procedures.resetBouldersAction(telemetry(source));
 }
 
-export function resetHogs(conn: DbConnection, source: string) {
-  return conn.procedures.resetHogsAction(telemetry(source));
+export function resetDarkCreatures(conn: DbConnection, source: string) {
+  return conn.procedures.resetDarkCreaturesAction(telemetry(source));
+}
+
+export function revealNextRegion(conn: DbConnection, source: string) {
+  return conn.procedures.revealNextRegionAction(telemetry(source));
+}
+
+export function resetFrontier(conn: DbConnection, source: string) {
+  return conn.procedures.resetFrontierAction(telemetry(source));
 }
 
 export function hauntGhost(conn: DbConnection, count: number, source: string) {

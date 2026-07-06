@@ -51,8 +51,10 @@ import RedeemClaimReducer from "./redeem_claim_reducer";
 import RenameReducer from "./rename_reducer";
 import RescueReducer from "./rescue_reducer";
 import ResetBouldersReducer from "./reset_boulders_reducer";
-import ResetHogsReducer from "./reset_hogs_reducer";
+import ResetDarkCreaturesReducer from "./reset_dark_creatures_reducer";
+import ResetFrontierReducer from "./reset_frontier_reducer";
 import RestyleReducer from "./restyle_reducer";
+import RevealNextRegionReducer from "./reveal_next_region_reducer";
 import SetCheatsReducer from "./set_cheats_reducer";
 import SetLiftReducer from "./set_lift_reducer";
 import SetSkyReducer from "./set_sky_reducer";
@@ -70,19 +72,24 @@ import * as InteractActionProcedure from "./interact_action_procedure";
 import * as RecolorActionProcedure from "./recolor_action_procedure";
 import * as RenameActionProcedure from "./rename_action_procedure";
 import * as ResetBouldersActionProcedure from "./reset_boulders_action_procedure";
-import * as ResetHogsActionProcedure from "./reset_hogs_action_procedure";
+import * as ResetDarkCreaturesActionProcedure from "./reset_dark_creatures_action_procedure";
+import * as ResetFrontierActionProcedure from "./reset_frontier_action_procedure";
 import * as RestyleActionProcedure from "./restyle_action_procedure";
+import * as RevealNextRegionActionProcedure from "./reveal_next_region_action_procedure";
 import * as SpawnActionProcedure from "./spawn_action_procedure";
 import * as UseEquippedActionProcedure from "./use_equipped_action_procedure";
 
 // Import all table schema definitions
 import BoulderRow from "./boulder_table";
+import BrazierRow from "./brazier_table";
 import ChatMessageRow from "./chat_message_table";
+import DarkCreatureRow from "./dark_creature_table";
 import GhostHauntRow from "./ghost_haunt_table";
 import GroundItemRow from "./ground_item_table";
-import HogRow from "./hog_table";
 import InventoryRow from "./inventory_table";
 import PlayerRow from "./player_table";
+import RevealedRegionRow from "./revealed_region_table";
+import StockpileRow from "./stockpile_table";
 import TreeRow from "./tree_table";
 import WorldStateRow from "./world_state_table";
 
@@ -104,6 +111,20 @@ const tablesSchema = __schema({
       { name: 'boulder_id_key', constraint: 'unique', columns: ['id'] },
     ],
   }, BoulderRow),
+  brazier: __table({
+    name: 'brazier',
+    indexes: [
+      { accessor: 'id', name: 'brazier_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+      { accessor: 'zoneId', name: 'brazier_zone_id_idx_btree', algorithm: 'btree', columns: [
+        'zoneId',
+      ] },
+    ],
+    constraints: [
+      { name: 'brazier_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, BrazierRow),
   chatMessage: __table({
     name: 'chat_message',
     indexes: [
@@ -118,6 +139,20 @@ const tablesSchema = __schema({
       { name: 'chat_message_id_key', constraint: 'unique', columns: ['id'] },
     ],
   }, ChatMessageRow),
+  darkCreature: __table({
+    name: 'dark_creature',
+    indexes: [
+      { accessor: 'id', name: 'dark_creature_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+      { accessor: 'zoneId', name: 'dark_creature_zone_id_idx_btree', algorithm: 'btree', columns: [
+        'zoneId',
+      ] },
+    ],
+    constraints: [
+      { name: 'dark_creature_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, DarkCreatureRow),
   ghostHaunt: __table({
     name: 'ghost_haunt',
     indexes: [
@@ -146,20 +181,6 @@ const tablesSchema = __schema({
       { name: 'ground_item_id_key', constraint: 'unique', columns: ['id'] },
     ],
   }, GroundItemRow),
-  hog: __table({
-    name: 'hog',
-    indexes: [
-      { accessor: 'id', name: 'hog_id_idx_btree', algorithm: 'btree', columns: [
-        'id',
-      ] },
-      { accessor: 'zoneId', name: 'hog_zone_id_idx_btree', algorithm: 'btree', columns: [
-        'zoneId',
-      ] },
-    ],
-    constraints: [
-      { name: 'hog_id_key', constraint: 'unique', columns: ['id'] },
-    ],
-  }, HogRow),
   inventory: __table({
     name: 'inventory',
     indexes: [
@@ -188,6 +209,28 @@ const tablesSchema = __schema({
       { name: 'player_identity_key', constraint: 'unique', columns: ['identity'] },
     ],
   }, PlayerRow),
+  revealedRegion: __table({
+    name: 'revealed_region',
+    indexes: [
+      { accessor: 'slug', name: 'revealed_region_slug_idx_btree', algorithm: 'btree', columns: [
+        'slug',
+      ] },
+    ],
+    constraints: [
+      { name: 'revealed_region_slug_key', constraint: 'unique', columns: ['slug'] },
+    ],
+  }, RevealedRegionRow),
+  stockpile: __table({
+    name: 'stockpile',
+    indexes: [
+      { accessor: 'item', name: 'stockpile_item_idx_btree', algorithm: 'btree', columns: [
+        'item',
+      ] },
+    ],
+    constraints: [
+      { name: 'stockpile_item_key', constraint: 'unique', columns: ['item'] },
+    ],
+  }, StockpileRow),
   tree: __table({
     name: 'tree',
     indexes: [
@@ -234,8 +277,10 @@ const reducersSchema = __reducers(
   __reducerSchema("rename", RenameReducer),
   __reducerSchema("rescue", RescueReducer),
   __reducerSchema("reset_boulders", ResetBouldersReducer),
-  __reducerSchema("reset_hogs", ResetHogsReducer),
+  __reducerSchema("reset_dark_creatures", ResetDarkCreaturesReducer),
+  __reducerSchema("reset_frontier", ResetFrontierReducer),
   __reducerSchema("restyle", RestyleReducer),
+  __reducerSchema("reveal_next_region", RevealNextRegionReducer),
   __reducerSchema("set_cheats", SetCheatsReducer),
   __reducerSchema("set_lift", SetLiftReducer),
   __reducerSchema("set_sky", SetSkyReducer),
@@ -255,8 +300,10 @@ const proceduresSchema = __procedures(
   __procedureSchema("recolor_action", RecolorActionProcedure.params, RecolorActionProcedure.returnType),
   __procedureSchema("rename_action", RenameActionProcedure.params, RenameActionProcedure.returnType),
   __procedureSchema("reset_boulders_action", ResetBouldersActionProcedure.params, ResetBouldersActionProcedure.returnType),
-  __procedureSchema("reset_hogs_action", ResetHogsActionProcedure.params, ResetHogsActionProcedure.returnType),
+  __procedureSchema("reset_dark_creatures_action", ResetDarkCreaturesActionProcedure.params, ResetDarkCreaturesActionProcedure.returnType),
+  __procedureSchema("reset_frontier_action", ResetFrontierActionProcedure.params, ResetFrontierActionProcedure.returnType),
   __procedureSchema("restyle_action", RestyleActionProcedure.params, RestyleActionProcedure.returnType),
+  __procedureSchema("reveal_next_region_action", RevealNextRegionActionProcedure.params, RevealNextRegionActionProcedure.returnType),
   __procedureSchema("spawn_action", SpawnActionProcedure.params, SpawnActionProcedure.returnType),
   __procedureSchema("use_equipped_action", UseEquippedActionProcedure.params, UseEquippedActionProcedure.returnType),
 );

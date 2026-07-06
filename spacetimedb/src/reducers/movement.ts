@@ -16,6 +16,8 @@ import {
   troggBlockers,
   cardinal,
   directionVector,
+  revealGate,
+  touchKindling,
 } from "../helpers";
 
 /**
@@ -41,6 +43,7 @@ export const move = spacetimedb.reducer({ dirX: t.i32(), dirY: t.i32(), running:
   const settled = settle(ctx, p, ctx.timestamp);
   ctx.db.player.identity.update({
     ...p,
+    ...touchKindling(p, ctx.timestamp),
     x: settled.x,
     y: settled.y,
     z: settled.z,
@@ -69,6 +72,7 @@ export const face = spacetimedb.reducer({ dirX: t.i32(), dirY: t.i32() }, (ctx, 
   const settled = settle(ctx, p, ctx.timestamp);
   ctx.db.player.identity.update({
     ...p,
+    ...touchKindling(p, ctx.timestamp),
     x: settled.x,
     y: settled.y,
     z: settled.z,
@@ -96,7 +100,8 @@ export const moveTo = spacetimedb.reducer({ x: t.i32(), y: t.i32(), running: t.b
   if (!zone) return;
 
   const blockers = troggBlockers(ctx, p.zoneId, ctx.timestamp);
-  const bounds = zoneBounds(zone, (x, y) => blockers.has(tileKey(x, y)));
+  const gate = revealGate(ctx, zone);
+  const bounds = zoneBounds(zone, (x, y) => blockers.has(tileKey(x, y)) || gate(x, y));
   const start = settle(ctx, p, ctx.timestamp);
   // A* finds the route; string-pulling collapses it to the fewest straight hops, so
   // open floor is one direct glide and only genuine corners keep bends (free movement).
@@ -111,6 +116,7 @@ export const moveTo = spacetimedb.reducer({ x: t.i32(), y: t.i32(), running: t.b
   const faceY = Math.abs(hopX) >= Math.abs(hopY) ? 0 : Math.sign(hopY);
   ctx.db.player.identity.update({
     ...p,
+    ...touchKindling(p, ctx.timestamp),
     x: start.x,
     y: start.y,
     z: start.z,

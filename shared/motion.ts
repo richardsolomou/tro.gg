@@ -15,7 +15,7 @@ import { rockHeightAt } from "./heights";
  * it hits a wall, the zone edge, or the clock runs out; a diagonal intent moves
  * at unit speed along the diagonal and **slides** — when one axis meets a wall,
  * the other keeps going (GDD "Movement"). Origins are fractional; nothing snaps
- * to tiles. Hogs still walk tile-to-tile with cardinal intents.
+ * to tiles, though a tile-by-tile wanderer can still walk with cardinal intents.
  *
  * The server passes elapsed against its own clock to settle the origin on each
  * input transition; the client passes elapsed since it received the intent to
@@ -31,11 +31,11 @@ export interface Motion {
   path?: string;
   /** Holding shift runs at `RUN_SPEED_TILES_PER_SEC` instead of walking (GDD
    *  "Movement"). Part of the intent so every client derives the same speed;
-   *  absent/false = walk. Hogs never set it, so they always walk. */
+   *  absent/false = walk. */
   running?: boolean;
-  /** Tile-footprint span anchored at (x, y) as the top-left corner: 1 for a trogg
-   *  or common Hog, 2 for a big 2×2 Hog (GDD "Hogs"). Absent = 1. The footprint
-   *  clamps against walls across its whole width/height, not a single tile. */
+  /** Tile-footprint span anchored at (x, y) as the top-left corner: 1 for a
+   *  trogg, more for a multi-tile creature. Absent = 1. The footprint clamps
+   *  against walls across its whole width/height, not a single tile. */
   size?: number;
   /** Debug speed multiplier (GDD "Commands panel" cheats). Rides the synced
    *  intent like `running`, so every client derives the same faster position.
@@ -132,11 +132,12 @@ export function facingTile(x: number, y: number, dirX: number, dirY: number, tol
  * Wire scale for movement headings: a direction is an integer vector with each
  * axis in [-DIR_SCALE, DIR_SCALE] (the columns are i32). Only the vector's
  * *direction* matters — projection normalises, so magnitude never buys speed.
- * Hogs and legacy rows use plain ±1 vectors, which are just short headings.
+ * A tile-by-tile wanderer and legacy rows use plain ±1 vectors, which are just
+ * short headings.
  */
 export const DIR_SCALE = 1000;
 
-/** The four cardinal movement directions — the headings Hog wander picks from. */
+/** The four cardinal movement directions — the headings a tile-by-tile wanderer picks from. */
 export const CARDINALS: readonly { dirX: number; dirY: number }[] = [
   { dirX: 0, dirY: -1 },
   { dirX: 0, dirY: 1 },
@@ -145,13 +146,14 @@ export const CARDINALS: readonly { dirX: number; dirY: number }[] = [
 ];
 
 /**
- * The cardinal directions a Hog at (x, y) could step onto — where its whole
- * `size`-tile footprint, shifted one tile that way, lands on walkable floor inside
- * the zone (GDD "Hogs"). The tile-by-tile wander reducer picks a Hog's heading from
- * these, so it ambles around walls, boulders, troggs, and other Hogs (whatever the
- * `ZoneBounds` `occupied` predicate marks unwalkable). For a 2×2 Hog the `occupied`
- * predicate must exclude the Hog's own footprint, else its next step (which overlaps
- * where it stands) reads as blocked. (x, y) is the footprint's top-left tile.
+ * The cardinal directions a tile-by-tile wanderer at (x, y) could step onto —
+ * where its whole `size`-tile footprint, shifted one tile that way, lands on
+ * walkable floor inside the zone. The wander reducer picks its heading from
+ * these, so it ambles around walls, boulders, and troggs (whatever the
+ * `ZoneBounds` `occupied` predicate marks unwalkable). For a multi-tile wanderer
+ * the `occupied` predicate must exclude its own footprint, else its next step
+ * (which overlaps where it stands) reads as blocked. (x, y) is the footprint's
+ * top-left tile.
  */
 export function walkableCardinals(zone: ZoneBounds, x: number, y: number, size = 1): { dirX: number; dirY: number }[] {
   return CARDINALS.filter(({ dirX, dirY }) => footprintWalkable(zone, x + dirX, y + dirY, size));
@@ -540,11 +542,11 @@ function projectPathMotion(motion: Motion, path: readonly Coord[], elapsedMs: nu
 
     if (remaining <= hop) {
       // Mid-hop: glide along the segment through the live collision walker, so an
-      // obstacle that arrived after routing (a Hog, a shoved boulder) clamps the
+      // obstacle that arrived after routing (a shoved boulder) clamps the
       // glide instead of being passed through. A clamp or slide means the hop is
       // no longer clean — report no heading, which is the stall signal the client
       // re-routes on. Hops already consumed are behind us: forward-only projection,
-      // so a Hog landing on ground already covered never rewinds the trogg.
+      // so an obstacle landing on ground already covered never rewinds the trogg.
       const end = slideAdvance(current.x, current.y, dx, dy, remaining, zone, size);
       const expectedX = current.x + (dx / hop) * remaining;
       const expectedY = current.y + (dy / hop) * remaining;

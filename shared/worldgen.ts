@@ -1,5 +1,5 @@
 import { DEEP_WATER_TILE, GLOWMOSS_TILE, GRAVEL_TILE, MOSS_TILE, WALL_TILE, WATER_TILE } from "./glyphs";
-import type { BigHog, BirthCellSeed, Coord, GroundItemSeed, Zone, ZoneExit } from "./constants";
+import type { BirthCellSeed, Coord, DarkCreatureSeed, GroundItemSeed, Zone, ZoneExit } from "./constants";
 
 /**
  * Biomes: the same cave automaton dressed differently. A biome picks the
@@ -45,8 +45,7 @@ const BIOME_PARAMS: Record<BiomeId, BiomeParams> = {
  * - a clear spawn plaza around the zone centre (`spawnAt` is the centre tile);
  * - every walkable tile reachable from the spawn (disconnected pockets are
  *   filled back in), so click-to-move can route anywhere you can see;
- * - seeded boulders, roaming hogs, starter tools, and the two showpiece giants
- *   all land on open floor, giants on clear 2×2 footprints.
+ * - seeded boulders and starter tools all land on open floor.
  */
 
 /** How much of the interior starts as rock before smoothing. */
@@ -75,7 +74,6 @@ export interface CaveOptions {
   seed: number;
   boulders: number;
   trees?: number;
-  hogs: number;
   biome: BiomeId;
   /** Which edges open into which neighbour zones (gates carved mid-edge). */
   exits?: Partial<Record<"north" | "south" | "east" | "west", string>>;
@@ -197,7 +195,7 @@ export function generateCaveZone(opts: CaveOptions): Zone {
     }
   }
 
-  // ── seed the dynamics: boulders, hogs, tools, giants ────────────────────────────
+  // ── seed the dynamics: boulders, tools ────────────────────────────
   // nothing seeds inside a gate tunnel — an immovable boulder there would brick it
   const taken = new Set<string>(gateCorridor);
   const openTile = (minSpawnDist: number, fits?: (x: number, y: number) => boolean): Coord => {
@@ -219,28 +217,12 @@ export function generateCaveZone(opts: CaveOptions): Zone {
   for (let i = 0; i < opts.boulders; i++) boulders.push(openTile(SPAWN_CLEARING + 2));
   const trees: Coord[] = [];
   for (let i = 0; i < (opts.trees ?? 0); i++) trees.push(openTile(SPAWN_CLEARING + 2));
-  const hogs: Coord[] = [];
-  for (let i = 0; i < opts.hogs; i++) hogs.push(openTile(SPAWN_CLEARING + 3));
 
   // starter tools ring the spawn plaza, like the old cave's rack by the centre
   const items: GroundItemSeed[] = (["pickaxe", "shovel", "axe", "sword", "shield", "torch"] as const).map((item, i) => {
     const tile = { x: cx - 2 + i, y: cy - 2 };
     taken.add(`${tile.x},${tile.y}`);
     return { item, ...tile };
-  });
-
-  const giantFits = (x: number, y: number): boolean => {
-    for (let dy = 0; dy < 2; dy++) {
-      for (let dx = 0; dx < 2; dx++) {
-        if (rock[idx(x + dx, y + dy)] !== 0 || taken.has(`${x + dx},${y + dy}`)) return false;
-      }
-    }
-    return true;
-  };
-  const bigHogs: BigHog[] = (["buff", "dino"] as const).map((style) => {
-    const tile = openTile(10, giantFits);
-    for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) taken.add(`${tile.x + dx},${tile.y + dy}`);
-    return { ...tile, style };
   });
 
   return {
@@ -253,10 +235,9 @@ export function generateCaveZone(opts: CaveOptions): Zone {
     tiles: glyphs.map((row) => row.join("")),
     boulders,
     trees,
-    hogs,
     items,
-    bigHogs,
     cells: [],
+    darkCreatures: [],
   };
 }
 
@@ -405,10 +386,9 @@ export function generateBirthCave(): Zone {
     tiles: glyphs.map((row) => row.join("")),
     boulders: [],
     trees: [],
-    hogs: [],
     items: [],
-    bigHogs: [],
     cells: [{ x: spawn.x, y: spawn.y, corridor, pickaxe }],
+    darkCreatures: [],
   };
 }
 
@@ -433,7 +413,7 @@ export const WORLD_W = 224;
 export const WORLD_H = 208;
 
 export const WORLD_REGIONS: readonly WorldRegion[] = [
-  { slug: "hog-town", name: "Hog Town", biome: "cave", x: 112, y: 104 },
+  { slug: "hearth", name: "The Hearth", biome: "cave", x: 112, y: 104 },
   { slug: "glowvault", name: "Glowvault", biome: "glowvault", x: 88, y: 62 },
   { slug: "starwell", name: "Starwell", biome: "starwell", x: 138, y: 34 },
   { slug: "mossglen", name: "Mossglen", biome: "mossglen", x: 128, y: 148 },
@@ -463,6 +443,44 @@ export function regionAt(x: number, y: number): WorldRegion | undefined {
   return WORLD_REGIONS[REGION_CHARS.indexOf(char)];
 }
 
+/**
+ * Which regions touch which, scanned once from the committed per-tile region
+ * grid (GDD "Generation: only as far as the light reaches"). Pure
+ * post-processing of already-generated data — never consulted by
+ * `generateWorld()`'s own terrain/region-assignment math. The runtime reveal
+ * layer derives a region's penumbra (unclaimed neighbours of a claimed
+ * region) from this graph plus the durable `revealed_region` set.
+ */
+export function computeRegionAdjacency(regionRows: readonly string[]): Record<string, string[]> {
+  const slugAt = (x: number, y: number): string | undefined => {
+    const char = regionRows[y]?.[x];
+    if (!char || char === ".") return undefined;
+    return WORLD_REGIONS[REGION_CHARS.indexOf(char)]?.slug;
+  };
+  const adjacency = new Map<string, Set<string>>();
+  const link = (a: string, b: string) => {
+    if (a === b) return;
+    if (!adjacency.has(a)) adjacency.set(a, new Set());
+    if (!adjacency.has(b)) adjacency.set(b, new Set());
+    adjacency.get(a)!.add(b);
+    adjacency.get(b)!.add(a);
+  };
+  for (let y = 0; y < regionRows.length; y++) {
+    const row = regionRows[y]!;
+    for (let x = 0; x < row.length; x++) {
+      const here = slugAt(x, y);
+      if (!here) continue;
+      const right = slugAt(x + 1, y);
+      if (right) link(here, right);
+      const down = slugAt(x, y + 1);
+      if (down) link(here, down);
+    }
+  }
+  const result: Record<string, string[]> = {};
+  for (const region of WORLD_REGIONS) result[region.slug] = [...(adjacency.get(region.slug) ?? new Set())].sort();
+  return result;
+}
+
 // deterministic value noise: a mulberry-hashed lattice, bilinearly interpolated
 function latticeNoise(seed: number): (x: number, y: number) => number {
   const cell = (cx: number, cy: number): number => {
@@ -484,12 +502,12 @@ function latticeNoise(seed: number): (x: number, y: number) => number {
 export interface GeneratedWorld {
   tiles: string[];
   regions: string[];
+  regionAdjacency: Record<string, string[]>;
   boulders: Coord[];
   trees: Coord[];
-  hogs: Coord[];
   items: GroundItemSeed[];
-  bigHogs: BigHog[];
   cells: BirthCellSeed[];
+  darkCreatures: DarkCreatureSeed[];
   /** Where an emerging trogg lands: inside the coast's cave-mouth alcove. */
   arrival: Coord;
   /** The alcove's deep end — walk into it to descend into your own cave. */
@@ -708,7 +726,6 @@ export function generateWorld(): GeneratedWorld {
   const taken = new Set<string>();
   const seedRand = mulberry32(0x70663008);
   const boulders: Coord[] = [];
-  const hogs: Coord[] = [];
   const openTiles: Coord[][] = WORLD_REGIONS.map(() => []);
   const DRY = new Set([".", MOSS_TILE, GRAVEL_TILE, GLOWMOSS_TILE]);
   for (let y = 1; y < H - 1; y++) {
@@ -736,33 +753,12 @@ export function generateWorld(): GeneratedWorld {
       const tile = drawFrom(region);
       if (tile) boulders.push(tile);
     }
-    for (let i = 0; i < 10; i++) {
-      const tile = drawFrom(region);
-      if (tile) hogs.push(tile);
-    }
   }
   const items: GroundItemSeed[] = (["pickaxe", "shovel", "axe", "sword", "shield", "torch"] as const).map((item, i) => {
     const tile = { x: spawn.x - 2 + i, y: spawn.y - 2 };
     taken.add(`${tile.x},${tile.y}`);
     return { item, ...tile };
   });
-  const bigHogs: BigHog[] = [];
-  const giantFits = (tile: Coord): boolean => {
-    for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) {
-      if (!DRY.has(glyphs[tile.y + dy]![tile.x + dx]!) || taken.has(`${tile.x + dx},${tile.y + dy}`)) return false;
-    }
-    return true;
-  };
-  for (const style of ["buff", "dino"] as const) {
-    for (let attempt = 0; attempt < 400; attempt++) {
-      const tile = openTiles[0]![Math.floor(seedRand() * openTiles[0]!.length)];
-      if (tile && giantFits(tile)) {
-        for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) taken.add(`${tile.x + dx},${tile.y + dy}`);
-        bigHogs.push({ ...tile, style });
-        break;
-      }
-    }
-  }
 
   // 9. trees: choppable woods scattered per region. A separate rng stream, drawn
   // after every other stage, so adding (or re-tuning) trees leaves the committed
@@ -773,6 +769,29 @@ export function generateWorld(): GeneratedWorld {
     for (let i = 0; i < 20; i++) {
       const tile = drawFrom(region, treeRand);
       if (tile) trees.push(tile);
+    }
+  }
+
+  // Dark creatures: a hostile population per region, drawn from the same
+  // pools with a wider clearance around the Hearth than boulders/trees get —
+  // light, not just crowding, needs the margin, so a newborn's first steps
+  // into the world are never spawn-camped. A separate stream, drawn last, so
+  // tuning the population never reshuffles any other seed.
+  const darkCreatureRand = mulberry32(0x7066300a);
+  const darkCreatures: DarkCreatureSeed[] = [];
+  const HEARTH_CLEARANCE = 18;
+  for (let region = 0; region < WORLD_REGIONS.length; region++) {
+    for (let i = 0; i < 5; i++) {
+      let tile: Coord | undefined;
+      for (let attempt = 0; attempt < 20; attempt++) {
+        const candidate = drawFrom(region, darkCreatureRand);
+        if (!candidate) break;
+        if (Math.hypot(candidate.x - spawn.x, candidate.y - spawn.y) >= HEARTH_CLEARANCE) {
+          tile = candidate;
+          break;
+        }
+      }
+      if (tile) darkCreatures.push({ ...tile, species: "grask" });
     }
   }
 
@@ -800,5 +819,6 @@ export function generateWorld(): GeneratedWorld {
   const caveDoor: Coord = { x: MOUTH_X, y: Math.min(mouthY + ARRIVAL_DEPTH, H - 2) };
   const cells: BirthCellSeed[] = [];
 
-  return { tiles: glyphs.map((row) => row.join("")), regions: regionGrid.map((row) => row.join("")), boulders, trees, hogs, items, bigHogs, cells, arrival, caveDoor, spawn };
+  const regions = regionGrid.map((row) => row.join(""));
+  return { tiles: glyphs.map((row) => row.join("")), regions, regionAdjacency: computeRegionAdjacency(regions), boulders, trees, items, cells, darkCreatures, arrival, caveDoor, spawn };
 }
