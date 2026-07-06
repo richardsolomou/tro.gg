@@ -42,10 +42,10 @@ import {
   BRAZIER_UPKEEP_RATE,
   BRAZIER_LIT_RADIUS,
   FIRST_FIRE_LIT_RADIUS,
-  CHARGE_MAX,
-  CHARGE_ACCRUAL_RATE,
-  CHARGE_DECAY_RATE,
-  EMBER_GATHER_DAMAGE,
+  AFK_CHARGE_MAX,
+  AFK_CHARGE_ACCRUAL_RATE,
+  AFK_CHARGE_DECAY_RATE,
+  AFK_GATHER_DAMAGE,
   DARK_CREATURE_AGGRO_RANGE,
   DARK_CREATURES,
   MAX_DARK_CREATURES_PER_ZONE,
@@ -889,7 +889,7 @@ test("disconnecting drops the carried entity into the world and marks the trogg 
   const me = id("leaver");
   const ctx = makeCtx({ sender: me });
   ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
-  // Charged and already on lit ground, so it goes ember in place rather than
+  // Charged and already on lit ground, so it goes afk in place rather than
   // being recalled (Phase 4 "Presence" changes what happens off lit ground —
   // see the disconnect-recall tests below).
   ctx.db.player.insert(playerRow(me, { carrying: "boulder", x: 69, y: 96, online: true, kindlingCharge: 5, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
@@ -1005,23 +1005,23 @@ test("brazierUpkeep never bills or gutters the First Fire, even with an empty st
   assert.equal(ctx.db.stockpile.item.find(BRAZIER_UPKEEP_ITEM), undefined); // never touched
 });
 
-// --- Presence: bright, ember, dormant ---
+// --- Presence: active and AFK ---
 
-test("move accrues kindling charge for the bright play since the trogg's last input", () => {
+test("move accrues AFK charge for the active play since the trogg's last input", () => {
   const { ctx, me } = withPlayer({ x: 69, y: 96, kindlingCharge: 0, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }, { now: micros(60_000) }); // one minute later
   move(ctx, { dirX: 1, dirY: 0, running: false });
   const p = ctx.db.player.identity.find(me);
-  assert.equal(p.kindlingCharge, CHARGE_ACCRUAL_RATE); // one minute of bright play
+  assert.equal(p.kindlingCharge, AFK_CHARGE_ACCRUAL_RATE); // one minute of active play
 });
 
-test("move never accrues kindling charge past CHARGE_MAX", () => {
-  const { ctx, me } = withPlayer({ x: 69, y: 96, kindlingCharge: CHARGE_MAX, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }, { now: micros(60_000) });
+test("move never accrues AFK charge past AFK_CHARGE_MAX", () => {
+  const { ctx, me } = withPlayer({ x: 69, y: 96, kindlingCharge: AFK_CHARGE_MAX, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }, { now: micros(60_000) });
   move(ctx, { dirX: 1, dirY: 0, running: false });
   const p = ctx.db.player.identity.find(me);
-  assert.equal(p.kindlingCharge, CHARGE_MAX);
+  assert.equal(p.kindlingCharge, AFK_CHARGE_MAX);
 });
 
-test("onDisconnect leaves a charged trogg ember in place when it's already on lit ground", () => {
+test("onDisconnect leaves a charged trogg afk in place when it's already on lit ground", () => {
   const me = id("staying");
   const ctx = makeCtx({ sender: me });
   ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
@@ -1044,7 +1044,7 @@ test("onDisconnect recalls a charged trogg off lit ground to the nearest hearth,
   );
 });
 
-test("onDisconnect settles a trogg with no kindling charge left at the nearest hearth, dormant", () => {
+test("onDisconnect settles a trogg with no AFK charge left at the nearest hearth", () => {
   const me = id("dormantnow");
   const ctx = makeCtx({ sender: me });
   const hearth = ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
@@ -1054,38 +1054,38 @@ test("onDisconnect settles a trogg with no kindling charge left at the nearest h
   assert.deepEqual({ x: p.x, y: p.y, kindlingCharge: p.kindlingCharge }, { x: hearth.x, y: hearth.y, kindlingCharge: 0 });
 });
 
-test("onConnect resumes bright instantly, settling however much ember decay happened while away", () => {
+test("onConnect resumes active play instantly, settling however much charge decay happened while away", () => {
   const me = id("returning");
   const ctx = makeCtx({ sender: me, now: micros(3_600_000) }); // an hour later
-  ctx.db.player.insert(playerRow(me, { x: 69, y: 96, online: false, kindlingCharge: CHARGE_MAX, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
+  ctx.db.player.insert(playerRow(me, { x: 69, y: 96, online: false, kindlingCharge: AFK_CHARGE_MAX, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
   onConnect(ctx);
   const p = ctx.db.player.identity.find(me);
-  assert.deepEqual({ online: p.online, kindlingCharge: p.kindlingCharge }, { online: true, kindlingCharge: CHARGE_MAX - CHARGE_DECAY_RATE }); // one hour of ember decay
+  assert.deepEqual({ online: p.online, kindlingCharge: p.kindlingCharge }, { online: true, kindlingCharge: AFK_CHARGE_MAX - AFK_CHARGE_DECAY_RATE }); // one hour of afk decay
 });
 
-test("wanderPresence keeps a charged ember trogg confined to lit territory while it wanders", () => {
+test("wanderPresence keeps a charged afk trogg confined to lit territory while it wanders", () => {
   const watcher = id("watcher");
-  const ember = id("embertrogg");
+  const afk = id("afktrogg");
   // random 0.9 clears both the idle and gather rolls; 5s at walk speed is far
   // enough that an unconfined wanderer would clear the lit radius easily.
   const ctx = makeCtx({ sender: watcher, random: 0.9, integerInRange: () => 0, now: micros(5_000) });
   ctx.db.player.insert(playerRow(watcher, { online: true, x: 0, y: 0 }));
   const hearth = ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
-  ctx.db.player.insert(playerRow(ember, { x: 69, y: 96, online: false, kindlingCharge: 10, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
+  ctx.db.player.insert(playerRow(afk, { x: 69, y: 96, online: false, kindlingCharge: 10, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
   wanderPresence(ctx, {});
-  const p = ctx.db.player.identity.find(ember);
+  const p = ctx.db.player.identity.find(afk);
   assert.ok(Math.hypot(p.x - hearth.x, p.y - hearth.y) <= hearth.radius);
 });
 
-test("wanderPresence keeps a dormant trogg gathering at the dormant trickle", () => {
+test("wanderPresence keeps a spent-charge trogg gathering at the trickle rate", () => {
   const watcher = id("watcher");
-  const dormant = id("driedout");
-  // 0.05 lands under DORMANT_EFFICIENCY_FRACTION, so even a drained trogg chips.
+  const spent = id("driedout");
+  // 0.05 lands under AFK_TRICKLE_EFFICIENCY_FRACTION, so even a drained trogg chips.
   const ctx = makeCtx({ sender: watcher, random: 0.05 });
   ctx.db.player.insert(playerRow(watcher, { online: true }));
   ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
-  ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96, health: EMBER_GATHER_DAMAGE }); // breaks on one chip
-  ctx.db.player.insert(playerRow(dormant, { x: 69, y: 96, online: false, kindlingCharge: 0, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
+  ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96, health: AFK_GATHER_DAMAGE }); // breaks on one chip
+  ctx.db.player.insert(playerRow(spent, { x: 69, y: 96, online: false, kindlingCharge: 0, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
   wanderPresence(ctx, {});
   assert.deepEqual(
     { boulders: ctx.db.boulder.rows().length, stone: ctx.db.stockpile.item.find("stone")?.qty },
@@ -1093,28 +1093,28 @@ test("wanderPresence keeps a dormant trogg gathering at the dormant trickle", ()
   );
 });
 
-test("wanderPresence holds a dormant trogg to the slower roll — an ember-grade roll misses", () => {
+test("wanderPresence holds a spent-charge trogg to the slower roll — a full-rate roll misses", () => {
   const watcher = id("watcher");
-  const dormant = id("driedout2");
-  // 0.2 would chip for an ember trogg (< EMBER_EFFICIENCY_FRACTION) but misses the dormant trickle.
+  const spent = id("driedout2");
+  // 0.2 would chip for a charged AFK trogg (< AFK_EFFICIENCY_FRACTION) but misses the spent trickle.
   const ctx = makeCtx({ sender: watcher, random: 0.2 });
   ctx.db.player.insert(playerRow(watcher, { online: true }));
   ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
-  ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96, health: EMBER_GATHER_DAMAGE });
-  ctx.db.player.insert(playerRow(dormant, { x: 69, y: 96, online: false, kindlingCharge: 0, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
+  ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96, health: AFK_GATHER_DAMAGE });
+  ctx.db.player.insert(playerRow(spent, { x: 69, y: 96, online: false, kindlingCharge: 0, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
   wanderPresence(ctx, {});
-  assert.equal(ctx.db.boulder.rows()[0]?.health, EMBER_GATHER_DAMAGE); // camped beside it, chip missed
+  assert.equal(ctx.db.boulder.rows()[0]?.health, AFK_GATHER_DAMAGE); // camped beside it, chip missed
 });
 
 test("wanderPresence gathers on instinct from an adjacent boulder and deposits into the stockpile", () => {
   const watcher = id("watcher");
-  const ember = id("gathering");
-  // 0.2 clears the idle roll (stands still) and the gather roll (< EMBER_EFFICIENCY_FRACTION) alike.
+  const afk = id("gathering");
+  // 0.2 clears the idle roll (stands still) and the gather roll (< AFK_EFFICIENCY_FRACTION) alike.
   const ctx = makeCtx({ sender: watcher, random: 0.2 });
   ctx.db.player.insert(playerRow(watcher, { online: true }));
   ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
-  ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96, health: EMBER_GATHER_DAMAGE }); // breaks on one chip
-  ctx.db.player.insert(playerRow(ember, { x: 69, y: 96, online: false, kindlingCharge: 10, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
+  ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96, health: AFK_GATHER_DAMAGE }); // breaks on one chip
+  ctx.db.player.insert(playerRow(afk, { x: 69, y: 96, online: false, kindlingCharge: 10, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
   wanderPresence(ctx, {});
   assert.deepEqual(
     { boulders: ctx.db.boulder.rows().length, stone: ctx.db.stockpile.item.find("stone")?.qty, respawnsArmed: ctx.db.nodeRespawn.rows().length },
@@ -1124,15 +1124,15 @@ test("wanderPresence gathers on instinct from an adjacent boulder and deposits i
 
 test("wanderPresence equips the pickaxe from the trogg's own inventory to work a boulder", () => {
   const watcher = id("watcher");
-  const ember = id("toolswap");
-  const ctx = makeCtx({ sender: watcher, random: 0.2, now: micros(5_000) }); // 0.2 chips (ember rate)
+  const afk = id("toolswap");
+  const ctx = makeCtx({ sender: watcher, random: 0.2, now: micros(5_000) }); // 0.2 chips (full AFK rate)
   ctx.db.player.insert(playerRow(watcher, { online: true }));
   ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
   ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96, health: 100 });
-  const pick = ctx.db.inventory.insert({ id: 0n, playerId: ember, item: "pickaxe", qty: 1 });
-  ctx.db.player.insert(playerRow(ember, { x: 69, y: 96, online: false, equippedMainHand: "axe", kindlingCharge: 10, kindlingChargeAt: { microsSinceUnixEpoch: micros(5_000) } }));
+  const pick = ctx.db.inventory.insert({ id: 0n, playerId: afk, item: "pickaxe", qty: 1 });
+  ctx.db.player.insert(playerRow(afk, { x: 69, y: 96, online: false, equippedMainHand: "axe", kindlingCharge: 10, kindlingChargeAt: { microsSinceUnixEpoch: micros(5_000) } }));
   wanderPresence(ctx, {});
-  const p = ctx.db.player.identity.find(ember);
+  const p = ctx.db.player.identity.find(afk);
   assert.deepEqual(
     { held: p.equippedMainHand, heldRow: p.equippedMainHandInventoryId, swing: p.equipmentAction, swungAt: p.equipmentActionAt.microsSinceUnixEpoch },
     { held: "pickaxe", heldRow: pick.id, swing: "pickaxe", swungAt: micros(5_000) },
@@ -1141,28 +1141,28 @@ test("wanderPresence equips the pickaxe from the trogg's own inventory to work a
 
 test("wanderPresence swings bare fists at a node when the trogg owns no tool", () => {
   const watcher = id("watcher");
-  const ember = id("nofists");
+  const afk = id("nofists");
   const ctx = makeCtx({ sender: watcher, random: 0.2, now: micros(5_000) });
   ctx.db.player.insert(playerRow(watcher, { online: true }));
   ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
   ctx.db.tree.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96, health: 100 });
-  ctx.db.player.insert(playerRow(ember, { x: 69, y: 96, online: false, kindlingCharge: 10, kindlingChargeAt: { microsSinceUnixEpoch: micros(5_000) } }));
+  ctx.db.player.insert(playerRow(afk, { x: 69, y: 96, online: false, kindlingCharge: 10, kindlingChargeAt: { microsSinceUnixEpoch: micros(5_000) } }));
   wanderPresence(ctx, {});
-  const p = ctx.db.player.identity.find(ember);
+  const p = ctx.db.player.identity.find(afk);
   assert.deepEqual({ held: p.equippedMainHand, swing: p.equipmentAction }, { held: "", swing: "fists" });
 });
 
 test("wanderPresence sheds run state and speed cheats — instinct moves at walk speed", () => {
   const watcher = id("watcher");
-  const ember = id("speedster");
+  const afk = id("speedster");
   const ctx = makeCtx({ sender: watcher, random: 0.9, integerInRange: () => 0 });
   ctx.db.player.insert(playerRow(watcher, { online: true, x: 0, y: 0 }));
   ctx.db.revealedRegion.insert(revealedRegionRow({ slug: "r1x1" }));
   ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
   ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 66, y: 96, health: 100 });
-  ctx.db.player.insert(playerRow(ember, { x: 69, y: 96, online: false, running: true, cheatSpeed: 5, kindlingCharge: 10, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
+  ctx.db.player.insert(playerRow(afk, { x: 69, y: 96, online: false, running: true, cheatSpeed: 5, kindlingCharge: 10, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
   wanderPresence(ctx, {});
-  const p = ctx.db.player.identity.find(ember);
+  const p = ctx.db.player.identity.find(afk);
   assert.deepEqual({ running: p.running, cheatSpeed: p.cheatSpeed, pathing: p.path !== "" }, { running: false, cheatSpeed: 1, pathing: true });
 });
 
@@ -1188,31 +1188,31 @@ test("respawnNodes re-arms instead of trapping a trogg standing on the node's ti
   assert.deepEqual({ trees: ctx.db.tree.rows().length, timers: ctx.db.nodeRespawn.rows().length }, { trees: 0, timers: 1 });
 });
 
-test("wanderPresence routes an ember trogg toward the nearest node instead of drifting", () => {
+test("wanderPresence routes an afk trogg toward the nearest node instead of drifting", () => {
   const watcher = id("watcher");
-  const ember = id("seeker");
+  const afk = id("seeker");
   // 0.9 misses the gather roll; no adjacent node anyway, so the trogg must route.
   const ctx = makeCtx({ sender: watcher, random: 0.9, integerInRange: () => 0 });
   ctx.db.player.insert(playerRow(watcher, { online: true, x: 0, y: 0 }));
   ctx.db.revealedRegion.insert(revealedRegionRow({ slug: "r1x1" })); // the region holding (69, 96)
   ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
   ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 66, y: 96, health: 100 }); // three tiles of open floor west
-  ctx.db.player.insert(playerRow(ember, { x: 69, y: 96, online: false, kindlingCharge: 10, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
+  ctx.db.player.insert(playerRow(afk, { x: 69, y: 96, online: false, kindlingCharge: 10, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
   wanderPresence(ctx, {});
-  const p = ctx.db.player.identity.find(ember);
+  const p = ctx.db.player.identity.find(afk);
   assert.deepEqual({ pathing: p.path !== "", dirX: p.dirX }, { pathing: true, dirX: -1 }); // en route west, toward the boulder
 });
 
-test("wanderPresence camps an ember trogg beside its node between chips", () => {
+test("wanderPresence camps an afk trogg beside its node between chips", () => {
   const watcher = id("watcher");
-  const ember = id("camper");
+  const afk = id("camper");
   const ctx = makeCtx({ sender: watcher, random: 0.9 }); // misses the gather roll
   ctx.db.player.insert(playerRow(watcher, { online: true, x: 0, y: 0 }));
   ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
   ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96, health: 100 });
-  ctx.db.player.insert(playerRow(ember, { x: 69, y: 96, online: false, kindlingCharge: 10, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
+  ctx.db.player.insert(playerRow(afk, { x: 69, y: 96, online: false, kindlingCharge: 10, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
   wanderPresence(ctx, {});
-  const p = ctx.db.player.identity.find(ember);
+  const p = ctx.db.player.identity.find(afk);
   assert.deepEqual(
     { x: p.x, y: p.y, dirX: p.dirX, dirY: p.dirY, path: p.path, health: ctx.db.boulder.rows()[0].health },
     { x: 69, y: 96, dirX: 0, dirY: 0, path: "", health: 100 }, // stays put, node intact until a chip lands
@@ -1220,11 +1220,11 @@ test("wanderPresence camps an ember trogg beside its node between chips", () => 
 });
 
 test("wanderPresence re-arms only while a player is online", () => {
-  const ember = id("alone");
-  const ctx = makeCtx({ sender: ember });
-  ctx.db.player.insert(playerRow(ember, { online: false, kindlingCharge: 10, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
+  const afk = id("alone");
+  const ctx = makeCtx({ sender: afk });
+  ctx.db.player.insert(playerRow(afk, { online: false, kindlingCharge: 10, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
   wanderPresence(ctx, {});
-  assert.equal(ctx.db.emberWanderTimer.rows().length, 0); // nobody's watching, so no further work
+  assert.equal(ctx.db.afkWanderTimer.rows().length, 0); // nobody's watching, so no further work
 });
 
 // --- Dark creatures ---
@@ -1253,7 +1253,7 @@ test("wanderPresence keeps an unaggroed dark creature off lit ground while it wa
   assert.ok(Math.hypot(after.x - hearth.x, after.y - hearth.y) > hearth.radius);
 });
 
-test("wanderPresence aggroes onto a bright trogg within DARK_CREATURE_AGGRO_RANGE", () => {
+test("wanderPresence aggroes onto a active trogg within DARK_CREATURE_AGGRO_RANGE", () => {
   const me = id("prey");
   const ctx = makeCtx({ sender: me, random: 0.9 });
   ctx.db.player.insert(playerRow(me, { online: true, x: 69, y: 96 }));
@@ -1271,7 +1271,7 @@ test("wanderPresence drops aggro once its target is no longer online", () => {
   ctx.db.player.insert(playerRow(target, { online: false, x: 70, y: 96 }));
   const c = ctx.db.darkCreature.insert(darkCreatureRow({ x: 69, y: 96, aggroTargetId: target.toHexString() }));
   wanderPresence(ctx, {});
-  assert.equal(ctx.db.darkCreature.id.find(c.id)?.aggroTargetId, ""); // no bright trogg nearby to re-aggro onto
+  assert.equal(ctx.db.darkCreature.id.find(c.id)?.aggroTargetId, ""); // no active trogg nearby to re-aggro onto
 });
 
 test("wanderPresence turns an aggroed dark creature toward a target out of melee range", () => {

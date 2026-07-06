@@ -20,7 +20,7 @@ export const MOVE_SPEED_TILES_PER_SEC = 4;
 export const RUN_SPEED_TILES_PER_SEC = 7;
 
 /**
- * A wanderer's turn/idle rolls (ember troggs today, dark creatures once they
+ * A wanderer's turn/idle rolls (AFK troggs today, dark creatures once they
  * exist): a scheduled reducer re-derives the wanderer's settled position each
  * tick and either keeps its heading or rolls a fresh one, riding the same
  * intent-based motion as troggs (no per-frame sync). A moving wanderer keeps
@@ -104,37 +104,40 @@ export const BRAZIER_UPKEEP_RATE = 1;
 export const BRAZIER_UPKEEP_TICK_MS = 30_000;
 
 /**
- * Presence: bright, ember, dormant (GDD "The fire and the dark" → Presence).
- * `kindlingCharge` is stored the way motion is — a value plus the anchor it
- * was true at — so its current value is *derived* by applying the accrual
- * rate while bright or the decay rate while ember, never advanced on a timer
- * (invariant 1; see `deriveKindlingCharge`). Decaying faster than it accrues
- * means keeping a trogg productive while away costs the same thing it always
- * should: showing up. (initial)
+ * Presence: active or AFK (GDD "The fire and the dark" → Presence).
+ * The AFK charge (`kindlingCharge` on the player row — the column keeps its
+ * shipped name; prod schema changes only additively) is stored the way
+ * motion is — a value plus the anchor it was true at — so its current value
+ * is *derived* by applying the accrual rate while active or the decay rate
+ * while AFK, never advanced on a timer (invariant 1; see `deriveAfkCharge`).
+ * Decaying faster than it accrues means keeping a trogg productive while
+ * away costs the same thing it always should: showing up. (initial)
  */
-export const CHARGE_ACCRUAL_RATE = 1; // charge per minute of bright play
-export const CHARGE_MAX = 60;
-export const CHARGE_DECAY_RATE = 10; // charge per hour while ember
+export const AFK_CHARGE_ACCRUAL_RATE = 1; // charge per minute of active play
+export const AFK_CHARGE_MAX = 60;
+export const AFK_CHARGE_DECAY_RATE = 10; // charge per hour while AFK
 
 /**
- * An offline trogg works safe interior ground on instinct (GDD "Presence"):
- * the scheduled `ember_wander` sweep re-derives its position every
- * `EMBER_WANDER_TICK_MS`, routes it to the nearest boulder or tree on lit
+ * An AFK trogg works safe interior ground on instinct (GDD "Presence"):
+ * the scheduled `ember_wander` sweep (durable table name predates the AFK
+ * naming) re-derives its position every
+ * `AFK_WANDER_TICK_MS`, routes it to the nearest boulder or tree on lit
  * revealed ground, and camps it there, rolling a per-tick chance for an
  * instinct-driven gather chip roughly the weight of one weak tool hit —
  * deposited into the stockpile the same way a real hit is, earning no XP.
- * The roll is `EMBER_EFFICIENCY_FRACTION` while kindling charge lasts and
- * drops to `DORMANT_EFFICIENCY_FRACTION` once dormant — instinct never fully
- * sleeps, but bright play buys the better rate. `EMBER_SEEK_RADIUS`
+ * The roll is `AFK_EFFICIENCY_FRACTION` while AFK charge lasts and
+ * drops to `AFK_TRICKLE_EFFICIENCY_FRACTION` once the charge is spent —
+ * instinct never fully
+ * sleeps, but active play buys the better rate. `AFK_SEEK_RADIUS`
  * (manhattan tiles) is the routing budget, sized to span a whole settled zone
  * rather than a neighbourhood — park a trogg anywhere lit and it works that
  * ground. With no reachable node it falls back to an aimless wander. (initial)
  */
-export const EMBER_EFFICIENCY_FRACTION = 0.3;
-export const DORMANT_EFFICIENCY_FRACTION = 0.1;
-export const EMBER_WANDER_TICK_MS = 1_000;
-export const EMBER_GATHER_DAMAGE = 6;
-export const EMBER_SEEK_RADIUS = 400;
+export const AFK_EFFICIENCY_FRACTION = 0.3;
+export const AFK_TRICKLE_EFFICIENCY_FRACTION = 0.1;
+export const AFK_WANDER_TICK_MS = 1_000;
+export const AFK_GATHER_DAMAGE = 6;
+export const AFK_SEEK_RADIUS = 400;
 
 /** Trogg combat health, damage, and respawn timing. (initial) */
 export const PLAYER_MAX_HEALTH = 100;
@@ -359,7 +362,7 @@ export interface GroundItemSeed extends Coord {
  * Dark creatures (GDD "Dark creatures" / "The fire and the dark" → Territory
  * and permanence): hostile inhabitants of the dark, aggressive on sight, kept
  * off any lit ground by the hearth rule. `DARK_CREATURE_AGGRO_RANGE` is how
- * close a bright trogg must come to break a creature's wander into a chase.
+ * close an active trogg must come to break a creature's wander into a chase.
  * `NPC_CORPSE_MS` is how long a killed creature lies as a corpse before the
  * regen sweep reaps it — whether a fresh one then takes its place depends on
  * whether the ground is lit at that moment (evaluated at the reap, not the

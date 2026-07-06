@@ -14,7 +14,7 @@ export function seedFirstFire(ctx: Ctx, zone: Zone): void {
 /**
  * Whether (x, y) sits in ground the tribe currently holds against the dark
  * (GDD "Territory and permanence") — the "cannot enter a lit tile" boundary
- * dark creatures can't cross, and the ground an ember trogg is confined to.
+ * dark creatures can't cross, and the ground an AFK trogg is confined to.
  * In the world zone this is region-wide: a whole region counts as lit the
  * moment any brazier inside it is lit, not just a radius around that
  * brazier — a region holds at most one non-eternal row, always placed
@@ -38,7 +38,7 @@ export function isLitTile(ctx: Ctx, zoneId: string, x: number, y: number): boole
 
 /** The nearest lit brazier in a zone (Euclidean, centre to centre), or
  *  undefined if the zone has none lit — used to recall a disconnecting trogg
- *  to safety and to settle a dormant one. */
+ *  to safety and to settle a spent one. */
 export function nearestLitBrazier(ctx: Ctx, zoneId: string, x: number, y: number) {
   const rows = [...ctx.db.brazier.zoneId.filter(zoneId)].filter((b) => b.lit);
   let best: { row: (typeof rows)[number]; dist: number } | undefined;

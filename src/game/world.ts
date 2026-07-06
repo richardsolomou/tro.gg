@@ -5,7 +5,6 @@ import {
   CAVE_DOOR,
   isBirthZone,
   DARK_CREATURES,
-  deriveKindlingCharge,
   EQUIPMENT_ACTION_MS,
   CHAT_BUBBLE_MS,
   DIR_SCALE,
@@ -429,7 +428,7 @@ export class World3D {
     const obstructed = (x: number, y: number) => this.boulderTiles.has(tileKey(x, y)) || this.treeTiles.has(tileKey(x, y)) || !this.isRegionRevealed(x, y);
     this.troggBounds = zoneBounds(this.zone, obstructed);
     // A dark creature can't stand on lit ground (GDD "Dark creatures"), the
-    // mirror of an ember trogg's confinement — read live off the subscribed
+    // mirror of an AFK trogg's confinement — read live off the subscribed
     // brazier rows, so it stays correct as braziers light or gutter.
     this.darkCreatureBounds = zoneBounds(this.zone, (x, y) => obstructed(x, y) || this.isLitTileClient(x, y));
 
@@ -667,7 +666,7 @@ export class World3D {
     mountCommands({ conn, zone: this.zone });
 
     const queries = [
-      // Ember and dormant troggs stay in view after disconnect (GDD "The fire
+      // AFK troggs stay in view after disconnect (GDD "The fire
       // and the dark" → Presence), so this doesn't filter on `online`.
       `SELECT * FROM player WHERE zone_id = '${this.slug}'`,
       `SELECT * FROM chat_message WHERE zone_id = '${this.slug}'`,
@@ -1269,8 +1268,7 @@ export class World3D {
   }
 
   private presenceNow(p: Player): Presence {
-    const now: Stamp = { microsSinceUnixEpoch: BigInt(Date.now()) * 1000n };
-    return presenceOf(p.online, deriveKindlingCharge(p.kindlingCharge, p.kindlingChargeAt, p.online, now));
+    return presenceOf(p.online);
   }
 
   /** Dim a tracked trogg's body to its current presence (GDD "The fire and

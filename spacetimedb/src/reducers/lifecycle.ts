@@ -5,7 +5,7 @@ import {
   EMERGE_ARRIVAL,
   nearestSafeTile,
   COLOR_UNSET,
-  deriveKindlingCharge,
+  deriveAfkCharge,
   getZone,
   STYLE_UNSET,
   isWalkable,
@@ -24,7 +24,7 @@ import {
   forgetPlayerConnection,
   armRegen,
   armBrazierUpkeep,
-  armEmberWander,
+  armAfkWander,
   isSpacetimeAuthCaller,
   claimProviderName,
   settle,
@@ -55,7 +55,7 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
   seedRevealedHearth(ctx, startingZone);
   armRegen(ctx);
   armBrazierUpkeep(ctx);
-  armEmberWander(ctx);
+  armAfkWander(ctx);
 
   const hadLiveConnection = playerConnectionCount(ctx, ctx.sender) > 0;
   rememberPlayerConnection(ctx);
@@ -84,11 +84,11 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
     // (A trogg mid-birth resumes inside its own private cave, untouched.)
     const stuck = zone && !isWalkable(zone, Math.round(existing.x), Math.round(existing.y));
     const pos = stuck ? (nearestSafeTile(zone, existing.x, existing.y) ?? spawnAt(zone)) : { x: existing.x, y: existing.y };
-    // Reconnecting returns a trogg to bright instantly (GDD "Presence"): settle
-    // whatever ember decay happened while it was away into a fresh anchor, so
+    // Reconnecting returns a trogg to active play instantly (GDD "Presence"):
+    // settle whatever charge decay happened while it was away into a fresh anchor, so
     // accrual resumes from its true current charge, not the stale one from
     // whenever it went offline.
-    const charge = deriveKindlingCharge(existing.kindlingCharge, existing.kindlingChargeAt, false, ctx.timestamp);
+    const charge = deriveAfkCharge(existing.kindlingCharge, existing.kindlingChargeAt, false, ctx.timestamp);
     ctx.db.player.identity.update({
       ...existing,
       x: pos.x,
@@ -167,10 +167,10 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
 
 /**
  * A client disconnected. Settle the trogg to where it is *now*, resolve its
- * presence (GDD "The fire and the dark" → Presence: ember if kindling charge
- * remains, recalled to the nearest hearth first if it's off lit ground;
- * dormant, settled at the hearth, once charge is spent), and mark it offline.
- * Ember and dormant troggs stay in view — only the live-socket presence drops.
+ * presence (GDD "The fire and the dark" → Presence: AFK in place if charge
+ * remains and it's on lit ground, recalled to the nearest hearth otherwise),
+ * and mark it offline.
+ * AFK troggs stay in view — only the live-socket presence drops.
  */
 export const onDisconnect = spacetimedb.clientDisconnected((ctx) => {
   const p = ctx.db.player.identity.find(ctx.sender);

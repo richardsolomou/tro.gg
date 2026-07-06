@@ -16,11 +16,11 @@ import {
   PLAYER_MAX_HEALTH,
   BRAZIER_UPKEEP_ITEM,
   BRAZIER_UPKEEP_RATE,
-  deriveKindlingCharge,
-  DORMANT_EFFICIENCY_FRACTION,
-  EMBER_EFFICIENCY_FRACTION,
-  EMBER_GATHER_DAMAGE,
-  EMBER_SEEK_RADIUS,
+  deriveAfkCharge,
+  AFK_TRICKLE_EFFICIENCY_FRACTION,
+  AFK_EFFICIENCY_FRACTION,
+  AFK_GATHER_DAMAGE,
+  AFK_SEEK_RADIUS,
   findPath,
   NODE_RESPAWN_MS,
   serializePath,
@@ -40,7 +40,7 @@ import {
   anyPlayerOnline,
   armRegen,
   armBrazierUpkeep,
-  armEmberWander,
+  armAfkWander,
   respawnDue,
   scheduleRespawnAt,
   respawnPlayer,
@@ -164,13 +164,14 @@ const player = table(
     // ticked. Grounded rows stay 0/0.
     z: t.f64().default(0),
     dirZ: t.i32().default(0),
-    // Earned ember-time (GDD "The fire and the dark" → Presence), stored the
-    // way motion is: a value plus the anchor it was true at. Current charge is
-    // *derived* (`deriveKindlingCharge`) by applying the accrual rate while
+    // Earned AFK-work budget (GDD "The fire and the dark" → Presence), stored
+    // the way motion is: a value plus the anchor it was true at. Current charge
+    // is *derived* (`deriveAfkCharge`) by applying the accrual rate while
     // online or the decay rate while offline over elapsed real time since the
-    // anchor — never advanced on a timer (invariant 1). Bright/ember/dormant
-    // are therefore derived state, not stored: bright = online; ember =
-    // !online && derived charge > 0; dormant = !online && derived charge <= 0.
+    // anchor — never advanced on a timer (invariant 1). Presence is therefore
+    // derived state, not stored: active = online, AFK = !online; remaining
+    // charge only picks the AFK gather rate (full fraction vs trickle).
+    // Columns keep their shipped kindling_charge names (additive-only schema).
     kindlingCharge: t.f64().default(0),
     kindlingChargeAt: t.timestamp().default(Timestamp.UNIX_EPOCH),
   },
@@ -337,7 +338,7 @@ const inventory = table(
 /**
  * The tribe's one shared resource pool (GDD "The fire and the dark" → The
  * stockpile): one row per item id, fed directly by every gather action —
- * bright or ember — never by a personal inventory. Global, not per-zone: there
+ * active or AFK — never by a personal inventory. Global, not per-zone: there
  * is only one world. Read-only from a player's perspective; capped at
  * `STOCKPILE_CAP` per item so a long-idle tribe can't bank an indefinite
  * surplus. No index needed at this size.
@@ -389,15 +390,17 @@ const brazierUpkeepTimer = table(
 );
 
 /**
- * The ember-trogg and dark-creature wander timer (GDD "The fire and the
+ * The AFK-trogg and dark-creature wander timer (GDD "The fire and the
  * dark" → Presence; "Dark creatures") — a sanctioned scheduled-reducer
  * exception: re-armed only while a player is online, so an empty world does
  * no work. Private (no
  * client reads it). `wanderPresence` is the one reducer bound to it — a
  * SpacetimeDB scheduled table calls exactly one reducer — steering both an
- * ember trogg's instinct amble and a dark creature's wander/aggro/chase.
+ * AFK trogg's instinct amble and a dark creature's wander/aggro/chase.
+ * The durable table name `ember_wander` predates the AFK naming and stays
+ * (prod schema changes only additively).
  */
-const emberWanderTimer = table(
+const afkWanderTimer = table(
   { name: "ember_wander", scheduled: (): any => wanderPresence },
   {
     scheduledId: t.u64().primaryKey().autoInc(),
@@ -439,7 +442,7 @@ const playerRespawn = table(
  * One-shot node respawn timers (GDD "Territory claiming"): each breaking hit
  * on a boulder or tree arms one, and the firing re-plants the node in place
  * at full health after `NODE_RESPAWN_MS` — settled ground never runs dry, for
- * bright farming and ember instinct alike.
+ * active farming and AFK instinct alike.
  */
 const nodeRespawn = table(
   { name: "node_respawn", scheduled: (): any => respawnNodes },
@@ -506,7 +509,7 @@ const worldState = table(
   },
 );
 
-const spacetimedb = schema({ player, chatMessage, ghostHaunt, claimCode, boulder, tree, darkCreature, groundItem, inventory, stockpile, brazier, brazierUpkeepTimer, emberWanderTimer, playerConnection, playerRespawn, nodeRespawn, creatureRegen, revealedRegion, worldState });
+const spacetimedb = schema({ player, chatMessage, ghostHaunt, claimCode, boulder, tree, darkCreature, groundItem, inventory, stockpile, brazier, brazierUpkeepTimer, afkWanderTimer, playerConnection, playerRespawn, nodeRespawn, creatureRegen, revealedRegion, worldState });
 export default spacetimedb;
 
 /** The reducer context, typed against this module's schema (db view + sender). */
@@ -645,19 +648,19 @@ export const brazierUpkeep = spacetimedb.reducer({ timer: brazierUpkeepTimer.row
 });
 
 /**
- * The ember-trogg and dark-creature wander sweep (GDD "The fire and the
- * dark" → Presence; "Dark creatures"). Every offline trogg still carrying
- * kindling charge ambles safe interior ground on instinct — confined to lit
- * tiles — and gathers passively from an adjacent boulder or tree at
- * `EMBER_EFFICIENCY_FRACTION` of a bright trogg's rate, with no XP; the
- * instant its charge reaches zero it goes dormant, settled at its zone's
+ * The AFK-trogg and dark-creature wander sweep (GDD "The fire and the
+ * dark" → Presence; "Dark creatures"). Every AFK trogg ambles safe interior
+ * ground on instinct — confined to lit tiles — and gathers passively from an
+ * adjacent boulder or tree at `AFK_EFFICIENCY_FRACTION` of an active trogg's
+ * rate while its charge lasts (`AFK_TRICKLE_EFFICIENCY_FRACTION` once spent),
+ * with no XP; the instant its charge runs out it settles at its zone's
  * nearest hearth. Every living dark creature ambles the dark — confined to
- * *unlit* tiles, the mirror boundary — until a bright trogg comes within
+ * *unlit* tiles, the mirror boundary — until an active trogg comes within
  * `DARK_CREATURE_AGGRO_RANGE`, then turns to close the distance and attacks
  * once in reach; a target that disconnects, dies, or leaves the zone drops
  * the chase. The timer re-arms only while a player is online.
  */
-export const wanderPresence = spacetimedb.reducer({ timer: emberWanderTimer.rowType }, (ctx) => {
+export const wanderPresence = spacetimedb.reducer({ timer: afkWanderTimer.rowType }, (ctx) => {
   const online = anyPlayerOnline(ctx);
   const now = ctx.timestamp;
   if (online) {
@@ -665,12 +668,12 @@ export const wanderPresence = spacetimedb.reducer({ timer: emberWanderTimer.rowT
     const penumbraSlugs = penumbraOf(revealedSlugs);
     const revealed = (zone: Zone, x: number, y: number) => isRevealed(zone, revealedSlugs, penumbraSlugs, x, y);
     for (const p of ctx.db.player.iter()) {
-      if (p.online) continue; // bright troggs act on player input, not instinct
-      const charge = deriveKindlingCharge(p.kindlingCharge, p.kindlingChargeAt, false, now);
-      // Instinct never fully sleeps (GDD "Presence"): a charged ember trogg
-      // works at the full instinct rate, a dormant one keeps a slower trickle
-      // — the world stays busy, and bright play still buys the better rate.
-      const gatherFraction = charge > 0 ? EMBER_EFFICIENCY_FRACTION : DORMANT_EFFICIENCY_FRACTION;
+      if (p.online) continue; // active troggs act on player input, not instinct
+      const charge = deriveAfkCharge(p.kindlingCharge, p.kindlingChargeAt, false, now);
+      // Instinct never fully sleeps (GDD "Presence"): a charged AFK trogg
+      // works at the full instinct rate, a spent one keeps a slower trickle
+      // — the world stays busy, and active play still buys the better rate.
+      const gatherFraction = charge > 0 ? AFK_EFFICIENCY_FRACTION : AFK_TRICKLE_EFFICIENCY_FRACTION;
 
       const zone = getZone(p.zoneId);
       if (!zone) continue;
@@ -721,7 +724,7 @@ export const wanderPresence = spacetimedb.reducer({ timer: emberWanderTimer.rowT
         if (chipping) {
           if (camped.kind === "boulder") {
             const b = boulderAt(ctx, p.zoneId, camped.x, camped.y)!;
-            if (b.health > EMBER_GATHER_DAMAGE) ctx.db.boulder.id.update({ ...b, health: b.health - EMBER_GATHER_DAMAGE });
+            if (b.health > AFK_GATHER_DAMAGE) ctx.db.boulder.id.update({ ...b, health: b.health - AFK_GATHER_DAMAGE });
             else {
               ctx.db.boulder.id.delete(b.id);
               depositStockpile(ctx, "stone", 1);
@@ -729,7 +732,7 @@ export const wanderPresence = spacetimedb.reducer({ timer: emberWanderTimer.rowT
             }
           } else {
             const tr = treeAt(ctx, p.zoneId, camped.x, camped.y)!;
-            if (tr.health > EMBER_GATHER_DAMAGE) ctx.db.tree.id.update({ ...tr, health: tr.health - EMBER_GATHER_DAMAGE });
+            if (tr.health > AFK_GATHER_DAMAGE) ctx.db.tree.id.update({ ...tr, health: tr.health - AFK_GATHER_DAMAGE });
             else {
               ctx.db.tree.id.delete(tr.id);
               depositStockpile(ctx, "wood", 1);
@@ -739,7 +742,7 @@ export const wanderPresence = spacetimedb.reducer({ timer: emberWanderTimer.rowT
         }
 
         // Face the node, and stamp the swing impulse on a chip — the same
-        // synced fields a bright trogg's F writes, so every client animates
+        // synced fields an active trogg's F writes, so every client animates
         // the strike with the held tool.
         const faceX = Math.sign(camped.x - cx);
         const faceY = Math.sign(camped.y - cy);
@@ -771,22 +774,22 @@ export const wanderPresence = spacetimedb.reducer({ timer: emberWanderTimer.rowT
       if (p.path !== "" && !at.arrived && (at.dirX !== 0 || at.dirY !== 0)) continue;
 
       // Seek: route to the nearest node on lit, revealed ground, anywhere in
-      // the zone (`EMBER_SEEK_RADIUS` is a routing budget, not a leash). The
+      // the zone (`AFK_SEEK_RADIUS` is a routing budget, not a leash). The
       // node tile itself is an obstacle, so `findPath` lands on a walkable
       // tile beside it — the camping spot. A* only runs between nodes.
       const nodes: { x: number; y: number; d: number }[] = [];
       for (const b of ctx.db.boulder.zoneId.filter(p.zoneId)) {
         const d = Math.abs(b.x - cx) + Math.abs(b.y - cy);
-        if (d <= EMBER_SEEK_RADIUS) nodes.push({ x: b.x, y: b.y, d });
+        if (d <= AFK_SEEK_RADIUS) nodes.push({ x: b.x, y: b.y, d });
       }
       for (const tr of ctx.db.tree.zoneId.filter(p.zoneId)) {
         const d = Math.abs(tr.x - cx) + Math.abs(tr.y - cy);
-        if (d <= EMBER_SEEK_RADIUS) nodes.push({ x: tr.x, y: tr.y, d });
+        if (d <= AFK_SEEK_RADIUS) nodes.push({ x: tr.x, y: tr.y, d });
       }
       nodes.sort((a, b) => a.d - b.d);
       let routed = false;
       for (const node of nodes.slice(0, 4)) {
-        const path = smoothPath(bounds, at, findPath(bounds, at, { x: node.x, y: node.y }, EMBER_SEEK_RADIUS));
+        const path = smoothPath(bounds, at, findPath(bounds, at, { x: node.x, y: node.y }, AFK_SEEK_RADIUS));
         const first = path[0];
         if (!first) continue;
         const hopX = first.x - at.x;
@@ -852,7 +855,7 @@ export const wanderPresence = spacetimedb.reducer({ timer: emberWanderTimer.rowT
       const ownTile = tileKey(Math.round(s.x), Math.round(s.y));
 
       // Keep a live target (same zone, online, alive); else look for a fresh
-      // bright trogg within aggro range. Sighting is range-based, like earshot.
+      // active trogg within aggro range. Sighting is range-based, like earshot.
       let target: NonNullable<ReturnType<typeof ctx.db.player.identity.find>> | undefined;
       for (const pl of ctx.db.player.zoneId.filter(s.zoneId)) {
         if (!pl.online || pl.dead) continue;
@@ -904,6 +907,6 @@ export const wanderPresence = spacetimedb.reducer({ timer: emberWanderTimer.rowT
       ctx.db.darkCreature.id.update({ ...c, x: s.x, y: s.y, dirX: dir.dirX, dirY: dir.dirY, movedAt: now, aggroTargetId });
     }
   }
-  ctx.db.emberWanderTimer.clear();
-  if (online) armEmberWander(ctx);
+  ctx.db.afkWanderTimer.clear();
+  if (online) armAfkWander(ctx);
 });

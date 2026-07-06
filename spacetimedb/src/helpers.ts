@@ -4,7 +4,7 @@ import {
   WANDER_IDLE_CHANCE,
   HEALTH_REGEN_TICK_MS,
   BRAZIER_UPKEEP_TICK_MS,
-  EMBER_WANDER_TICK_MS,
+  AFK_WANDER_TICK_MS,
   NODE_RESPAWN_MS,
   isValidName,
   isWalkable,
@@ -231,12 +231,12 @@ export function scheduleNodeRespawn(ctx: Ctx, zoneId: string, kind: "boulder" | 
   ctx.db.nodeRespawn.insert({ scheduledId: 0n, scheduledAt: ScheduleAt.time(at), zoneId, kind, x, y });
 }
 
-/** Arm the ember-trogg wander sweep, unless one is already pending (GDD "The
+/** Arm the AFK-trogg wander sweep, unless one is already pending (GDD "The
  *  fire and the dark" → Presence). */
-export function armEmberWander(ctx: Ctx): void {
-  if (ctx.db.emberWanderTimer.count() > 0n) return;
-  const at = ctx.timestamp.microsSinceUnixEpoch + BigInt(EMBER_WANDER_TICK_MS) * 1000n;
-  ctx.db.emberWanderTimer.insert({ scheduledId: 0n, scheduledAt: ScheduleAt.time(at) });
+export function armAfkWander(ctx: Ctx): void {
+  if (ctx.db.afkWanderTimer.count() > 0n) return;
+  const at = ctx.timestamp.microsSinceUnixEpoch + BigInt(AFK_WANDER_TICK_MS) * 1000n;
+  ctx.db.afkWanderTimer.insert({ scheduledId: 0n, scheduledAt: ScheduleAt.time(at) });
 }
 
 /** Whether the caller authenticated with a SpacetimeAuth OIDC token (an account, not a guest). */
