@@ -1077,29 +1077,33 @@ test("wanderPresence keeps a charged ember trogg confined to lit territory while
   assert.ok(Math.hypot(p.x - hearth.x, p.y - hearth.y) <= hearth.radius);
 });
 
-test("wanderPresence settles a trogg whose kindling charge has just run out beside the nearest hearth", () => {
+test("wanderPresence keeps a dormant trogg gathering at the dormant trickle", () => {
   const watcher = id("watcher");
-  const ember = id("goingdormant");
-  const ctx = makeCtx({ sender: watcher, now: micros(999_999_999) }); // long enough to fully decay
+  const dormant = id("driedout");
+  // 0.05 lands under DORMANT_EFFICIENCY_FRACTION, so even a drained trogg chips.
+  const ctx = makeCtx({ sender: watcher, random: 0.05 });
   ctx.db.player.insert(playerRow(watcher, { online: true }));
-  const hearth = ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
-  ctx.db.player.insert(playerRow(ember, { x: 80, y: 96, online: false, kindlingCharge: 1, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
+  ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
+  ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96, health: EMBER_GATHER_DAMAGE }); // breaks on one chip
+  ctx.db.player.insert(playerRow(dormant, { x: 69, y: 96, online: false, kindlingCharge: 0, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
   wanderPresence(ctx, {});
-  const p = ctx.db.player.identity.find(ember);
-  const dist = Math.abs(p.x - hearth.x) + Math.abs(p.y - hearth.y);
-  assert.deepEqual({ besideNotOn: dist >= 1 && dist <= 2, kindlingCharge: p.kindlingCharge }, { besideNotOn: true, kindlingCharge: 0 });
+  assert.deepEqual(
+    { boulders: ctx.db.boulder.rows().length, stone: ctx.db.stockpile.item.find("stone")?.qty },
+    { boulders: 0, stone: 1 },
+  );
 });
 
-test("wanderPresence nudges a dormant trogg parked on a brazier tile off the fire", () => {
+test("wanderPresence holds a dormant trogg to the slower roll — an ember-grade roll misses", () => {
   const watcher = id("watcher");
-  const parked = id("onthefire");
-  const ctx = makeCtx({ sender: watcher });
+  const dormant = id("driedout2");
+  // 0.2 would chip for an ember trogg (< EMBER_EFFICIENCY_FRACTION) but misses the dormant trickle.
+  const ctx = makeCtx({ sender: watcher, random: 0.2 });
   ctx.db.player.insert(playerRow(watcher, { online: true }));
-  const hearth = ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
-  ctx.db.player.insert(playerRow(parked, { x: 69, y: 96, online: false, kindlingCharge: 0, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
+  ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
+  ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96, health: EMBER_GATHER_DAMAGE });
+  ctx.db.player.insert(playerRow(dormant, { x: 69, y: 96, online: false, kindlingCharge: 0, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
   wanderPresence(ctx, {});
-  const p = ctx.db.player.identity.find(parked);
-  assert.notDeepEqual({ x: p.x, y: p.y }, { x: hearth.x, y: hearth.y });
+  assert.equal(ctx.db.boulder.rows()[0]?.health, EMBER_GATHER_DAMAGE); // camped beside it, chip missed
 });
 
 test("wanderPresence gathers on instinct from an adjacent boulder and deposits into the stockpile", () => {

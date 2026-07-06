@@ -17,6 +17,7 @@ import {
   BRAZIER_UPKEEP_ITEM,
   BRAZIER_UPKEEP_RATE,
   deriveKindlingCharge,
+  DORMANT_EFFICIENCY_FRACTION,
   EMBER_EFFICIENCY_FRACTION,
   EMBER_GATHER_DAMAGE,
   EMBER_SEEK_RADIUS,
@@ -24,7 +25,6 @@ import {
   NODE_RESPAWN_MS,
   serializePath,
   smoothPath,
-  spawnTiles,
   WANDER_TURN_CHANCE,
   footprintWalkable,
   getZone,
@@ -50,7 +50,6 @@ import {
   boulderAt,
   treeAt,
   isLitTile,
-  nearestLitBrazier,
   pickWanderDir,
   settle,
   darkCreatureDef,
@@ -669,40 +668,10 @@ export const wanderPresence = spacetimedb.reducer({ timer: emberWanderTimer.rowT
     for (const p of ctx.db.player.iter()) {
       if (p.online) continue; // bright troggs act on player input, not instinct
       const charge = deriveKindlingCharge(p.kindlingCharge, p.kindlingChargeAt, false, now);
-      if (charge <= 0) {
-        // Settle a trogg whose charge just faded at the nearest hearth —
-        // beside the fire, never on it — and nudge one already parked on a
-        // brazier tile (the pre-fix settle put them there). Otherwise dormant
-        // troggs are left alone: present, waiting, visibly idle.
-        const hearth = nearestLitBrazier(ctx, p.zoneId, p.x, p.y);
-        const justFaded = p.kindlingCharge > 0;
-        const onFire = hearth !== undefined && Math.round(p.x) === hearth.x && Math.round(p.y) === hearth.y;
-        if (justFaded || onFire) {
-          let rest = hearth ? { x: hearth.x, y: hearth.y } : { x: p.x, y: p.y };
-          const zone = getZone(p.zoneId);
-          if (hearth && zone) {
-            const blockers = obstacleTiles(ctx, p.zoneId);
-            const spots = spawnTiles(zone, (x, y) => blockers.has(tileKey(x, y)) || (x === hearth.x && y === hearth.y), hearth.x, hearth.y, 0, 0, 6);
-            if (spots.length > 0) {
-              let h = 0;
-              for (const c of p.identity.toHexString()) h = (h * 31 + c.charCodeAt(0)) | 0;
-              rest = spots[Math.abs(h) % spots.length]!;
-            }
-          }
-          ctx.db.player.identity.update({
-            ...p,
-            x: rest.x,
-            y: rest.y,
-            dirX: 0,
-            dirY: 0,
-            path: "",
-            movedAt: now,
-            kindlingCharge: 0,
-            kindlingChargeAt: justFaded ? now : p.kindlingChargeAt,
-          });
-        }
-        continue;
-      }
+      // Instinct never fully sleeps (GDD "Presence"): a charged ember trogg
+      // works at the full instinct rate, a dormant one keeps a slower trickle
+      // — the world stays busy, and bright play still buys the better rate.
+      const gatherFraction = charge > 0 ? EMBER_EFFICIENCY_FRACTION : DORMANT_EFFICIENCY_FRACTION;
 
       const zone = getZone(p.zoneId);
       if (!zone) continue;
@@ -726,7 +695,7 @@ export const wanderPresence = spacetimedb.reducer({ timer: emberWanderTimer.rowT
         const b = boulderAt(ctx, p.zoneId, nx, ny);
         if (b) {
           camped = true;
-          if (ctx.random() < EMBER_EFFICIENCY_FRACTION) {
+          if (ctx.random() < gatherFraction) {
             if (b.health > EMBER_GATHER_DAMAGE) ctx.db.boulder.id.update({ ...b, health: b.health - EMBER_GATHER_DAMAGE });
             else {
               ctx.db.boulder.id.delete(b.id);
@@ -739,7 +708,7 @@ export const wanderPresence = spacetimedb.reducer({ timer: emberWanderTimer.rowT
         const tr = treeAt(ctx, p.zoneId, nx, ny);
         if (tr) {
           camped = true;
-          if (ctx.random() < EMBER_EFFICIENCY_FRACTION) {
+          if (ctx.random() < gatherFraction) {
             if (tr.health > EMBER_GATHER_DAMAGE) ctx.db.tree.id.update({ ...tr, health: tr.health - EMBER_GATHER_DAMAGE });
             else {
               ctx.db.tree.id.delete(tr.id);

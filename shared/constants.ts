@@ -117,18 +117,21 @@ export const CHARGE_MAX = 60;
 export const CHARGE_DECAY_RATE = 10; // charge per hour while ember
 
 /**
- * An ember trogg works safe interior ground on instinct (GDD "Presence"): the
- * scheduled `ember_wander` sweep re-derives its position every
+ * An offline trogg works safe interior ground on instinct (GDD "Presence"):
+ * the scheduled `ember_wander` sweep re-derives its position every
  * `EMBER_WANDER_TICK_MS`, routes it to the nearest boulder or tree on lit
- * revealed ground, and camps it there, rolling `EMBER_EFFICIENCY_FRACTION`
- * per tick for an instinct-driven gather chip roughly the weight of one weak
- * tool hit — a trickle next to a bright trogg spamming swings, deposited into
- * the stockpile the same way a real hit is, earning no XP. `EMBER_SEEK_RADIUS`
+ * revealed ground, and camps it there, rolling a per-tick chance for an
+ * instinct-driven gather chip roughly the weight of one weak tool hit —
+ * deposited into the stockpile the same way a real hit is, earning no XP.
+ * The roll is `EMBER_EFFICIENCY_FRACTION` while kindling charge lasts and
+ * drops to `DORMANT_EFFICIENCY_FRACTION` once dormant — instinct never fully
+ * sleeps, but bright play buys the better rate. `EMBER_SEEK_RADIUS`
  * (manhattan tiles) is the routing budget, sized to span a whole settled zone
  * rather than a neighbourhood — park a trogg anywhere lit and it works that
  * ground. With no reachable node it falls back to an aimless wander. (initial)
  */
 export const EMBER_EFFICIENCY_FRACTION = 0.3;
+export const DORMANT_EFFICIENCY_FRACTION = 0.1;
 export const EMBER_WANDER_TICK_MS = 1_000;
 export const EMBER_GATHER_DAMAGE = 6;
 export const EMBER_SEEK_RADIUS = 400;
