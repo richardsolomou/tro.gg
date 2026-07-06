@@ -38,11 +38,6 @@ snake_case. Low-volume by design — anything that could fire more than ~once/se
 | `equipped_item_used` | `zone, item, source?` | Player's own equipped item use is accepted and appears on the authoritative player row |
 | `inventory_item_dropped` | `zone, item, source?` | Player drops one unit of an inventory item back into the world as a `ground_item` |
 | `inventory_item_discarded` | `zone, item, source?` | Player permanently destroys one unit of an inventory item (no ground item created) |
-| `zone_entered` | `zone, from_zone` | Zone transition |
-| `action_started` | `action, node_type, zone` | Action begins |
-| `resource_gathered` | `node_type, item, zone` | Action completes |
-| `xp_gained` | `skill, amount, level` | XP granted (batch if volume demands) |
-| `level_up` | `skill, level` | Derived level increases |
 | `chat_sent` | `zone, source?` | Message sent — **no content** |
 | `boulders_reset` | `zone, source` | Player resets boulders via the Commands panel |
 | `dark_creatures_reset` | `zone, source` | Player resets dark creatures via the Commands panel |
@@ -58,10 +53,9 @@ snake_case. Low-volume by design — anything that could fire more than ~once/se
 | `combat_hit` | `zone, weapon, target, damage, killed, source?` | An accepted server-side attack damages a trogg or dark creature. `weapon` is the main-hand item id (`sword`, `axe`, `pickaxe`, `shovel`), `fists`, or `thrown_boulder`; `target` is `trogg` or `dark_creature`. `damage` is the amount actually dealt after a shielded trogg's `SHIELD_BLOCK_FRACTION` reduction, not the raw weapon roll |
 | `player_died` | `zone, cause, dropped_item_rows, dropped_item_qty, respawn_ms, source?` | Server-side combat damage kills a trogg, drops its inventory, and schedules its respawn |
 | `player_respawned` | `zone, respawn_ms, source` | The local player's authoritative row transitions from dead to alive after the scheduled respawn timer |
-| `warren_emerged` | Client, when a trogg's emergence from its cave lands it in the world (post-transfer boot) | `zone` |
-| `item_crafted` | `recipe, qty` | Item crafting succeeds |
+| `warren_emerged` | `zone` | Client, when a trogg's emergence from its cave lands it in the world (post-transfer boot) |
 
-Brazier upkeep/gutter and a trogg going ember/dormant are anticipated by the fire-and-dark design but emit no dedicated event — each runs inside a scheduled reducer, not a procedure, and only procedures have an analytics capture step in this codebase (see the procedure-wrapper paragraph below); these stay visible to clients via row diffs on the synced `brazier`/`player` tables instead. Register any new event here in the same change that adds it, per the rule below.
+Planned events, not yet emitted by any code: `zone_entered`, `action_started`, `resource_gathered`, `xp_gained` / `level_up` (skills and XP are designed but unbuilt), and `item_crafted` (crafting is unbuilt) — move each into the table above when the emitting code ships. Brazier upkeep/gutter and a trogg going ember/dormant are anticipated by the fire-and-dark design but emit no dedicated event — each runs inside a scheduled reducer, not a procedure, and only procedures have an analytics capture step in this codebase (see the procedure-wrapper paragraph below); these stay visible to clients via row diffs on the synced `brazier`/`player` tables instead. Register any new event here in the same change that adds it, per the rule below.
 
 Client lifecycle events use posthog-js (plus autocapture + session replay). Gameplay actions that need trusted server-side product events should use SpacetimeDB procedure wrappers rather than calling reducers directly from the browser. Each `*Action` procedure performs the authoritative mutation inside `ctx.withTx(...)`, derives event properties from server state, and then best-effort posts the accepted event to PostHog from the module with `source=spacetimedb-procedure` unless the caller supplies a narrower source such as `chat`, `commands`, `appearance`, `inventory`, or `keyboard`. Death from combat is captured by the attacking procedure as `player_died`; respawn is captured client-side from the local authoritative row transition because it is driven by a scheduled reducer, not a procedure call. Movement still generates zero events.
 
