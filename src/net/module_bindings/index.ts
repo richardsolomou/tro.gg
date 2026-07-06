@@ -44,6 +44,7 @@ import FaceReducer from "./face_reducer";
 import HauntGhostReducer from "./haunt_ghost_reducer";
 import HealSelfReducer from "./heal_self_reducer";
 import InteractReducer from "./interact_reducer";
+import JumpRegionsReducer from "./jump_regions_reducer";
 import MoveReducer from "./move_reducer";
 import MoveToReducer from "./move_to_reducer";
 import RecolorReducer from "./recolor_reducer";
@@ -69,6 +70,7 @@ import * as DropItemActionProcedure from "./drop_item_action_procedure";
 import * as EquipItemActionProcedure from "./equip_item_action_procedure";
 import * as HauntGhostActionProcedure from "./haunt_ghost_action_procedure";
 import * as InteractActionProcedure from "./interact_action_procedure";
+import * as JumpRegionsActionProcedure from "./jump_regions_action_procedure";
 import * as RecolorActionProcedure from "./recolor_action_procedure";
 import * as RenameActionProcedure from "./rename_action_procedure";
 import * as ResetBouldersActionProcedure from "./reset_boulders_action_procedure";
@@ -270,6 +272,7 @@ const reducersSchema = __reducers(
   __reducerSchema("haunt_ghost", HauntGhostReducer),
   __reducerSchema("heal_self", HealSelfReducer),
   __reducerSchema("interact", InteractReducer),
+  __reducerSchema("jump_regions", JumpRegionsReducer),
   __reducerSchema("move", MoveReducer),
   __reducerSchema("move_to", MoveToReducer),
   __reducerSchema("recolor", RecolorReducer),
@@ -297,6 +300,7 @@ const proceduresSchema = __procedures(
   __procedureSchema("equip_item_action", EquipItemActionProcedure.params, EquipItemActionProcedure.returnType),
   __procedureSchema("haunt_ghost_action", HauntGhostActionProcedure.params, HauntGhostActionProcedure.returnType),
   __procedureSchema("interact_action", InteractActionProcedure.params, InteractActionProcedure.returnType),
+  __procedureSchema("jump_regions_action", JumpRegionsActionProcedure.params, JumpRegionsActionProcedure.returnType),
   __procedureSchema("recolor_action", RecolorActionProcedure.params, RecolorActionProcedure.returnType),
   __procedureSchema("rename_action", RenameActionProcedure.params, RenameActionProcedure.returnType),
   __procedureSchema("reset_boulders_action", ResetBouldersActionProcedure.params, ResetBouldersActionProcedure.returnType),

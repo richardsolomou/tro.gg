@@ -1,23 +1,7 @@
 export * from "./glyphs";
 import { SOLID_GLYPHS, TILE_GLYPHS, WATER_TILE } from "./glyphs";
 import { DARK_CREATURE_SPECIES, type DarkCreatureSpecies } from "./creatures";
-import { generateBirthCave, regionAt, setRegionRows, WORLD_H, WORLD_W } from "./worldgen";
-import {
-  WORLD_ARRIVAL,
-  WORLD_CAVE_DOOR,
-  WORLD_BOULDERS,
-  WORLD_CELLS,
-  WORLD_DARK_CREATURES,
-  WORLD_ITEMS,
-  WORLD_REGION_ADJACENCY,
-  WORLD_REGION_ROWS,
-  WORLD_SPAWN,
-  WORLD_TILES,
-  WORLD_TREES,
-} from "./world-map";
-
-// regionAt() reads the committed grid on both client and module
-setRegionRows(WORLD_REGION_ROWS);
+import { generateBirthCave, HEARTH_STARTER_ITEMS, neighborsOf, regionAt, WORLD_SPAWN, worldGlyphAt } from "./worldgen";
 /**
  * Tuning values from the GDD. Those marked (initial) are starting values; keep
  * them centralized here and make them remotely configurable only when runtime
@@ -494,8 +478,12 @@ export interface DarkCreatureSeed extends Coord {
 export interface Zone {
   slug: string;
   name: string;
+  /** Tile extents of a bounded zone's committed grid; 0 when `unbounded`. */
   width: number;
   height: number;
+  /** The world zone has no edge (GDD "Generation"): tiles synthesize on demand
+   *  from coordinates — negative included — and `tiles` stays empty. */
+  unbounded?: boolean;
   /** Colour/decoration family — the client picks palettes by it (BIOME_3D). */
   biome: string;
   /** Edge gates into neighbouring zones. */
@@ -516,29 +504,32 @@ export interface Zone {
 }
 
 /**
- * The world (GDD "Zones"): ONE seamless zone, read from the committed map
- * (`shared/world-map.ts` — generated once by `bin/generate-world`, then owned by
- * hand). It is a plus-shaped layout of eleven biome regions (`WORLD_REGIONS` in
- * worldgen.ts) stitched into a single 192×220 coordinate space with natural
- * carved passages between them — regions are colour/decoration character and a
- * name for a part of the map, not instances; you walk across. The client streams
- * terrain in proximity chunks; the whole world is one subscription space.
+ * The world (GDD "Zones"): ONE seamless, unbounded zone. There is no committed
+ * map — every tile's glyph is synthesized on demand from its coordinates and
+ * the world seed (`worldGlyphAt`, shared/worldgen.ts), identically on client
+ * and module, so the grid stays shared design data with no file enumerating
+ * it and no edge to run out of. Regions are a colour/decoration character and
+ * a name for a part of the map, not instances; per-region seeds (boulders,
+ * trees, dark creatures) come from `regionSeeds` and are inserted by the
+ * module the moment a region is first exposed. The client streams terrain in
+ * proximity chunks; the whole world is one subscription space.
  */
 export const ZONES: Record<string, Zone> = {
   world: {
     slug: "world",
     name: "The Caves",
-    width: WORLD_W,
-    height: WORLD_H,
+    width: 0,
+    height: 0,
+    unbounded: true,
     biome: "cave",
     exits: [],
     spawn: WORLD_SPAWN,
-    tiles: WORLD_TILES,
-    boulders: WORLD_BOULDERS,
-    trees: WORLD_TREES,
-    items: WORLD_ITEMS,
-    cells: WORLD_CELLS,
-    darkCreatures: WORLD_DARK_CREATURES,
+    tiles: [],
+    boulders: [],
+    trees: [],
+    items: HEARTH_STARTER_ITEMS,
+    cells: [],
+    darkCreatures: [],
   },
   birthcave: generateBirthCave(),
 };
@@ -555,13 +546,6 @@ export function birthZoneFor(identityHex: string): string {
 export function isBirthZone(slug: string): boolean {
   return slug.startsWith(BIRTH_ZONE_PREFIX);
 }
-
-/** Where an emerging trogg lands: the coast's cave-mouth alcove. */
-export const EMERGE_ARRIVAL = WORLD_ARRIVAL;
-
-/** The alcove's deep end: walking into it descends into your own birth cave —
- *  every trogg keeps its cave, and nobody else's cave is ever reachable. */
-export const CAVE_DOOR = WORLD_CAVE_DOOR;
 
 /** Where a fresh trogg spawns, and the default room the client joins. */
 export const STARTING_ZONE_SLUG = "world";
@@ -582,16 +566,10 @@ export function getZone(slug: string): Zone | undefined {
  * hard collision wall regardless of what's rendered there; see `regionVisibility`
  * for how that differs from what's drawn). Penumbra is derived on demand, never stored.
  */
-/** The regions adjacent to `slug`, per the committed `WORLD_REGION_ADJACENCY`
- *  graph — empty for an unknown slug. */
-export function neighborsOf(slug: string): readonly string[] {
-  return WORLD_REGION_ADJACENCY[slug] ?? [];
-}
-
 export function penumbraOf(revealedSlugs: ReadonlySet<string>): ReadonlySet<string> {
   const penumbra = new Set<string>();
   for (const slug of revealedSlugs) {
-    for (const neighbor of WORLD_REGION_ADJACENCY[slug] ?? []) {
+    for (const neighbor of neighborsOf(slug)) {
       if (!revealedSlugs.has(neighbor)) penumbra.add(neighbor);
     }
   }
@@ -605,7 +583,6 @@ export function penumbraOf(revealedSlugs: ReadonlySet<string>): ReadonlySet<stri
 export function isRevealed(zone: Zone, revealedSlugs: ReadonlySet<string>, penumbraSlugs: ReadonlySet<string>, x: number, y: number): boolean {
   if (zone.slug !== STARTING_ZONE_SLUG) return true;
   const region = regionAt(x, y);
-  if (!region) return true;
   return revealedSlugs.has(region.slug) || penumbraSlugs.has(region.slug);
 }
 
@@ -622,7 +599,6 @@ export type RegionVisibility = "interior" | "penumbra" | "unreached";
 export function regionVisibility(zone: Zone, revealedSlugs: ReadonlySet<string>, penumbraSlugs: ReadonlySet<string>, x: number, y: number): RegionVisibility {
   if (zone.slug !== STARTING_ZONE_SLUG) return "interior";
   const region = regionAt(x, y);
-  if (!region) return "interior";
   if (revealedSlugs.has(region.slug)) return "interior";
   return penumbraSlugs.has(region.slug) ? "penumbra" : "unreached";
 }
@@ -632,8 +608,10 @@ export function regionVisibility(zone: Zone, revealedSlugs: ReadonlySet<string>,
  * unwalkable, so movement clamps at the zone edge the same way it clamps at a
  * wall. Coordinates are integer tile indices.
  */
-/** The glyph at a tile, or undefined out of bounds. */
+/** The glyph at a tile, or undefined out of a bounded zone's grid. The
+ *  unbounded world synthesizes every tile on demand (invariant 7). */
 export function tileGlyph(zone: Zone, tileX: number, tileY: number): string | undefined {
+  if (zone.unbounded) return worldGlyphAt(tileX, tileY);
   return zone.tiles[tileY]?.[tileX];
 }
 
@@ -645,6 +623,7 @@ export function isDryFloor(zone: Zone, tileX: number, tileY: number): boolean {
 }
 
 export function isWalkable(zone: Zone, tileX: number, tileY: number): boolean {
+  if (zone.unbounded) return !SOLID_GLYPHS.has(worldGlyphAt(tileX, tileY));
   if (tileX < 0 || tileY < 0 || tileY >= zone.tiles.length) return false;
   const row = zone.tiles[tileY]!;
   if (tileX >= row.length) return false;
@@ -658,6 +637,23 @@ export function isWalkable(zone: Zone, tileX: number, tileY: number): boolean {
  */
 export function assertZones(zones: Record<string, Zone> = ZONES): void {
   for (const zone of Object.values(zones)) {
+    if (zone.unbounded) {
+      // no committed grid to validate — check the fixed anchors instead;
+      // the generator's own invariants are covered by the worldgen tests
+      const spawn = zone.spawn ?? { x: 0, y: 0 };
+      if (!isWalkable(zone, spawn.x, spawn.y)) {
+        throw new Error(`zone ${zone.slug}: spawn at (${spawn.x}, ${spawn.y}) is not walkable`);
+      }
+      for (const item of zone.items) {
+        if (!isItemId(item.item)) {
+          throw new Error(`zone ${zone.slug}: ground item ${JSON.stringify(item.item)} is not registered`);
+        }
+        if (!isWalkable(zone, item.x, item.y)) {
+          throw new Error(`zone ${zone.slug}: ground item ${item.item} at (${item.x}, ${item.y}) is not on walkable floor`);
+        }
+      }
+      continue;
+    }
     if (zone.tiles.length !== zone.height) {
       throw new Error(`zone ${zone.slug}: ${zone.tiles.length} rows, expected height ${zone.height}`);
     }

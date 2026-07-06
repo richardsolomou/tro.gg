@@ -29,6 +29,10 @@ export function resetFrontier(conn: DbConnection, source: string) {
   return conn.procedures.resetFrontierAction(telemetry(source));
 }
 
+export function jumpRegions(conn: DbConnection, count: number, source: string) {
+  return conn.procedures.jumpRegionsAction({ count, ...telemetry(source) });
+}
+
 export function hauntGhost(conn: DbConnection, count: number, source: string) {
   return conn.procedures.hauntGhostAction({ count, ...telemetry(source) });
 }

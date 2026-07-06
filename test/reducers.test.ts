@@ -54,7 +54,9 @@ import {
   neighborsOf,
   penumbraOf,
   regionAt,
-  WORLD_REGIONS,
+  capitalOf,
+  regionSeeds,
+  regionSlug,
 } from "@trogg/shared";
 import {
   chat,
@@ -89,6 +91,7 @@ import {
   startClaim,
   useEquipped,
   revealNextRegion,
+  jumpRegions,
   resetFrontier,
 } from "../spacetimedb/src/index.ts";
 import { darkCreatureRow, id, makeCtx, playerRow, revealedRegionRow } from "./spacetime.ts";
@@ -195,12 +198,12 @@ test("move clamps heading axes to the wire scale, never trusting the client", ()
 });
 
 test("an off-axis heading moves at unit speed along its direction", () => {
-  const { ctx, me } = withPlayer({ x: 108, y: 105, dirX: 0, dirY: 0 });
+  const { ctx, me } = withPlayer({ x: 33, y: 36, dirX: 0, dirY: 0 }); // the open hearth plaza
   move(ctx, { dirX: 966, dirY: -259, running: false }); // ~15° above east
   const p = ctx.db.player.identity.find(me);
   const zone = getZone(ZONE)!;
   const at = projectMotion(p, 1_000, zoneBounds(zone));
-  const dist = Math.hypot(at.x - 108, at.y - 105);
+  const dist = Math.hypot(at.x - 33, at.y - 36);
   assert.ok(Math.abs(dist - MOVE_SPEED_TILES_PER_SEC) < 1e-6, `moved ${dist}`);
 });
 
@@ -702,9 +705,9 @@ test("a sword hit at zero health kills, drops inventory, and respawns after the 
 });
 
 test("useEquipped throws a carried boulder into a trogg and lands it past the target", () => {
-  const { ctx, me } = withPlayer({ x: 69, y: 96, carrying: "boulder", equippedMainHand: "" });
+  const { ctx, me } = withPlayer({ x: 31, y: 35, carrying: "boulder", equippedMainHand: "" }); // the open hearth plaza
   const other = id("other");
-  ctx.db.player.insert(playerRow(other, { x: 71, y: 96, health: PLAYER_MAX_HEALTH }));
+  ctx.db.player.insert(playerRow(other, { x: 33, y: 35, health: PLAYER_MAX_HEALTH }));
 
   useEquipped(ctx, { dirX: 1, dirY: 0 });
 
@@ -712,28 +715,28 @@ test("useEquipped throws a carried boulder into a trogg and lands it past the ta
   assert.equal(target.health, PLAYER_MAX_HEALTH - THROWN_OBJECT_DAMAGE);
   assert.equal(ctx.db.player.identity.find(me).carrying, "");
   const b = ctx.db.boulder.rows()[0];
-  assert.deepEqual({ x: b.x, y: b.y }, { x: 72, y: 96 });
+  assert.deepEqual({ x: b.x, y: b.y }, { x: 34, y: 35 });
 });
 
 test("useEquipped throws a carried object to max range when it hits no trogg", () => {
-  const { ctx, me } = withPlayer({ x: 69, y: 96, carrying: "boulder", equippedMainHand: "" });
+  const { ctx, me } = withPlayer({ x: 31, y: 35, carrying: "boulder", equippedMainHand: "" }); // the open hearth plaza
 
   useEquipped(ctx, { dirX: 1, dirY: 0 });
 
   assert.equal(ctx.db.player.identity.find(me).carrying, "");
   const b = ctx.db.boulder.rows()[0];
-  assert.deepEqual({ x: b.x, y: b.y }, { x: 73, y: 96 });
+  assert.deepEqual({ x: b.x, y: b.y }, { x: 35, y: 35 });
 });
 
 test("useEquipped throws a carried object along a diagonal aim, not the nearest cardinal", () => {
-  const { ctx, me } = withPlayer({ x: 69, y: 96, carrying: "boulder", equippedMainHand: "" });
+  const { ctx, me } = withPlayer({ x: 33, y: 33, carrying: "boulder", equippedMainHand: "" }); // the open hearth plaza
 
   useEquipped(ctx, { dirX: 1, dirY: 1 });
 
   assert.equal(ctx.db.player.identity.find(me).carrying, "");
   const b = ctx.db.boulder.rows()[0];
-  // travelled on both axes — a cardinal-snapped throw would leave y at 96
-  assert.ok(b.x > 69 && b.y > 96, `expected a diagonal landing, got (${b.x}, ${b.y})`);
+  // travelled on both axes — a cardinal-snapped throw would leave y at 33
+  assert.ok(b.x > 33 && b.y > 33, `expected a diagonal landing, got (${b.x}, ${b.y})`);
 });
 
 test("interact prioritizes a faced ground item over other adjacent pickups", () => {
@@ -871,13 +874,14 @@ test("disconnecting one duplicate account tab keeps the shared trogg online", ()
   assert.equal(ctx.db.playerConnection.rows().length, 1);
 });
 
-test("a returning trogg embedded in a wall is nudged to spawn", () => {
+test("a returning trogg embedded in a wall is nudged to nearby safe ground", () => {
   const me = id("stuck");
   const ctx = makeCtx({ sender: me });
-  ctx.db.player.insert(playerRow(me, { online: false, x: 0, y: 0 })); // (0,0) is a rim wall
+  ctx.db.player.insert(playerRow(me, { online: false, x: 33, y: 55 })); // the alcove ring — guaranteed rock
   onConnect(ctx);
   const p = ctx.db.player.identity.find(me);
-  assert.deepEqual({ x: p.x, y: p.y }, { x: 112, y: 104 }); // the world spawn (spawnAt)
+  const zone = getZone(ZONE)!;
+  assert.ok(isWalkable(zone, Math.round(p.x), Math.round(p.y)), `resumed at ${p.x},${p.y}`);
 });
 
 test("disconnecting drops the carried entity into the world and marks the trogg offline", () => {
@@ -1113,6 +1117,7 @@ test("wanderPresence re-arms only while a player is online", () => {
 test("onConnect seeds the world zone's dark creature population, idempotently", () => {
   const me = id("newguest2");
   const ctx = makeCtx({ sender: me });
+  ctx.db.revealedRegion.clear(); // a fresh world, before the hearth bootstrap
   onConnect(ctx);
   const count = ctx.db.darkCreature.rows().filter((c: any) => c.zoneId === ZONE).length;
   assert.ok(count > 0);
@@ -1300,11 +1305,16 @@ test("resetDarkCreatures clears the zone (corpses included) and reseeds from the
 
 // --- Territory claiming: clear the zone, then set a free brazier down ---
 
+// A penumbra region one lattice hop east of the Hearth, and one two hops out —
+// capitals are open plazas by construction, so tests stand troggs there.
+const NEIGHBOR = capitalOf(1, 0);
+const FAR = capitalOf(2, 0);
+
 test("interact refuses to claim a penumbra region while a dark creature is still alive in it", () => {
-  const { ctx, me } = withPlayer({ x: 149, y: 72 }); // emberrift — penumbra of the Hearth
+  const { ctx, me } = withPlayer({ x: NEIGHBOR.x, y: NEIGHBOR.y });
   ctx.db.revealedRegion.clear();
   ctx.db.revealedRegion.insert(revealedRegionRow({ slug: "hearth" }));
-  ctx.db.darkCreature.insert(darkCreatureRow({ x: 149, y: 72, health: 40 }));
+  ctx.db.darkCreature.insert(darkCreatureRow({ x: NEIGHBOR.x + 1, y: NEIGHBOR.y, health: 40 }));
   interact(ctx, { dirX: 1, dirY: 0 });
   assert.deepEqual(
     { carrying: ctx.db.player.identity.find(me).carrying, braziers: ctx.db.brazier.rows().length, revealed: ctx.db.revealedRegion.rows().length },
@@ -1313,10 +1323,10 @@ test("interact refuses to claim a penumbra region while a dark creature is still
 });
 
 test("interact claims a penumbra region for free once every dark creature in it is dead, and seeds its new penumbra", () => {
-  const { ctx, me } = withPlayer({ x: 149, y: 72 }); // emberrift — penumbra of the Hearth
+  const { ctx, me } = withPlayer({ x: NEIGHBOR.x, y: NEIGHBOR.y });
   ctx.db.revealedRegion.clear();
   ctx.db.revealedRegion.insert(revealedRegionRow({ slug: "hearth" }));
-  ctx.db.darkCreature.insert(darkCreatureRow({ x: 149, y: 72, health: 0 })); // a corpse doesn't block the claim
+  ctx.db.darkCreature.insert(darkCreatureRow({ x: NEIGHBOR.x + 1, y: NEIGHBOR.y, health: 0 })); // a corpse doesn't block the claim
   interact(ctx, { dirX: 1, dirY: 0 });
 
   const brazier = ctx.db.brazier.rows()[0];
@@ -1324,40 +1334,41 @@ test("interact claims a penumbra region for free once every dark creature in it 
     { carrying: ctx.db.player.identity.find(me).carrying, count: ctx.db.brazier.rows().length, lit: brazier?.lit, isEternal: brazier?.isEternal },
     { carrying: "", count: 1, lit: true, isEternal: false },
   );
-  assert.deepEqual(ctx.db.revealedRegion.rows().map((r: any) => r.slug).sort(), ["emberrift", "hearth"]);
-
-  // emberrift's still-unclaimed neighbours (rustgallery, starwell) are now
-  // penumbra and already carry their committed population, so a scout can
-  // find them before anyone claims them
-  const zone = getZone(ZONE)!;
-  for (const neighborSlug of ["rustgallery", "starwell"]) {
-    const inRegion = (t: { x: number; y: number }) => regionAt(t.x, t.y)?.slug === neighborSlug;
-    if (zone.darkCreatures.some(inRegion)) {
-      assert.ok(ctx.db.darkCreature.rows().some((c: any) => inRegion(c)), `${neighborSlug} missing seeded dark creatures`);
-    }
-  }
+  const rows = ctx.db.revealedRegion.rows();
+  assert.ok(rows.find((r: any) => r.slug === NEIGHBOR.slug)?.interior, "the claimed region flips interior");
+  // the claim exposes the claimed region's own still-unclaimed neighbours as
+  // penumbra rows — locked names, populations seeded — so the next scout
+  // already has somewhere fresh to find
+  const exposed = rows.filter((r: any) => !r.interior).map((r: any) => r.slug);
+  assert.ok(exposed.includes(FAR.slug), `expected ${FAR.slug} among the new penumbra: ${exposed.join(", ")}`);
+  assert.ok(regionSeeds(FAR.slug).darkCreatures.length > 0, "precondition: the exposed region has creature seeds");
+  const inFar = (t: { x: number; y: number }) => regionAt(t.x, t.y).slug === FAR.slug;
+  assert.ok(ctx.db.darkCreature.rows().some((c: any) => inFar(c)), `${FAR.slug} missing seeded dark creatures`);
+  // every penumbra row locked a unique display name the moment it was exposed
+  const names = rows.map((r: any) => r.name);
+  assert.equal(new Set(names).size, names.length, `region names collide: ${names.join(", ")}`);
 });
 
 test("interact refuses a second claim in a region that already has a brazier", () => {
-  const { ctx, me } = withPlayer({ x: 149, y: 72 }); // emberrift — penumbra of the Hearth
+  const { ctx, me } = withPlayer({ x: NEIGHBOR.x, y: NEIGHBOR.y });
   ctx.db.revealedRegion.clear();
   ctx.db.revealedRegion.insert(revealedRegionRow({ slug: "hearth" }));
   interact(ctx, { dirX: 1, dirY: 0 }); // clears (no creatures) and claims
 
-  ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), x: 149, y: 73, dirX: 0, dirY: 0 });
+  ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), x: NEIGHBOR.x, y: NEIGHBOR.y + 1, dirX: 0, dirY: 0 });
   interact(ctx, { dirX: 1, dirY: 0 }); // already interior — no second claim, falls through to pickup
 
   assert.equal(ctx.db.brazier.rows().length, 1);
 });
 
 test("interact relights a guttered brazier in an interior region for free, even with living dark creatures nearby", () => {
-  const { ctx, me } = withPlayer({ x: 149, y: 72 }); // emberrift
+  const { ctx, me } = withPlayer({ x: NEIGHBOR.x, y: NEIGHBOR.y });
   ctx.db.revealedRegion.clear();
   ctx.db.revealedRegion.insert(revealedRegionRow({ slug: "hearth" }));
-  ctx.db.revealedRegion.insert(revealedRegionRow({ slug: "emberrift" })); // already claimed — interior
-  ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 150, y: 72, radius: BRAZIER_LIT_RADIUS, lit: false, isEternal: false }); // guttered
-  ctx.db.darkCreature.insert(darkCreatureRow({ x: 150, y: 72, health: 40 })); // wouldn't matter even if alive
-  interact(ctx, { dirX: 1, dirY: 0 }); // faces (150, 72), the guttered brazier's site
+  ctx.db.revealedRegion.insert(revealedRegionRow({ slug: NEIGHBOR.slug, name: "Neighbourfen" })); // already claimed — interior
+  ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: NEIGHBOR.x + 1, y: NEIGHBOR.y, radius: BRAZIER_LIT_RADIUS, lit: false, isEternal: false }); // guttered
+  ctx.db.darkCreature.insert(darkCreatureRow({ x: NEIGHBOR.x + 1, y: NEIGHBOR.y, health: 40 })); // wouldn't matter even if alive
+  interact(ctx, { dirX: 1, dirY: 0 }); // faces the guttered brazier's site
   assert.deepEqual(
     { carrying: ctx.db.player.identity.find(me).carrying, lit: ctx.db.brazier.rows()[0]?.lit },
     { carrying: "", lit: true },
@@ -1365,16 +1376,21 @@ test("interact relights a guttered brazier in an interior region for free, even 
 });
 
 // --- Lazy worldgen (region reveal) ---
-// The fake ctx pre-seeds every region as revealed (see spacetime.ts) so the
-// rest of the suite sees the whole committed map as walkable; these tests
-// explicitly narrow the revealed set to exercise the frontier itself.
+// The fake ctx pre-seeds a block of regions around the origin as claimed (see
+// spacetime.ts) so the rest of the suite sees the ground it uses as walkable;
+// these tests explicitly narrow the revealed set to exercise the frontier itself.
 
-test("onConnect claims the Hearth as revealed and seeds its initial penumbra's population", () => {
+test("onConnect claims the Hearth and exposes its lattice neighbours as the initial penumbra", () => {
   const me = id("newguest-frontier");
   const ctx = makeCtx({ sender: me });
   ctx.db.revealedRegion.clear(); // start from an unclaimed frontier, like a fresh world
   onConnect(ctx);
-  assert.deepEqual(ctx.db.revealedRegion.rows().map((r: any) => r.slug), ["hearth"]);
+  const rows = ctx.db.revealedRegion.rows();
+  assert.deepEqual(rows.filter((r: any) => r.interior).map((r: any) => r.slug), ["hearth"]);
+  assert.deepEqual(
+    rows.filter((r: any) => !r.interior).map((r: any) => r.slug).sort(),
+    [...neighborsOf("hearth")].sort(),
+  );
   assert.ok(ctx.db.darkCreature.rows().length > 0);
 });
 
@@ -1383,25 +1399,34 @@ test("onConnect is idempotent about claiming the Hearth and its penumbra", () =>
   const ctx = makeCtx({ sender: me });
   ctx.db.revealedRegion.clear();
   onConnect(ctx);
+  const rowCount = ctx.db.revealedRegion.rows().length;
   const darkCount = ctx.db.darkCreature.rows().length;
   (ctx as any).sender = id("anotherguest-frontier2");
   onConnect(ctx);
-  assert.deepEqual(ctx.db.revealedRegion.rows().map((r: any) => r.slug), ["hearth"]);
+  assert.equal(ctx.db.revealedRegion.rows().length, rowCount);
   assert.equal(ctx.db.darkCreature.rows().length, darkCount);
 });
 
 test("moveTo's pathfinding never routes through an unreached region", () => {
-  const { ctx, me } = withPlayer({ x: 149, y: 72 }); // emberrift — penumbra of the Hearth
+  const { ctx, me } = withPlayer({ x: NEIGHBOR.x, y: NEIGHBOR.y }); // penumbra of the Hearth
   ctx.db.revealedRegion.clear();
   ctx.db.revealedRegion.insert(revealedRegionRow({ slug: "hearth" }));
-  moveTo(ctx, { x: 164, y: 149, running: false }); // deep inside floodways — unreached, no path in
+  // the first tile of the two-hops-out region along the line toward its capital
+  let target: { x: number; y: number } | undefined;
+  for (let step = 0; step < 200 && !target; step++) {
+    const x = Math.round(NEIGHBOR.x + (FAR.x - NEIGHBOR.x) * (step / 200));
+    const y = Math.round(NEIGHBOR.y + (FAR.y - NEIGHBOR.y) * (step / 200));
+    if (regionAt(x, y).slug === FAR.slug) target = { x, y };
+  }
+  assert.ok(target, "no border tile found");
+  moveTo(ctx, { x: target!.x, y: target!.y, running: false });
   const p = ctx.db.player.identity.find(me);
   const waypoints = [{ x: p.x, y: p.y }, ...parsePath(p.path)];
-  for (const step of waypoints) assert.notEqual(regionAt(step.x, step.y)?.slug, "floodways");
+  for (const step of waypoints) assert.notEqual(regionAt(step.x, step.y).slug, FAR.slug);
 });
 
 test("move keeps working freely inside an already-revealed penumbra region", () => {
-  const { ctx, me } = withPlayer({ x: 149, y: 72 }); // emberrift — penumbra of the Hearth
+  const { ctx, me } = withPlayer({ x: NEIGHBOR.x, y: NEIGHBOR.y }); // penumbra of the Hearth
   ctx.db.revealedRegion.clear();
   ctx.db.revealedRegion.insert(revealedRegionRow({ slug: "hearth" }));
   move(ctx, { dirX: 1, dirY: 0, running: false });
@@ -1410,7 +1435,7 @@ test("move keeps working freely inside an already-revealed penumbra region", () 
 });
 
 test("interact refuses to claim from an unreached region, even with nothing alive there", () => {
-  const { ctx, me } = withPlayer({ x: 83, y: 143 }); // dustworks — two hops out, not even penumbra
+  const { ctx, me } = withPlayer({ x: FAR.x, y: FAR.y }); // two hops out — not even penumbra
   ctx.db.revealedRegion.clear();
   ctx.db.revealedRegion.insert(revealedRegionRow({ slug: "hearth" }));
   interact(ctx, { dirX: 1, dirY: 0 });
@@ -1425,22 +1450,35 @@ test("revealNextRegion claims one penumbra region directly, skipping the clear-t
   ctx.db.revealedRegion.clear();
   ctx.db.revealedRegion.insert(revealedRegionRow({ slug: "hearth" }));
   revealNextRegion(ctx);
-  const revealedSlugs = ctx.db.revealedRegion.rows().map((r: any) => r.slug);
-  assert.equal(revealedSlugs.length, 2);
-  const claimed = revealedSlugs.find((s: string) => s !== "hearth")!;
+  const interior = ctx.db.revealedRegion.rows().filter((r: any) => r.interior).map((r: any) => r.slug);
+  assert.equal(interior.length, 2);
+  const claimed = interior.find((slug: string) => slug !== "hearth")!;
   assert.ok(neighborsOf("hearth").includes(claimed));
+  assert.equal(ctx.db.brazier.rows().length, 1); // the shortcut leaves a lit brazier, like a real claim
 });
 
-test("revealNextRegion is a no-op once every region is already interior", () => {
-  const ctx = makeCtx({ sender: id("admin2") }); // the default ctx starts with all 11 revealed
-  revealNextRegion(ctx);
-  assert.equal(ctx.db.revealedRegion.rows().length, WORLD_REGIONS.length);
+test("jumpRegions claims a chain of regions marching outward from the frontier", () => {
+  const ctx = makeCtx({ sender: id("admin-jump") });
+  ctx.db.revealedRegion.clear();
+  ctx.db.revealedRegion.insert(revealedRegionRow({ slug: "hearth" }));
+  jumpRegions(ctx, { count: 5 });
+  const interior = ctx.db.revealedRegion.rows().filter((r: any) => r.interior);
+  assert.equal(interior.length, 6); // the hearth plus five claims
+  assert.equal(ctx.db.brazier.rows().length, 5);
 });
 
 test("resetFrontier clears every claimed region back to just the Hearth", () => {
-  const ctx = makeCtx({ sender: id("admin3") }); // the default ctx starts with all 11 revealed
+  const ctx = makeCtx({ sender: id("admin3") }); // the default ctx starts with a claimed block
+  ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: capitalOf(1, 0).x, y: capitalOf(1, 0).y, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
   resetFrontier(ctx);
-  assert.deepEqual(ctx.db.revealedRegion.rows().map((r: any) => r.slug), ["hearth"]);
+  const rows = ctx.db.revealedRegion.rows();
+  assert.deepEqual(rows.filter((r: any) => r.interior).map((r: any) => r.slug), ["hearth"]);
+  // the Hearth's own penumbra is re-exposed immediately, so the frontier still has names
+  assert.deepEqual(
+    rows.filter((r: any) => !r.interior).map((r: any) => r.slug).sort(),
+    [...neighborsOf("hearth")].sort(),
+  );
+  assert.equal(ctx.db.brazier.rows().length, 0); // claim braziers go with the claims
 });
 
 // --- Rename / recolor (validation + uniqueness) ---
@@ -1563,8 +1601,7 @@ test("onConnect wipes and reseeds rows stranded in rock by a map regen", () => {
 test("onConnect leaves healthy world rows alone", () => {
   const me = id("keeper");
   const ctx = makeCtx({ sender: me });
-  const zone = getZone(ZONE)!;
-  const seed = zone.boulders[0]!;
+  const seed = regionSeeds("hearth").boulders[0]!;
   const kept = ctx.db.boulder.insert({ id: 7n, zoneId: ZONE, x: seed.x, y: seed.y });
   onConnect(ctx);
   assert.ok(ctx.db.boulder.rows().some((b: any) => b.id === kept.id));
@@ -1597,15 +1634,10 @@ test("setCheats off resets every cheat", () => {
 
 test("switching noclip off inside geometry settles onto walkable ground", () => {
   const zone = getZone(ZONE)!;
-  // park the flyer mid-air over unwalkable rock beside real ground (the map
-  // corner is rock for further than the landing search reaches)
-  let wall: { x: number; y: number } | undefined;
-  for (let y = 1; y < zone.height - 1 && !wall; y++) {
-    for (let x = 1; x < zone.width - 1 && !wall; x++) {
-      if (!isWalkable(zone, x, y) && isWalkable(zone, x + 1, y)) wall = { x, y };
-    }
-  }
-  const { ctx, me } = withPlayer({ x: wall!.x, y: wall!.y, cheatNoclip: true });
+  // the alcove ring is guaranteed rock, with the pocket floor right beside it
+  const wall = { x: 33, y: 55 };
+  assert.ok(!isWalkable(zone, wall.x, wall.y) && isWalkable(zone, wall.x + 1, wall.y));
+  const { ctx, me } = withPlayer({ x: wall.x, y: wall.y, cheatNoclip: true });
   setCheats(ctx, { speed: 1, fly: false, noclip: false, invulnerable: false });
   const p = ctx.db.player.identity.find(me);
   assert.ok(isWalkable(zone, Math.round(p.x), Math.round(p.y)), `landed at ${p.x},${p.y}`);
@@ -1667,24 +1699,21 @@ test("altitude derives linearly from the lift intent and clamps to the ceiling",
 test("a flyer clears obstacles below its altitude and bumps into taller rock", () => {
   const zone = getZone(ZONE)!;
   // a dynamic obstacle (tree/boulder class): passable above FLY_CLEAR_OBSTACLE
-  const occupied = zoneBounds(zone, (x, y) => x === 110 && y === 105);
-  const low = projectMotion({ x: 108, y: 105, dirX: 1000, dirY: 0, cheatFly: true, z: 1, dirZ: 0 }, 3_000, occupied);
-  assert.ok(low.x < 110, `low flyer clamped at ${low.x}`);
-  const high = projectMotion({ x: 108, y: 105, dirX: 1000, dirY: 0, cheatFly: true, z: FLY_CLEAR_OBSTACLE + 1, dirZ: 0 }, 3_000, occupied);
-  assert.ok(high.x > 110, `high flyer passed to ${high.x}`);
-  // rock clears at its rendered per-tile height — just below bumps, just above passes
-  let wall: { x: number; y: number } | undefined;
-  for (let y = 1; y < zone.height - 1 && !wall; y++) {
-    for (let x = 1; x < zone.width - 1 && !wall; x++) {
-      if (!isWalkable(zone, x, y) && tileGlyph(zone, x, y) !== DEEP_WATER_TILE && isWalkable(zone, x - 1, y)) wall = { x, y };
-    }
-  }
+  const occupied = zoneBounds(zone, (x, y) => x === 35 && y === 35);
+  const low = projectMotion({ x: 33, y: 35, dirX: 1000, dirY: 0, cheatFly: true, z: 1, dirZ: 0 }, 1_000, occupied);
+  assert.ok(low.x < 35, `low flyer clamped at ${low.x}`);
+  const high = projectMotion({ x: 33, y: 35, dirX: 1000, dirY: 0, cheatFly: true, z: FLY_CLEAR_OBSTACLE + 1, dirZ: 0 }, 1_000, occupied);
+  assert.ok(high.x > 35, `high flyer passed to ${high.x}`);
+  // rock clears at its rendered per-tile height — just below bumps, just above
+  // passes. The alcove ring is guaranteed rock, approached over the bypass street.
+  const wall = { x: 33, y: 55 };
+  assert.ok(!isWalkable(zone, wall.x, wall.y) && isWalkable(zone, wall.x - 1, wall.y));
   const bounds = zoneBounds(zone);
-  const summit = rockHeightAt(zone, wall!.x, wall!.y);
-  const below = projectMotion({ x: wall!.x - 1, y: wall!.y, dirX: 1000, dirY: 0, cheatFly: true, z: summit - 0.05, dirZ: 0 }, 1_000, bounds);
-  assert.ok(below.x < wall!.x, `flyer under the rock top clamped at ${below.x} before wall ${wall!.x}`);
-  const above = projectMotion({ x: wall!.x - 1, y: wall!.y, dirX: 1000, dirY: 0, cheatFly: true, z: summit + 0.05, dirZ: 0 }, 1_000, bounds);
-  assert.ok(above.x >= wall!.x, `flyer over the rock top passed to ${above.x}`);
+  const summit = rockHeightAt(zone, wall.x, wall.y);
+  const below = projectMotion({ x: wall.x - 1, y: wall.y, dirX: 1000, dirY: 0, cheatFly: true, z: summit - 0.05, dirZ: 0 }, 1_000, bounds);
+  assert.ok(below.x < wall.x, `flyer under the rock top clamped at ${below.x} before wall ${wall.x}`);
+  const above = projectMotion({ x: wall.x - 1, y: wall.y, dirX: 1000, dirY: 0, cheatFly: true, z: summit + 0.05, dirZ: 0 }, 1_000, bounds);
+  assert.ok(above.x >= wall.x, `flyer over the rock top passed to ${above.x}`);
 });
 
 test("healSelf restores a living trogg to full health", () => {
@@ -1695,13 +1724,8 @@ test("healSelf restores a living trogg to full health", () => {
 
 test("rescue lands a stuck trogg on standable ground", () => {
   const zone = getZone(ZONE)!;
-  let wall: { x: number; y: number } | undefined;
-  for (let y = 1; y < zone.height - 1 && !wall; y++) {
-    for (let x = 1; x < zone.width - 1 && !wall; x++) {
-      if (!isWalkable(zone, x, y) && isWalkable(zone, x + 1, y)) wall = { x, y };
-    }
-  }
-  const { ctx, me } = withPlayer({ x: wall!.x, y: wall!.y, cheatNoclip: true, z: 6, cheatFly: true });
+  const wall = { x: 33, y: 55 }; // the alcove ring — guaranteed rock beside floor
+  const { ctx, me } = withPlayer({ x: wall.x, y: wall.y, cheatNoclip: true, z: 6, cheatFly: true });
   rescue(ctx);
   const p = ctx.db.player.identity.find(me);
   assert.ok(isWalkable(zone, Math.round(p.x), Math.round(p.y)), `rescued to ${p.x},${p.y}`);

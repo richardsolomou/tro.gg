@@ -1,4 +1,4 @@
-import { DEEP_WATER_TILE, GLOWMOSS_TILE, GRAVEL_TILE, MOSS_TILE, WALL_TILE, WATER_TILE } from "./glyphs";
+import { DEEP_WATER_TILE, FLOOR_TILE, GLOWMOSS_TILE, GRAVEL_TILE, MOSS_TILE, WALL_TILE, WATER_TILE } from "./glyphs";
 import type { BirthCellSeed, Coord, DarkCreatureSeed, GroundItemSeed, Zone, ZoneExit } from "./constants";
 
 /**
@@ -391,193 +391,623 @@ export function generateBirthCave(): Zone {
     darkCreatures: [],
   };
 }
+// ── the infinite world ─────────────────────────────────────────────────────────
+// One seamless landmass with no edge (GDD "The fire and the dark" → Generation):
+// region capitals resolve on demand from an unbounded deterministic lattice over
+// the plane, and every tile's glyph is a pure function of its coordinates and
+// the world seed — synthesized chunk by chunk, identically on the client and the
+// module, never committed or synced. The Hearth is the one hard-coded region, at
+// the origin lattice cell; everything else — biome, capital position, candidate
+// name, corridors, ponds — comes out of a hash of its cell coordinates.
 
-// ── the continent ──────────────────────────────────────────────────────────────
-// One seamless landmass, grown like terrain rather than assembled from blocks:
-// an irregular continent mask, organic warped-Voronoi regions around hand-laid
-// capitals, ONE global cave automaton whose density varies per region (so
-// borders blend, no seams), deep-water rivers crossable at fords, and a real
-// town around the spawn. `generateWorld` is deterministic; `bin/generate-world`
-// commits the result (tiles + per-tile region grid) to shared/world-map.ts.
+export const WORLD_SEED = 0x70663000;
+
+/** The lattice pitch: every REGION_LATTICE_CELL × REGION_LATTICE_CELL cell of the
+ *  plane yields exactly one region capital. (initial) */
+export const REGION_LATTICE_CELL = 70;
+
+/** How far a capital may jitter from its cell centre, as a fraction of the cell —
+ *  under half a cell, so a capital can never drift into a neighbouring cell's
+ *  share of the plane and `regionAt`'s 3×3 candidate search stays sufficient. (initial) */
+export const REGION_JITTER_FRACTION = 0.4;
+
+/** Chance a region rolls a small pond or stream near its capital — cosmetic
+ *  variety; claiming, safety, and reachability never depend on it. (initial) */
+export const REGION_WATER_CHANCE = 0.3;
+
+/** The density ceiling: deeper regions seed more boulders/trees/dark creatures,
+ *  up to this multiple of the Hearth-adjacent baseline — tougher to clear, never
+ *  impossible. (initial) */
+export const MAX_DEPTH_DENSITY_MULTIPLIER = 4;
+
+/** The one hard-coded region: the origin lattice cell, the tribe's town. */
+export const HEARTH_REGION_SLUG = "hearth";
+
+/** 32-bit avalanche of a lattice/tile coordinate pair, mixed with the world seed. */
+function hashCoords(x: number, y: number, salt: number): number {
+  let h = (WORLD_SEED ^ salt) >>> 0;
+  h = Math.imul(h ^ (x | 0), 0x9e3779b1) >>> 0;
+  h = Math.imul(h ^ (y | 0), 0x85ebca6b) >>> 0;
+  h ^= h >>> 13;
+  h = Math.imul(h, 0xc2b2ae35) >>> 0;
+  h ^= h >>> 16;
+  return h >>> 0;
+}
+
+function hashUnit(x: number, y: number, salt: number): number {
+  return hashCoords(x, y, salt) / 4294967296;
+}
+
+/** A deterministic per-feature stream: mulberry32 seeded from cell coordinates. */
+function featureRand(cellX: number, cellY: number, salt: number): () => number {
+  return mulberry32(hashCoords(cellX, cellY, salt));
+}
+
+const SALT_CAPITAL_X = 0x0a11;
+const SALT_CAPITAL_Y = 0x0a12;
+const SALT_BIOME = 0x0b10;
+const SALT_NAME = 0x0c01;
+const SALT_FILL = 0x0f11;
+const SALT_DECOR = 0x0dec;
+const SALT_WARP_X = 0x0aa1;
+const SALT_WARP_Y = 0x0aa2;
+const SALT_CORRIDOR = 0x0c0d;
+const SALT_POND = 0x0b0d;
+const SALT_SEEDS = 0x05ee;
 
 export interface WorldRegion {
   slug: string;
+  /** The hash-derived CANDIDATE display name. Player-facing names are locked
+   *  server-side in `revealed_region` the first time a region is scouted,
+   *  rerolled on collision (`regionNameCandidate`) — render names from those
+   *  rows, never from this field. */
   name: string;
   biome: BiomeId;
-  /** The region's capital: the warped-Voronoi seed point in world tiles. */
+  /** The region's capital in world tiles: its cell centre plus a bounded jitter. */
   x: number;
   y: number;
+  cellX: number;
+  cellY: number;
 }
 
-export const WORLD_W = 224;
-export const WORLD_H = 208;
-
-export const WORLD_REGIONS: readonly WorldRegion[] = [
-  { slug: "hearth", name: "The Hearth", biome: "cave", x: 112, y: 104 },
-  { slug: "glowvault", name: "Glowvault", biome: "glowvault", x: 88, y: 62 },
-  { slug: "starwell", name: "Starwell", biome: "starwell", x: 138, y: 34 },
-  { slug: "mossglen", name: "Mossglen", biome: "mossglen", x: 128, y: 148 },
-  { slug: "boneyard", name: "Boneyard", biome: "boneyard", x: 90, y: 178 },
-  { slug: "frosthollow", name: "Frosthollow", biome: "frosthollow", x: 48, y: 66 },
-  { slug: "shadowdeep", name: "Shadowdeep", biome: "shadowdeep", x: 42, y: 130 },
-  { slug: "floodways", name: "Floodways", biome: "floodways", x: 160, y: 176 },
-  { slug: "rustgallery", name: "Rust Gallery", biome: "rustgallery", x: 184, y: 104 },
-  { slug: "emberrift", name: "Emberrift", biome: "emberrift", x: 176, y: 56 },
-  { slug: "dustworks", name: "Dustworks", biome: "dustworks", x: 66, y: 174 },
-];
-
-/** Region index → the single character it packs to in the committed grid. */
-const REGION_CHARS = "abcdefghijk";
-
-let regionRows: readonly string[] | undefined;
-
-/** Wire the committed per-tile region grid (world-map.ts) into `regionAt`. */
-export function setRegionRows(rows: readonly string[]): void {
-  regionRows = rows;
+export function regionSlug(cellX: number, cellY: number): string {
+  if (cellX === 0 && cellY === 0) return HEARTH_REGION_SLUG;
+  return `r${cellX}x${cellY}`;
 }
 
-/** The region owning a world tile, from the committed grid; undefined in the void. */
-export function regionAt(x: number, y: number): WorldRegion | undefined {
-  const char = regionRows?.[y]?.[x];
-  if (!char || char === ".") return undefined;
-  return WORLD_REGIONS[REGION_CHARS.indexOf(char)];
+/** Decode a region slug back to its lattice cell; undefined for a malformed slug. */
+export function cellOfSlug(slug: string): { cellX: number; cellY: number } | undefined {
+  if (slug === HEARTH_REGION_SLUG) return { cellX: 0, cellY: 0 };
+  const match = /^r(-?\d+)x(-?\d+)$/.exec(slug);
+  if (!match) return undefined;
+  return { cellX: Number(match[1]), cellY: Number(match[2]) };
+}
+
+// ── region names: a two-part word-bank combiner tuned to the game's naming
+// flavor ("Rust Gallery", "Emberrift", "Boneyard"). `sep` spells the suffix as
+// its own word; otherwise the parts fuse lowercase.
+const NAME_ROOTS = [
+  "Rust", "Ember", "Bone", "Star", "Moss", "Frost", "Shadow", "Dust", "Glow",
+  "Flood", "Ash", "Cinder", "Iron", "Salt", "Thorn", "Murk", "Gloam", "Pale",
+  "Briar", "Slate", "Char", "Grim", "Sable", "Wisp", "Root", "Marrow", "Vein",
+  "Drift", "Howl", "Creak", "Fell", "Lich", "Rime", "Soot", "Tallow", "Weald",
+] as const;
+const NAME_SUFFIXES: readonly { part: string; sep: boolean }[] = [
+  { part: "gallery", sep: true },
+  { part: "rift", sep: false },
+  { part: "yard", sep: false },
+  { part: "well", sep: false },
+  { part: "glen", sep: false },
+  { part: "hollow", sep: false },
+  { part: "vault", sep: false },
+  { part: "deep", sep: false },
+  { part: "works", sep: false },
+  { part: "fen", sep: false },
+  { part: "mire", sep: false },
+  { part: "reach", sep: true },
+  { part: "fold", sep: true },
+  { part: "gap", sep: true },
+  { part: "warrens", sep: true },
+  { part: "span", sep: true },
+  { part: "run", sep: true },
+  { part: "cut", sep: true },
+  { part: "field", sep: true },
+  { part: "shelf", sep: true },
+] as const;
+
+/**
+ * The hash-derived candidate display name for a region — attempt 0 is the
+ * default; the server bumps `attempt` (a deterministic secondary hash) when the
+ * candidate collides with a name already locked in `revealed_region` (GDD
+ * "Generation": names are the one piece of region identity that needs shared,
+ * durable state, since uniqueness isn't something one region's own coordinates
+ * can guarantee alone).
+ */
+export function regionNameCandidate(cellX: number, cellY: number, attempt = 0): string {
+  if (cellX === 0 && cellY === 0) return "The Hearth";
+  const h = hashCoords(cellX, cellY, SALT_NAME + attempt * 0x101);
+  const root = NAME_ROOTS[h % NAME_ROOTS.length]!;
+  const suffix = NAME_SUFFIXES[Math.floor(h / NAME_ROOTS.length) % NAME_SUFFIXES.length]!;
+  if (suffix.sep) return `${root} ${suffix.part.charAt(0).toUpperCase()}${suffix.part.slice(1)}`;
+  return `${root}${suffix.part}`;
+}
+
+const capitalCache = new Map<string, WorldRegion>();
+
+/** The one region a lattice cell yields: capital position, biome, and candidate
+ *  name, all from a hash of the cell coordinates and the world seed. */
+export function capitalOf(cellX: number, cellY: number): WorldRegion {
+  const key = `${cellX},${cellY}`;
+  const cached = capitalCache.get(key);
+  if (cached) return cached;
+  let region: WorldRegion;
+  const centreX = cellX * REGION_LATTICE_CELL + REGION_LATTICE_CELL / 2;
+  const centreY = cellY * REGION_LATTICE_CELL + REGION_LATTICE_CELL / 2;
+  if (cellX === 0 && cellY === 0) {
+    // the Hearth: pinned dead-centre, always the cave biome, the fixed name
+    region = { slug: HEARTH_REGION_SLUG, name: "The Hearth", biome: "cave", x: centreX, y: centreY, cellX, cellY };
+  } else {
+    const jitter = REGION_JITTER_FRACTION * REGION_LATTICE_CELL;
+    const x = Math.round(centreX + (hashUnit(cellX, cellY, SALT_CAPITAL_X) * 2 - 1) * jitter);
+    const y = Math.round(centreY + (hashUnit(cellX, cellY, SALT_CAPITAL_Y) * 2 - 1) * jitter);
+    const biome = BIOMES[hashCoords(cellX, cellY, SALT_BIOME) % BIOMES.length]!;
+    region = { slug: regionSlug(cellX, cellY), name: regionNameCandidate(cellX, cellY), biome, x, y, cellX, cellY };
+  }
+  if (capitalCache.size > 4096) capitalCache.clear();
+  capitalCache.set(key, region);
+  return region;
+}
+
+/** How far the warped-Voronoi domain warp can move a query point, per axis. */
+const REGION_WARP_TILES = 9;
+
+/**
+ * The region owning a world tile, resolved on demand from the lattice: warp the
+ * query point with deterministic value noise (organic borders instead of straight
+ * Voronoi edges), then pick the nearest capital among the tile's own cell and the
+ * 3×3 neighbourhood of cells around it — sufficient because REGION_JITTER_FRACTION
+ * caps how far a capital can drift from its cell centre. Pure and shared: client
+ * and module compute the identical region for the identical tile (invariant 7).
+ */
+export function regionAt(x: number, y: number): WorldRegion {
+  const wx = x + (rangeNoise(x, y, 26, SALT_WARP_X) - 0.5) * 2 * REGION_WARP_TILES;
+  const wy = y + (rangeNoise(x, y, 26, SALT_WARP_Y) - 0.5) * 2 * REGION_WARP_TILES;
+  const cellX = Math.floor(wx / REGION_LATTICE_CELL);
+  const cellY = Math.floor(wy / REGION_LATTICE_CELL);
+  let best: WorldRegion | undefined;
+  let bestDist = Infinity;
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      const capital = capitalOf(cellX + dx, cellY + dy);
+      const dist = Math.hypot(wx - capital.x, wy - capital.y);
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = capital;
+      }
+    }
+  }
+  return best!;
 }
 
 /**
- * Which regions touch which, scanned once from the committed per-tile region
- * grid (GDD "Generation: only as far as the light reaches"). Pure
- * post-processing of already-generated data — never consulted by
- * `generateWorld()`'s own terrain/region-assignment math. The runtime reveal
- * layer derives a region's penumbra (unclaimed neighbours of a claimed
- * region) from this graph plus the durable `revealed_region` set.
+ * The regions lattice-adjacent to `slug` — its 8 surrounding cells, the bounded
+ * search `regionAt` uses rather than a precomputed table (GDD "Generation").
+ * This is the claim graph: penumbra, hop-depth, and corridor topology all read
+ * it. Empty for a malformed slug.
  */
-export function computeRegionAdjacency(regionRows: readonly string[]): Record<string, string[]> {
-  const slugAt = (x: number, y: number): string | undefined => {
-    const char = regionRows[y]?.[x];
-    if (!char || char === ".") return undefined;
-    return WORLD_REGIONS[REGION_CHARS.indexOf(char)]?.slug;
-  };
-  const adjacency = new Map<string, Set<string>>();
-  const link = (a: string, b: string) => {
-    if (a === b) return;
-    if (!adjacency.has(a)) adjacency.set(a, new Set());
-    if (!adjacency.has(b)) adjacency.set(b, new Set());
-    adjacency.get(a)!.add(b);
-    adjacency.get(b)!.add(a);
-  };
-  for (let y = 0; y < regionRows.length; y++) {
-    const row = regionRows[y]!;
-    for (let x = 0; x < row.length; x++) {
-      const here = slugAt(x, y);
-      if (!here) continue;
-      const right = slugAt(x + 1, y);
-      if (right) link(here, right);
-      const down = slugAt(x, y + 1);
-      if (down) link(here, down);
+export function neighborsOf(slug: string): readonly string[] {
+  const cell = cellOfSlug(slug);
+  if (!cell) return [];
+  const neighbors: string[] = [];
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      if (dx === 0 && dy === 0) continue;
+      neighbors.push(regionSlug(cell.cellX + dx, cell.cellY + dy));
     }
   }
-  const result: Record<string, string[]> = {};
-  for (const region of WORLD_REGIONS) result[region.slug] = [...(adjacency.get(region.slug) ?? new Set())].sort();
-  return result;
+  return neighbors;
 }
 
-// deterministic value noise: a mulberry-hashed lattice, bilinearly interpolated
-function latticeNoise(seed: number): (x: number, y: number) => number {
-  const cell = (cx: number, cy: number): number => {
-    return mulberry32((seed ^ (cx * 0x9e3779b1) ^ (cy * 0x85ebca6b)) >>> 0)();
+/** Per-tile hash noise in [0, 1): position-keyed, never a sequential stream, so
+ *  any tile's roll is computable in isolation (chunk-order independence). */
+function tileHash01(x: number, y: number, salt: number): number {
+  return hashUnit(x, y, salt);
+}
+
+/** Smooth low-frequency value noise: bilinear over a hashed lattice at `scale`
+ *  tiles. Shared by the region warp and the rock skyline (shared/heights.ts). */
+export function rangeNoise(x: number, y: number, scale: number, salt: number): number {
+  const gx = x / scale;
+  const gy = y / scale;
+  const x0 = Math.floor(gx);
+  const y0 = Math.floor(gy);
+  const fx = gx - x0;
+  const fy = gy - y0;
+  const sx = fx * fx * (3 - 2 * fx);
+  const sy = fy * fy * (3 - 2 * fy);
+  const top = hashUnit(x0, y0, salt) * (1 - sx) + hashUnit(x0 + 1, y0, salt) * sx;
+  const bot = hashUnit(x0, y0 + 1, salt) * (1 - sx) + hashUnit(x0 + 1, y0 + 1, salt) * sx;
+  return top * (1 - sy) + bot * sy;
+}
+
+// ── the Hearth's fixed geography ────────────────────────────────────────────────
+// The origin cell is a real town (GDD "Zones"): a gravel plaza ringed by stone
+// huts around the First Fire, a worn path south to the coast alcove where
+// newborns emerge from their birth caves, and two rivers framing the region.
+
+const HEARTH_CAPITAL = { x: REGION_LATTICE_CELL / 2, y: REGION_LATTICE_CELL / 2 };
+const TOWN_PLAZA_RADIUS = 5;
+const TOWN_HUT_RING = TOWN_PLAZA_RADIUS + 5;
+
+/** Where a fresh trogg spawns: the Hearth's capital, at the First Fire. */
+export const WORLD_SPAWN: Coord = { x: HEARTH_CAPITAL.x, y: HEARTH_CAPITAL.y };
+
+// The cave-mouth alcove south of town: a walled pocket whose deep end descends
+// into your own birth cave. Carved as a fixed feature of the origin cell.
+const ALCOVE = { left: 33, right: 37, top: 52, bottom: 59, mouthX: 35 };
+
+/** Where an emerging trogg lands: inside the alcove, facing out. */
+export const EMERGE_ARRIVAL: Coord = { x: ALCOVE.mouthX, y: 55 };
+
+/** The alcove's deep end — walk into it to descend into your own cave. */
+export const CAVE_DOOR: Coord = { x: ALCOVE.mouthX, y: 58 };
+
+/** The starter tools racked beside the First Fire, on the plaza. */
+export const HEARTH_STARTER_ITEMS: readonly GroundItemSeed[] = (["pickaxe", "shovel", "axe", "sword", "shield", "torch"] as const).map((item, i) => ({
+  item,
+  x: WORLD_SPAWN.x - 2 + i,
+  y: WORLD_SPAWN.y - 2,
+}));
+
+/** The plaza carved open around every region's capital — the anchor a claim's
+ *  brazier and the corridor mesh both count on being walkable. */
+export const REGION_PLAZA_RADIUS = 3;
+
+// ── on-demand tile synthesis ────────────────────────────────────────────────────
+// A tile's glyph = deterministic features (town, plazas, corridors, rivers,
+// ponds) layered over a cave automaton whose fill probability comes from the
+// tile's region's biome averaged over its 3×3 tile neighbourhood — so borders
+// blend with no seams. Chunks of GEN_CHUNK² tiles are synthesized with a halo
+// wide enough that every interior tile's automaton value is exact regardless of
+// which chunk asked, then cached.
+
+const GEN_CHUNK = 32;
+/** 5 smoothing passes need a 5-tile halo; +1 so decoration's wall-neighbour
+ *  counts at the chunk border are exact too. */
+const GEN_HALO = SMOOTH_PASSES + 1;
+
+interface WorldFeatures {
+  /** floor-class carves (plazas, corridors, the town, the alcove pocket) */
+  carve: Map<string, string>;
+  /** forced rock (hut walls, the alcove ring) — never over a carve */
+  walls: Set<string>;
+  /** water (rivers, ponds) — never over a carve or wall; a river crossing a
+   *  corridor turns that tile into a wadeable ford instead */
+  water: Map<string, string>;
+}
+
+function featureKey(x: number, y: number): string {
+  return `${x},${y}`;
+}
+
+/** Walk a corridor between two capitals: a biased random walk seeded by the
+ *  pair, clamped inside their inflated bounding box, finished with a straight
+ *  L-carve so the connection is guaranteed. Returns every tile of the 2×2
+ *  brush along the walk. */
+function corridorTiles(a: WorldRegion, b: WorldRegion): Coord[] {
+  // one walk per unordered pair: normalise so both directions carve identically
+  const [from, to] = a.cellX < b.cellX || (a.cellX === b.cellX && a.cellY <= b.cellY) ? [a, b] : [b, a];
+  const rand = featureRand(from.cellX * 31 + to.cellX, from.cellY * 31 + to.cellY, SALT_CORRIDOR);
+  const margin = 8;
+  const minX = Math.min(from.x, to.x) - margin;
+  const maxX = Math.max(from.x, to.x) + margin;
+  const minY = Math.min(from.y, to.y) - margin;
+  const maxY = Math.max(from.y, to.y) + margin;
+  const tiles: Coord[] = [];
+  const stamp = (x: number, y: number) => {
+    for (let dy = 0; dy <= 1; dy++) for (let dx = 0; dx <= 1; dx++) tiles.push({ x: x + dx, y: y + dy });
   };
-  return (x: number, y: number) => {
-    const x0 = Math.floor(x);
-    const y0 = Math.floor(y);
-    const fx = x - x0;
-    const fy = y - y0;
-    const sx = fx * fx * (3 - 2 * fx);
-    const sy = fy * fy * (3 - 2 * fy);
-    const top = cell(x0, y0) * (1 - sx) + cell(x0 + 1, y0) * sx;
-    const bot = cell(x0, y0 + 1) * (1 - sx) + cell(x0 + 1, y0 + 1) * sx;
-    return top * (1 - sy) + bot * sy;
-  };
+  let x = from.x;
+  let y = from.y;
+  const maxSteps = 3 * (Math.abs(to.x - from.x) + Math.abs(to.y - from.y)) + 40;
+  for (let step = 0; step < maxSteps && (x !== to.x || y !== to.y); step++) {
+    stamp(x, y);
+    const dx = to.x - x;
+    const dy = to.y - y;
+    // move along the axis with more ground left, mostly toward the target
+    const alongX = Math.abs(dx) * (0.5 + rand()) > Math.abs(dy) * (0.5 + rand());
+    if (alongX && dx !== 0) x += rand() < 0.85 ? Math.sign(dx) : -Math.sign(dx);
+    else if (dy !== 0) y += rand() < 0.85 ? Math.sign(dy) : -Math.sign(dy);
+    else if (dx !== 0) x += Math.sign(dx);
+    x = Math.max(minX, Math.min(maxX, x));
+    y = Math.max(minY, Math.min(maxY, y));
+  }
+  // guarantee the connection whatever the walk did: straight L to the capital
+  while (x !== to.x) {
+    stamp(x, y);
+    x += Math.sign(to.x - x);
+  }
+  while (y !== to.y) {
+    stamp(x, y);
+    y += Math.sign(to.y - y);
+  }
+  stamp(to.x, to.y);
+  return tiles;
 }
 
-export interface GeneratedWorld {
-  tiles: string[];
-  regions: string[];
-  regionAdjacency: Record<string, string[]>;
-  boulders: Coord[];
-  trees: Coord[];
-  items: GroundItemSeed[];
-  cells: BirthCellSeed[];
-  darkCreatures: DarkCreatureSeed[];
-  /** Where an emerging trogg lands: inside the coast's cave-mouth alcove. */
-  arrival: Coord;
-  /** The alcove's deep end — walk into it to descend into your own cave. */
-  caveDoor: Coord;
-  spawn: Coord;
+/** A region's pond, if its REGION_WATER_CHANCE roll grants one: a short random
+ *  walk of shallow water with a deep core, a little off the plaza. */
+function pondTiles(region: WorldRegion): { x: number; y: number; deep: boolean }[] {
+  if (region.slug === HEARTH_REGION_SLUG) return []; // the Hearth has rivers instead
+  const rand = featureRand(region.cellX, region.cellY, SALT_POND);
+  if (rand() >= REGION_WATER_CHANCE) return [];
+  const angle = rand() * Math.PI * 2;
+  const dist = REGION_PLAZA_RADIUS + 4 + rand() * 8;
+  let x = Math.round(region.x + Math.cos(angle) * dist);
+  let y = Math.round(region.y + Math.sin(angle) * dist);
+  const tiles: { x: number; y: number; deep: boolean }[] = [];
+  const steps = 6 + Math.floor(rand() * 6);
+  for (let i = 0; i < steps; i++) {
+    tiles.push({ x, y, deep: i < 3 });
+    tiles.push({ x: x + 1, y, deep: false });
+    tiles.push({ x, y: y + 1, deep: false });
+    x += Math.floor(rand() * 3) - 1;
+    y += Math.floor(rand() * 3) - 1;
+  }
+  return tiles;
 }
 
-export function generateWorld(): GeneratedWorld {
-  const W = WORLD_W;
-  const H = WORLD_H;
-  const idx = (x: number, y: number) => y * W + x;
-  const spawn = { x: WORLD_REGIONS[0]!.x, y: WORLD_REGIONS[0]!.y };
-
-  // 1. the continent: an irregular landmass, not a rectangle
-  const coast = latticeNoise(0x70663001);
-  const land = new Uint8Array(W * H);
-  for (let y = 0; y < H; y++) {
-    for (let x = 0; x < W; x++) {
-      const nx = (x - W / 2) / (W * 0.46);
-      const ny = (y - H / 2) / (H * 0.46);
-      const r = Math.hypot(nx, ny);
-      const wobble = (coast(x / 34, y / 34) - 0.5) * 0.9 + (coast(x / 11 + 90, y / 11) - 0.5) * 0.25;
-      if (r + wobble < 0.92) land[idx(x, y)] = 1;
+/** The Hearth's two rivers: bounded biased walks framing the origin cell, deep
+ *  water stamped 3 wide with a wadeable ford every stretch, repelled from the
+ *  town. Fixed features of the world seed, like the town itself. */
+function hearthRiverTiles(): { x: number; y: number; ford: boolean }[] {
+  const tiles: { x: number; y: number; ford: boolean }[] = [];
+  const carve = (seedSalt: number, from: Coord, to: Coord) => {
+    const rand = featureRand(from.x, from.y, SALT_POND ^ seedSalt);
+    let x = from.x;
+    let y = from.y;
+    let sinceFord = 12;
+    const maxSteps = 3 * (Math.abs(to.x - from.x) + Math.abs(to.y - from.y)) + 60;
+    for (let step = 0; step < maxSteps; step++) {
+      const ford = sinceFord >= 26;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) tiles.push({ x: x + dx, y: y + dy, ford });
+      }
+      sinceFord = ford ? 0 : sinceFord + 1;
+      if (Math.abs(x - to.x) + Math.abs(y - to.y) < 3) break;
+      let stepX = rand() < 0.62 ? Math.sign(to.x - x) : rand() < 0.5 ? 1 : -1;
+      let stepY = rand() < 0.62 ? Math.sign(to.y - y) : rand() < 0.5 ? 1 : -1;
+      if (Math.hypot(x - HEARTH_CAPITAL.x, y - HEARTH_CAPITAL.y) < TOWN_HUT_RING + 6) {
+        stepX = Math.sign(x - HEARTH_CAPITAL.x) || 1;
+        stepY = Math.sign(y - HEARTH_CAPITAL.y) || 1;
+      }
+      x += stepX;
+      y += stepY;
     }
+  };
+  carve(0x1, { x: -28, y: 6 }, { x: 96, y: 58 });
+  carve(0x2, { x: 88, y: -22 }, { x: 8, y: 94 });
+  return tiles;
+}
+
+let hearthRiversCache: { x: number; y: number; ford: boolean }[] | undefined;
+
+/**
+ * Every deterministic feature overlapping the working grid `[x0, x1) × [y0, y1)`.
+ * Everything here derives from capitals within a bounded cell neighbourhood, so
+ * any chunk computes the identical overlay regardless of what else was ever
+ * generated (invariant 7).
+ */
+function featuresFor(x0: number, y0: number, x1: number, y1: number): WorldFeatures {
+  const carve = new Map<string, string>();
+  const walls = new Set<string>();
+  const water = new Map<string, string>();
+  const inGrid = (x: number, y: number) => x >= x0 && x < x1 && y >= y0 && y < y1;
+  const corridorKeys = new Set<string>();
+
+  const c0x = Math.floor(x0 / REGION_LATTICE_CELL);
+  const c0y = Math.floor(y0 / REGION_LATTICE_CELL);
+  const c1x = Math.floor((x1 - 1) / REGION_LATTICE_CELL);
+  const c1y = Math.floor((y1 - 1) / REGION_LATTICE_CELL);
+  const nearHearth = c0x - 1 <= 0 && c1x + 1 >= 0 && c0y - 1 <= 0 && c1y + 1 >= 0;
+
+  // 1. the town: plaza, the path south, and the alcove pocket
+  if (nearHearth) {
+    for (let dy = -TOWN_PLAZA_RADIUS; dy <= TOWN_PLAZA_RADIUS; dy++) {
+      for (let dx = -TOWN_PLAZA_RADIUS; dx <= TOWN_PLAZA_RADIUS; dx++) {
+        if (Math.hypot(dx, dy) > TOWN_PLAZA_RADIUS) continue;
+        const x = HEARTH_CAPITAL.x + dx;
+        const y = HEARTH_CAPITAL.y + dy;
+        if (inGrid(x, y)) carve.set(featureKey(x, y), GRAVEL_TILE);
+      }
+    }
+    for (let y = HEARTH_CAPITAL.y + TOWN_PLAZA_RADIUS; y < ALCOVE.top; y++) {
+      if (inGrid(ALCOVE.mouthX, y)) carve.set(featureKey(ALCOVE.mouthX, y), GRAVEL_TILE);
+    }
+    for (let x = ALCOVE.left + 1; x < ALCOVE.right; x++) {
+      for (let y = ALCOVE.top + 1; y < ALCOVE.bottom; y++) {
+        if (inGrid(x, y)) carve.set(featureKey(x, y), FLOOR_TILE);
+      }
+    }
+    if (inGrid(ALCOVE.mouthX, ALCOVE.top)) carve.set(featureKey(ALCOVE.mouthX, ALCOVE.top), GRAVEL_TILE);
   }
 
-  // 2. organic regions: warped Voronoi around the capitals
-  const warpX = latticeNoise(0x70663002);
-  const warpY = latticeNoise(0x70663003);
-  const regionOf = new Int8Array(W * H).fill(-1);
-  for (let y = 0; y < H; y++) {
-    for (let x = 0; x < W; x++) {
-      if (!land[idx(x, y)]) continue;
-      const wx = x + (warpX(x / 26, y / 26) - 0.5) * 34;
-      const wy = y + (warpY(x / 26, y / 26) - 0.5) * 34;
-      let bestRegion = 0;
-      let bestDist = Infinity;
-      for (let i = 0; i < WORLD_REGIONS.length; i++) {
-        const region = WORLD_REGIONS[i]!;
-        const dist = Math.hypot(wx - region.x, wy - region.y);
-        if (dist < bestDist) {
-          bestDist = dist;
-          bestRegion = i;
+  // 2. every nearby region's plaza — cells within one of the grid, since a
+  // capital's plaza can't reach further than its own cell plus the jitter
+  for (let cy = c0y - 1; cy <= c1y + 1; cy++) {
+    for (let cx = c0x - 1; cx <= c1x + 1; cx++) {
+      const capital = capitalOf(cx, cy);
+      for (let dy = -REGION_PLAZA_RADIUS; dy <= REGION_PLAZA_RADIUS; dy++) {
+        for (let dx = -REGION_PLAZA_RADIUS; dx <= REGION_PLAZA_RADIUS; dx++) {
+          if (Math.hypot(dx, dy) > REGION_PLAZA_RADIUS) continue;
+          const x = capital.x + dx;
+          const y = capital.y + dy;
+          const key = featureKey(x, y);
+          if (inGrid(x, y) && !carve.has(key)) carve.set(key, GRAVEL_TILE);
         }
       }
-      regionOf[idx(x, y)] = bestRegion;
     }
   }
-  const paramsAt = (x: number, y: number): BiomeParams => {
-    const region = regionOf[idx(x, y)] ?? -1;
-    return BIOME_PARAMS[WORLD_REGIONS[region === -1 ? 0 : region]!.biome];
-  };
 
-  // 3. one global automaton, density varying by region — borders blend naturally
-  const fillRand = mulberry32(0x70663004);
-  let rock = new Uint8Array(W * H);
-  for (let y = 0; y < H; y++) {
-    for (let x = 0; x < W; x++) {
-      if (!land[idx(x, y)]) {
-        rock[idx(x, y)] = 1;
+  // 3. the corridor mesh: every unordered pair of lattice-adjacent capitals
+  // whose inflated bounding box could touch the grid — a full mesh, so any two
+  // regions that touch on the map are always directly walkable between
+  const seen = new Set<string>();
+  for (let cy = c0y - 2; cy <= c1y + 2; cy++) {
+    for (let cx = c0x - 2; cx <= c1x + 2; cx++) {
+      const a = capitalOf(cx, cy);
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          const b = capitalOf(cx + dx, cy + dy);
+          const pairKey = a.slug < b.slug ? `${a.slug}|${b.slug}` : `${b.slug}|${a.slug}`;
+          if (seen.has(pairKey)) continue;
+          seen.add(pairKey);
+          const margin = 10;
+          if (Math.max(a.x, b.x) + margin < x0 || Math.min(a.x, b.x) - margin >= x1) continue;
+          if (Math.max(a.y, b.y) + margin < y0 || Math.min(a.y, b.y) - margin >= y1) continue;
+          for (const tile of corridorTiles(a, b)) {
+            if (!inGrid(tile.x, tile.y)) continue;
+            const key = featureKey(tile.x, tile.y);
+            corridorKeys.add(key);
+            if (!carve.has(key)) carve.set(key, FLOOR_TILE);
+          }
+        }
+      }
+    }
+  }
+
+  // 4. hut walls and the alcove ring — never over a carve, so a corridor
+  // through town keeps its way open
+  if (nearHearth) {
+    const hutRand = featureRand(0, 0, SALT_POND ^ 0x477);
+    const huts = 6;
+    for (let i = 0; i < huts; i++) {
+      const angle = (i / huts) * Math.PI * 2 + hutRand() * 0.5;
+      const hx = Math.round(HEARTH_CAPITAL.x + Math.cos(angle) * TOWN_HUT_RING);
+      const hy = Math.round(HEARTH_CAPITAL.y + Math.sin(angle) * TOWN_HUT_RING);
+      for (let dy = -2; dy <= 2; dy++) {
+        for (let dx = -2; dx <= 2; dx++) {
+          const x = hx + dx;
+          const y = hy + dy;
+          if (inGrid(x, y) && !carve.has(featureKey(x, y))) carve.set(featureKey(x, y), FLOOR_TILE);
+        }
+      }
+      const doorX = Math.abs(Math.cos(angle)) >= Math.abs(Math.sin(angle)) ? -Math.sign(Math.cos(angle)) : 0;
+      const doorY = doorX === 0 ? -Math.sign(Math.sin(angle)) : 0;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          if (dx === doorX && dy === doorY) continue;
+          const x = hx + dx;
+          const y = hy + dy;
+          const key = featureKey(x, y);
+          if (inGrid(x, y) && !corridorKeys.has(key)) {
+            carve.delete(key);
+            walls.add(key);
+          }
+        }
+      }
+    }
+    // The alcove ring is unconditional — the cave door stays a dead end even
+    // when a corridor's walk crosses the box — with a carved street around its
+    // outside, so any corridor the ring severs reconnects along the perimeter.
+    for (let x = ALCOVE.left; x <= ALCOVE.right; x++) {
+      for (let y = ALCOVE.top; y <= ALCOVE.bottom; y++) {
+        const rim = x === ALCOVE.left || x === ALCOVE.right || y === ALCOVE.top || y === ALCOVE.bottom;
+        if (!rim) continue;
+        if (x === ALCOVE.mouthX && y === ALCOVE.top) continue; // the mouth
+        const key = featureKey(x, y);
+        if (inGrid(x, y)) {
+          carve.delete(key);
+          corridorKeys.delete(key);
+          walls.add(key);
+        }
+      }
+    }
+    for (let x = ALCOVE.left - 1; x <= ALCOVE.right + 1; x++) {
+      for (let y = ALCOVE.top - 1; y <= ALCOVE.bottom + 1; y++) {
+        const rim = x === ALCOVE.left - 1 || x === ALCOVE.right + 1 || y === ALCOVE.top - 1 || y === ALCOVE.bottom + 1;
+        if (!rim) continue;
+        const key = featureKey(x, y);
+        if (inGrid(x, y) && !walls.has(key) && !carve.has(key)) carve.set(key, GRAVEL_TILE);
+      }
+    }
+  }
+
+  // 5. water: the Hearth's rivers, then each nearby region's pond roll. A river
+  // crossing a corridor turns that tile into a wadeable ford; the town, the
+  // alcove, and plazas stay dry.
+  if (nearHearth) {
+    hearthRiversCache ??= hearthRiverTiles();
+    for (const tile of hearthRiversCache) {
+      if (!inGrid(tile.x, tile.y)) continue;
+      const key = featureKey(tile.x, tile.y);
+      if (walls.has(key)) continue;
+      if (carve.has(key)) {
+        if (corridorKeys.has(key)) carve.set(key, WATER_TILE);
         continue;
       }
-      rock[idx(x, y)] = fillRand() < paramsAt(x, y).fill ? 1 : 0;
+      const existing = water.get(key);
+      if (tile.ford) water.set(key, WATER_TILE);
+      else if (existing !== WATER_TILE) water.set(key, DEEP_WATER_TILE);
+    }
+  }
+  for (let cy = c0y - 1; cy <= c1y + 1; cy++) {
+    for (let cx = c0x - 1; cx <= c1x + 1; cx++) {
+      for (const tile of pondTiles(capitalOf(cx, cy))) {
+        if (!inGrid(tile.x, tile.y)) continue;
+        const key = featureKey(tile.x, tile.y);
+        if (walls.has(key) || carve.has(key) || water.has(key)) continue;
+        water.set(key, tile.deep ? DEEP_WATER_TILE : WATER_TILE);
+      }
+    }
+  }
+
+  return { carve, walls, water };
+}
+
+const chunkCache = new Map<string, string[]>();
+const CHUNK_CACHE_MAX = 512;
+
+/**
+ * Synthesize one GEN_CHUNK² chunk of the world. The working grid extends
+ * GEN_HALO tiles past the chunk so every interior automaton value is exact —
+ * two overlapping working grids compute identical values for shared tiles,
+ * because every input (fill hash, features, decoration rolls) is per-tile
+ * deterministic rather than a sequential stream.
+ */
+function buildWorldChunk(chunkX: number, chunkY: number): string[] {
+  const x0 = chunkX * GEN_CHUNK - GEN_HALO;
+  const y0 = chunkY * GEN_CHUNK - GEN_HALO;
+  const size = GEN_CHUNK + GEN_HALO * 2;
+  const idx = (x: number, y: number) => (y - y0) * size + (x - x0);
+
+  // regions for the working grid plus one tile, for the 3×3 fill smoothing
+  const fills = new Float32Array((size + 2) * (size + 2));
+  for (let y = y0 - 1; y < y0 + size + 1; y++) {
+    for (let x = x0 - 1; x < x0 + size + 1; x++) {
+      fills[(y - (y0 - 1)) * (size + 2) + (x - (x0 - 1))] = BIOME_PARAMS[regionAt(x, y).biome].fill;
+    }
+  }
+  const fillAt = (x: number, y: number): number => {
+    let sum = 0;
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) sum += fills[(y + dy - (y0 - 1)) * (size + 2) + (x + dx - (x0 - 1))]!;
+    }
+    return sum / 9;
+  };
+
+  let rock = new Uint8Array(size * size);
+  for (let y = y0; y < y0 + size; y++) {
+    for (let x = x0; x < x0 + size; x++) {
+      rock[idx(x, y)] = tileHash01(x, y, SALT_FILL) < fillAt(x, y) ? 1 : 0;
     }
   }
   for (let pass = 0; pass < SMOOTH_PASSES; pass++) {
     const next = new Uint8Array(rock);
-    for (let y = 1; y < H - 1; y++) {
-      for (let x = 1; x < W - 1; x++) {
-        if (!land[idx(x, y)]) continue;
+    for (let y = y0 + 1; y < y0 + size - 1; y++) {
+      for (let x = x0 + 1; x < x0 + size - 1; x++) {
         let n = 0;
         for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) n += rock[idx(x + dx, y + dy)]!;
         next[idx(x, y)] = n >= 5 ? 1 : 0;
@@ -586,239 +1016,189 @@ export function generateWorld(): GeneratedWorld {
     rock = next;
   }
 
-  // 4. rivers: deep water winding across the continent, crossable at fords
-  const water = new Uint8Array(W * H); // 1 deep, 2 ford
-  const riverRand = mulberry32(0x70663005);
-  const town = WORLD_REGIONS[0]!;
-  const carveRiver = (from: Coord, to: Coord) => {
-    let x = from.x;
-    let y = from.y;
-    let sinceFord = 12;
-    for (let step = 0; step < W + H; step++) {
-      const ford = sinceFord >= 26;
-      for (let dy = -1; dy <= 1; dy++) {
-        for (let dx = -1; dx <= 1; dx++) {
-          const px = x + dx;
-          const py = y + dy;
-          if (px < 1 || py < 1 || px >= W - 1 || py >= H - 1 || !land[idx(px, py)]) continue;
-          water[idx(px, py)] = ford ? 2 : Math.max(water[idx(px, py)]!, 1);
-          if (ford) rock[idx(px, py)] = 0; // a ford's approach is always open
-        }
-      }
-      sinceFord = ford ? 0 : sinceFord + 1;
-      if (Math.abs(x - to.x) + Math.abs(y - to.y) < 3) break;
-      // wander toward the far bank, repelled from the town plaza
-      const bias = riverRand();
-      let stepX = bias < 0.62 ? Math.sign(to.x - x) : bias < 0.81 ? 1 : -1;
-      let stepY = riverRand() < 0.62 ? Math.sign(to.y - y) : riverRand() < 0.5 ? 1 : -1;
-      if (Math.hypot(x - town.x, y - town.y) < 18) {
-        stepX = Math.sign(x - town.x) || 1;
-        stepY = Math.sign(y - town.y) || 1;
-      }
-      x = Math.max(1, Math.min(W - 2, x + stepX));
-      y = Math.max(1, Math.min(H - 2, y + stepY));
+  const features = featuresFor(x0, y0, x0 + size, y0 + size);
+  // resolve final solidity for the whole working grid first, so decoration's
+  // wall-neighbour counts see the carved world, not the raw automaton
+  const solid = new Uint8Array(size * size);
+  for (let y = y0; y < y0 + size; y++) {
+    for (let x = x0; x < x0 + size; x++) {
+      const key = featureKey(x, y);
+      if (features.walls.has(key)) solid[idx(x, y)] = 1;
+      else if (features.carve.has(key)) solid[idx(x, y)] = 0;
+      else if (features.water.get(key) === DEEP_WATER_TILE) solid[idx(x, y)] = 1;
+      else solid[idx(x, y)] = rock[idx(x, y)]!;
     }
-  };
-  carveRiver({ x: 8, y: 58 }, { x: W - 8, y: 148 });
-  carveRiver({ x: 150, y: 8 }, { x: 96, y: H - 8 });
-
-  // 5. the town: a cleared plaza ringed by stone huts
-  const plaza = 5;
-  for (let dy = -plaza - 7; dy <= plaza + 7; dy++) {
-    for (let dx = -plaza - 7; dx <= plaza + 7; dx++) {
-      const d = Math.hypot(dx, dy);
-      const x = town.x + dx;
-      const y = town.y + dy;
-      if (d <= plaza + 7) water[idx(x, y)] = 0; // no river through town
-      if (d <= plaza) rock[idx(x, y)] = 0;
-    }
-  }
-  const hutRand = mulberry32(0x70663006);
-  const huts = 6;
-  for (let i = 0; i < huts; i++) {
-    const angle = (i / huts) * Math.PI * 2 + hutRand() * 0.5;
-    const hx = Math.round(town.x + Math.cos(angle) * (plaza + 5));
-    const hy = Math.round(town.y + Math.sin(angle) * (plaza + 5));
-    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) rock[idx(hx + dx, hy + dy)] = 0;
-    for (let dy = -1; dy <= 1; dy++) {
-      for (let dx = -1; dx <= 1; dx++) {
-        if (dx !== 0 || dy !== 0) rock[idx(hx + dx, hy + dy)] = 1;
-      }
-    }
-    // the doorway faces the plaza
-    const doorX = Math.abs(Math.cos(angle)) >= Math.abs(Math.sin(angle)) ? -Math.sign(Math.cos(angle)) : 0;
-    const doorY = doorX === 0 ? -Math.sign(Math.sin(angle)) : 0;
-    rock[idx(hx + doorX, hy + doorY)] = 0;
-    rock[idx(hx, hy)] = 0;
   }
 
-  // 6. connectivity: everything a trogg can't reach from spawn returns to rock
-  const walkableNow = (x: number, y: number) => !rock[idx(x, y)] && water[idx(x, y)] !== 1;
-  const reachable = new Uint8Array(W * H);
-  const queue = [idx(spawn.x, spawn.y)];
-  rock[idx(spawn.x, spawn.y)] = 0;
-  water[idx(spawn.x, spawn.y)] = 0;
-  reachable[idx(spawn.x, spawn.y)] = 1;
-  while (queue.length > 0) {
-    const at = queue.pop()!;
-    const x = at % W;
-    const y = (at - x) / W;
-    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
-      const nx = x + dx;
-      const ny = y + dy;
-      if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
-      const ni = idx(nx, ny);
-      if (!walkableNow(nx, ny) || reachable[ni]) continue;
-      reachable[ni] = 1;
-      queue.push(ni);
-    }
-  }
-  for (let i = 0; i < rock.length; i++) {
-    if (!rock[i] && water[i] !== 1 && !reachable[i]) rock[i] = 1;
-  }
-
-  // 7. dress the floor per region
-  const glyphs: string[][] = [];
-  const regionGrid: string[][] = [];
-  const decorRand = mulberry32(0x70663007);
-  const wallNeighbours = (x: number, y: number): number => {
-    let n = 0;
-    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) n += rock[idx(x + dx, y + dy)] ?? 1;
-    return n;
-  };
-  for (let y = 0; y < H; y++) {
-    const row: string[] = [];
-    const regionRow: string[] = [];
-    for (let x = 0; x < W; x++) {
-      const region = regionOf[idx(x, y)] ?? -1;
-      regionRow.push(region === -1 ? "." : REGION_CHARS[region]!);
-      if (water[idx(x, y)] === 1 && !rock[idx(x, y)]) {
-        row.push(DEEP_WATER_TILE);
+  const rows: string[] = [];
+  for (let y = chunkY * GEN_CHUNK; y < (chunkY + 1) * GEN_CHUNK; y++) {
+    let row = "";
+    for (let x = chunkX * GEN_CHUNK; x < (chunkX + 1) * GEN_CHUNK; x++) {
+      const key = featureKey(x, y);
+      if (features.walls.has(key)) {
+        row += WALL_TILE;
+        continue;
+      }
+      const carved = features.carve.get(key);
+      if (carved !== undefined) {
+        row += carved;
+        continue;
+      }
+      const wet = features.water.get(key);
+      if (wet !== undefined) {
+        row += wet;
         continue;
       }
       if (rock[idx(x, y)]) {
-        row.push(WALL_TILE);
+        row += WALL_TILE;
         continue;
       }
-      if (water[idx(x, y)] === 2) {
-        row.push(WATER_TILE); // the ford: wadeable shallows
-        continue;
-      }
-      const params = paramsAt(x, y);
-      const nearRock = wallNeighbours(x, y);
-      const roll = decorRand();
-      if (nearRock >= 3 && roll < params.moss) row.push(MOSS_TILE);
-      else if (nearRock >= 2 && roll < params.gravel) row.push(GRAVEL_TILE);
-      else if (nearRock === 0 && roll < params.glow) row.push(GLOWMOSS_TILE);
-      else row.push(".");
+      let nearRock = 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) nearRock += solid[idx(x + dx, y + dy)]!;
+      const params = BIOME_PARAMS[regionAt(x, y).biome];
+      const roll = tileHash01(x, y, SALT_DECOR);
+      if (nearRock >= 3 && roll < params.moss) row += MOSS_TILE;
+      else if (nearRock >= 2 && roll < params.gravel) row += GRAVEL_TILE;
+      else if (nearRock === 0 && roll < params.glow) row += GLOWMOSS_TILE;
+      else row += FLOOR_TILE;
     }
-    glyphs.push(row);
-    regionGrid.push(regionRow);
+    rows.push(row);
   }
-  // gravel dresses the town plaza
-  for (let dy = -plaza; dy <= plaza; dy++) {
-    for (let dx = -plaza; dx <= plaza; dx++) {
-      if (Math.hypot(dx, dy) <= plaza && glyphs[town.y + dy]![town.x + dx] === ".") glyphs[town.y + dy]![town.x + dx] = GRAVEL_TILE;
-    }
-  }
+  return rows;
+}
 
-  // 8. seed the dynamics per region
-  const taken = new Set<string>();
-  const seedRand = mulberry32(0x70663008);
-  const boulders: Coord[] = [];
-  const openTiles: Coord[][] = WORLD_REGIONS.map(() => []);
-  const DRY = new Set([".", MOSS_TILE, GRAVEL_TILE, GLOWMOSS_TILE]);
-  for (let y = 1; y < H - 1; y++) {
-    for (let x = 1; x < W - 1; x++) {
-      const region = regionOf[idx(x, y)] ?? -1;
-      // seeds keep to dry open floor: never in rivers, fords, or pools
-      if (region === -1 || !DRY.has(glyphs[y]![x]!)) continue;
-      if (Math.abs(x - spawn.x) + Math.abs(y - spawn.y) < 8) continue;
-      openTiles[region]!.push({ x, y });
+/** The world's tile glyph at any coordinate on the plane — synthesized on
+ *  demand, chunk by chunk, and cached. Pure per invariant 7. */
+export function worldGlyphAt(x: number, y: number): string {
+  const chunkX = Math.floor(x / GEN_CHUNK);
+  const chunkY = Math.floor(y / GEN_CHUNK);
+  const key = `${chunkX},${chunkY}`;
+  let chunk = chunkCache.get(key);
+  if (!chunk) {
+    chunk = buildWorldChunk(chunkX, chunkY);
+    if (chunkCache.size >= CHUNK_CACHE_MAX) {
+      // drop the oldest entries — plain FIFO is fine for a derivation cache
+      let drop = chunkCache.size - CHUNK_CACHE_MAX + 1;
+      for (const staleKey of chunkCache.keys()) {
+        if (drop-- <= 0) break;
+        chunkCache.delete(staleKey);
+      }
+    }
+    chunkCache.set(key, chunk);
+  }
+  return chunk[y - chunkY * GEN_CHUNK]![x - chunkX * GEN_CHUNK]!;
+}
+
+// ── per-region seeds ────────────────────────────────────────────────────────────
+// Boulders, trees, and dark creatures seed per region from an RNG stream keyed
+// off that region's own capital coordinates, at a density that scales with the
+// region's claim-graph hop-depth from the Hearth (GDD "Generation"). Candidate
+// tiles come from a bounded flood fill out of the region's own plaza, so seeds
+// always land on ground a group can actually reach — never in a sealed
+// automaton pocket a claim could then never clear.
+
+/** Baseline per-region seed counts, before depth scaling. (initial) */
+export const REGION_BOULDER_COUNT = 12;
+export const REGION_TREE_COUNT = 20;
+export const REGION_DARK_CREATURE_COUNT = 5;
+
+/** No dark creature seeds within this range of the First Fire, so a newborn's
+ *  first steps into the world are never spawn-camped. (initial) */
+const HEARTH_CREATURE_CLEARANCE = 18;
+
+/** How a region's seed density scales with its claim-graph hop-depth from the
+ *  Hearth: the Hearth-adjacent baseline at depth 1, half a baseline more per
+ *  hop, capped at MAX_DEPTH_DENSITY_MULTIPLIER. */
+export function densityMultiplierFor(hopDepth: number): number {
+  return Math.min(MAX_DEPTH_DENSITY_MULTIPLIER, 1 + Math.max(0, hopDepth - 1) * 0.5);
+}
+
+export interface RegionSeeds {
+  boulders: Coord[];
+  trees: Coord[];
+  darkCreatures: DarkCreatureSeed[];
+}
+
+/**
+ * The dry, plaza-reachable tiles of a region, bounded by its own cell inflated
+ * by the jitter + warp reach — the flood fill can spill down corridors into a
+ * neighbour's ground, so membership is re-checked per tile with `regionAt`.
+ */
+function regionOpenTiles(region: WorldRegion): Coord[] {
+  const reachBound = REGION_LATTICE_CELL; // cell + jitter + warp, generously
+  const minX = region.x - reachBound;
+  const maxX = region.x + reachBound;
+  const minY = region.y - reachBound;
+  const maxY = region.y + reachBound;
+  const open: Coord[] = [];
+  const seen = new Set<string>();
+  const queue: Coord[] = [{ x: region.x, y: region.y }];
+  seen.add(featureKey(region.x, region.y));
+  while (queue.length > 0) {
+    const at = queue.pop()!;
+    const glyph = worldGlyphAt(at.x, at.y);
+    if (glyph === WALL_TILE || glyph === DEEP_WATER_TILE) continue;
+    if (glyph !== WATER_TILE && regionAt(at.x, at.y).slug === region.slug) open.push(at);
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+      const nx = at.x + dx;
+      const ny = at.y + dy;
+      if (nx < minX || nx > maxX || ny < minY || ny > maxY) continue;
+      const key = featureKey(nx, ny);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      queue.push({ x: nx, y: ny });
     }
   }
-  const drawFrom = (region: number, rand = seedRand): Coord | undefined => {
-    const pool = openTiles[region]!;
+  return open;
+}
+
+/** A region's deterministic seed layout, scaled by its depth multiplier. The
+ *  Hearth's own layout never includes dark creatures — it is lit ground. */
+export function regionSeeds(slug: string, multiplier = 1): RegionSeeds {
+  const cell = cellOfSlug(slug);
+  const empty: RegionSeeds = { boulders: [], trees: [], darkCreatures: [] };
+  if (!cell) return empty;
+  const region = capitalOf(cell.cellX, cell.cellY);
+  const open = regionOpenTiles(region);
+  if (open.length === 0) return empty;
+  const rand = featureRand(cell.cellX, cell.cellY, SALT_SEEDS);
+  const taken = new Set<string>();
+  // the plaza (and the Hearth's whole town) stays clear of seeds
+  const clearance = slug === HEARTH_REGION_SLUG ? TOWN_HUT_RING + 3 : REGION_PLAZA_RADIUS + 1;
+  const draw = (fits?: (tile: Coord) => boolean): Coord | undefined => {
     for (let attempt = 0; attempt < 60; attempt++) {
-      const tile = pool[Math.floor(rand() * pool.length)];
-      if (tile && !taken.has(`${tile.x},${tile.y}`)) {
-        taken.add(`${tile.x},${tile.y}`);
-        return tile;
-      }
+      const tile = open[Math.floor(rand() * open.length)]!;
+      if (taken.has(featureKey(tile.x, tile.y))) continue;
+      if (Math.hypot(tile.x - region.x, tile.y - region.y) < clearance) continue;
+      if (fits && !fits(tile)) continue;
+      taken.add(featureKey(tile.x, tile.y));
+      return tile;
     }
     return undefined;
   };
-  for (let region = 0; region < WORLD_REGIONS.length; region++) {
-    for (let i = 0; i < 12; i++) {
-      const tile = drawFrom(region);
-      if (tile) boulders.push(tile);
+  const seeds: RegionSeeds = { boulders: [], trees: [], darkCreatures: [] };
+  for (let i = 0; i < Math.round(REGION_BOULDER_COUNT * multiplier); i++) {
+    const tile = draw();
+    if (tile) seeds.boulders.push(tile);
+  }
+  for (let i = 0; i < Math.round(REGION_TREE_COUNT * multiplier); i++) {
+    const tile = draw();
+    if (tile) seeds.trees.push(tile);
+  }
+  if (slug !== HEARTH_REGION_SLUG) {
+    const outsideHearthClearance = (tile: Coord) => Math.hypot(tile.x - WORLD_SPAWN.x, tile.y - WORLD_SPAWN.y) >= HEARTH_CREATURE_CLEARANCE;
+    for (let i = 0; i < Math.round(REGION_DARK_CREATURE_COUNT * multiplier); i++) {
+      const tile = draw(outsideHearthClearance);
+      if (tile) seeds.darkCreatures.push({ ...tile, species: "grask" });
     }
   }
-  const items: GroundItemSeed[] = (["pickaxe", "shovel", "axe", "sword", "shield", "torch"] as const).map((item, i) => {
-    const tile = { x: spawn.x - 2 + i, y: spawn.y - 2 };
-    taken.add(`${tile.x},${tile.y}`);
-    return { item, ...tile };
-  });
+  return seeds;
+}
 
-  // 9. trees: choppable woods scattered per region. A separate rng stream, drawn
-  // after every other stage, so adding (or re-tuning) trees leaves the committed
-  // tiles and all existing seeds byte-identical.
-  const treeRand = mulberry32(0x70663009);
-  const trees: Coord[] = [];
-  for (let region = 0; region < WORLD_REGIONS.length; region++) {
-    for (let i = 0; i < 20; i++) {
-      const tile = drawFrom(region, treeRand);
-      if (tile) trees.push(tile);
-    }
-  }
-
-  // Dark creatures: a hostile population per region, drawn from the same
-  // pools with a wider clearance around the Hearth than boulders/trees get —
-  // light, not just crowding, needs the margin, so a newborn's first steps
-  // into the world are never spawn-camped. A separate stream, drawn last, so
-  // tuning the population never reshuffles any other seed.
-  const darkCreatureRand = mulberry32(0x7066300a);
-  const darkCreatures: DarkCreatureSeed[] = [];
-  const HEARTH_CLEARANCE = 18;
-  for (let region = 0; region < WORLD_REGIONS.length; region++) {
-    for (let i = 0; i < 5; i++) {
-      let tile: Coord | undefined;
-      for (let attempt = 0; attempt < 20; attempt++) {
-        const candidate = drawFrom(region, darkCreatureRand);
-        if (!candidate) break;
-        if (Math.hypot(candidate.x - spawn.x, candidate.y - spawn.y) >= HEARTH_CLEARANCE) {
-          tile = candidate;
-          break;
-        }
-      }
-      if (tile) darkCreatures.push({ ...tile, species: "grask" });
-    }
-  }
-
-  // 10. the birth-cave mouth (GDD "Onboarding: the Warren"): newborns dig out
-  // of their own instanced cave and step into the world HERE — a small dead-end
-  // alcove burrowed into the south-coast rock, so every trogg's first steps
-  // walk out of a cave mouth. Carving only turns rock into floor.
-  const MOUTH_X = 112;
-  let mouthY = -1;
-  for (let y = H - 2; y >= Math.floor(H * 0.6); y--) {
-    if (reachable[idx(MOUTH_X, y)]) {
-      mouthY = y;
-      break;
-    }
-  }
-  const ARRIVAL_DEPTH = 5;
-  for (let y = mouthY + 1; y <= mouthY + ARRIVAL_DEPTH && y < H - 1; y++) {
-    for (let x = MOUTH_X - 1; x <= MOUTH_X + 1; x++) {
-      if (glyphs[y]![x] === WALL_TILE) glyphs[y]![x] = ".";
-    }
-  }
-  // arrive mid-alcove facing the daylight; the way back down is the deep end,
-  // two tiles further in, so arriving never immediately re-enters
-  const arrival: Coord = { x: MOUTH_X, y: Math.min(mouthY + 3, H - 3) };
-  const caveDoor: Coord = { x: MOUTH_X, y: Math.min(mouthY + ARRIVAL_DEPTH, H - 2) };
-  const cells: BirthCellSeed[] = [];
-
-  const regions = regionGrid.map((row) => row.join(""));
-  return { tiles: glyphs.map((row) => row.join("")), regions, regionAdjacency: computeRegionAdjacency(regions), boulders, trees, items, cells, darkCreatures, arrival, caveDoor, spawn };
+/** Drop every derived-world cache — test isolation only; nothing in the game
+ *  ever needs it, since the derivation is immutable for a fixed WORLD_SEED. */
+export function clearWorldGenCaches(): void {
+  chunkCache.clear();
+  capitalCache.clear();
+  hearthRiversCache = undefined;
 }

@@ -455,6 +455,14 @@ const revealedRegion = table(
   { name: "revealed_region", public: true },
   {
     slug: t.string().primaryKey(),
+    // The display name, locked the moment the region is first exposed as
+    // penumbra — checked unique against every other row, never recomputed
+    // (GDD "Generation"). Clients render region names from here, not from
+    // the lattice's candidate names.
+    name: t.string(),
+    // false = penumbra (scouted, unclaimed); true = interior (claimed).
+    // A region with no row at all is unreached — a hard collision wall.
+    interior: t.bool(),
     revealedAt: t.timestamp(),
   },
 );
@@ -563,7 +571,7 @@ export const respawnPlayers = spacetimedb.reducer({ timer: playerRespawn.rowType
 export const brazierUpkeep = spacetimedb.reducer({ timer: brazierUpkeepTimer.rowType }, (ctx) => {
   const online = anyPlayerOnline(ctx);
   if (online) {
-    const depths = regionHopDepths();
+    const depths = regionHopDepths(ctx);
     const rows = [...ctx.db.brazier.iter()];
     const byZone = new Map<string, (typeof rows)[number][]>();
     for (const b of rows) {
@@ -577,7 +585,7 @@ export const brazierUpkeep = spacetimedb.reducer({ timer: brazierUpkeepTimer.row
     for (const [, zoneBraziers] of byZone) {
       const lit = zoneBraziers
         .filter((b) => b.lit && !b.isEternal)
-        .map((b) => ({ row: b, depth: depths.get(regionAt(b.x, b.y)?.slug ?? "") ?? -1 }))
+        .map((b) => ({ row: b, depth: depths.get(regionAt(b.x, b.y).slug) ?? -1 }))
         .sort((a, b2) => b2.depth - a.depth); // deepest (furthest from the Hearth) first
       const stock = ctx.db.stockpile.item.find(BRAZIER_UPKEEP_ITEM)?.qty ?? 0;
       let count = lit.length;

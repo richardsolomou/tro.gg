@@ -6,7 +6,7 @@ import { audio } from "../audio.js";
 import { hudRoot } from "./hud.js";
 import { registerKeybind } from "./keybinds.js";
 import { currentCommandFlags, type ChatCommandFlags } from "./chat_commands.js";
-import { hauntGhost, resetBoulders, resetDarkCreatures, resetFrontier, revealNextRegion, spawnDebugEntity } from "../net/procedures.js";
+import { hauntGhost, jumpRegions, resetBoulders, resetDarkCreatures, resetFrontier, revealNextRegion, spawnDebugEntity } from "../net/procedures.js";
 import { itemIcon } from "./inventory.js";
 import { attachTip } from "./tooltip.js";
 
@@ -145,7 +145,21 @@ function worldSection(conn: DbConnection, zone: string, status: HTMLElement): HT
     audio.playCommand();
     status.textContent = "reset the frontier to the Hearth";
   });
-  frontierGrid.append(revealButton, resetFrontierButton);
+  // Jump N regions out: "Reveal next region" repeated N times in one shot,
+  // marching outward — for testing generation at genuine distance without
+  // claiming hundreds of regions by hand (GDD "Debug cheats").
+  const jumpButton = commandButton("Jump 10 regions out");
+  jumpButton.addEventListener("click", () => {
+    void jumpRegions(conn, 10, "commands").catch((err) => {
+      logError("Command jump request failed", { surface: "commands", action: "jump_regions", zone, error: err });
+      audio.playError();
+      status.textContent = "couldn't jump the frontier";
+    });
+    logInfo("Command jump requested", { surface: "commands", action: "jump_regions", zone, source: "commands" });
+    audio.playCommand();
+    status.textContent = "jumped the frontier 10 regions out";
+  });
+  frontierGrid.append(revealButton, jumpButton, resetFrontierButton);
   section.appendChild(frontierGrid);
   return section;
 }

@@ -4,7 +4,7 @@
 // assert on the resulting rows. The risk in any fake-db harness is the CRUD semantics
 // drifting from the real store; these are the unambiguous ones the reducers rely on.
 
-import { WORLD_REGIONS } from "@trogg/shared";
+import { neighborsOf, regionSlug } from "@trogg/shared";
 
 /** A stand-in identity: equality by hex, like SpacetimeDB's Identity. */
 export interface Id {
@@ -77,12 +77,18 @@ export function makeCtx(opts: FakeCtxOpts) {
   const random: any = () => randomValue;
   random.integerInRange = opts.integerInRange ?? ((lo: number) => lo);
 
-  // Every region starts revealed, so existing movement/combat/interact tests
-  // (written before the lazy-reveal frontier existed) keep seeing the whole
-  // committed map as walkable. A test exercising the frontier itself clears
-  // this table down to whichever regions the scenario calls for.
+  // A generous block of regions around the origin starts claimed, so existing
+  // movement/combat/interact tests (written before the lazy-reveal frontier
+  // existed) see all the ground they use as walkable. A test exercising the
+  // frontier itself clears this table down to whichever regions the scenario
+  // calls for.
   const revealedRegion = makeTable({ pk: "slug" });
-  for (const region of WORLD_REGIONS) revealedRegion.insert({ slug: region.slug, revealedAt: { microsSinceUnixEpoch: 0n } });
+  for (let cellY = -3; cellY <= 3; cellY++) {
+    for (let cellX = -3; cellX <= 3; cellX++) {
+      const slug = regionSlug(cellX, cellY);
+      revealedRegion.insert({ slug, name: slug, interior: true, revealedAt: { microsSinceUnixEpoch: 0n } });
+    }
+  }
 
   return {
     sender: opts.sender,
@@ -181,6 +187,8 @@ export function darkCreatureRow(over: Record<string, unknown> = {}) {
 export function revealedRegionRow(over: Record<string, unknown> = {}) {
   return {
     slug: "hearth",
+    name: "The Hearth",
+    interior: true,
     revealedAt: { microsSinceUnixEpoch: 0n },
     ...over,
   };

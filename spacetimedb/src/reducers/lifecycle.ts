@@ -7,7 +7,6 @@ import {
   COLOR_UNSET,
   deriveKindlingCharge,
   getZone,
-  neighborsOf,
   STYLE_UNSET,
   isWalkable,
   PLAYER_MAX_HEALTH,
@@ -16,14 +15,10 @@ import {
 import {
   spawnAt,
   healStaleWorld,
-  seedBoulders,
-  seedTrees,
   seedGroundItems,
   seedBirthInstance,
   seedFirstFire,
   seedRevealedHearth,
-  seedRegionPopulation,
-  HEARTH_REGION_SLUG,
   playerConnectionCount,
   rememberPlayerConnection,
   forgetPlayerConnection,
@@ -51,16 +46,13 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
   // module; seed lazily on connect, idempotently.
   const startingZone = getZone(STARTING_ZONE_SLUG)!;
   healStaleWorld(ctx, startingZone);
-  seedBoulders(ctx, startingZone);
-  seedTrees(ctx, startingZone);
   seedGroundItems(ctx, startingZone);
   seedFirstFire(ctx, startingZone);
   // The Hearth is interior from the start (GDD "Generation: only as far as
-  // the light reaches"); its initial penumbra is seeded right alongside it,
-  // not via a real claim, so a fresh world has somewhere to scout on day one.
-  seedRevealedHearth(ctx);
-  seedRegionPopulation(ctx, startingZone, HEARTH_REGION_SLUG);
-  for (const neighborSlug of neighborsOf(HEARTH_REGION_SLUG)) seedRegionPopulation(ctx, startingZone, neighborSlug);
+  // the light reaches"); claiming it exposes its lattice neighbours as the
+  // initial penumbra — rows, locked names, and populations — so a fresh
+  // world has somewhere to scout on day one.
+  seedRevealedHearth(ctx, startingZone);
   armRegen(ctx);
   armBrazierUpkeep(ctx);
   armEmberWander(ctx);

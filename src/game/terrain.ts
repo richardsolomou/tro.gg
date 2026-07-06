@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { DEEP_WATER_TILE, GLOWMOSS_TILE, GRAVEL_TILE, MOSS_TILE, regionAt, rockHeightAt, WALL_TILE, WATER_TILE, type RegionVisibility, type Zone } from "@trogg/shared";
+import { DEEP_WATER_TILE, GLOWMOSS_TILE, GRAVEL_TILE, MOSS_TILE, regionAt, rockHeightAt, tileGlyph, WALL_TILE, WATER_TILE, type RegionVisibility, type Zone } from "@trogg/shared";
 import { biomePalette, DAYLIGHT_3D } from "./palette.js";
 
 /**
@@ -99,7 +99,7 @@ export function buildTerrain(zone: Zone, regionState: (x: number, y: number) => 
   voidPlane.rotation.x = -Math.PI / 2;
   // well below the sunken river channels (whose tops sit at -0.18): anything cut
   // out of the floor must reveal what's carved beneath it, not this underlay
-  voidPlane.position.set(zone.width / 2, -0.62, zone.height / 2);
+  voidPlane.position.set(zone.unbounded ? (zone.spawn?.x ?? 0) : zone.width / 2, -0.62, zone.unbounded ? (zone.spawn?.y ?? 0) : zone.height / 2);
   voidPlane.receiveShadow = true;
   group.add(voidPlane);
 
@@ -135,8 +135,8 @@ export function buildTerrain(zone: Zone, regionState: (x: number, y: number) => 
   const buildChunk = (cx: number, cy: number): BuiltChunk | undefined => {
     const x0 = cx * CHUNK;
     const y0 = cy * CHUNK;
-    const w = Math.min(CHUNK, zone.width - x0);
-    const h = Math.min(CHUNK, zone.height - y0);
+    const w = zone.unbounded ? CHUNK : Math.min(CHUNK, zone.width - x0);
+    const h = zone.unbounded ? CHUNK : Math.min(CHUNK, zone.height - y0);
     if (w <= 0 || h <= 0) return undefined;
 
     const chunkGroup = new THREE.Group();
@@ -153,12 +153,11 @@ export function buildTerrain(zone: Zone, regionState: (x: number, y: number) => 
     const glowTiles: { x: number; y: number; biome: string }[] = [];
     const deepTiles: { x: number; y: number }[] = [];
     for (let y = 0; y < h; y++) {
-      const row = zone.tiles[y0 + y]!;
       for (let x = 0; x < w; x++) {
         const wx = x0 + x;
         const wy = y0 + y;
         const state = regionState(wx, wy);
-        const glyph = row[wx]!;
+        const glyph = tileGlyph(zone, wx, wy)!;
         const biome = tileBiome(wx, wy);
         const fogMix = FOG_MIX[state];
         const patches = patchesFor(biome);
@@ -263,18 +262,22 @@ export function buildTerrain(zone: Zone, regionState: (x: number, y: number) => 
   };
 
   const update = (focusX: number, focusY: number, camDistance: number) => {
+    // the void underlay follows the camera through the edgeless world, snapped
+    // to whole texture patches so its repeating pattern never visibly swims
+    if (zone.unbounded) {
+      voidPlane.position.x = Math.round(focusX / PATCH) * PATCH;
+      voidPlane.position.z = Math.round(focusY / PATCH) * PATCH;
+    }
     // The streamed radius follows the zoom, Google-Maps style: close in you get
     // the neighbourhood, zoomed out the chunks fan out to what the fog reveals.
     const radius = Math.min(320, Math.max(48, camDistance * 2.6 + 40));
-    const c0x = Math.floor((focusX - radius) / CHUNK);
-    const c1x = Math.floor((focusX + radius) / CHUNK);
-    const c0y = Math.floor((focusY - radius) / CHUNK);
-    const c1y = Math.floor((focusY + radius) / CHUNK);
-    const maxCx = Math.ceil(zone.width / CHUNK) - 1;
-    const maxCy = Math.ceil(zone.height / CHUNK) - 1;
+    const c0x = zone.unbounded ? Math.floor((focusX - radius) / CHUNK) : Math.max(0, Math.floor((focusX - radius) / CHUNK));
+    const c1x = zone.unbounded ? Math.floor((focusX + radius) / CHUNK) : Math.min(Math.ceil(zone.width / CHUNK) - 1, Math.floor((focusX + radius) / CHUNK));
+    const c0y = zone.unbounded ? Math.floor((focusY - radius) / CHUNK) : Math.max(0, Math.floor((focusY - radius) / CHUNK));
+    const c1y = zone.unbounded ? Math.floor((focusY + radius) / CHUNK) : Math.min(Math.ceil(zone.height / CHUNK) - 1, Math.floor((focusY + radius) / CHUNK));
     const wanted: { cx: number; cy: number; dist: number }[] = [];
-    for (let cy = Math.max(0, c0y); cy <= Math.min(maxCy, c1y); cy++) {
-      for (let cx = Math.max(0, c0x); cx <= Math.min(maxCx, c1x); cx++) {
+    for (let cy = c0y; cy <= c1y; cy++) {
+      for (let cx = c0x; cx <= c1x; cx++) {
         const centreX = cx * CHUNK + CHUNK / 2;
         const centreY = cy * CHUNK + CHUNK / 2;
         const dist = Math.hypot(centreX - focusX, centreY - focusY);

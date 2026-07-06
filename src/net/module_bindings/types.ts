@@ -165,6 +165,8 @@ export type PlayerRespawn = __Infer<typeof PlayerRespawn>;
 
 export const RevealedRegion = __t.object("RevealedRegion", {
   slug: __t.string(),
+  name: __t.string(),
+  interior: __t.bool(),
   revealedAt: __t.timestamp(),
 });
 export type RevealedRegion = __Infer<typeof RevealedRegion>;

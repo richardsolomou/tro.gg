@@ -1,10 +1,13 @@
 import spacetimedb, { type Ctx, type AnalyticsEvent } from "../schema";
 import { t } from "spacetimedb/server";
 import {
+  capitalOf,
+  cellOfSlug,
   getZone,
   isDarkCreatureSpecies,
   isDryFloor,
   isSpawnableItemId,
+  neighborsOf,
   BOULDER_MAX_HEALTH,
   BRAZIER_LIT_RADIUS,
   TREE_MAX_HEALTH,
@@ -38,6 +41,7 @@ import {
   addGroundItemTiles,
   facingDir,
   claimRegionAndExposePenumbra,
+  exposeRegion,
   currentRevealedRegions,
   HEARTH_REGION_SLUG,
   revealGate,
@@ -305,16 +309,13 @@ export const rescue = spacetimedb.reducer((ctx) => {
   });
 });
 
-/** The first dry, open tile found in a region — deterministic, not random;
- *  fine for a rarely-called debug tool. Undefined only if the region is
- *  somehow entirely wet or walled off, which never happens in practice. */
-function firstDryTileInRegion(zone: Zone, slug: string): { x: number; y: number } | undefined {
-  for (let y = 0; y < zone.height; y++) {
-    for (let x = 0; x < zone.width; x++) {
-      if (regionAt(x, y)?.slug === slug && isDryFloor(zone, x, y)) return { x, y };
-    }
-  }
-  return undefined;
+/** Where a debug claim's brazier lands: the region's capital plaza — open
+ *  floor by construction, so the shortcut never has to search. */
+function regionAnchorTile(slug: string): { x: number; y: number } | undefined {
+  const cell = cellOfSlug(slug);
+  if (!cell) return undefined;
+  const capital = capitalOf(cell.cellX, cell.cellY);
+  return { x: capital.x, y: capital.y };
 }
 
 /**
@@ -324,21 +325,69 @@ function firstDryTileInRegion(zone: Zone, slug: string): { x: number; y: number 
  * fighting anything. Inserts a lit brazier too, so the shortcut leaves the
  * same end state a real claim would. A no-op once every region is interior.
  */
+/** Claim one region directly — brazier at its capital plaza, penumbra exposed —
+ *  leaving the same end state a real claim would. */
+function debugClaim(ctx: Ctx, zone: Zone, slug: string): boolean {
+  const tile = regionAnchorTile(slug);
+  if (!tile) return false;
+  ctx.db.brazier.insert({ id: 0n, zoneId: zone.slug, x: tile.x, y: tile.y, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
+  claimRegionAndExposePenumbra(ctx, zone, slug);
+  return true;
+}
+
 function runRevealNextRegion(ctx: Ctx, source = ""): AnalyticsEvent[] {
   const zone = getZone(STARTING_ZONE_SLUG);
   if (!zone) return [];
-  const next = [...penumbraOf(currentRevealedRegions(ctx))][0];
+  const next = [...penumbraOf(currentRevealedRegions(ctx))].sort()[0];
   if (!next) return [];
-  const tile = firstDryTileInRegion(zone, next);
-  if (!tile) return [];
-  ctx.db.brazier.insert({ id: 0n, zoneId: zone.slug, x: tile.x, y: tile.y, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
-  claimRegionAndExposePenumbra(ctx, zone, next);
+  if (!debugClaim(ctx, zone, next)) return [];
   return [{ distinctId: distinctId(ctx), event: "region_revealed", properties: { region: next, ...sourceProp(source) } }];
 }
 
 export const revealNextRegion = spacetimedb.reducer((ctx) => {
   runRevealNextRegion(ctx);
 });
+
+/**
+ * Debug: claim a chain of N regions directly outward from the current
+ * frontier in one shot — "Reveal next region" repeated N times, each hop
+ * preferring a neighbour of the region just claimed so the chain marches
+ * away from the Hearth — for testing generation at genuine distance without
+ * manually claiming hundreds of regions in sequence (GDD "Debug cheats").
+ */
+function runJumpRegions(ctx: Ctx, count: number, source = ""): AnalyticsEvent[] {
+  const zone = getZone(STARTING_ZONE_SLUG);
+  if (!zone) return [];
+  const hops = Math.max(1, Math.min(200, Math.trunc(count)));
+  let claimed = 0;
+  let last: string | undefined;
+  for (let i = 0; i < hops; i++) {
+    const interior = currentRevealedRegions(ctx);
+    const penumbra = penumbraOf(interior);
+    let next: string | undefined;
+    if (last) next = neighborsOf(last).find((slug) => penumbra.has(slug));
+    next ??= [...penumbra].sort()[0];
+    if (!next || !debugClaim(ctx, zone, next)) break;
+    last = next;
+    claimed++;
+  }
+  if (claimed === 0) return [];
+  return [{ distinctId: distinctId(ctx), event: "frontier_jumped", properties: { regions: claimed, ...sourceProp(source) } }];
+}
+
+export const jumpRegions = spacetimedb.reducer({ count: t.i32() }, (ctx, { count }) => {
+  runJumpRegions(ctx, count);
+});
+
+export const jumpRegionsAction = spacetimedb.procedure(
+  { count: t.i32(), posthogKey: t.string(), source: t.string() },
+  t.unit(),
+  (ctx, args) => {
+    const events = ctx.withTx((tx) => runJumpRegions(tx, args.count, args.source));
+    captureProcedureEvents(ctx, args.posthogKey, events);
+    return unit();
+  },
+);
 
 export const revealNextRegionAction = spacetimedb.procedure(
   { posthogKey: t.string(), source: t.string() },
@@ -359,6 +408,16 @@ export const revealNextRegionAction = spacetimedb.procedure(
 function runResetFrontier(ctx: Ctx, source = ""): AnalyticsEvent[] {
   for (const row of [...ctx.db.revealedRegion.iter()]) {
     if (row.slug !== HEARTH_REGION_SLUG) ctx.db.revealedRegion.slug.delete(row.slug);
+  }
+  // claim braziers belong to the claims being forgotten; the First Fire stays
+  for (const b of [...ctx.db.brazier.iter()]) {
+    if (!b.isEternal) ctx.db.brazier.id.delete(b.id);
+  }
+  // re-expose the Hearth's own penumbra so its rows (and locked names) exist
+  // again immediately; population guards make this a no-op for seeded ground
+  const zone = getZone(STARTING_ZONE_SLUG);
+  if (zone) {
+    for (const neighborSlug of neighborsOf(HEARTH_REGION_SLUG)) exposeRegion(ctx, zone, neighborSlug, 1);
   }
   return [{ distinctId: distinctId(ctx), event: "frontier_reset", properties: { ...sourceProp(source) } }];
 }

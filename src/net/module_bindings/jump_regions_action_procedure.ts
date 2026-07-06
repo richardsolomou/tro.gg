@@ -10,9 +10,9 @@ import {
   type Infer as __Infer,
 } from "spacetimedb";
 
-export default __t.row({
-  slug: __t.string().primaryKey(),
-  name: __t.string(),
-  interior: __t.bool(),
-  revealedAt: __t.timestamp().name("revealed_at"),
-});
+export const params = {
+  count: __t.i32(),
+  posthogKey: __t.string(),
+  source: __t.string(),
+};
+export const returnType = __t.unit()

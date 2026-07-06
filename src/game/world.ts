@@ -24,6 +24,7 @@ import {
   projectMotion,
   projectMotionState,
   regionAt,
+  tileGlyph,
   regionVisibility,
   rockHeightAt,
   snapToTile,
@@ -202,6 +203,12 @@ export class World3D {
    *  read off the already-subscribed `revealed_region` rows. */
   private readonly revealedRegions = new Set<string>();
   private penumbraRegions: ReadonlySet<string> = new Set();
+  /** Locked display names from `revealed_region` rows — the only place a
+   *  region's player-facing name ever comes from (GDD "Generation"). */
+  private readonly regionNames = new Map<string, string>();
+  regionNameOf(slug: string): string | undefined {
+    return this.regionNames.get(slug);
+  }
   isRegionRevealed(x: number, y: number): boolean {
     return isRevealed(this.zone, this.revealedRegions, this.penumbraRegions, x, y);
   }
@@ -597,7 +604,7 @@ export class World3D {
       if (!ray.ray.intersectPlane(floorPlane, hit)) return;
       const x = Math.floor(hit.x);
       const y = Math.floor(hit.z);
-      if (x < 0 || y < 0 || x >= this.zone.width || y >= this.zone.height) return;
+      if (!this.zone.unbounded && (x < 0 || y < 0 || x >= this.zone.width || y >= this.zone.height)) return;
       if (this.myId && this.tracked.get(this.myId)?.player.dead) return;
       this.self.onClick({ x, y });
     });
@@ -780,7 +787,9 @@ export class World3D {
       const here = this.slug === STARTING_ZONE_SLUG ? regionAt(Math.round(motion.x), Math.round(motion.y)) : undefined;
       if (here?.slug !== this.lastRegionSlug) {
         this.lastRegionSlug = here?.slug;
-        if (here && !this.revealedRegions.has(here.slug)) regionToast(`Entering ${here.name} — unclaimed`);
+        if (here && !this.revealedRegions.has(here.slug)) {
+          regionToast(`Entering ${this.regionNames.get(here.slug) ?? "unnamed ground"} — unclaimed`);
+        }
       }
       // Threshold transfers (GDD "Onboarding: the Warren"): walking onto the
       // cave's exit landing emerges into the world; pushing into the alcove's
@@ -933,7 +942,7 @@ export class World3D {
         const t = d / dist;
         const tx = Math.floor(pivot.x + (to.x - pivot.x) * t);
         const ty = Math.floor(pivot.z + (to.z - pivot.z) * t);
-        if (this.zone.tiles[ty]?.[tx] !== WALL_TILE) continue;
+        if (tileGlyph(this.zone, tx, ty) !== WALL_TILE) continue;
         if (pivot.y + (to.y - pivot.y) * t < rockHeightAt(this.zone, tx, ty)) return true;
       }
       return false;
@@ -1053,13 +1062,20 @@ export class World3D {
     this.camera.updateProjectionMatrix();
     if (this.orbit) return;
 
-    const centre = new THREE.Vector3(this.zone.width / 2, 0, this.zone.height / 2);
+    // The unbounded world has no rectangle to fit; frame a fixed span around
+    // the spawn instead (the orbit camera takes over from the first frame anyway).
+    const spawn = this.zone.spawn ?? { x: 0, y: 0 };
+    const fitW = this.zone.unbounded ? 64 : this.zone.width;
+    const fitH = this.zone.unbounded ? 64 : this.zone.height;
+    const fitX = this.zone.unbounded ? spawn.x - fitW / 2 : 0;
+    const fitY = this.zone.unbounded ? spawn.y - fitH / 2 : 0;
+    const centre = new THREE.Vector3(fitX + fitW / 2, 0, fitY + fitH / 2);
     const corners = [
-      new THREE.Vector3(0, 0, 0),
-      new THREE.Vector3(this.zone.width, 0, 0),
-      new THREE.Vector3(0, 0.9, this.zone.height),
-      new THREE.Vector3(this.zone.width, 0.9, this.zone.height),
-      new THREE.Vector3(this.zone.width / 2, 2, 0),
+      new THREE.Vector3(fitX, 0, fitY),
+      new THREE.Vector3(fitX + fitW, 0, fitY),
+      new THREE.Vector3(fitX, 0.9, fitY + fitH),
+      new THREE.Vector3(fitX + fitW, 0.9, fitY + fitH),
+      new THREE.Vector3(fitX + fitW / 2, 2, fitY),
     ];
     const fits = (d: number): boolean => {
       this.camera.position.copy(centre).addScaledVector(CAMERA_DIR, d);
@@ -1389,7 +1405,11 @@ export class World3D {
    *  unrevealed ground is a hard wall until a group clears it and claims it. */
   private refreshRevealedRegions(): void {
     this.revealedRegions.clear();
-    for (const row of this.conn.db.revealedRegion.iter()) this.revealedRegions.add(row.slug);
+    this.regionNames.clear();
+    for (const row of this.conn.db.revealedRegion.iter()) {
+      if (row.interior) this.revealedRegions.add(row.slug);
+      this.regionNames.set(row.slug, row.name);
+    }
     this.penumbraRegions = penumbraOf(this.revealedRegions);
     this.terrain.invalidate();
   }
@@ -1397,6 +1417,8 @@ export class World3D {
   private wireRevealedRegions(): void {
     const conn = this.conn;
     conn.db.revealedRegion.onInsert(() => this.refreshRevealedRegions());
+    // a claim flips an existing row's interior flag, so updates move the frontier too
+    conn.db.revealedRegion.onUpdate(() => this.refreshRevealedRegions());
     conn.db.revealedRegion.onDelete(() => this.refreshRevealedRegions());
   }
 

@@ -5,7 +5,6 @@ import {
   blockFractionOf,
   getZone,
   isRevealed,
-  neighborsOf,
   penumbraOf,
   SHIELD_BLOCK_FRACTION,
   wieldOf,
@@ -15,16 +14,16 @@ import {
   SOLID_GLYPHS,
   STARTING_ZONE_SLUG,
   TILE_GLYPHS,
-  WALL_TILE,
+  tileGlyph,
   ZONES,
 } from "./constants";
-import { regionAt, WORLD_REGIONS } from "./worldgen";
+import { capitalOf, neighborsOf, regionSeeds, regionSlug } from "./worldgen";
 
 test("the starting zone resolves from the registry", () => {
   const zone = getZone(STARTING_ZONE_SLUG);
   assert.ok(zone);
   assert.equal(zone.slug, STARTING_ZONE_SLUG);
-  assert.ok(zone.width > 0 && zone.height > 0);
+  assert.ok(zone.unbounded, "the world has no edge");
 });
 
 test("an unknown slug resolves to undefined", () => {
@@ -59,27 +58,33 @@ test("every zone's tilemap matches its declared dimensions", () => {
   assert.doesNotThrow(assertZones);
 });
 
-test("only the solid glyphs (rock, deep water) are unwalkable", () => {
+test("only the solid glyphs (rock, deep water) are unwalkable, sampled around the spawn", () => {
   const zone = getZone(STARTING_ZONE_SLUG)!;
-  for (const [y, row] of zone.tiles.entries()) {
-    for (let x = 0; x < row.length; x++) {
-      assert.equal(isWalkable(zone, x, y), !SOLID_GLYPHS.has(row[x]!), `tile (${x}, ${y}) glyph ${row[x]}`);
+  const spawn = zone.spawn!;
+  for (let y = spawn.y - 40; y < spawn.y + 40; y++) {
+    for (let x = spawn.x - 40; x < spawn.x + 40; x++) {
+      const glyph = tileGlyph(zone, x, y)!;
+      assert.equal(isWalkable(zone, x, y), !SOLID_GLYPHS.has(glyph), `tile (${x}, ${y}) glyph ${glyph}`);
     }
   }
 });
 
-test("the starting zone uses several decorative tile glyphs for variety", () => {
+test("the world synthesizes several decorative tile glyphs for variety", () => {
   const zone = getZone(STARTING_ZONE_SLUG)!;
-  const used = new Set([...zone.tiles.join("")]);
+  const spawn = zone.spawn!;
+  const used = new Set<string>();
+  for (let y = spawn.y - 60; y < spawn.y + 60; y++) {
+    for (let x = spawn.x - 60; x < spawn.x + 60; x++) used.add(tileGlyph(zone, x, y)!);
+  }
   // wall, plain floor, plus at least three decorative variants in the mix.
   assert.ok(used.size >= 5, `expected a varied tilemap, saw glyphs: ${[...used].join("")}`);
   for (const glyph of used) assert.ok(TILE_GLYPHS.has(glyph), `unknown glyph ${JSON.stringify(glyph)}`);
 });
 
 test("assertZones rejects an unknown tile glyph", () => {
-  const zone = getZone(STARTING_ZONE_SLUG)!;
+  const cave = getZone("birthcave")!;
   // Inject a zone whose tilemap has a stray glyph, then assert the guard catches it.
-  ZONES["__broken__"] = { ...zone, slug: "__broken__", tiles: zone.tiles.map((r, i) => (i === 1 ? "Z" + r.slice(1) : r)) };
+  ZONES["__broken__"] = { ...cave, slug: "__broken__", tiles: cave.tiles.map((r, i) => (i === 1 ? "Z" + r.slice(1) : r)) };
   try {
     assert.throws(assertZones, /unknown tile glyph/);
   } finally {
@@ -87,19 +92,21 @@ test("assertZones rejects an unknown tile glyph", () => {
   }
 });
 
-test("the zone rim is walled and the interior is floor", () => {
-  const zone = getZone(STARTING_ZONE_SLUG)!;
-  assert.equal(isWalkable(zone, 0, 0), false); // corner rim
-  assert.equal(isWalkable(zone, zone.spawn!.x, zone.spawn!.y), true); // the spawn plaza
-  assert.equal(isWalkable(zone, -1, 5), false); // out of bounds is unwalkable
-  assert.equal(isWalkable(zone, zone.width, 5), false);
+test("a bounded zone clamps at its rim; the world's spawn plaza is open", () => {
+  const cave = getZone("birthcave")!;
+  assert.equal(isWalkable(cave, 0, 0), false); // corner rim
+  assert.equal(isWalkable(cave, -1, 5), false); // out of bounds is unwalkable
+  assert.equal(isWalkable(cave, cave.width, 5), false);
+  const world = getZone(STARTING_ZONE_SLUG)!;
+  assert.equal(isWalkable(world, world.spawn!.x, world.spawn!.y), true); // the spawn plaza
 });
 
-test("the starting zone seeds boulders on floor, clear of the spawn", () => {
+test("the hearth's region seeds land on floor, clear of the spawn", () => {
   const zone = getZone(STARTING_ZONE_SLUG)!;
-  assert.ok(zone.boulders.length > 0);
-  const spawn = zone.spawn ?? { x: Math.floor(zone.width / 2), y: Math.floor(zone.height / 2) };
-  for (const b of zone.boulders) {
+  const seeds = regionSeeds("hearth");
+  assert.ok(seeds.boulders.length > 0);
+  const spawn = zone.spawn!;
+  for (const b of seeds.boulders) {
     assert.equal(isWalkable(zone, b.x, b.y), true);
     assert.ok(b.x !== spawn.x || b.y !== spawn.y, "boulder must not sit on the spawn tile");
   }
@@ -134,11 +141,13 @@ test("penumbraOf returns a revealed region's unclaimed neighbours", () => {
 });
 
 test("penumbraOf never re-includes an already-revealed region", () => {
-  const revealed = new Set(["hearth", "glowvault"]);
+  const claimedNeighbor = regionSlug(1, 0);
+  const revealed = new Set(["hearth", claimedNeighbor]);
   const penumbra = penumbraOf(revealed);
   assert.ok(!penumbra.has("hearth"));
-  assert.ok(!penumbra.has("glowvault"));
-  assert.ok(penumbra.has("starwell")); // hearth's other neighbour, not yet claimed
+  assert.ok(!penumbra.has(claimedNeighbor));
+  assert.ok(penumbra.has(regionSlug(0, 1))); // a hearth neighbour not yet claimed
+  assert.ok(penumbra.has(regionSlug(2, 0))); // exposed by the claimed neighbour
 });
 
 test("isRevealed treats interior and penumbra ground as revealed, everything else as a hard wall", () => {
@@ -146,16 +155,9 @@ test("isRevealed treats interior and penumbra ground as revealed, everything els
   const revealed = new Set(["hearth"]);
   const penumbra = penumbraOf(revealed);
   assert.equal(isRevealed(zone, revealed, penumbra, zone.spawn!.x, zone.spawn!.y), true); // interior
-
-  const unreachedSlug = WORLD_REGIONS.map((r) => r.slug).find((slug) => slug !== "hearth" && !penumbra.has(slug))!;
-  let unreachedTile: { x: number; y: number } | undefined;
-  for (let y = 0; y < zone.height && !unreachedTile; y++) {
-    for (let x = 0; x < zone.width && !unreachedTile; x++) {
-      if (regionAt(x, y)?.slug === unreachedSlug) unreachedTile = { x, y };
-    }
-  }
-  assert.ok(unreachedTile, `no tile found for ${unreachedSlug}`);
-  assert.equal(isRevealed(zone, revealed, penumbra, unreachedTile!.x, unreachedTile!.y), false);
+  // two cells out is beyond the hearth's penumbra, however the borders warp
+  const unreached = capitalOf(3, 3);
+  assert.equal(isRevealed(zone, revealed, penumbra, unreached.x, unreached.y), false);
 });
 
 test("isRevealed is always true outside the world zone", () => {

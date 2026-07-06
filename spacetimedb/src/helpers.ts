@@ -170,16 +170,15 @@ export function forgetPlayerConnection(ctx: Ctx): number {
   return playerConnectionCount(ctx, ctx.sender);
 }
 
-/** Pick a walkable floor tile from a zone. Used for the cosmetic ghost haunt. */
-export function randomWalkableTile(ctx: Ctx, zone: Zone): { x: number; y: number } | undefined {
-  const tiles: { x: number; y: number }[] = [];
-  for (let y = 0; y < zone.height; y++) {
-    for (let x = 0; x < zone.width; x++) {
-      if (isWalkable(zone, x, y)) tiles.push({ x, y });
-    }
+/** Pick a walkable floor tile near an origin — the world has no bounded grid
+ *  to enumerate, so sample a radius instead. Used for the cosmetic ghost haunt. */
+export function randomWalkableTile(ctx: Ctx, zone: Zone, origin: { x: number; y: number }, radius = 12): { x: number; y: number } | undefined {
+  for (let attempt = 0; attempt < 80; attempt++) {
+    const x = Math.round(origin.x) + ctx.random.integerInRange(-radius, radius);
+    const y = Math.round(origin.y) + ctx.random.integerInRange(-radius, radius);
+    if (isWalkable(zone, x, y)) return { x, y };
   }
-  if (tiles.length === 0) return undefined;
-  return tiles[ctx.random.integerInRange(0, tiles.length - 1)];
+  return undefined;
 }
 
 /** Cap old ghost event rows for a zone; haunts are only useful as fresh inserts. */
