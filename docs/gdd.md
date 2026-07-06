@@ -512,7 +512,7 @@ revealed_region slug (PK), name, interior, revealedAt
 
 Roadmap notes are planning context, not permission gates. Pick work by current product need, maintainer direction, and what keeps the game playable. Do not block a task because older notes placed it later, and do not treat this section as a release checklist.
 
-**The shipped code implements this spec.** The fire-and-dark migration that pivoted the game away from the Hog-town/personal-inventory design is complete, in the dependency order it was planned:
+**The shipped code implements this spec, and it is live in production at tro.gg since 2026-07-06** (deployed on a fresh world — the pre-pivot database was reset once for the schema rewrite; all schema changes from here must be additive). The fire-and-dark migration that pivoted the game away from the Hog-town/personal-inventory design is complete, in the dependency order it was planned:
 
 1. **Retire Hogs** — the `hog` table, the roaming-Hogs wander reducer, Hog-specific carry/throw/ball-form rendering, the merchant/currency threads, and the `roaming-hogs`/`hog-reset` flags are gone; the old hub zone's town dressing lives at the Hearth inside the one seamless `world` zone.
 2. **Stockpile and direct-deposit gathering** — the global `stockpile` table exists and mining/woodcutting deposit into it directly; bulk raw resources never enter personal inventory.

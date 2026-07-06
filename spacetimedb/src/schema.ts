@@ -87,7 +87,7 @@ import {
  * trogg's main hand (GDD "Inventory" / "Avatars and equipment").
  * `equippedMainHandInventoryId` points at the specific owned inventory row, so
  * duplicate swords/picks are distinct in the HUD even though everyone else only
- * needs the item id to render the held sprite. `equipmentAction` +
+ * needs the item id to render the held model. `equipmentAction` +
  * `equipmentActionAt` are the last visible equipment use impulse, so every client
  * can briefly animate a swing or chop from synced player state. `health`, `dead`,
  * and `respawnAt` are the pre-alpha combat state: damage reduces health, a dead
