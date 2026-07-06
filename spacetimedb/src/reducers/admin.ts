@@ -371,8 +371,8 @@ function runJumpRegions(ctx: Ctx, count: number, source = ""): AnalyticsEvent[] 
     last = next;
     claimed++;
   }
-  if (claimed === 0) return [];
-  return [{ distinctId: distinctId(ctx), event: "frontier_jumped", properties: { regions: claimed, ...sourceProp(source) } }];
+  if (claimed === 0 || !last) return [];
+  return [{ distinctId: distinctId(ctx), event: "frontier_jumped", properties: { regions: claimed, final_region: last, ...sourceProp(source) } }];
 }
 
 export const jumpRegions = spacetimedb.reducer({ count: t.i32() }, (ctx, { count }) => {
