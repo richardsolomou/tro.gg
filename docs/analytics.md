@@ -14,7 +14,7 @@ The PostHog plan: every product gets a real job when it is useful. This document
 | Experiments | A/B on tuning values (gather times, respawns), announced to players |
 | Error tracking | Client + server errors |
 | Surveys | In-game feedback prompts |
-| AI observability | LLM-driven Hogs — traces, cost, quality |
+| AI observability | Open — the prior plan (LLM-driven Hog NPCs) was retired with the Hog-town design; no current use case, revisit if one emerges |
 | Logs | Structured client diagnostics tied to user/session context |
 
 ## Events
@@ -33,7 +33,7 @@ snake_case. Low-volume by design — anything that could fire more than ~once/se
 | `trogg_renamed` | `zone, source?` | Player's own name changes after the authoritative player row updates |
 | `trogg_recolored` | `color, source?` | Player picks an avatar colour — `color` is the chosen `TROGG_COLORS` palette index |
 | `trogg_restyled` | `style, source?` | Player picks an avatar body style — `style` is the chosen `TROGG_STYLES` id (e.g. `stone`) |
-| `inventory_item_acquired` | `zone?, item, qty, source?` | Player's own inventory receives a new item row or stack increase from authoritative inventory sync |
+| `inventory_item_acquired` | `zone?, item, qty, source?` | Player's own inventory receives a new item row or stack increase from authoritative inventory sync — now scoped to equipment and rare finds, since bulk raw resources deposit straight into the stockpile instead (see gdd.md "Inventory") |
 | `item_equipped` | `zone, item, equipped, source?` | Player's own main-hand equipment changes; `equipped=false` means the item was unequipped |
 | `equipped_item_used` | `zone, item, source?` | Player's own equipped item use is accepted and appears on the authoritative player row |
 | `inventory_item_dropped` | `zone, item, source?` | Player drops one unit of an inventory item back into the world as a `ground_item` |
@@ -45,20 +45,21 @@ snake_case. Low-volume by design — anything that could fire more than ~once/se
 | `level_up` | `skill, level` | Derived level increases |
 | `chat_sent` | `zone, source?` | Message sent — **no content** |
 | `boulders_reset` | `zone, source` | Player resets boulders via the Commands panel |
-| `hedgehogs_reset` | `zone, source` | Player resets Hogs via the Commands panel |
-| `debug_entity_spawned` | `zone, kind, count, source, item?, style?` | Player requests a Commands panel spawn for a supported debug entity — `kind` is `boulder`, `tree`, `hog`, or `item`; `style` is present for exact Hog skin spawns and `item` for spawned pickup items |
+| `dark_creatures_reset` | `zone, source` | Player resets dark creatures via the Commands panel (replaces the retired `hedgehogs_reset`) |
+| `debug_entity_spawned` | `zone, kind, count, source, item?, style?` | Player requests a Commands panel spawn for a supported debug entity — `kind` is `boulder`, `tree`, `dark_creature`, or `item`; `style` is present for exact species spawns and `item` for spawned pickup items |
 | `ghost_summoned` | `zone, source, count` | Player requests one or more synced cosmetic ghost haunts via the Commands panel |
-| `object_picked_up` | `zone, kind, source?, style?` | Player picks up a tile-sized object — `kind` is `hog` (boulders stopped being carryable; old events also carry `boulder`); `style` is present for Hogs |
-| `object_dropped` | `zone, kind, source?, style?` | Player puts down what they were carrying; `style` is present for Hogs |
-| `object_thrown` | `zone, kind, range, source?, hit_target?` | Player throws what they carry (a Hog; legacy carried boulders still count); `hit_target` is `trogg` or `hog` when the throw damages a character |
-| `combat_hit` | `zone, weapon, target, damage, killed, source?` | An accepted server-side attack damages a trogg or Hog. `weapon` is the main-hand item id (`sword`, `axe`, `pickaxe`, `shovel`), `fists`, `thrown_boulder`, or `thrown_hog`; `target` is `trogg` or `hog`. `damage` is the amount actually dealt after a shielded trogg's `SHIELD_BLOCK_FRACTION` reduction, not the raw weapon roll |
+| `object_picked_up` | `zone, kind, source?` | Player picks up a tile-sized object — `kind` is `ember_heart` (replaces the retired Hog carry; boulders stopped being carryable earlier still, so old events may carry `hog` or `boulder`) |
+| `object_dropped` | `zone, kind, source?` | Player puts down what they were carrying |
+| `object_thrown` | `zone, kind, range, source?, hit_target?` | Player throws what they carry; `hit_target` is `trogg` or `dark_creature` when the throw damages a character. Currently dormant — the one live carryable (an ember-heart) has no defined throw behaviour (see gdd.md "Combat") |
+| `combat_hit` | `zone, weapon, target, damage, killed, source?` | An accepted server-side attack damages a trogg or dark creature. `weapon` is the main-hand item id (`sword`, `axe`, `pickaxe`, `shovel`), `fists`, or `thrown_boulder`; `target` is `trogg` or `dark_creature`. `damage` is the amount actually dealt after a shielded trogg's `SHIELD_BLOCK_FRACTION` reduction, not the raw weapon roll |
 | `player_died` | `zone, cause, dropped_item_rows, dropped_item_qty, respawn_ms, source?` | Server-side combat damage kills a trogg, drops its inventory, and schedules its respawn |
 | `player_respawned` | `zone, respawn_ms, source` | The local player's authoritative row transitions from dead to alive after the scheduled respawn timer |
 | `warren_emerged` | Client, when a trogg's emergence from its cave lands it in the world (post-transfer boot) | `zone` |
 | `item_crafted` | `recipe, qty` | Item crafting succeeds |
-| `project_contributed` | `project, item, qty` | Player contributes to a communal project |
-| `project_completed` | `project` | Communal project completes |
-| `shop_purchase` | `item, qty, price` | Player buys from a Hog merchant |
+| `project_contributed` | `project, item, qty` | Player contributes to the stockpile toward a communal project — currently, an ignition site (see gdd.md "The fire and the dark") |
+| `project_completed` | `project` | A communal project completes — for an ignition project, this is the moment a brazier lights |
+
+New events anticipated by the fire-and-dark design (brazier ignition/gutter, a trogg going ember/dormant, kindling charge running out) are not yet locked down — the underlying reducers don't exist yet (see gdd.md Roadmap). Register them here in the same change that adds them, per the rule below.
 
 Client lifecycle events use posthog-js (plus autocapture + session replay). Gameplay actions that need trusted server-side product events should use SpacetimeDB procedure wrappers rather than calling reducers directly from the browser. Each `*Action` procedure performs the authoritative mutation inside `ctx.withTx(...)`, derives event properties from server state, and then best-effort posts the accepted event to PostHog from the module with `source=spacetimedb-procedure` unless the caller supplies a narrower source such as `chat`, `commands`, `appearance`, `inventory`, or `keyboard`. Death from combat is captured by the attacking procedure as `player_died`; respawn is captured client-side from the local authoritative row transition because it is driven by a scheduled reducer, not a procedure call. Movement still generates zero events.
 
@@ -74,18 +75,20 @@ Code currently reads these flag keys:
 | ---- | -------- | -------- |
 | `auth-enabled` | Account sign-in / claim panel (the top-right claim/sign-out control) | On, but the UI still requires `VITE_SPACETIMEAUTH_CLIENT_ID` |
 | `ghost-trogg` | Zone-synced cosmetic ghost easter egg (Commands panel ghost button) | On |
-| `interact` | Interact key (`E`) — pick up ground items, pick up / put down Hogs | On |
-| `roaming-hogs` | Hog rendering and subscription | On |
+| `interact` | Interact key (`E`) — pick up ground items, pick up / put down tile-sized carryables | On |
+| `roaming-hogs` | Roaming-creature rendering and subscription (Hogs are retired with the fire-and-dark pivot; this flag should be renamed/repointed at dark-creature rendering, or replaced, when that work lands — see gdd.md Roadmap) | On |
 | `running` | Hold-shift-to-run input | On |
 | `spawn-command` | Commands drawer spawn controls | On outside production (local dev + preview builds, which ship no PostHog key); flag-governed in production |
 | `cheat-commands` | Commands drawer cheats (speed, fly, noclip, god mode, heal, unstuck, sky lock) | On outside production, like `spawn-command`; flag-governed in production. Gates the UI only — `setCheats` stays a plain reducer (created 2026-07-03) |
 | `boulder-reset` | Commands panel boulder layout reset control | On |
-| `hog-reset` | Commands panel Hog population reset control | On |
+| `hog-reset` | Commands panel Hog population reset control (retired alongside Hogs; replace with a dark-creature reset flag when that work lands) | On |
 | `chat-enabled` | Chat panel and bubbles | On |
 | `trogg-recolor` | Colour swatches in the Appearance panel | On |
 | `trogg-restyle` | Body-style buttons in the Appearance panel | On |
 
 Retired by the 3D renderer port: `avatar-sprites` (trogg sprite avatars vs the placeholder colour marker) is no longer read — the 3D client always renders models. The PostHog flag stays live while the 2D client is still the deployed production build; archive it in project 314596 when this port ships. Retired with boulder pushing: `boulder-pushing` is no longer read — boulders are mining nodes, not pushable; archive alongside `avatar-sprites`.
+
+**Pending retirement with the fire-and-dark pivot (gdd.md):** `roaming-hogs` and `hog-reset` are still live in code and PostHog today, gating systems the GDD now specs for removal (see gdd.md Roadmap step 1). Archive both in project 314596 once the Hog retirement lands in code, and register whatever dark-creature-rendering and dark-creature-reset flags replace them in this table at that time.
 
 PostHog project audit (2026-06-27): all code-read flags above are configured in PostHog project 314596 and active. They are intentionally still in use because they cover remote rollback, production-only debug command governance, or visible UI capabilities that should not advertise disabled controls. `interact` was created 2026-06-25 with the carry mechanic; `hog-reset` was created 2026-06-25 with the Hog reset tool; `trogg-restyle` was created 2026-06-27 with avatar body styles. No new flag is needed for the observability pass; planned future flags should be added here, and created in PostHog, when code starts reading them.
 
