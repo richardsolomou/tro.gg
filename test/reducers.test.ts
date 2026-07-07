@@ -2348,3 +2348,20 @@ test("at dawn a resident stranded on claimed lit ground recedes to the nearest u
   assert.ok(after, "residents recede, they don't despawn");
   assert.notEqual(regionAt(Math.round(after.x), Math.round(after.y)).slug, regionAt(69, 96).slug); // out of the lit region
 });
+
+
+test("a torch-bearer is not prey: creatures neither aggro nor keep chasing one", () => {
+  const me = id("torchbearer");
+  const ctx = makeCtx({ sender: me, random: 0.9 });
+  const torch = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "torch", qty: 1, wear: 0 });
+  ctx.db.player.insert(playerRow(me, { online: true, x: 69, y: 96, equippedOffHand: "torch", equippedOffHandInventoryId: torch.id }));
+  // one creature beside the bearer, another already mid-chase from before the torch came out
+  const fresh = ctx.db.darkCreature.insert(darkCreatureRow({ x: 70, y: 96 }));
+  const chasing = ctx.db.darkCreature.insert(darkCreatureRow({ x: 72, y: 96, aggroTargetId: me.toHexString() }));
+
+  wanderPresence(ctx, {});
+
+  assert.equal(ctx.db.darkCreature.id.find(fresh.id)?.aggroTargetId, ""); // never acquired
+  assert.equal(ctx.db.darkCreature.id.find(chasing.id)?.aggroTargetId, ""); // pursuit broken
+  assert.equal(ctx.db.player.identity.find(me).health, PLAYER_MAX_HEALTH); // and no swings landed
+});

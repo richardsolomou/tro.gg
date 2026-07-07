@@ -7,6 +7,7 @@ import {
   DARK_CREATURES,
   AFK_UNLOCK_XP,
   AFK_HIDE_AFTER_MS,
+  TORCH_LIT_RADIUS,
   DAY_CYCLE_MS,
   dayPhaseAt,
   isNightPhase,
@@ -220,6 +221,18 @@ export class World3D {
    *  whole lit regions by day, sanctuary rings at night. */
   private isSafeTileClient(x: number, y: number): boolean {
     return isNightPhase(this.dayPhaseNow()) ? this.isSanctuaryTileClient(x, y) : this.isLitTileClient(x, y);
+  }
+
+  /** The moving pockets of carried firelight (GDD "Crafting") — the client
+   *  mirror of the server's torch bounds, read live off tracked torch-bearers
+   *  so a creature never renders walking through someone's light. */
+  private inTorchlightClient(x: number, y: number): boolean {
+    for (const entry of this.tracked.values()) {
+      const p = entry.player;
+      if (!p.online || p.dead || p.equippedOffHand !== "torch") continue;
+      if (Math.hypot(entry.marker.position.x - x, entry.marker.position.z - y) <= TORCH_LIT_RADIUS) return true;
+    }
+    return false;
   }
 
   /** How far the tribe's fire has reached (GDD "Generation: only as far as
@@ -459,8 +472,8 @@ export class World3D {
     // clock. Residents keep the day boundary (whole lit regions) around the
     // clock; only the night tide gets the ring-shrunk night bounds, so dawn
     // never strands a resident inside claimed ground.
-    this.darkCreatureBounds = zoneBounds(this.zone, (x, y) => obstructed(x, y) || this.isLitTileClient(x, y));
-    this.nightTideBounds = zoneBounds(this.zone, (x, y) => obstructed(x, y) || this.isSafeTileClient(x, y));
+    this.darkCreatureBounds = zoneBounds(this.zone, (x, y) => obstructed(x, y) || this.isLitTileClient(x, y) || this.inTorchlightClient(x, y));
+    this.nightTideBounds = zoneBounds(this.zone, (x, y) => obstructed(x, y) || this.isSafeTileClient(x, y) || this.inTorchlightClient(x, y));
 
     // Torch-lit cave: dim warm ambient, one shadowing key light, dark fog closing in
     // past the zone. Glowmoss tiles add their own teal point lights (terrain3d).

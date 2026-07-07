@@ -976,9 +976,12 @@ export const wanderPresence = spacetimedb.reducer({ timer: afkWanderTimer.rowTyp
 
       // Keep a live target (same zone, online, alive); else look for a fresh
       // active trogg within aggro range. Sighting is range-based, like earshot.
+      // A torch-bearer is not prey (GDD "Crafting"): its firelight is ground
+      // the creature can't enter, so it neither acquires nor keeps one as a
+      // chase target — equipping a torch mid-chase breaks the pursuit.
       let target: NonNullable<ReturnType<typeof ctx.db.player.identity.find>> | undefined;
       for (const pl of ctx.db.player.zoneId.filter(s.zoneId)) {
-        if (!pl.online || pl.dead) continue;
+        if (!pl.online || pl.dead || pl.equippedOffHand === "torch") continue;
         if (c.aggroTargetId && pl.identity.toHexString() === c.aggroTargetId) {
           target = pl;
           break;
@@ -986,7 +989,7 @@ export const wanderPresence = spacetimedb.reducer({ timer: afkWanderTimer.rowTyp
       }
       if (!target) {
         for (const pl of ctx.db.player.zoneId.filter(s.zoneId)) {
-          if (!pl.online || pl.dead) continue;
+          if (!pl.online || pl.dead || pl.equippedOffHand === "torch") continue;
           const tp = settle(ctx, pl, now);
           if (Math.hypot(tp.x - s.x, tp.y - s.y) <= DARK_CREATURE_AGGRO_RANGE) {
             target = pl;
