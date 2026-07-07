@@ -225,6 +225,9 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
   conn.db.inventory.onUpdate((ctx, old, row) => {
     if (!mine(row)) return;
     rows.set(row.id.toString(), row);
+    // wear ticks (a burning torch) change nothing the panel shows — skip the
+    // DOM rebuild instead of re-rendering once per burn quantum
+    if (old.item === row.item && old.qty === row.qty) return;
     render();
     if (ctx.event.tag !== "SubscribeApplied" && row.qty > old.qty) announcePickup(row.item, row.qty - old.qty);
   });

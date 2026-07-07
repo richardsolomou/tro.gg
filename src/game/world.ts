@@ -57,7 +57,7 @@ import { coachHit } from "../ui/coach.js";
 import { mountCommands } from "../ui/commands.js";
 import { regionToast } from "../ui/toasts.js";
 import { createSelfController, type SelfController } from "../movement.js";
-import { captureEvent, isFeatureEnabled, logError, logInfo } from "../analytics.js";
+import { bumpPerf, captureEvent, isFeatureEnabled, logError, logInfo } from "../analytics.js";
 import { audio } from "../audio.js";
 import { interact, useEquipped } from "../net/procedures.js";
 import { isOlderPlayerMotion, playerMotionChanged, withPlayerMotion } from "../motion_sync.js";
@@ -1274,6 +1274,7 @@ export class World3D {
     }
     conn.db.player.onInsert((_ctx, p) => this.addPlayer(p));
     conn.db.player.onUpdate((_ctx, _old, p) => {
+      bumpPerf("rows_player");
       const id = p.identity.toHexString();
       // An ineligible trogg going offline leaves the world entirely (GDD
       // "Presence" — the eligibility gate): no dim body, no tag, no tile.
@@ -1630,6 +1631,7 @@ export class World3D {
   }
 
   private upsertDarkCreature(row: DarkCreature): void {
+    bumpPerf("rows_creature");
     const key = row.id.toString();
     let view = this.darkCreatures.get(key);
     const def = DARK_CREATURES[row.species as keyof typeof DARK_CREATURES] ?? Object.values(DARK_CREATURES)[0]!;

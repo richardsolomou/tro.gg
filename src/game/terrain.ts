@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { logInfo } from "../analytics.js";
+import { bumpPerf, logInfo } from "../analytics.js";
 import { BIOMES, DEEP_WATER_TILE, GLOWMOSS_TILE, GRAVEL_TILE, MOSS_TILE, regionAt, rockHeightAt, tileGlyph, WALL_TILE, WATER_TILE, type RegionVisibility, type Zone } from "@trogg/shared";
 import { biomePalette, DAYLIGHT_3D, FOG_MIX } from "./palette.js";
 
@@ -463,6 +463,7 @@ export function buildTerrain(zone: Zone, regionState: (x: number, y: number) => 
       built++;
     }
     const buildMs = performance.now() - buildStart;
+    if (built > 0) bumpPerf("chunk_build_ms", Math.round(buildMs));
     if (buildMs > 40) logInfo("Chunk build hitch", { surface: "perf", action: "chunk_build", duration_ms: Math.round(buildMs), chunks_built: built });
     // drop chunks that fell out of range (with hysteresis so edges don't thrash)
     for (const key of [...chunks.keys()]) {

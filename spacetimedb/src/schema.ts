@@ -732,7 +732,13 @@ export const wanderPresence = spacetimedb.reducer({ timer: afkWanderTimer.rowTyp
       torchPockets.push({ zoneId: p.zoneId, x: lit.x, y: lit.y });
       const row = ctx.db.inventory.id.find(p.equippedOffHandInventoryId);
       if (!row) continue;
-      const wear = row.wear + AFK_WANDER_TICK_MS;
+      // Persist wear in ~5s quanta, not every sweep tick: a row diff per
+      // second per torch-bearer is pure background churn for every client
+      // (each one rebuilt the holder's inventory panel). A torch timer can
+      // drift a few seconds without anyone noticing.
+      const quantum = 5 * AFK_WANDER_TICK_MS;
+      if (Number(now.microsSinceUnixEpoch / 1000n) % quantum >= AFK_WANDER_TICK_MS) continue;
+      const wear = row.wear + quantum;
       if (wear < TORCH_BURN_MS) ctx.db.inventory.id.update({ ...row, wear });
       else {
         ctx.db.inventory.id.delete(row.id);

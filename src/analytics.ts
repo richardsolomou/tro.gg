@@ -107,6 +107,14 @@ function normalizeLogAttribute(value: unknown): LogAttribute {
 
 export { posthog };
 
+/** Cheap counters the hitch log snapshots, so a stall report says what the
+ *  client was chewing on (row diffs applied, chunk build time) — bumped from
+ *  the hot paths, reset on every report. */
+export const perfCounters: Record<string, number> = {};
+export function bumpPerf(key: string, n = 1): void {
+  perfCounters[key] = (perfCounters[key] ?? 0) + n;
+}
+
 /**
  * Main-thread hitch telemetry: long tasks block input and the render loop —
  * the "screen hangs, then catches up" symptom — and a report with durations
@@ -132,9 +140,13 @@ export function watchHitches(): void {
             duration_ms: Math.round(entry.duration),
             worst_ms: Math.round(worst),
             recent_long_tasks: recent,
+            focused: document.hasFocus(),
+            visibility: document.visibilityState,
+            ...perfCounters,
           });
           recent = 0;
           worst = 0;
+          for (const key of Object.keys(perfCounters)) perfCounters[key] = 0;
         }
       }
     });
