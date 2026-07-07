@@ -2126,3 +2126,17 @@ test("a week away hides the trogg: the sweep leaves it be entirely", () => {
   assert.equal(ctx.db.stockpile.item.find("stone"), undefined); // no work
   assert.deepEqual(ctx.db.player.identity.find(gone), before); // row untouched — hidden, not deleted
 });
+
+
+test("a world death respawns at the lit brazier nearest the death tile, not the cave alcove", () => {
+  const { ctx, me } = withPlayer({ x: 200, y: 150, dead: true, health: 0, respawnAt: { microsSinceUnixEpoch: 0n } });
+  ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 0, y: 0, radius: FIRST_FIRE_LIT_RADIUS, lit: true, isEternal: true }); // the First Fire, far away
+  ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 198, y: 150, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false }); // the fire fought beside
+  const timer = ctx.db.playerRespawn.insert({ scheduledId: 0n, playerId: me, scheduledAt: 0n });
+  ctx.timestamp = { microsSinceUnixEpoch: micros(PLAYER_RESPAWN_MS + 1000) };
+
+  respawnPlayers(ctx, { timer });
+
+  const p = ctx.db.player.identity.find(me);
+  assert.deepEqual({ x: p.x, y: p.y, dead: p.dead, health: p.health }, { x: 198, y: 150, dead: false, health: PLAYER_MAX_HEALTH });
+});

@@ -19,6 +19,7 @@ import {
   zoneBounds,
   type Zone,
 } from "../../shared/index";
+import { nearestLitBrazier } from "./brazier";
 import {
   settle,
   solidTiles,
@@ -48,15 +49,18 @@ export function respawnDue(p: { respawnAt?: Stamp }, now: Stamp): boolean {
 export function respawnPlayer(ctx: Ctx, p: { identity: Ctx["sender"]; zoneId: string }): void {
   const current = ctx.db.player.identity.find(p.identity);
   if (!current || !current.dead) return;
-  // Always respawn just outside your cave: the coast alcove in the world, where
-  // you first emerged and where you descend back down (GDD "Onboarding"). A
-  // trogg that died inside its birth cave is pulled out here too — the cave is
-  // for births, not a spawn room — which reads as a zone transfer to the client.
+  // Respawn at the lit brazier nearest the death tile (GDD "Combat") — the
+  // fire you fought beside, not a cross-map walk; the First Fire is always
+  // lit, so a world death always finds one. A trogg that died inside its
+  // birth cave is pulled out to the coast alcove instead — the cave is for
+  // births, not a spawn room — which reads as a zone transfer to the client.
+  const hearth = current.zoneId === STARTING_ZONE_SLUG ? nearestLitBrazier(ctx, STARTING_ZONE_SLUG, current.x, current.y) : undefined;
+  const at = hearth ? { x: hearth.x, y: hearth.y } : EMERGE_ARRIVAL;
   ctx.db.player.identity.update({
     ...current,
     zoneId: STARTING_ZONE_SLUG,
-    x: EMERGE_ARRIVAL.x,
-    y: EMERGE_ARRIVAL.y,
+    x: at.x,
+    y: at.y,
     z: 0,
     dirZ: 0,
     dirX: 0,
