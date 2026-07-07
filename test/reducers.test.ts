@@ -50,6 +50,8 @@ import {
   AFK_HIDE_AFTER_MS,
   BRAZIER_CLAIM_STONE_COST,
   NIGHT_SPAWN_MIN_PLAYER_DIST,
+  DARK_CREATURE_LEASH_RANGE,
+  NPC_CORPSE_MS,
   upkeepReserve,
   TORCH_BURN_MS,
   AFK_WANDER_TICK_MS,
@@ -2364,4 +2366,40 @@ test("a torch-bearer is not prey: creatures neither aggro nor keep chasing one",
   assert.equal(ctx.db.darkCreature.id.find(fresh.id)?.aggroTargetId, ""); // never acquired
   assert.equal(ctx.db.darkCreature.id.find(chasing.id)?.aggroTargetId, ""); // pursuit broken
   assert.equal(ctx.db.player.identity.find(me).health, PLAYER_MAX_HEALTH); // and no swings landed
+});
+
+
+test("a chase past the leash range is dropped — instinct stops pacing the fence", () => {
+  const me = id("farprey");
+  const ctx = makeCtx({ sender: me, random: 0.9 });
+  ctx.db.player.insert(playerRow(me, { online: true, x: 69, y: 96 }));
+  const c = ctx.db.darkCreature.insert(darkCreatureRow({ x: 69 + DARK_CREATURE_LEASH_RANGE + 2, y: 96, aggroTargetId: me.toHexString() }));
+
+  wanderPresence(ctx, {});
+
+  assert.equal(ctx.db.darkCreature.id.find(c.id)?.aggroTargetId, ""); // gave up
+});
+
+test("at night a hunting resident is marked strayed, and its death on lit ground sends it home", () => {
+  const me = id("nightprey");
+  const ctx = makeCtx({ sender: me, random: 0.9 });
+  lockNight(ctx);
+  ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: true });
+  // prey and hunter both on the hearth region's claimed ground, outside the ring
+  ctx.db.player.insert(playerRow(me, { online: true, x: 80, y: 96 }));
+  const c = ctx.db.darkCreature.insert(darkCreatureRow({ x: 83, y: 96, aggroTargetId: me.toHexString() }));
+
+  wanderPresence(ctx, {});
+  const hunting = ctx.db.darkCreature.id.find(c.id);
+  assert.equal(hunting?.aggroTargetId, me.toHexString()); // the hunt continues onto claimed ground
+  assert.equal(hunting?.strayed, true);
+
+  // killed in town: the corpse reaps back to the dark, not into permanence
+  ctx.db.darkCreature.id.update({ ...hunting, health: 0, lastDamagedAt: { microsSinceUnixEpoch: 0n } });
+  ctx.timestamp = { microsSinceUnixEpoch: micros(NPC_CORPSE_MS + 1000) };
+  regenCreatures(ctx, {});
+  const back = ctx.db.darkCreature.rows().filter((r: any) => !r.nightborn); // the tide also came in — filter to residents
+  assert.equal(back.length, 1); // reverted, not deleted
+  assert.notEqual(regionAt(Math.round(back[0].x), Math.round(back[0].y)).slug, regionAt(69, 96).slug); // back in the dark
+  assert.equal(back[0].strayed, false);
 });

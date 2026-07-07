@@ -23,4 +23,5 @@ export default __t.row({
   lastDamagedAt: __t.timestamp().name("last_damaged_at"),
   aggroTargetId: __t.string().name("aggro_target_id"),
   nightborn: __t.bool(),
+  strayed: __t.bool(),
 });

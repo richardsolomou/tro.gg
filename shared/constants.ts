@@ -423,6 +423,10 @@ export interface GroundItemSeed extends Coord {
  * builder (`src/game/creatures.ts`) and a row here. (initial)
  */
 export const DARK_CREATURE_AGGRO_RANGE = 6;
+/** A chase gives up past this (or when pinned against ground it can't cross
+ *  beyond aggro range) — instinct stops pacing the fence (GDD "Dark
+ *  creatures"). (initial) */
+export const DARK_CREATURE_LEASH_RANGE = DARK_CREATURE_AGGRO_RANGE * 2;
 export const NPC_CORPSE_MS = 30_000;
 export const MAX_DARK_CREATURES_PER_ZONE = 120;
 

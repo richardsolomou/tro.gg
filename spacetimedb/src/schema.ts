@@ -29,6 +29,7 @@ import {
   TORCH_BURN_MS,
   TORCH_LIT_RADIUS,
   AFK_WANDER_TICK_MS,
+  DARK_CREATURE_LEASH_RANGE,
   findPath,
   NODE_RESPAWN_MS,
   serializePath,
@@ -63,6 +64,7 @@ import {
   worldDayPhase,
   nearestLitBrazier,
   tideNight,
+  nearestUnlitTile,
   pickWanderDir,
   settle,
   darkCreatureDef,
@@ -317,6 +319,12 @@ const darkCreature = table(
     // despawned at dawn, exempt from territory-linked respawn. Residents of
     // the dark keep the default false.
     nightborn: t.bool().default(false),
+    // A resident that hunted a trogg onto claimed ground at night (GDD
+    // "Night"): killed there, it respawns back in the dark instead of dying
+    // permanently — so luring a chase into town never farms a claim. Cleared
+    // at dawn. Freshly-claimed ground's own corpses keep strayed=false and
+    // stay dead (Territory and permanence).
+    strayed: t.bool().default(false),
   },
 );
 
@@ -596,13 +604,28 @@ export const regenCreatures = spacetimedb.reducer({ timer: creatureRegen.rowType
         const unlit = !isLitTile(ctx, c.zoneId, Math.round(c.x), Math.round(c.y));
         ctx.db.darkCreature.id.delete(c.id);
         // Visitors, not residents (GDD "Night"): a dead night creature never
-        // replenishes the dark's own population, wherever it fell.
-        if (unlit && !c.nightborn) {
+        // replenishes the dark's own population, wherever it fell. Residents
+        // respawn where they fell when the ground is unlit; a strayed hunter
+        // killed on claimed ground respawns back at the nearest unlit tile —
+        // it reverts to its own ground, so luring a night chase into town
+        // never farms a claim. A claimed region's own corpses (strayed
+        // false, lit ground) still stay dead (Territory and permanence).
+        if (c.nightborn) continue;
+        let at: { x: number; y: number } | undefined = unlit ? { x: c.x, y: c.y } : undefined;
+        if (!unlit && c.strayed) {
+          const zone = getZone(c.zoneId);
+          if (zone) {
+            const revealedSlugs = currentRevealedRegions(ctx);
+            const penumbraSlugs = penumbraOf(revealedSlugs);
+            at = nearestUnlitTile(ctx, zone, Math.round(c.x), Math.round(c.y), (z, x, y) => isRevealed(z, revealedSlugs, penumbraSlugs, x, y));
+          }
+        }
+        if (at) {
           ctx.db.darkCreature.insert({
             id: 0n,
             zoneId: c.zoneId,
-            x: c.x,
-            y: c.y,
+            x: at.x,
+            y: at.y,
             dirX: 0,
             dirY: 0,
             movedAt: now,
@@ -611,6 +634,7 @@ export const regenCreatures = spacetimedb.reducer({ timer: creatureRegen.rowType
             lastDamagedAt: now,
             aggroTargetId: "",
             nightborn: false,
+            strayed: false,
           });
         }
         continue;
@@ -959,10 +983,10 @@ export const wanderPresence = spacetimedb.reducer({ timer: afkWanderTimer.rowTyp
       const zone = getZone(c.zoneId);
       if (!zone) continue;
       const statics = staticBlockersFor(c.zoneId);
-      // Only the night tide crosses into claimed ground (GDD "Night"):
-      // residents keep the day boundary around the clock, so dawn never
-      // strands them inside a claimed region.
-      const bounds = zoneBounds(zone, (x, y) => statics.has(tileKey(x, y)) || isSafeTile(ctx, c.zoneId, x, y, night && c.nightborn) || inTorchlight(c.zoneId, x, y) || !revealed(zone, x, y));
+      // Only the night tide — and a resident mid-hunt — crosses into claimed
+      // ground at night (GDD "Night"): passive residents keep the day
+      // boundary around the clock, and the dawn recede walks any stray home.
+      const bounds = zoneBounds(zone, (x, y) => statics.has(tileKey(x, y)) || isSafeTile(ctx, c.zoneId, x, y, night && (c.nightborn || c.aggroTargetId !== "")) || inTorchlight(c.zoneId, x, y) || !revealed(zone, x, y));
       const at = projectMotionState(c, elapsedMs(c.movedAt, now), bounds);
       settledCreatures.push({ row: c, x: at.x, y: at.y, zoneId: c.zoneId });
       let tiles = creatureTilesByZone.get(c.zoneId);
@@ -1003,7 +1027,21 @@ export const wanderPresence = spacetimedb.reducer({ timer: afkWanderTimer.rowTyp
           }
         }
       }
+      // A chase that can't progress gives up (GDD "Dark creatures"): past
+      // the leash, or pinned against ground it can't cross (the reveal
+      // frontier, a day boundary) while the prey is out of reach — instinct
+      // stops pacing the fence and goes back to its ground.
+      if (target) {
+        const tp = settle(ctx, target, now);
+        const dist = Math.hypot(tp.x - s.x, tp.y - s.y);
+        const pinned = (c.dirX !== 0 || c.dirY !== 0) && Math.abs(s.x - c.x) < 0.05 && Math.abs(s.y - c.y) < 0.05;
+        if (dist > DARK_CREATURE_LEASH_RANGE || (pinned && dist > DARK_CREATURE_AGGRO_RANGE)) target = undefined;
+      }
       const aggroTargetId = target ? target.identity.toHexString() : "";
+      // Hunting onto claimed ground at night marks the resident strayed —
+      // its death in town sends it home instead of deleting it (see the
+      // corpse reap); day clears the mark (the recede already walked it out).
+      const strayed = night ? c.strayed || (!c.nightborn && aggroTargetId !== "") : false;
 
       let dir = { dirX: 0, dirY: 0 };
       if (target) {
@@ -1031,9 +1069,9 @@ export const wanderPresence = spacetimedb.reducer({ timer: afkWanderTimer.rowTyp
         dir = pickWanderDir(ctx, bounds, { x: Math.round(s.x), y: Math.round(s.y) }, 1);
       }
 
-      const unchanged = s.x === c.x && s.y === c.y && dir.dirX === c.dirX && dir.dirY === c.dirY && aggroTargetId === c.aggroTargetId;
+      const unchanged = s.x === c.x && s.y === c.y && dir.dirX === c.dirX && dir.dirY === c.dirY && aggroTargetId === c.aggroTargetId && strayed === c.strayed;
       if (unchanged) continue;
-      ctx.db.darkCreature.id.update({ ...c, x: s.x, y: s.y, dirX: dir.dirX, dirY: dir.dirY, movedAt: now, aggroTargetId });
+      ctx.db.darkCreature.id.update({ ...c, x: s.x, y: s.y, dirX: dir.dirX, dirY: dir.dirY, movedAt: now, aggroTargetId, strayed });
     }
   }
   ctx.db.afkWanderTimer.clear();

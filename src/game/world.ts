@@ -990,7 +990,7 @@ export class World3D {
     // heavier player `Tracked` pipeline — no equipment, carrying, or
     // appearance to reconcile, only motion, a gait, and a corpse pose.
     for (const view of this.darkCreatures.values()) {
-      const motion = projectMotionState(view.row, now - view.baseMs, view.row.nightborn ? this.nightTideBounds : this.darkCreatureBounds);
+      const motion = projectMotionState(view.row, now - view.baseMs, view.row.nightborn || view.row.aggroTargetId !== "" ? this.nightTideBounds : this.darkCreatureBounds);
       this.entities.place(view.group, motion.x, motion.y);
       if (!view.downed && view.group.visible) {
         const moving = motion.dirX !== 0 || motion.dirY !== 0;

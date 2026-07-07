@@ -73,6 +73,7 @@ export const DarkCreature = __t.object("DarkCreature", {
   lastDamagedAt: __t.timestamp(),
   aggroTargetId: __t.string(),
   nightborn: __t.bool(),
+  strayed: __t.bool(),
 });
 export type DarkCreature = __Infer<typeof DarkCreature>;
 

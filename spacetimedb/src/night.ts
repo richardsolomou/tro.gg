@@ -45,7 +45,7 @@ export function tideNight(ctx: Ctx, now: Ctx["timestamp"], night: boolean, revea
       const cy = Math.round(c.y);
       if (!isLitTile(ctx, c.zoneId, cx, cy)) continue;
       const out = nearestUnlitTile(ctx, zone, cx, cy, revealed);
-      if (out) ctx.db.darkCreature.id.update({ ...c, x: out.x, y: out.y, dirX: 0, dirY: 0, movedAt: now, aggroTargetId: "" });
+      if (out) ctx.db.darkCreature.id.update({ ...c, x: out.x, y: out.y, dirX: 0, dirY: 0, movedAt: now, aggroTargetId: "", strayed: false });
       else ctx.db.darkCreature.id.delete(c.id); // nowhere in reach to recede to
     }
     return;
@@ -91,6 +91,7 @@ export function tideNight(ctx: Ctx, now: Ctx["timestamp"], night: boolean, revea
         lastDamagedAt: now,
         aggroTargetId: "",
         nightborn: true,
+        strayed: false,
       });
       population++;
     }
@@ -120,7 +121,7 @@ function nightEntryTile(ctx: Ctx, zone: Zone, slug: string, seed: Coord, brazier
 
 /** The nearest revealed, unlit, walkable tile — where a creature stranded on
  *  claimed ground recedes to at dawn. Rings outward to a bounded radius. */
-function nearestUnlitTile(ctx: Ctx, zone: Zone, cx: number, cy: number, revealed: (zone: Zone, x: number, y: number) => boolean): Coord | undefined {
+export function nearestUnlitTile(ctx: Ctx, zone: Zone, cx: number, cy: number, revealed: (zone: Zone, x: number, y: number) => boolean): Coord | undefined {
   const statics = obstacleTiles(ctx, zone.slug);
   const bounds = zoneBounds(zone, (x, y) => statics.has(tileKey(x, y)));
   for (let r = 1; r <= 60; r++) {

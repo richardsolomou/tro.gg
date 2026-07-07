@@ -183,6 +183,7 @@ export function darkCreatureRow(over: Record<string, unknown> = {}) {
     lastDamagedAt: { microsSinceUnixEpoch: 0n },
     aggroTargetId: "",
     nightborn: false,
+    strayed: false,
     ...over,
   };
 }
