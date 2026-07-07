@@ -389,9 +389,15 @@ export class World3D {
     const daylight = Math.max(0, Math.min(1, (elevation + 0.12) * 2.4));
     const fx = this.orbit.target.x;
     const fz = this.orbit.target.z;
+    // The shadow box rides the focus — snapped to its own texel grid, so its
+    // shadow edges hold still instead of crawling across the ground with
+    // every step (the classic moving-orthographic-shadow shimmer).
+    const texel = 112 / 2048;
+    const sfx = Math.round(fx / texel) * texel;
+    const sfz = Math.round(fz / texel) * texel;
     // the sun arcs across the sky; at night it parks low so shadows fade with it
-    this.keyLight.position.set(fx + Math.cos(sunAngle) * 30, 8 + Math.max(0.05, elevation) * 26, fz + Math.sin(sunAngle) * 14 + 8);
-    this.keyLight.target.position.set(fx, 0, fz);
+    this.keyLight.position.set(sfx + Math.cos(sunAngle) * 30, 8 + Math.max(0.05, elevation) * 26, sfz + Math.sin(sunAngle) * 14 + 8);
+    this.keyLight.target.position.set(sfx, 0, sfz);
     this.keyLight.intensity = 3.2 * daylight * (1 - dark);
     // cave-dark is dim, not blind: enough ambient to read the walls around you
     this.hemi.intensity = (0.3 + 1.2 * daylight) * (1 - dark) + 0.5 * dark;

@@ -163,7 +163,11 @@ export function buildTerrain(zone: Zone, regionState: (x: number, y: number) => 
   voidTex.wrapT = THREE.RepeatWrapping;
   voidTex.repeat.set(600 / PATCH, 600 / PATCH);
   globalDisposables.push(voidTex);
-  const voidPlane = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), new THREE.MeshStandardMaterial({ map: voidTex, roughness: 1 }));
+  // Lambert everywhere the ground is matte: Standard's specular lobe (even at
+  // roughness 1) slides a view-dependent sheen across the floor as the camera
+  // orbits — worst beside a bright point light like a campfire. Water keeps
+  // Standard below: a glint that moves with the eye is what water should do.
+  const voidPlane = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), new THREE.MeshLambertMaterial({ map: voidTex }));
   voidPlane.rotation.x = -Math.PI / 2;
   // well below the sunken river channels (whose tops sit at -0.18): anything cut
   // out of the floor must reveal what's carved beneath it, not this underlay
@@ -176,7 +180,7 @@ export function buildTerrain(zone: Zone, regionState: (x: number, y: number) => 
 
   // Walls tint per tile through instance colours, so biome borders stay
   // tile-exact even when a chunk straddles two regions.
-  const wallMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1 });
+  const wallMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
   const wallGeo = new THREE.BoxGeometry(1, 1, 1); // unit box, scaled per instance to its rock height
   globalDisposables.push(wallMat, wallGeo);
   const rockHeight = (x: number, y: number): number => rockHeightAt(zone, x, y);
@@ -189,7 +193,7 @@ export function buildTerrain(zone: Zone, regionState: (x: number, y: number) => 
   riverTopTex.magFilter = THREE.NearestFilter;
   riverTopTex.minFilter = THREE.NearestFilter;
   const riverTop = new THREE.MeshStandardMaterial({ map: riverTopTex, roughness: 0.7 });
-  const riverBank = new THREE.MeshStandardMaterial({ color: cavePal.floor.crack, roughness: 1 });
+  const riverBank = new THREE.MeshLambertMaterial({ color: cavePal.floor.crack });
   const riverMats = [riverBank, riverBank, riverTop, riverBank, riverBank, riverBank];
   const RIVER_DEPTH = 0.5;
   const riverGeo = new THREE.BoxGeometry(1, RIVER_DEPTH, 1);
@@ -273,7 +277,7 @@ export function buildTerrain(zone: Zone, regionState: (x: number, y: number) => 
     floorTex.magFilter = THREE.NearestFilter;
     floorTex.minFilter = THREE.NearestFilter;
     disposables.push(floorTex);
-    const floorMat = new THREE.MeshStandardMaterial({ map: floorTex, roughness: 1, transparent: true });
+    const floorMat = new THREE.MeshLambertMaterial({ map: floorTex, transparent: true });
     disposables.push(floorMat);
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(w, h), floorMat);
     floor.rotation.x = -Math.PI / 2;
