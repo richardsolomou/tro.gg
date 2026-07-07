@@ -1,6 +1,6 @@
 import { getZone, STARTING_ZONE_SLUG } from "@trogg/shared";
 import { accountSubject, authConfigured, completeSignIn, currentIdToken } from "./auth.js";
-import { captureEvent, identifyUser, initAnalytics, isFeatureEnabled, logError, logInfo } from "./analytics.js";
+import { watchHitches, captureEvent, identifyUser, initAnalytics, isFeatureEnabled, logError, logInfo } from "./analytics.js";
 import { theme } from "./theme.js";
 import { clearStoredToken, clearPendingClaim, getPendingClaim } from "./identity.js";
 import { connect } from "./net/net.js";
@@ -92,6 +92,7 @@ async function main() {
     // the first one (a newborn's "find the pickaxe", fired during world boot)
     // isn't dispatched into the void before its listener exists.
     mountCoach();
+    watchHitches();
 
     // Three.js owns the canvas and the world render loop; StartGame boots the 3D
     // world with the live connection (game/main.ts, GDD "Camera and rendering").

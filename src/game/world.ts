@@ -191,16 +191,27 @@ export class World3D {
    *  already-subscribed brazier rows. Region-wide in the world zone: a whole
    *  region counts as lit the moment any brazier inside it is lit. */
   private isLitTileClient(x: number, y: number): boolean {
-    if (this.slug !== STARTING_ZONE_SLUG) {
-      for (const view of this.braziers.values()) if (view.row.lit) return true;
-      return false;
-    }
+    if (this.slug !== STARTING_ZONE_SLUG) return this.anyBrazierLit;
     const slug = regionAt(x, y)?.slug;
-    if (!slug) return false;
+    return slug !== undefined && this.litRegionSlugs.has(slug);
+  }
+
+  /** Lit regions, cached off the subscribed brazier rows. The creature-bounds
+   *  closures probe `isLitTileClient` for every crossed tile of every creature
+   *  every frame — recomputing braziers × regionAt per probe scaled with the
+   *  world and showed up as main-thread hitches; braziers change rarely, so
+   *  cache on their row events instead. */
+  private readonly litRegionSlugs = new Set<string>();
+  private anyBrazierLit = false;
+  private syncLitRegions(): void {
+    this.litRegionSlugs.clear();
+    this.anyBrazierLit = false;
     for (const view of this.braziers.values()) {
-      if (view.row.lit && regionAt(view.row.x, view.row.y)?.slug === slug) return true;
+      if (!view.row.lit) continue;
+      this.anyBrazierLit = true;
+      const slug = regionAt(view.row.x, view.row.y)?.slug;
+      if (slug) this.litRegionSlugs.add(slug);
     }
-    return false;
   }
 
   /** The shared day phase, honouring the debug sky lock (GDD "Zones"). */
@@ -226,11 +237,10 @@ export class World3D {
   /** The moving pockets of carried firelight (GDD "Crafting") — the client
    *  mirror of the server's torch bounds, read live off tracked torch-bearers
    *  so a creature never renders walking through someone's light. */
+  private readonly torchPockets: { x: number; y: number }[] = [];
   private inTorchlightClient(x: number, y: number): boolean {
-    for (const entry of this.tracked.values()) {
-      const p = entry.player;
-      if (!p.online || p.dead || p.equippedOffHand !== "torch") continue;
-      if (Math.hypot(entry.marker.position.x - x, entry.marker.position.z - y) <= TORCH_LIT_RADIUS) return true;
+    for (const t of this.torchPockets) {
+      if (Math.hypot(t.x - x, t.y - y) <= TORCH_LIT_RADIUS) return true;
     }
     return false;
   }
@@ -791,6 +801,15 @@ export class World3D {
     if (now - this.lastHideSweepMs > 60_000) {
       this.lastHideSweepMs = now;
       for (const [id, entry] of this.tracked) if (this.hiddenNow(entry.player)) this.removePlayer(id);
+    }
+
+    // Refresh the torch pockets once per frame — the creature-bounds
+    // closures probe them per crossed tile, so they read a flat array
+    // instead of scanning the tracked map every probe.
+    this.torchPockets.length = 0;
+    for (const entry of this.tracked.values()) {
+      const p = entry.player;
+      if (p.online && !p.dead && p.equippedOffHand === "torch") this.torchPockets.push({ x: entry.marker.position.x, y: entry.marker.position.z });
     }
 
     this.crowd.begin();
@@ -1596,9 +1615,18 @@ export class World3D {
 
   private wireBraziers(): void {
     const conn = this.conn;
-    conn.db.brazier.onInsert((_ctx, row) => this.upsertBrazier(row));
-    conn.db.brazier.onUpdate((_ctx, _old, row) => this.upsertBrazier(row));
-    conn.db.brazier.onDelete((_ctx, row) => this.removeBrazier(row));
+    conn.db.brazier.onInsert((_ctx, row) => {
+      this.upsertBrazier(row);
+      this.syncLitRegions();
+    });
+    conn.db.brazier.onUpdate((_ctx, _old, row) => {
+      this.upsertBrazier(row);
+      this.syncLitRegions();
+    });
+    conn.db.brazier.onDelete((_ctx, row) => {
+      this.removeBrazier(row);
+      this.syncLitRegions();
+    });
   }
 
   private upsertDarkCreature(row: DarkCreature): void {

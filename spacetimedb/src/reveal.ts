@@ -9,6 +9,7 @@ import {
   regionAt,
   regionNameCandidate,
   regionSeeds,
+  MAX_DARK_CREATURES_PER_ZONE,
   TREE_MAX_HEALTH,
   type Zone,
 } from "../../shared/index";
@@ -150,7 +151,11 @@ export function seedRegionPopulation(ctx: Ctx, zone: Zone, slug: string, multipl
     }
   }
   if (opts.creatures !== false && ![...ctx.db.darkCreature.zoneId.filter(zone.slug)].some(inRegion)) {
+    // a deep frontier reveals many regions — the per-zone ceiling still holds
+    let population = [...ctx.db.darkCreature.zoneId.filter(zone.slug)].length;
     for (const seed of seeds.darkCreatures) {
+      if (population >= MAX_DARK_CREATURES_PER_ZONE) break;
+      population++;
       ctx.db.darkCreature.insert({
         id: 0n,
         zoneId: zone.slug,
