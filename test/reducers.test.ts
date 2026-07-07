@@ -48,6 +48,7 @@ import {
   AFK_GATHER_DAMAGE,
   AFK_UNLOCK_XP,
   AFK_HIDE_AFTER_MS,
+  BRAZIER_CLAIM_STONE_COST,
   GATHER_XP,
   COMBAT_XP_PER_DAMAGE,
   DARK_CREATURE_AGGRO_RANGE,
@@ -1454,13 +1455,15 @@ test("interact refuses to claim a penumbra region while a dark creature is still
   );
 });
 
-test("interact claims a penumbra region for free once every dark creature in it is dead, and seeds its new penumbra", () => {
+test("interact claims a cleared penumbra region, paying the brazier's stone cost from the stockpile", () => {
   const { ctx, me } = withPlayer({ x: NEIGHBOR.x, y: NEIGHBOR.y });
   ctx.db.revealedRegion.clear();
   ctx.db.revealedRegion.insert(revealedRegionRow({ slug: "hearth" }));
+  ctx.db.stockpile.insert({ item: "stone", qty: BRAZIER_CLAIM_STONE_COST + 5 });
   ctx.db.darkCreature.insert(darkCreatureRow({ x: NEIGHBOR.x + 1, y: NEIGHBOR.y, health: 0 })); // a corpse doesn't block the claim
   interact(ctx, { dirX: 1, dirY: 0 });
 
+  assert.equal(ctx.db.stockpile.item.find("stone")?.qty, 5); // the stone builds the fire
   const brazier = ctx.db.brazier.rows()[0];
   assert.deepEqual(
     { carrying: ctx.db.player.identity.find(me).carrying, count: ctx.db.brazier.rows().length, lit: brazier?.lit, isEternal: brazier?.isEternal },
@@ -1485,6 +1488,7 @@ test("interact refuses a second claim in a region that already has a brazier", (
   const { ctx, me } = withPlayer({ x: NEIGHBOR.x, y: NEIGHBOR.y });
   ctx.db.revealedRegion.clear();
   ctx.db.revealedRegion.insert(revealedRegionRow({ slug: "hearth" }));
+  ctx.db.stockpile.insert({ item: "stone", qty: BRAZIER_CLAIM_STONE_COST * 2 });
   interact(ctx, { dirX: 1, dirY: 0 }); // clears (no creatures) and claims
 
   ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), x: NEIGHBOR.x, y: NEIGHBOR.y + 1, dirX: 0, dirY: 0 });
@@ -2139,4 +2143,18 @@ test("a world death respawns at the lit brazier nearest the death tile, not the 
 
   const p = ctx.db.player.identity.find(me);
   assert.deepEqual({ x: p.x, y: p.y, dead: p.dead, health: p.health }, { x: 198, y: 150, dead: false, health: PLAYER_MAX_HEALTH });
+});
+
+
+test("interact refuses to claim a cleared region the stockpile can't afford", () => {
+  const { ctx } = withPlayer({ x: NEIGHBOR.x, y: NEIGHBOR.y });
+  ctx.db.revealedRegion.clear();
+  ctx.db.revealedRegion.insert(revealedRegionRow({ slug: "hearth" }));
+  ctx.db.stockpile.insert({ item: "stone", qty: BRAZIER_CLAIM_STONE_COST - 1 });
+
+  interact(ctx, { dirX: 1, dirY: 0 });
+
+  assert.equal(ctx.db.brazier.rows().length, 0); // cleared, but the tribe can't pay for the fire yet
+  assert.equal(ctx.db.stockpile.item.find("stone")?.qty, BRAZIER_CLAIM_STONE_COST - 1); // nothing drawn
+  assert.equal(ctx.db.revealedRegion.rows().find((r: any) => r.slug === NEIGHBOR.slug)?.interior ?? false, false);
 });

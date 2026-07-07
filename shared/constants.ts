@@ -101,6 +101,11 @@ export const STOCKPILE_CAP = 2000;
  */
 export const BRAZIER_LIT_RADIUS = 6;
 export const FIRST_FIRE_LIT_RADIUS = 10;
+/** Stone drawn from the stockpile to set a claim brazier down (GDD
+ *  "Territory claiming") — the fight buys the right, the stone builds the
+ *  fire, so expansion is a tribe-level economic decision. Relighting a
+ *  guttered brazier stays free. (initial) */
+export const BRAZIER_CLAIM_STONE_COST = 20;
 export const BRAZIER_UPKEEP_ITEM: ItemId = "wood";
 export const BRAZIER_UPKEEP_RATE = 1;
 export const BRAZIER_UPKEEP_TICK_MS = 30_000;
