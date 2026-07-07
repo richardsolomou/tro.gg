@@ -49,6 +49,7 @@ import {
   AFK_UNLOCK_XP,
   AFK_HIDE_AFTER_MS,
   BRAZIER_CLAIM_STONE_COST,
+  NIGHT_SPAWN_MIN_PLAYER_DIST,
   GATHER_XP,
   COMBAT_XP_PER_DAMAGE,
   DARK_CREATURE_AGGRO_RANGE,
@@ -2157,4 +2158,63 @@ test("interact refuses to claim a cleared region the stockpile can't afford", ()
   assert.equal(ctx.db.brazier.rows().length, 0); // cleared, but the tribe can't pay for the fire yet
   assert.equal(ctx.db.stockpile.item.find("stone")?.qty, BRAZIER_CLAIM_STONE_COST - 1); // nothing drawn
   assert.equal(ctx.db.revealedRegion.rows().find((r: any) => r.slug === NEIGHBOR.slug)?.interior ?? false, false);
+});
+
+
+// --- Night incursions ---
+
+const lockNight = (ctx: any) => ctx.db.worldState.insert({ id: 0, skyLocked: true, skyPhase: 0.75 });
+
+test("dusk seeds a night cohort into a lit region, on the rim, never near an active trogg", () => {
+  const far = capitalOf(2, 0);
+  const { ctx, me } = withPlayer({ x: 69, y: 96 }); // an active trogg at the Hearth
+  lockNight(ctx);
+  assert.ok(regionSeeds(far.slug).darkCreatures.length > 0, "precondition: the region has creature seeds");
+  ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: far.x, y: far.y, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
+
+  wanderPresence(ctx, {});
+
+  const tide = ctx.db.darkCreature.rows().filter((c: any) => c.nightborn);
+  assert.ok(tide.length > 0, "the tide came in");
+  const meAt = ctx.db.player.identity.find(me);
+  for (const c of tide) {
+    assert.ok(Math.hypot(c.x - far.x, c.y - far.y) > BRAZIER_LIT_RADIUS, "never inside the sanctuary ring");
+    assert.ok(Math.hypot(c.x - meAt.x, c.y - meAt.y) >= NIGHT_SPAWN_MIN_PLAYER_DIST, "never near an active trogg");
+  }
+
+  // one tide per cycle, not a per-tick spawner
+  wanderPresence(ctx, {});
+  assert.equal(ctx.db.darkCreature.rows().filter((c: any) => c.nightborn).length, tide.length);
+});
+
+test("dawn despawns the night cohort and leaves the dark's residents alone", () => {
+  const { ctx } = withPlayer({ x: 69, y: 96 });
+  ctx.db.worldState.insert({ id: 0, skyLocked: true, skyPhase: 0.25 }); // noon
+  ctx.db.darkCreature.insert(darkCreatureRow({ x: 200, y: 150, nightborn: true }));
+  const resident = ctx.db.darkCreature.insert(darkCreatureRow({ x: 210, y: 150 }));
+
+  wanderPresence(ctx, {});
+
+  const left = ctx.db.darkCreature.rows();
+  assert.equal(left.filter((c: any) => c.nightborn).length, 0); // the tide went out — no corpse, no loot
+  assert.ok(left.some((c: any) => c.id === resident.id)); // residents are territory-linked, not tidal
+});
+
+test("at night an AFK trogg pauses gathering and idles by the fire", () => {
+  const watcher = id("watcher");
+  const afk = id("nightowl");
+  const ctx = makeCtx({ sender: watcher, random: 0.05 }); // would chip by day
+  lockNight(ctx);
+  ctx.db.player.insert(playerRow(watcher, { online: true }));
+  ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
+  ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96, health: AFK_GATHER_DAMAGE });
+  ctx.db.player.insert(playerRow(afk, { x: 69, y: 96, online: false, kindlingCharge: 10, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
+  afkEligible(ctx, afk);
+
+  wanderPresence(ctx, {});
+
+  assert.equal(ctx.db.boulder.rows().length, 1); // untouched — instinct rests at night
+  assert.equal(ctx.db.stockpile.item.find("stone"), undefined);
+  const p = ctx.db.player.identity.find(afk);
+  assert.deepEqual({ dirX: p.dirX, dirY: p.dirY }, { dirX: 0, dirY: 0 }); // inside the ring: huddled, idle
 });

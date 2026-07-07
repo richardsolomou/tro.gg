@@ -117,6 +117,7 @@ export function seedDarkCreatures(ctx: Ctx, zone: Zone): void {
       health: darkCreatureDef(seed.species).maxHealth,
       lastDamagedAt: Timestamp.UNIX_EPOCH,
       aggroTargetId: "",
+      nightborn: false,
     });
   }
 }
@@ -269,6 +270,7 @@ export * from "./inventory";
 export * from "./combat";
 export * from "./stockpile";
 export * from "./skills";
+export * from "./night";
 export * from "./brazier";
 export * from "./presence";
 export * from "./reveal";

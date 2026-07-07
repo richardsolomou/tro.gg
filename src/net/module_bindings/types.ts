@@ -72,6 +72,7 @@ export const DarkCreature = __t.object("DarkCreature", {
   health: __t.i32(),
   lastDamagedAt: __t.timestamp(),
   aggroTargetId: __t.string(),
+  nightborn: __t.bool(),
 });
 export type DarkCreature = __Infer<typeof DarkCreature>;
 
@@ -107,6 +108,12 @@ export const Inventory = __t.object("Inventory", {
   qty: __t.i32(),
 });
 export type Inventory = __Infer<typeof Inventory>;
+
+export const NightTide = __t.object("NightTide", {
+  id: __t.u32(),
+  cycle: __t.u64(),
+});
+export type NightTide = __Infer<typeof NightTide>;
 
 export const NodeRespawn = __t.object("NodeRespawn", {
   scheduledId: __t.u64(),

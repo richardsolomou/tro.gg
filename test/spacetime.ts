@@ -119,6 +119,7 @@ export function makeCtx(opts: FakeCtxOpts) {
       nodeRespawn: makeTable({ pk: "scheduledId", autoInc: true }),
       worldState: makeTable({ pk: "id" }),
       creatureRegen: makeTable({ pk: "scheduledId", autoInc: true }),
+      nightTide: makeTable({ pk: "id" }),
       revealedRegion,
     },
   };
@@ -181,6 +182,7 @@ export function darkCreatureRow(over: Record<string, unknown> = {}) {
     health: 40,
     lastDamagedAt: { microsSinceUnixEpoch: 0n },
     aggroTargetId: "",
+    nightborn: false,
     ...over,
   };
 }

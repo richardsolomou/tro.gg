@@ -24,6 +24,7 @@ import {
   AFK_UNLOCK_XP,
   AFK_HIDE_AFTER_MS,
   afkGatherFraction,
+  isNightPhase,
   findPath,
   NODE_RESPAWN_MS,
   serializePath,
@@ -54,6 +55,10 @@ import {
   boulderAt,
   treeAt,
   isLitTile,
+  isSafeTile,
+  worldDayPhase,
+  nearestLitBrazier,
+  tideNight,
   pickWanderDir,
   settle,
   darkCreatureDef,
@@ -304,6 +309,10 @@ const darkCreature = table(
     health: t.i32(),
     lastDamagedAt: t.timestamp(),
     aggroTargetId: t.string().default(""),
+    // A night-tide visitor (GDD "Night"): seeded at dusk into a lit region,
+    // despawned at dawn, exempt from territory-linked respawn. Residents of
+    // the dark keep the default false.
+    nightborn: t.bool().default(false),
   },
 );
 
@@ -421,6 +430,17 @@ const brazierUpkeepTimer = table(
  * The durable table name `ember_wander` predates the AFK naming and stays
  * (prod schema changes only additively).
  */
+/** The night tide's one-row memory (GDD "Night"): which day-cycle last
+ *  seeded the dusk cohorts, so a night is one tide, not a per-tick spawner.
+ *  Private — no client reads it. */
+const nightTide = table(
+  { name: "night_tide" },
+  {
+    id: t.u32().primaryKey(),
+    cycle: t.u64(),
+  },
+);
+
 const afkWanderTimer = table(
   { name: "ember_wander", scheduled: (): any => wanderPresence },
   {
@@ -530,7 +550,7 @@ const worldState = table(
   },
 );
 
-const spacetimedb = schema({ player, chatMessage, ghostHaunt, claimCode, boulder, tree, darkCreature, groundItem, inventory, skills, stockpile, brazier, brazierUpkeepTimer, afkWanderTimer, playerConnection, playerRespawn, nodeRespawn, creatureRegen, revealedRegion, worldState });
+const spacetimedb = schema({ player, chatMessage, ghostHaunt, claimCode, boulder, tree, darkCreature, groundItem, inventory, skills, stockpile, brazier, brazierUpkeepTimer, afkWanderTimer, nightTide, playerConnection, playerRespawn, nodeRespawn, creatureRegen, revealedRegion, worldState });
 export default spacetimedb;
 
 /** The reducer context, typed against this module's schema (db view + sender). */
@@ -567,7 +587,9 @@ export const regenCreatures = spacetimedb.reducer({ timer: creatureRegen.rowType
         if (elapsedMs(c.lastDamagedAt, now) < NPC_CORPSE_MS) continue;
         const unlit = !isLitTile(ctx, c.zoneId, Math.round(c.x), Math.round(c.y));
         ctx.db.darkCreature.id.delete(c.id);
-        if (unlit) {
+        // Visitors, not residents (GDD "Night"): a dead night creature never
+        // replenishes the dark's own population, wherever it fell.
+        if (unlit && !c.nightborn) {
           ctx.db.darkCreature.insert({
             id: 0n,
             zoneId: c.zoneId,
@@ -580,6 +602,7 @@ export const regenCreatures = spacetimedb.reducer({ timer: creatureRegen.rowType
             health: def.maxHealth,
             lastDamagedAt: now,
             aggroTargetId: "",
+            nightborn: false,
           });
         }
         continue;
@@ -687,6 +710,10 @@ export const wanderPresence = spacetimedb.reducer({ timer: afkWanderTimer.rowTyp
   const online = anyPlayerOnline(ctx);
   const now = ctx.timestamp;
   if (online) {
+    // The shared day phase decides the safety rule for this tick (GDD
+    // "Night"): by day whole lit regions are safe; at night only the rings.
+    const night = isNightPhase(worldDayPhase(ctx));
+    tideNight(ctx, now, night);
     const revealedSlugs = currentRevealedRegions(ctx);
     const penumbraSlugs = penumbraOf(revealedSlugs);
     const revealed = (zone: Zone, x: number, y: number) => isRevealed(zone, revealedSlugs, penumbraSlugs, x, y);
@@ -720,6 +747,33 @@ export const wanderPresence = spacetimedb.reducer({ timer: afkWanderTimer.rowTyp
       // under the old flags, so the settle below anchors it correctly.
       const sober = { running: false, cheatSpeed: 1, cheatFly: false, cheatNoclip: false, z: 0, dirZ: 0 };
       const fast = p.running || p.cheatSpeed !== 1 || p.cheatFly || p.cheatNoclip;
+
+      if (night) {
+        // Dusk sends instinct home (GDD "Night"; "Presence"): gathering
+        // pauses and the trogg walks inside its nearest lit brazier's ring,
+        // idling by the fire until dawn — safe the same way it always is,
+        // because the ring is ground the dark cannot enter. Movement uses
+        // the day bounds: light never blocks a trogg, only its work.
+        const hearth = nearestLitBrazier(ctx, p.zoneId, at.x, at.y);
+        const home = hearth !== undefined && Math.hypot(hearth.x - at.x, hearth.y - at.y) <= Math.max(1, hearth.radius - 1);
+        if (hearth && !home) {
+          if (p.path !== "" && !at.arrived && (at.dirX !== 0 || at.dirY !== 0)) continue; // already walking home
+          const path = smoothPath(bounds, at, findPath(bounds, at, { x: hearth.x, y: hearth.y }, AFK_SEEK_RADIUS));
+          const first = path[0];
+          if (first) {
+            const hopX = first.x - at.x;
+            const hopY = first.y - at.y;
+            const faceX = Math.abs(hopX) >= Math.abs(hopY) ? Math.sign(hopX) : 0;
+            const faceY = Math.abs(hopX) >= Math.abs(hopY) ? 0 : Math.sign(hopY);
+            ctx.db.player.identity.update({ ...p, ...sober, x: at.x, y: at.y, dirX: faceX, dirY: faceY, faceX, faceY, path: serializePath(path), movedAt: now });
+            continue;
+          }
+        }
+        // by the fire (or unroutable): settle and idle until dawn
+        const idle = !fast && p.dirX === 0 && p.dirY === 0 && p.path === "" && at.x === p.x && at.y === p.y;
+        if (!idle) ctx.db.player.identity.update({ ...p, ...sober, x: at.x, y: at.y, dirX: 0, dirY: 0, path: "", movedAt: now });
+        continue;
+      }
 
       // Camped beside a node: chip it on a chance per tick, scaled by the same
       // fraction that governs its whole stockpile rate, and stay put — the
@@ -868,7 +922,7 @@ export const wanderPresence = spacetimedb.reducer({ timer: afkWanderTimer.rowTyp
       const zone = getZone(c.zoneId);
       if (!zone) continue;
       const statics = staticBlockersFor(c.zoneId);
-      const bounds = zoneBounds(zone, (x, y) => statics.has(tileKey(x, y)) || isLitTile(ctx, c.zoneId, x, y) || !revealed(zone, x, y));
+      const bounds = zoneBounds(zone, (x, y) => statics.has(tileKey(x, y)) || isSafeTile(ctx, c.zoneId, x, y, night) || !revealed(zone, x, y));
       const at = projectMotionState(c, elapsedMs(c.movedAt, now), bounds);
       settledCreatures.push({ row: c, x: at.x, y: at.y, zoneId: c.zoneId });
       let tiles = creatureTilesByZone.get(c.zoneId);
@@ -928,7 +982,7 @@ export const wanderPresence = spacetimedb.reducer({ timer: afkWanderTimer.rowTyp
       } else {
         const bounds = zoneBounds(zone, (x, y) => {
           const k = tileKey(x, y);
-          if (statics.has(k) || isLitTile(ctx, s.zoneId, x, y) || !revealed(zone, x, y)) return true;
+          if (statics.has(k) || isSafeTile(ctx, s.zoneId, x, y, night) || !revealed(zone, x, y)) return true;
           return k !== ownTile && creatureTiles.has(k);
         });
         dir = pickWanderDir(ctx, bounds, { x: Math.round(s.x), y: Math.round(s.y) }, 1);

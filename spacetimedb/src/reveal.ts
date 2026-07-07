@@ -163,6 +163,7 @@ export function seedRegionPopulation(ctx: Ctx, zone: Zone, slug: string, multipl
         health: DARK_CREATURES[seed.species].maxHealth,
         lastDamagedAt: Timestamp.UNIX_EPOCH,
         aggroTargetId: "",
+        nightborn: false,
       });
     }
   }

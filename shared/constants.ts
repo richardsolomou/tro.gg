@@ -89,9 +89,9 @@ export const STOCKPILE_CAP = 2000;
 /**
  * Hearths and braziers (GDD "The fire and the dark" → Territory and
  * permanence). `BRAZIER_LIT_RADIUS`/`FIRST_FIRE_LIT_RADIUS` size each
- * brazier's rendered glow ring — cosmetic today, since safety is region-wide
- * (`isLitTile`); once night incursions ship (GDD "The fire and the dark" →
- * Night) the ring becomes the night sanctuary creatures can't enter. The
+ * brazier's glow ring — by day safety is region-wide (`isLitTile`) and the
+ * ring is presentation; at night the ring is the sanctuary creatures cannot
+ * enter (GDD "The fire and the dark" → Night; `isSanctuaryTile`). The
  * First Fire's is wider since it anchors the whole hub. Upkeep is billed in Wood — a
  * lit brazier draws `BRAZIER_UPKEEP_RATE` from the stockpile every
  * `BRAZIER_UPKEEP_TICK_MS`; when the tribe can't cover total upkeep, braziers

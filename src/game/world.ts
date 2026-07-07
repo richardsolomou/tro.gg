@@ -7,6 +7,9 @@ import {
   DARK_CREATURES,
   AFK_UNLOCK_XP,
   AFK_HIDE_AFTER_MS,
+  DAY_CYCLE_MS,
+  dayPhaseAt,
+  isNightPhase,
   EQUIPMENT_ACTION_MS,
   CHAT_BUBBLE_MS,
   DIR_SCALE,
@@ -107,8 +110,7 @@ interface DarkCreatureView {
  * table syncs origin/direction/start-time and every client extrapolates locally each
  * frame (invariant 2); all authority stays server-side (invariant 3).
  */
-/** One full in-game day, dawn to dawn. */
-const DAY_CYCLE_MS = 12 * 60 * 1000;
+
 
 /** World objects beyond this many tiles from the camera focus stop rendering. */
 const CULL_RANGE = 72;
@@ -198,6 +200,26 @@ export class World3D {
       if (view.row.lit && regionAt(view.row.x, view.row.y)?.slug === slug) return true;
     }
     return false;
+  }
+
+  /** The shared day phase, honouring the debug sky lock (GDD "Zones"). */
+  private dayPhaseNow(): number {
+    return this.dayPhaseOverride ?? dayPhaseAt(Date.now());
+  }
+
+  /** Whether (x, y) is inside a lit brazier's sanctuary ring — the only safe
+   *  ground at night (GDD "Night"), mirroring the server's isSanctuaryTile. */
+  private isSanctuaryTileClient(x: number, y: number): boolean {
+    for (const view of this.braziers.values()) {
+      if (view.row.lit && Math.hypot(view.row.x - x, view.row.y - y) <= view.row.radius) return true;
+    }
+    return false;
+  }
+
+  /** The ground the dark cannot enter right now (GDD "Bound by the light"):
+   *  whole lit regions by day, sanctuary rings at night. */
+  private isSafeTileClient(x: number, y: number): boolean {
+    return isNightPhase(this.dayPhaseNow()) ? this.isSanctuaryTileClient(x, y) : this.isLitTileClient(x, y);
   }
 
   /** How far the tribe's fire has reached (GDD "Generation: only as far as
@@ -379,6 +401,7 @@ export class World3D {
   private lastMs = performance.now();
   private lastFrameMs = 0;
   private lastHideSweepMs = 0;
+  private wasNight?: boolean;
   /** The raw screen-space WASD intent and its last camera-mapped delivery, so the
    *  tick can re-steer a held walk when the camera turns. */
   private rawIntent: MoveIntent = { dirX: 0, dirY: 0, running: false };
@@ -430,10 +453,11 @@ export class World3D {
 
     const obstructed = (x: number, y: number) => this.boulderTiles.has(tileKey(x, y)) || this.treeTiles.has(tileKey(x, y)) || !this.isRegionRevealed(x, y);
     this.troggBounds = zoneBounds(this.zone, obstructed);
-    // A dark creature can't stand on lit ground (GDD "Dark creatures"), the
-    // mirror of an AFK trogg's confinement — read live off the subscribed
-    // brazier rows, so it stays correct as braziers light or gutter.
-    this.darkCreatureBounds = zoneBounds(this.zone, (x, y) => obstructed(x, y) || this.isLitTileClient(x, y));
+    // A dark creature can't stand on safe ground (GDD "Dark creatures";
+    // "Night"): whole lit regions by day, only sanctuary rings at night —
+    // read live off the subscribed brazier rows and the shared clock, so it
+    // stays correct as braziers light, gutter, and the sun sets.
+    this.darkCreatureBounds = zoneBounds(this.zone, (x, y) => obstructed(x, y) || this.isSafeTileClient(x, y));
 
     // Torch-lit cave: dim warm ambient, one shadowing key light, dark fog closing in
     // past the zone. Glowmoss tiles add their own teal point lights (terrain3d).
@@ -710,6 +734,18 @@ export class World3D {
     this.lastFrameMs = now;
     const dt = Math.min(0.1, (now - this.lastMs) / 1000);
     this.lastMs = now;
+
+    // Dusk is telegraphed world-wide (GDD "Night"): every client derives the
+    // same phase from the shared clock, so the banner needs no server fanout.
+    const nightNow = isNightPhase(this.dayPhaseNow());
+    if (this.wasNight === undefined) this.wasNight = nightNow;
+    else if (nightNow !== this.wasNight) {
+      this.wasNight = nightNow;
+      if (nightNow) {
+        regionToast("Night is falling — the fires hold only their rings");
+        coachHit("first-dusk");
+      }
+    }
 
     // A trogg can cross the week-offline mark while rendered (GDD "Presence")
     // — no row update fires for pure time passing, so sweep occasionally.
