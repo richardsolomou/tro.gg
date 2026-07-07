@@ -14,7 +14,7 @@ import {
   type Zone,
   type ZoneBounds,
 } from "../../shared/index";
-import { isSanctuaryTile } from "./brazier";
+import { isLitTile, isSanctuaryTile } from "./brazier";
 import { darkCreatureDef, obstacleTiles, settle } from "./tiles";
 import type { Ctx } from "./schema";
 
@@ -28,9 +28,26 @@ import type { Ctx } from "./schema";
  * row remembers which cycle last seeded), so a night is one tide, not a
  * per-tick spawner.
  */
-export function tideNight(ctx: Ctx, now: Ctx["timestamp"], night: boolean): void {
+export function tideNight(ctx: Ctx, now: Ctx["timestamp"], night: boolean, revealed: (zone: Zone, x: number, y: number) => boolean): void {
   if (!night) {
-    for (const c of [...ctx.db.darkCreature.iter()]) if (c.nightborn) ctx.db.darkCreature.id.delete(c.id);
+    for (const c of [...ctx.db.darkCreature.iter()]) {
+      if (c.nightborn) {
+        ctx.db.darkCreature.id.delete(c.id);
+        continue;
+      }
+      // A resident the night let stray onto claimed ground (or one stranded
+      // by an older build) recedes with the tide: walk it to the nearest
+      // unlit revealed tile, where it belongs by day.
+      if (c.health <= 0) continue; // corpses reap on their own clock
+      const zone = getZone(c.zoneId);
+      if (!zone) continue;
+      const cx = Math.round(c.x);
+      const cy = Math.round(c.y);
+      if (!isLitTile(ctx, c.zoneId, cx, cy)) continue;
+      const out = nearestUnlitTile(ctx, zone, cx, cy, revealed);
+      if (out) ctx.db.darkCreature.id.update({ ...c, x: out.x, y: out.y, dirX: 0, dirY: 0, movedAt: now, aggroTargetId: "" });
+      else ctx.db.darkCreature.id.delete(c.id); // nowhere in reach to recede to
+    }
     return;
   }
   const cycle = BigInt(Math.floor(Number(now.microsSinceUnixEpoch / 1000n) / DAY_CYCLE_MS));
@@ -99,4 +116,24 @@ function nightEntryTile(ctx: Ctx, zone: Zone, slug: string, seed: Coord, brazier
     best = { x: seed.x, y: seed.y };
   }
   return best;
+}
+
+/** The nearest revealed, unlit, walkable tile — where a creature stranded on
+ *  claimed ground recedes to at dawn. Rings outward to a bounded radius. */
+function nearestUnlitTile(ctx: Ctx, zone: Zone, cx: number, cy: number, revealed: (zone: Zone, x: number, y: number) => boolean): Coord | undefined {
+  const statics = obstacleTiles(ctx, zone.slug);
+  const bounds = zoneBounds(zone, (x, y) => statics.has(tileKey(x, y)));
+  for (let r = 1; r <= 60; r++) {
+    for (let dx = -r; dx <= r; dx++) {
+      for (const dy of dx === -r || dx === r ? Array.from({ length: 2 * r + 1 }, (_, i) => i - r) : [-r, r]) {
+        const x = cx + dx;
+        const y = cy + dy;
+        if (isLitTile(ctx, zone.slug, x, y)) continue;
+        if (!revealed(zone, x, y)) continue;
+        if (!footprintWalkable(bounds, x, y, 1)) continue;
+        return { x, y };
+      }
+    }
+  }
+  return undefined;
 }

@@ -136,7 +136,7 @@ export function livingDarkCreaturesInRegion(ctx: Ctx, zoneId: string, slug: stri
  * skipping any entity type the region already has rows of — so a re-exposure
  * after "Reset frontier" never duplicates what's already standing.
  */
-export function seedRegionPopulation(ctx: Ctx, zone: Zone, slug: string, multiplier: number): void {
+export function seedRegionPopulation(ctx: Ctx, zone: Zone, slug: string, multiplier: number, opts: { creatures?: boolean } = {}): void {
   const inRegion = (t: { x: number; y: number }) => regionAt(t.x, t.y).slug === slug;
   const seeds = regionSeeds(slug, multiplier);
   if (![...ctx.db.boulder.zoneId.filter(zone.slug)].some(inRegion)) {
@@ -149,7 +149,7 @@ export function seedRegionPopulation(ctx: Ctx, zone: Zone, slug: string, multipl
       ctx.db.tree.insert({ id: 0n, zoneId: zone.slug, x: seed.x, y: seed.y, health: TREE_MAX_HEALTH });
     }
   }
-  if (![...ctx.db.darkCreature.zoneId.filter(zone.slug)].some(inRegion)) {
+  if (opts.creatures !== false && ![...ctx.db.darkCreature.zoneId.filter(zone.slug)].some(inRegion)) {
     for (const seed of seeds.darkCreatures) {
       ctx.db.darkCreature.insert({
         id: 0n,
@@ -166,5 +166,21 @@ export function seedRegionPopulation(ctx: Ctx, zone: Zone, slug: string, multipl
         nightborn: false,
       });
     }
+  }
+}
+
+/**
+ * Re-seed any revealed region stripped of its population — the safety net for
+ * debug resets and stale-world purges that deleted region-seeded rows
+ * wholesale, since nothing else ever re-seeds an already-revealed region
+ * (GDD "Generation"). `seedRegionPopulation` self-guards per entity type, so
+ * intact regions are untouched. Nodes heal everywhere; creatures heal only in
+ * penumbra — an interior region with no creatures is the tribe's work, not
+ * damage (Territory and permanence: killed on lit ground stays dead).
+ */
+export function healRegionPopulations(ctx: Ctx, zone: Zone): void {
+  const depths = regionHopDepths(ctx);
+  for (const row of ctx.db.revealedRegion.iter()) {
+    seedRegionPopulation(ctx, zone, row.slug, densityMultiplierFor(depths.get(row.slug) ?? 0), { creatures: !row.interior });
   }
 }

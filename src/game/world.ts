@@ -297,6 +297,7 @@ export class World3D {
   private readonly braziers = new Map<string, { row: Brazier; group: THREE.Group; fx: HeldFx; ground: THREE.Mesh }>();
   private readonly darkCreatures = new Map<string, DarkCreatureView>();
   private darkCreatureBounds!: ZoneBounds;
+  private nightTideBounds!: ZoneBounds;
 
   private readonly boulderTiles = new Set<string>();
   private readonly treeTiles = new Set<string>();
@@ -454,10 +455,12 @@ export class World3D {
     const obstructed = (x: number, y: number) => this.boulderTiles.has(tileKey(x, y)) || this.treeTiles.has(tileKey(x, y)) || !this.isRegionRevealed(x, y);
     this.troggBounds = zoneBounds(this.zone, obstructed);
     // A dark creature can't stand on safe ground (GDD "Dark creatures";
-    // "Night"): whole lit regions by day, only sanctuary rings at night —
-    // read live off the subscribed brazier rows and the shared clock, so it
-    // stays correct as braziers light, gutter, and the sun sets.
-    this.darkCreatureBounds = zoneBounds(this.zone, (x, y) => obstructed(x, y) || this.isSafeTileClient(x, y));
+    // "Night") — read live off the subscribed brazier rows and the shared
+    // clock. Residents keep the day boundary (whole lit regions) around the
+    // clock; only the night tide gets the ring-shrunk night bounds, so dawn
+    // never strands a resident inside claimed ground.
+    this.darkCreatureBounds = zoneBounds(this.zone, (x, y) => obstructed(x, y) || this.isLitTileClient(x, y));
+    this.nightTideBounds = zoneBounds(this.zone, (x, y) => obstructed(x, y) || this.isSafeTileClient(x, y));
 
     // Torch-lit cave: dim warm ambient, one shadowing key light, dark fog closing in
     // past the zone. Glowmoss tiles add their own teal point lights (terrain3d).
@@ -549,14 +552,37 @@ export class World3D {
       }
     }
     if (!isBirthZone(this.slug)) {
-      // the way back down: the alcove's deep end is a dark tunnel mouth — the
-      // black of the underworld, no props, no sparkle
-      const mouth = new THREE.Mesh(
-        new THREE.PlaneGeometry(2.4, 1.9),
-        new THREE.MeshBasicMaterial({ color: 0x050307 }),
-      );
-      mouth.position.set(CAVE_DOOR.x + 0.5, 0.95, CAVE_DOOR.y + 0.98);
-      mouth.rotation.y = Math.PI; // faces the approach from the coast
+      // The way back down reads as a cave mouth, not a floating dark plane:
+      // a hewn rock arch — two canted jambs under a heavy lintel — frames the
+      // underworld's black, with rubble spilling out over the threshold. Cut
+      // from the same low-poly cloth as the terrain (GDD "Onboarding").
+      const mouth = new THREE.Group();
+      const rock = new THREE.MeshLambertMaterial({ color: 0x5d5648, flatShading: true });
+      const dark = new THREE.MeshBasicMaterial({ color: 0x050307 });
+      const opening = new THREE.Mesh(new THREE.PlaneGeometry(2.3, 2.1), dark);
+      opening.position.set(0, 1.05, 0.18);
+      opening.rotation.y = Math.PI; // faces the approach from the coast
+      const jamb = (dx: number, lean: number) => {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(0.6, 2.5, 0.9), rock);
+        m.position.set(dx, 1.15, 0.28);
+        m.rotation.z = lean;
+        return m;
+      };
+      const lintel = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.65, 1.0), rock);
+      lintel.position.set(0.06, 2.42, 0.28);
+      lintel.rotation.z = 0.055; // hand-hewn, not machined
+      const rubble = [
+        { x: -0.95, s: 0.16, z: -0.55, turn: 0.5 },
+        { x: 0.75, s: 0.11, z: -0.8, turn: 1.1 },
+        { x: 0.1, s: 0.09, z: -0.45, turn: 2.2 },
+      ].map(({ x, s, z, turn }) => {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(s * 2.2, s, s * 1.7), rock);
+        m.position.set(x, s / 2, z);
+        m.rotation.y = turn;
+        return m;
+      });
+      mouth.add(opening, jamb(-1.4, 0.05), jamb(1.45, -0.07), lintel, ...rubble);
+      mouth.position.set(CAVE_DOOR.x + 0.5, 0, CAVE_DOOR.y + 0.8);
       this.scene.add(mouth);
     }
     if (!isBirthZone(this.slug) && sessionStorage.getItem("trogg-emerged") === "1") {
@@ -832,9 +858,14 @@ export class World3D {
       // penumbra, easy to miss mid-exploration. Announce it once per region
       // entered, only when the new ground is unclaimed.
       const here = this.slug === STARTING_ZONE_SLUG ? regionAt(Math.round(motion.x), Math.round(motion.y)) : undefined;
-      if (here?.slug !== this.lastRegionSlug) {
+      if (this.sub.live && here?.slug !== this.lastRegionSlug) {
+        // Waking up somewhere isn't a crossing: the first observation (and
+        // anything before the region rows have applied — `sub.live`) seeds
+        // the current region silently, so a fresh boot at the Hearth never
+        // announces "entering unnamed ground".
+        const wasSomewhere = this.lastRegionSlug !== undefined;
         this.lastRegionSlug = here?.slug;
-        if (here && !this.revealedRegions.has(here.slug)) {
+        if (wasSomewhere && here && !this.revealedRegions.has(here.slug)) {
           regionToast(`Entering ${this.regionNames.get(here.slug) ?? "unnamed ground"} — unclaimed`);
         }
       }
@@ -927,7 +958,7 @@ export class World3D {
     // heavier player `Tracked` pipeline — no equipment, carrying, or
     // appearance to reconcile, only motion, a gait, and a corpse pose.
     for (const view of this.darkCreatures.values()) {
-      const motion = projectMotionState(view.row, now - view.baseMs, this.darkCreatureBounds);
+      const motion = projectMotionState(view.row, now - view.baseMs, view.row.nightborn ? this.nightTideBounds : this.darkCreatureBounds);
       this.entities.place(view.group, motion.x, motion.y);
       if (!view.downed && view.group.visible) {
         const moving = motion.dirX !== 0 || motion.dirY !== 0;

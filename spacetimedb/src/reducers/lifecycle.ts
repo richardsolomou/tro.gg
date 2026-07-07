@@ -15,6 +15,7 @@ import {
 import {
   spawnAt,
   healStaleWorld,
+  healRegionPopulations,
   seedGroundItems,
   seedBirthInstance,
   seedFirstFire,
@@ -46,6 +47,7 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
   // module; seed lazily on connect, idempotently.
   const startingZone = getZone(STARTING_ZONE_SLUG)!;
   healStaleWorld(ctx, startingZone);
+  healRegionPopulations(ctx, startingZone);
   seedGroundItems(ctx, startingZone);
   seedFirstFire(ctx, startingZone);
   // The Hearth is interior from the start (GDD "Generation: only as far as

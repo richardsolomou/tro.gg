@@ -721,7 +721,6 @@ export const wanderPresence = spacetimedb.reducer({ timer: afkWanderTimer.rowTyp
     // The shared day phase decides the safety rule for this tick (GDD
     // "Night"): by day whole lit regions are safe; at night only the rings.
     const night = isNightPhase(worldDayPhase(ctx));
-    tideNight(ctx, now, night);
 
     // Carried firelight (GDD "Crafting"): each online torch-bearer projects
     // a small pocket dark creatures cannot enter, and the torch burns down
@@ -747,6 +746,7 @@ export const wanderPresence = spacetimedb.reducer({ timer: afkWanderTimer.rowTyp
     const revealedSlugs = currentRevealedRegions(ctx);
     const penumbraSlugs = penumbraOf(revealedSlugs);
     const revealed = (zone: Zone, x: number, y: number) => isRevealed(zone, revealedSlugs, penumbraSlugs, x, y);
+    tideNight(ctx, now, night, revealed);
     for (const p of ctx.db.player.iter()) {
       if (p.online) continue; // active troggs act on player input, not instinct
       // The eligibility gate (GDD "Presence"): below AFK_UNLOCK_XP of earned
@@ -953,7 +953,10 @@ export const wanderPresence = spacetimedb.reducer({ timer: afkWanderTimer.rowTyp
       const zone = getZone(c.zoneId);
       if (!zone) continue;
       const statics = staticBlockersFor(c.zoneId);
-      const bounds = zoneBounds(zone, (x, y) => statics.has(tileKey(x, y)) || isSafeTile(ctx, c.zoneId, x, y, night) || inTorchlight(c.zoneId, x, y) || !revealed(zone, x, y));
+      // Only the night tide crosses into claimed ground (GDD "Night"):
+      // residents keep the day boundary around the clock, so dawn never
+      // strands them inside a claimed region.
+      const bounds = zoneBounds(zone, (x, y) => statics.has(tileKey(x, y)) || isSafeTile(ctx, c.zoneId, x, y, night && c.nightborn) || inTorchlight(c.zoneId, x, y) || !revealed(zone, x, y));
       const at = projectMotionState(c, elapsedMs(c.movedAt, now), bounds);
       settledCreatures.push({ row: c, x: at.x, y: at.y, zoneId: c.zoneId });
       let tiles = creatureTilesByZone.get(c.zoneId);
@@ -1013,7 +1016,7 @@ export const wanderPresence = spacetimedb.reducer({ timer: afkWanderTimer.rowTyp
       } else {
         const bounds = zoneBounds(zone, (x, y) => {
           const k = tileKey(x, y);
-          if (statics.has(k) || isSafeTile(ctx, s.zoneId, x, y, night) || inTorchlight(s.zoneId, x, y) || !revealed(zone, x, y)) return true;
+          if (statics.has(k) || isSafeTile(ctx, s.zoneId, x, y, night && s.row.nightborn) || inTorchlight(s.zoneId, x, y) || !revealed(zone, x, y)) return true;
           return k !== ownTile && creatureTiles.has(k);
         });
         dir = pickWanderDir(ctx, bounds, { x: Math.round(s.x), y: Math.round(s.y) }, 1);

@@ -824,8 +824,12 @@ test("connecting as a guest inserts an online guest and lazily seeds the zone", 
   assert.equal(p.online, true);
   const zone = getZone(ZONE)!;
   const cave = getZone(birthZoneFor(me.toHexString()))!;
-  // world boulders, plus the newborn's private instance rubble in its own zone
-  assert.equal(ctx.db.boulder.rows().length, zone.boulders.length + cave.cells[0]!.corridor.length);
+  // world registry boulders plus the newborn's private instance rubble — and
+  // healRegionPopulations backfills the revealed block's region-seeded rows,
+  // so the registry layout is a floor, not the whole set
+  assert.ok(ctx.db.boulder.rows().length >= zone.boulders.length + cave.cells[0]!.corridor.length);
+  const boulderKeys = new Set(ctx.db.boulder.rows().filter((b: any) => b.zoneId === ZONE).map((b: any) => `${b.x},${b.y}`));
+  for (const c of zone.boulders) assert.ok(boulderKeys.has(`${c.x},${c.y}`), `registry boulder at ${c.x},${c.y}`);
   // the world's starter rack, plus the instance's pickaxe
   assert.equal(ctx.db.groundItem.rows().length, zone.items.length + 1);
 });
@@ -942,13 +946,16 @@ test("a drop is refused at the entity cap, so the trogg keeps carrying", () => {
 
 // --- Reset commands restore the registry layout ---
 
-test("resetBoulders restores the zone's registry boulder layout", () => {
+test("resetBoulders restores the registry layout and heals region-seeded ground", () => {
   const { ctx } = withPlayer({});
   ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 65, y: 89 }); // a shoved/extra boulder
   resetBoulders(ctx);
   const reg = getZone(ZONE)!.boulders;
   const keys = new Set(ctx.db.boulder.rows().map((b: any) => `${b.x},${b.y}`));
-  assert.deepEqual(keys, new Set(reg.map((c) => `${c.x},${c.y}`)));
+  for (const c of reg) assert.ok(keys.has(`${c.x},${c.y}`), `registry boulder at ${c.x},${c.y}`);
+  assert.equal(keys.has("65,89"), false); // the shoved row is gone
+  // and the reset can no longer strip revealed regions bare — their seeds return
+  assert.ok(ctx.db.boulder.rows().length > reg.length);
 });
 
 // --- Braziers and territory ---
@@ -2308,4 +2315,36 @@ test("an equipped torch burns down across the wander sweep and is consumed spent
   assert.equal(ctx.db.inventory.rows().length, 0); // spent — consumed, not durable
   const p = ctx.db.player.identity.find(me);
   assert.deepEqual({ off: p.equippedOffHand, offId: p.equippedOffHandInventoryId }, { off: "", offId: 0n });
+});
+
+
+test("onConnect heals a stripped world: nodes everywhere revealed, creatures only in penumbra", () => {
+  const me = id("healer");
+  const ctx = makeCtx({ sender: me });
+  const pen = capitalOf(3, 0);
+  assert.ok(regionSeeds(pen.slug).darkCreatures.length > 0, "precondition: the penumbra region has creature seeds");
+  ctx.db.revealedRegion.insert(revealedRegionRow({ slug: pen.slug, name: "Stripfen", interior: false }));
+
+  onConnect(ctx); // the world starts bare — a nuked preview world's shape
+
+  const region = (r: any) => regionAt(Math.round(r.x), Math.round(r.y)).slug;
+  const neighbor = capitalOf(1, 0).slug;
+  assert.ok(ctx.db.boulder.rows().some((b: any) => region(b) === neighbor) || ctx.db.tree.rows().some((t: any) => region(t) === neighbor), "interior nodes healed");
+  assert.ok(ctx.db.darkCreature.rows().some((c: any) => region(c) === pen.slug), "penumbra creatures healed");
+  assert.equal(ctx.db.darkCreature.rows().some((c: any) => region(c) === neighbor), false, "interior kills stay dead — no creatures healed into claimed ground");
+});
+
+
+test("at dawn a resident stranded on claimed lit ground recedes to the nearest unlit tile", () => {
+  const watcher = id("watcher");
+  const ctx = makeCtx({ sender: watcher, random: 0.9, now: micros(1_000) }); // daytime
+  ctx.db.player.insert(playerRow(watcher, { online: true, x: 0, y: 0 }));
+  ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: true }); // the hearth region is lit
+  const stray = ctx.db.darkCreature.insert(darkCreatureRow({ x: 71, y: 96 })); // a resident inside claimed ground
+
+  wanderPresence(ctx, {});
+
+  const after = ctx.db.darkCreature.id.find(stray.id);
+  assert.ok(after, "residents recede, they don't despawn");
+  assert.notEqual(regionAt(Math.round(after.x), Math.round(after.y)).slug, regionAt(69, 96).slug); // out of the lit region
 });
