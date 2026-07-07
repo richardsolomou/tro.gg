@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { logInfo } from "../analytics.js";
 import { DEEP_WATER_TILE, GLOWMOSS_TILE, GRAVEL_TILE, MOSS_TILE, regionAt, rockHeightAt, tileGlyph, WALL_TILE, WATER_TILE, type RegionVisibility, type Zone } from "@trogg/shared";
 import { biomePalette, DAYLIGHT_3D, FOG_MIX } from "./palette.js";
 
@@ -419,19 +420,28 @@ export function buildTerrain(zone: Zone, regionState: (x: number, y: number) => 
         if (dist <= radius + CHUNK) wanted.push({ cx, cy, dist });
       }
     }
-    // build nearest-first, at most two per frame so streaming never hitches
+    // Build nearest-first on a TIME budget, not a count: a chunk's cost
+    // varies wildly with terrain (mountain cores merge far more geometry
+    // than flat floor), and "two per frame" of expensive chunks was a
+    // sustained main-thread hitch while panning across unbuilt dark ground
+    // — always build the nearest missing chunk, then keep building only
+    // while the frame's budget has room. Slow builds also get logged, so
+    // hitch reports come with the culprit named.
     wanted.sort((a, b) => a.dist - b.dist);
+    const buildStart = performance.now();
     let built = 0;
     const keep = new Set<string>();
     for (const want of wanted) {
       const key = `${want.cx},${want.cy}`;
       keep.add(key);
-      if (!chunks.has(key) && built < 2) {
-        const chunk = buildChunk(want.cx, want.cy);
-        if (chunk) chunks.set(key, chunk);
-        built++;
-      }
+      if (chunks.has(key)) continue;
+      if (built > 0 && performance.now() - buildStart > 6) continue; // budget spent — next frame
+      const chunk = buildChunk(want.cx, want.cy);
+      if (chunk) chunks.set(key, chunk);
+      built++;
     }
+    const buildMs = performance.now() - buildStart;
+    if (buildMs > 40) logInfo("Chunk build hitch", { surface: "perf", action: "chunk_build", duration_ms: Math.round(buildMs), chunks_built: built });
     // drop chunks that fell out of range (with hysteresis so edges don't thrash)
     for (const key of [...chunks.keys()]) {
       if (keep.has(key)) continue;
