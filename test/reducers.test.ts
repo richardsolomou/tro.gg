@@ -50,6 +50,9 @@ import {
   AFK_HIDE_AFTER_MS,
   BRAZIER_CLAIM_STONE_COST,
   NIGHT_SPAWN_MIN_PLAYER_DIST,
+  upkeepReserve,
+  TORCH_BURN_MS,
+  AFK_WANDER_TICK_MS,
   GATHER_XP,
   COMBAT_XP_PER_DAMAGE,
   DARK_CREATURE_AGGRO_RANGE,
@@ -97,6 +100,7 @@ import {
   resetDarkCreatures,
   startClaim,
   useEquipped,
+  craftItem,
   revealNextRegion,
   jumpRegions,
   resetFrontier,
@@ -2217,4 +2221,91 @@ test("at night an AFK trogg pauses gathering and idles by the fire", () => {
   assert.equal(ctx.db.stockpile.item.find("stone"), undefined);
   const p = ctx.db.player.identity.find(afk);
   assert.deepEqual({ dirX: p.dirX, dirY: p.dirY }, { dirX: 0, dirY: 0 }); // inside the ring: huddled, idle
+});
+
+
+// --- Crafting ---
+
+const atFirstFire = (ctx: any) => ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: FIRST_FIRE_LIT_RADIUS, lit: true, isEternal: true });
+
+test("crafting draws the recipe's inputs from the stockpile and yields the item, beside the First Fire", () => {
+  const { ctx, me } = withPlayer({ x: 69, y: 96 });
+  atFirstFire(ctx);
+  ctx.db.stockpile.insert({ item: "stone", qty: 50 });
+  ctx.db.stockpile.insert({ item: "wood", qty: 50 });
+
+  craftItem(ctx, { item: "axe" });
+
+  assert.equal(ctx.db.inventory.rows().filter((r: any) => r.item === "axe").length, 1);
+  assert.deepEqual(
+    { stone: ctx.db.stockpile.item.find("stone")?.qty, wood: ctx.db.stockpile.item.find("wood")?.qty },
+    { stone: 48, wood: 48 }, // 2 stone · 2 wood — the tribe's pool, not a personal stack
+  );
+});
+
+test("crafting away from the First Fire is refused — the station is the Hearth's fire", () => {
+  const { ctx } = withPlayer({ x: 200, y: 150 });
+  atFirstFire(ctx); // at 69,96 — far away
+  ctx.db.stockpile.insert({ item: "stone", qty: 50 });
+  ctx.db.stockpile.insert({ item: "wood", qty: 50 });
+
+  craftItem(ctx, { item: "axe" });
+
+  assert.equal(ctx.db.inventory.rows().length, 0);
+  assert.equal(ctx.db.stockpile.item.find("stone")?.qty, 50);
+});
+
+test("a tier recipe gates on the skill that serves it — craft = wield", () => {
+  const { ctx, me } = withPlayer({ x: 69, y: 96 });
+  atFirstFire(ctx);
+  ctx.db.stockpile.insert({ item: "stone", qty: 50 });
+  ctx.db.stockpile.insert({ item: "wood", qty: 50 });
+
+  craftItem(ctx, { item: "fine_pickaxe" }); // mining 1 — too green
+  assert.equal(ctx.db.inventory.rows().length, 0);
+
+  ctx.db.skills.insert({ id: 0n, playerId: me, skill: "mining", xp: 800 }); // mining 5
+  craftItem(ctx, { item: "fine_pickaxe" });
+  assert.equal(ctx.db.inventory.rows().filter((r: any) => r.item === "fine_pickaxe").length, 1);
+});
+
+test("crafting never draws wood below the upkeep reserve — the fire eats first", () => {
+  const { ctx } = withPlayer({ x: 69, y: 96 });
+  atFirstFire(ctx);
+  ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 200, y: 150, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false }); // one billed brazier
+  const reserve = upkeepReserve(1);
+  ctx.db.stockpile.insert({ item: "wood", qty: reserve + 1 }); // torch costs 2 — would dip below
+
+  craftItem(ctx, { item: "torch" });
+  assert.equal(ctx.db.inventory.rows().length, 0);
+  assert.equal(ctx.db.stockpile.item.find("wood")?.qty, reserve + 1); // nothing drawn
+
+  ctx.db.stockpile.item.update({ item: "wood", qty: reserve + 2 }); // exactly affordable
+  craftItem(ctx, { item: "torch" });
+  assert.equal(ctx.db.inventory.rows().filter((r: any) => r.item === "torch").length, 1);
+  assert.equal(ctx.db.stockpile.item.find("wood")?.qty, reserve); // spent to the line, never past it
+});
+
+test("equipping tier gear demands the level that crafted it, whoever's pack it's in", () => {
+  const { ctx, me } = withPlayer({ x: 69, y: 96 });
+  const fine = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "fine_axe", qty: 1, wear: 0 });
+
+  equipItem(ctx, { inventoryId: fine.id });
+  assert.equal(ctx.db.player.identity.find(me).equippedMainHand, ""); // woodcutting 1 can't wield it
+
+  ctx.db.skills.insert({ id: 0n, playerId: me, skill: "woodcutting", xp: 800 }); // woodcutting 5
+  equipItem(ctx, { inventoryId: fine.id });
+  assert.equal(ctx.db.player.identity.find(me).equippedMainHand, "fine_axe");
+});
+
+test("an equipped torch burns down across the wander sweep and is consumed spent", () => {
+  const { ctx, me } = withPlayer({ x: 69, y: 96 });
+  const torch = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "torch", qty: 1, wear: TORCH_BURN_MS - AFK_WANDER_TICK_MS });
+  ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedOffHand: "torch", equippedOffHandInventoryId: torch.id });
+
+  wanderPresence(ctx, {}); // the last tick of burn
+
+  assert.equal(ctx.db.inventory.rows().length, 0); // spent — consumed, not durable
+  const p = ctx.db.player.identity.find(me);
+  assert.deepEqual({ off: p.equippedOffHand, offId: p.equippedOffHandInventoryId }, { off: "", offId: 0n });
 });

@@ -72,7 +72,7 @@ export interface Coord {
 }
 
 /** Item ids are canonical across inventory rows, equipment slots, and UI labels. */
-export const ITEM_IDS = ["stone", "wood", "pickaxe", "shovel", "axe", "sword", "shield", "torch"] as const;
+export const ITEM_IDS = ["stone", "wood", "pickaxe", "shovel", "axe", "sword", "shield", "torch", "fine_pickaxe", "fine_axe"] as const;
 export type ItemId = (typeof ITEM_IDS)[number];
 export const SPAWNABLE_ITEM_IDS = ["pickaxe", "shovel", "axe", "sword", "shield", "torch", "stone", "wood"] as const satisfies readonly ItemId[];
 export type SpawnableItemId = (typeof SPAWNABLE_ITEM_IDS)[number];
@@ -202,6 +202,8 @@ export const WEAPON_DAMAGE: Partial<Record<ItemId, readonly [number, number]>> =
   axe: [14, 22],
   pickaxe: [11, 19],
   shovel: [8, 16],
+  fine_pickaxe: [16, 26],
+  fine_axe: [20, 30],
 };
 
 /** The melee damage range an equipped item rolls against creatures, if it can hurt them. */
@@ -272,6 +274,9 @@ export interface ItemDef {
   blurb: string;
   slot?: EquipmentSlot;
   wield?: Wield;
+  /** The gathering-tool class this item swings as (GDD "Gathering"): every
+   *  tier of pickaxe mines, every tier of axe fells. Absent = not a tool. */
+  tool?: "pickaxe" | "axe";
   /** Fraction of incoming damage this item's wearer blocks while it's equipped
    *  in the off hand. Absent (or main-hand) items block nothing. */
   block?: number;
@@ -302,6 +307,7 @@ export const ITEMS: Record<ItemId, ItemDef> = {
     blurb: "Equipped in the main hand. Use it to mine boulders into stone.",
     slot: "mainHand",
     wield: "chop",
+    tool: "pickaxe",
   },
   shovel: {
     id: "shovel",
@@ -318,6 +324,7 @@ export const ITEMS: Record<ItemId, ItemDef> = {
     blurb: "Equipped in the main hand. Use it to fell trees into wood.",
     slot: "mainHand",
     wield: "chop",
+    tool: "axe",
   },
   sword: {
     id: "sword",
@@ -339,8 +346,26 @@ export const ITEMS: Record<ItemId, ItemDef> = {
     id: "torch",
     name: "Torch",
     stackable: false,
-    blurb: "Equipped in the off hand. Carries a pool of firelight into the dark.",
+    blurb: "Equipped in the off hand. Carries a pool of firelight the dark cannot enter — and burns down while it does.",
     slot: "offHand",
+  },
+  fine_pickaxe: {
+    id: "fine_pickaxe",
+    name: "Fine Pickaxe",
+    stackable: false,
+    blurb: "A keener head on a truer haft. Mines faster; asks mining 5 of its wielder.",
+    slot: "mainHand",
+    wield: "chop",
+    tool: "pickaxe",
+  },
+  fine_axe: {
+    id: "fine_axe",
+    name: "Fine Axe",
+    stackable: false,
+    blurb: "A heavier bit, better balanced. Fells faster; asks woodcutting 5 of its wielder.",
+    slot: "mainHand",
+    wield: "chop",
+    tool: "axe",
   },
 };
 
@@ -369,6 +394,11 @@ export function wieldOf(item: string): Wield {
 /** The fraction of incoming damage a held item blocks — 0 for anything without a `block` stat. */
 export function blockFractionOf(item: string): number {
   return (isItemId(item) ? ITEMS[item].block : undefined) ?? 0;
+}
+
+/** The gathering-tool class an item swings as, whatever its tier. */
+export function gatherToolClass(item: string): "pickaxe" | "axe" | undefined {
+  return isItemId(item) ? ITEMS[item].tool : undefined;
 }
 
 export function isStackableItem(item: string): item is ItemId {

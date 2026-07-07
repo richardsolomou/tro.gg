@@ -52,13 +52,13 @@ export function addInventory(ctx: Ctx, playerId: Ctx["sender"], item: string, qt
       }
     }
     if (!hasFreeInventorySlot(ctx, playerId)) return false;
-    ctx.db.inventory.insert({ id: 0n, playerId, item, qty });
+    ctx.db.inventory.insert({ id: 0n, playerId, item, qty, wear: 0 });
     return true;
   }
 
   if (inventorySlotCount(ctx, playerId) + qty > INVENTORY_SLOT_COUNT) return false;
   for (let i = 0; i < qty; i++) {
-    ctx.db.inventory.insert({ id: 0n, playerId, item, qty: 1 });
+    ctx.db.inventory.insert({ id: 0n, playerId, item, qty: 1, wear: 0 });
   }
   return true;
 }
@@ -80,7 +80,7 @@ export function moveInventory(ctx: Ctx, from: Ctx["sender"], to: Ctx["sender"]):
     if (isStackableItem(row.item)) {
       moved.set(row.id, mergeInventoryForClaim(ctx, to, row.item, row.qty));
     } else {
-      const inserted = ctx.db.inventory.insert({ id: 0n, playerId: to, item: row.item, qty: 1 });
+      const inserted = ctx.db.inventory.insert({ id: 0n, playerId: to, item: row.item, qty: 1, wear: 0 });
       moved.set(row.id, inserted.id);
     }
     ctx.db.inventory.id.delete(row.id);
@@ -95,5 +95,5 @@ export function mergeInventoryForClaim(ctx: Ctx, playerId: Ctx["sender"], item: 
       return row.id;
     }
   }
-  return ctx.db.inventory.insert({ id: 0n, playerId, item, qty }).id;
+  return ctx.db.inventory.insert({ id: 0n, playerId, item, qty, wear: 0 }).id;
 }

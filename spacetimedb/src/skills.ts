@@ -25,6 +25,13 @@ export function grantXp(ctx: Ctx, playerId: Ctx["sender"], skill: SkillId, xp: n
   return { total, level, leveledUp: level > levelForXp(before) };
 }
 
+/** One skill's accumulated XP for a trogg — level gates read it through
+ *  `levelForXp` (GDD "Skills and XP"; "Crafting"). */
+export function skillXp(ctx: Ctx, playerId: Ctx["sender"], skill: SkillId): number {
+  for (const r of ctx.db.skills.playerId.filter(playerId)) if (r.skill === skill) return r.xp;
+  return 0;
+}
+
 /** A trogg's total XP across every skill — what its overall level, and the
  *  AFK eligibility gate (GDD "Presence"), are derived from. */
 export function totalXp(ctx: Ctx, playerId: Ctx["sender"]): number {

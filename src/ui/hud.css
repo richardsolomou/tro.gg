@@ -89,9 +89,9 @@ textarea {
 
 #hud .field {
   width: 100%;
-  height: 30px;
+  height: 38px;
   padding: 0 10px;
-  font-size: 14px;
+  font-size: 16px;
   background: var(--hud-well);
   border: 0;
   clip-path: var(--facet);
@@ -108,8 +108,8 @@ textarea {
 
 #hud .btn {
   width: 100%;
-  height: 30px;
-  font-size: 14px;
+  height: 38px;
+  font-size: 16px;
   font-weight: 700;
   color: var(--hud-ink);
   background: var(--hud-bone);
@@ -134,7 +134,7 @@ textarea {
 #hud .chat {
   left: 12px;
   bottom: 12px;
-  width: min(340px, calc(100vw - 24px));
+  width: min(400px, calc(100vw - 24px));
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -146,7 +146,7 @@ textarea {
   padding: 0;
   overflow-y: auto;
   scrollbar-width: none;
-  font-size: 14px;
+  font-size: 16px;
   line-height: 20px;
   word-break: break-word;
   display: flex;
@@ -174,18 +174,18 @@ textarea {
 
 /* ── Account (top-right) ─────────────────────────────────────────────────── */
 #hud .account-status {
-  font-size: 13px;
+  font-size: 15px;
   color: var(--hud-bone-dim);
   min-height: 14px;
 }
 #hud .swatches {
   display: grid;
-  grid-template-columns: repeat(8, 22px);
+  grid-template-columns: repeat(8, 28px);
   gap: 6px;
 }
 #hud .swatch {
-  width: 22px;
-  height: 22px;
+  width: 28px;
+  height: 28px;
   padding: 0;
   border: 0;
   clip-path: var(--facet);
@@ -261,8 +261,8 @@ textarea {
 }
 #hud .hud-icon-button {
   position: relative;
-  width: 36px;
-  height: 34px;
+  width: 46px;
+  height: 44px;
   padding: 2px;
   display: grid;
   place-items: center;
@@ -284,7 +284,7 @@ textarea {
   box-shadow: inset 0 3px 0 rgba(0, 0, 0, 0.2);
 }
 #hud .hud-icon-button svg {
-  width: 20px;
+  width: 26px;
   height: 20px;
   display: block;
 }
@@ -296,14 +296,14 @@ textarea {
   background: var(--hud-timber);
   clip-path: var(--facet);
   box-shadow: var(--slab-light);
-  font-size: 14px;
+  font-size: 16px;
 }
 #hud .help-body[hidden] {
   display: none;
 }
 #hud .help-section-title {
   color: var(--hud-bone-dim);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.09em;
   margin: 0 0 4px;
@@ -313,7 +313,7 @@ textarea {
   display: grid;
   grid-template-columns: auto 1fr;
   gap: 3px 16px;
-  font-size: 14px;
+  font-size: 16px;
 }
 #hud .help-key {
   color: var(--hud-ember);
@@ -344,7 +344,7 @@ textarea {
 
 /* ── Appearance ──────────────────────────────────────────────────────────── */
 #hud .appearance-body {
-  width: min(248px, calc(100vw - 24px));
+  width: min(300px, calc(100vw - 24px));
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -361,8 +361,8 @@ textarea {
 }
 #hud .style-option {
   padding: 4px 12px;
-  height: 26px;
-  font-size: 13px;
+  height: 34px;
+  font-size: 15px;
   color: var(--hud-bone);
   background: var(--hud-well);
   border: 0;
@@ -402,7 +402,7 @@ textarea {
   justify-content: space-between;
   align-items: center;
   gap: 8px;
-  font-size: 13px;
+  font-size: 15px;
   color: var(--hud-bone-dim);
 }
 #hud .inventory-equipped-group {
@@ -411,8 +411,8 @@ textarea {
   gap: 6px;
 }
 #hud .inventory-equipped-slot {
-  width: 34px;
-  height: 34px;
+  width: 44px;
+  height: 44px;
   display: grid;
   place-items: center;
   background: var(--hud-well);
@@ -425,16 +425,16 @@ textarea {
   image-rendering: auto;
 }
 #hud .hud-icon-button .item-icon {
-  width: 26px;
-  height: 26px;
+  width: 34px;
+  height: 34px;
 }
 #hud .inventory-equipped-slot .item-icon {
-  width: 28px;
-  height: 28px;
+  width: 36px;
+  height: 36px;
 }
 #hud .inventory-list {
   display: grid;
-  grid-template-columns: repeat(5, 40px);
+  grid-template-columns: repeat(5, 52px);
   gap: 6px;
 }
 #hud .inventory-item {
@@ -466,16 +466,16 @@ textarea {
   cursor: default;
 }
 #hud .inventory-slot-empty {
-  width: 34px;
-  height: 34px;
+  width: 44px;
+  height: 44px;
   padding: 0;
   place-self: center;
   cursor: default;
   opacity: 0.6;
 }
 #hud .inventory-item .item-icon {
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
 }
 #hud .inventory-qty {
   position: absolute;
@@ -487,7 +487,7 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
   line-height: 13px;
   color: var(--hud-ink);
@@ -513,8 +513,8 @@ textarea {
 #hud .stockpile-item {
   position: relative;
   box-sizing: border-box;
-  width: 34px;
-  height: 34px;
+  width: 44px;
+  height: 44px;
   padding: 2px;
   display: grid;
   place-items: center;
@@ -524,7 +524,7 @@ textarea {
 }
 #hud .stockpile-item .item-icon {
   width: 26px;
-  height: 26px;
+  height: 34px;
 }
 #hud .stockpile-qty {
   position: absolute;
@@ -536,7 +536,7 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
   line-height: 13px;
   color: var(--hud-ink);
@@ -568,12 +568,12 @@ textarea {
   display: none;
 }
 #hud .hud-tip-name {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 700;
   color: var(--hud-bone);
 }
 #hud .hud-tip-blurb {
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.35;
   color: var(--hud-bone-dim);
 }
@@ -612,15 +612,15 @@ textarea {
 }
 #hud .pickup-toast .item-icon {
   width: 26px;
-  height: 26px;
+  height: 34px;
 }
 #hud .pickup-toast-name {
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 700;
   color: var(--hud-bone);
 }
 #hud .pickup-toast-qty {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 700;
   color: var(--hud-ember);
 }
@@ -652,7 +652,7 @@ textarea {
   clip-path: var(--facet);
   --cut: 7px;
   box-shadow: var(--slab-light);
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 700;
   color: var(--hud-bone);
   letter-spacing: 0.02em;
@@ -692,13 +692,13 @@ textarea {
 }
 #hud .ctx-menu-name {
   padding: 0 4px 2px;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 700;
   color: var(--hud-bone);
 }
 #hud .ctx-menu-item {
   padding: 4px 12px;
-  font-size: 13px;
+  font-size: 15px;
   text-align: left;
   color: var(--hud-bone);
   background: var(--hud-well);
@@ -730,7 +730,7 @@ textarea {
   background: var(--hud-timber);
   clip-path: var(--facet);
   box-shadow: var(--slab-light);
-  font-size: 14px;
+  font-size: 16px;
 }
 #hud .command-body[hidden] {
   display: none;
@@ -754,7 +754,7 @@ textarea {
 }
 #hud .command-button {
   min-width: 0;
-  height: 30px;
+  height: 38px;
   padding: 0 10px;
   overflow: hidden;
   color: var(--hud-bone);
@@ -810,7 +810,7 @@ textarea {
 }
 #hud .command-status {
   color: var(--hud-bone-dim);
-  font-size: 13px;
+  font-size: 15px;
 }
 
 /* ── Coach (first-time hints) ─────────────────────────────────────────────────
@@ -825,7 +825,7 @@ textarea {
   max-width: min(440px, calc(100vw - 32px));
   padding: 12px 20px;
   text-align: center;
-  font-size: 15px;
+  font-size: 17px;
   line-height: 1.35;
   color: var(--hud-bone);
   background: var(--hud-timber);
@@ -888,7 +888,7 @@ textarea {
   scrollbar-color: var(--hud-moss) transparent;
 }
 #hud .game-menu-title {
-  font-size: 15px;
+  font-size: 17px;
   color: var(--hud-bone);
   letter-spacing: 0.12em;
 }
@@ -902,7 +902,7 @@ textarea {
 }
 #hud .game-menu-nav-item {
   padding: 12px 16px;
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 700;
   text-align: center;
   color: var(--hud-bone);
@@ -931,7 +931,7 @@ textarea {
 }
 #hud .game-menu-back {
   width: 30px;
-  height: 30px;
+  height: 38px;
   display: grid;
   place-items: center;
   font-size: 22px;
@@ -1015,7 +1015,7 @@ textarea {
   left: auto; /* the shared drop-down rule pins left: 0; right must win here */
   box-sizing: border-box;
   pointer-events: auto;
-  width: min(340px, calc(100vw - 24px));
+  width: min(400px, calc(100vw - 24px));
   margin: 0;
   padding: 14px;
   overflow-y: auto;
@@ -1039,7 +1039,7 @@ textarea {
 }
 #hud .command-hint {
   margin-top: 8px;
-  font-size: 12px;
+  font-size: 14px;
   color: var(--hud-bone);
   opacity: 0.65;
 }
@@ -1057,4 +1057,77 @@ textarea {
 #hud .command-daylight .command-button {
   flex: 0 0 auto;
   width: 64px;
+}
+
+/* ── Crafting panel (GDD "Crafting") ─────────────────────────────────── */
+#hud .crafting-pool {
+  padding: 6px 8px;
+  font-size: 14px;
+  opacity: 0.85;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+#hud .crafting-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+}
+#hud .crafting-row canvas {
+  width: 26px;
+  height: 34px;
+  flex: none;
+}
+#hud .crafting-name {
+  flex: 1;
+  font-size: 15px;
+}
+#hud .crafting-cost {
+  font-size: 13px;
+  opacity: 0.75;
+  white-space: nowrap;
+}
+#hud .crafting-craft {
+  font: inherit;
+  font-size: 14px;
+  padding: 2px 10px;
+  cursor: pointer;
+}
+#hud .crafting-craft:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* ── Skills panel (GDD "Skills and XP") ──────────────────────────────── */
+#hud .skills-overall {
+  padding: 8px 10px 2px;
+  font-size: 19px;
+  font-weight: 700;
+}
+#hud .skills-afk {
+  padding: 2px 10px 8px;
+  font-size: 15px;
+  opacity: 0.85;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+#hud .skills-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 7px 10px 2px;
+  font-size: 17px;
+  text-transform: capitalize;
+}
+#hud .skills-level {
+  font-weight: 700;
+  color: var(--hud-moss);
+}
+#hud .skills-bar {
+  margin: 2px 10px 4px;
+  height: 7px;
+  background: var(--hud-well);
+  overflow: hidden;
+}
+#hud .skills-bar-fill {
+  height: 100%;
+  background: var(--hud-ember);
 }

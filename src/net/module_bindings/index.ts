@@ -35,6 +35,7 @@ import {
 
 // Import all reducer arg schemas
 import ChatReducer from "./chat_reducer";
+import CraftItemReducer from "./craft_item_reducer";
 import DiscardItemReducer from "./discard_item_reducer";
 import DropItemReducer from "./drop_item_reducer";
 import EmergeReducer from "./emerge_reducer";
@@ -65,6 +66,7 @@ import UseEquippedReducer from "./use_equipped_reducer";
 
 // Import all procedure arg schemas
 import * as ChatActionProcedure from "./chat_action_procedure";
+import * as CraftItemActionProcedure from "./craft_item_action_procedure";
 import * as DiscardItemActionProcedure from "./discard_item_action_procedure";
 import * as DropItemActionProcedure from "./drop_item_action_procedure";
 import * as EquipItemActionProcedure from "./equip_item_action_procedure";
@@ -278,6 +280,7 @@ const tablesSchema = __schema({
 /** The schema information for all reducers in this module. This is defined the same way as the reducers would have been defined in the server, except the body of the reducer is omitted in code generation. */
 const reducersSchema = __reducers(
   __reducerSchema("chat", ChatReducer),
+  __reducerSchema("craft_item", CraftItemReducer),
   __reducerSchema("discard_item", DiscardItemReducer),
   __reducerSchema("drop_item", DropItemReducer),
   __reducerSchema("emerge", EmergeReducer),
@@ -310,6 +313,7 @@ const reducersSchema = __reducers(
 /** The schema information for all procedures in this module. This is defined the same way as the procedures would have been defined in the server. */
 const proceduresSchema = __procedures(
   __procedureSchema("chat_action", ChatActionProcedure.params, ChatActionProcedure.returnType),
+  __procedureSchema("craft_item_action", CraftItemActionProcedure.params, CraftItemActionProcedure.returnType),
   __procedureSchema("discard_item_action", DiscardItemActionProcedure.params, DiscardItemActionProcedure.returnType),
   __procedureSchema("drop_item_action", DropItemActionProcedure.params, DropItemActionProcedure.returnType),
   __procedureSchema("equip_item_action", EquipItemActionProcedure.params, EquipItemActionProcedure.returnType),

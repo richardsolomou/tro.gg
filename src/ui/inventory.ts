@@ -184,6 +184,10 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
         event.stopPropagation();
         openMenuFor(row, event.clientX, event.clientY);
       });
+      // Double-click equips (or unequips) without the menu detour.
+      if (isEquippableItem(row.item)) {
+        item.addEventListener("dblclick", () => run("Equip item", row.item, () => equipItem(conn, row.id), "equip_item"));
+      }
 
       list.appendChild(item);
     }

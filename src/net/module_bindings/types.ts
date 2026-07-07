@@ -106,6 +106,7 @@ export const Inventory = __t.object("Inventory", {
   playerId: __t.identity(),
   item: __t.string(),
   qty: __t.i32(),
+  wear: __t.f64(),
 });
 export type Inventory = __Infer<typeof Inventory>;
 

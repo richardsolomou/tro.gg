@@ -22,9 +22,13 @@ import {
   AFK_GATHER_DAMAGE,
   AFK_SEEK_RADIUS,
   AFK_UNLOCK_XP,
+  gatherToolClass,
   AFK_HIDE_AFTER_MS,
   afkGatherFraction,
   isNightPhase,
+  TORCH_BURN_MS,
+  TORCH_LIT_RADIUS,
+  AFK_WANDER_TICK_MS,
   findPath,
   NODE_RESPAWN_MS,
   serializePath,
@@ -345,6 +349,10 @@ const inventory = table(
     playerId: t.identity().index("btree"),
     item: t.string(),
     qty: t.i32(),
+    // Consumable burn-down (GDD "Crafting"): an equipped torch accrues wear
+    // per wander-sweep tick and is consumed at TORCH_BURN_MS. Zero for
+    // everything durable.
+    wear: t.f64().default(0),
   },
 );
 
@@ -714,6 +722,28 @@ export const wanderPresence = spacetimedb.reducer({ timer: afkWanderTimer.rowTyp
     // "Night"): by day whole lit regions are safe; at night only the rings.
     const night = isNightPhase(worldDayPhase(ctx));
     tideNight(ctx, now, night);
+
+    // Carried firelight (GDD "Crafting"): each online torch-bearer projects
+    // a small pocket dark creatures cannot enter, and the torch burns down
+    // while it does — wear accrues per sweep tick until the torch is spent.
+    const torchPockets: { zoneId: string; x: number; y: number }[] = [];
+    for (const p of ctx.db.player.iter()) {
+      if (!p.online || p.dead || p.equippedOffHand !== "torch") continue;
+      const lit = settle(ctx, p, now);
+      torchPockets.push({ zoneId: p.zoneId, x: lit.x, y: lit.y });
+      const row = ctx.db.inventory.id.find(p.equippedOffHandInventoryId);
+      if (!row) continue;
+      const wear = row.wear + AFK_WANDER_TICK_MS;
+      if (wear < TORCH_BURN_MS) ctx.db.inventory.id.update({ ...row, wear });
+      else {
+        ctx.db.inventory.id.delete(row.id);
+        const holder = ctx.db.player.identity.find(p.identity);
+        if (holder) ctx.db.player.identity.update({ ...holder, equippedOffHand: "", equippedOffHandInventoryId: 0n });
+      }
+    }
+    const inTorchlight = (zoneId: string, x: number, y: number): boolean =>
+      torchPockets.some((tp) => tp.zoneId === zoneId && Math.hypot(tp.x - x, tp.y - y) <= TORCH_LIT_RADIUS);
+
     const revealedSlugs = currentRevealedRegions(ctx);
     const penumbraSlugs = penumbraOf(revealedSlugs);
     const revealed = (zone: Zone, x: number, y: number) => isRevealed(zone, revealedSlugs, penumbraSlugs, x, y);
@@ -801,9 +831,10 @@ export const wanderPresence = spacetimedb.reducer({ timer: afkWanderTimer.rowTyp
         // — bare fists included.
         const wanted = camped.kind === "boulder" ? "pickaxe" : "axe";
         let equip: { equippedMainHand: string; equippedMainHandInventoryId: bigint } | undefined;
-        if (p.equippedMainHand !== wanted) {
-          const owned = [...ctx.db.inventory.playerId.filter(p.identity)].find((r) => r.item === wanted && r.qty > 0);
-          if (owned) equip = { equippedMainHand: wanted, equippedMainHandInventoryId: owned.id };
+        if (gatherToolClass(p.equippedMainHand) !== wanted) {
+          // any tier of the right tool class serves instinct (GDD "Crafting")
+          const owned = [...ctx.db.inventory.playerId.filter(p.identity)].find((r) => gatherToolClass(r.item) === wanted && r.qty > 0);
+          if (owned) equip = { equippedMainHand: owned.item, equippedMainHandInventoryId: owned.id };
         }
 
         const chipping = ctx.random() < gatherFraction;
@@ -922,7 +953,7 @@ export const wanderPresence = spacetimedb.reducer({ timer: afkWanderTimer.rowTyp
       const zone = getZone(c.zoneId);
       if (!zone) continue;
       const statics = staticBlockersFor(c.zoneId);
-      const bounds = zoneBounds(zone, (x, y) => statics.has(tileKey(x, y)) || isSafeTile(ctx, c.zoneId, x, y, night) || !revealed(zone, x, y));
+      const bounds = zoneBounds(zone, (x, y) => statics.has(tileKey(x, y)) || isSafeTile(ctx, c.zoneId, x, y, night) || inTorchlight(c.zoneId, x, y) || !revealed(zone, x, y));
       const at = projectMotionState(c, elapsedMs(c.movedAt, now), bounds);
       settledCreatures.push({ row: c, x: at.x, y: at.y, zoneId: c.zoneId });
       let tiles = creatureTilesByZone.get(c.zoneId);
@@ -982,7 +1013,7 @@ export const wanderPresence = spacetimedb.reducer({ timer: afkWanderTimer.rowTyp
       } else {
         const bounds = zoneBounds(zone, (x, y) => {
           const k = tileKey(x, y);
-          if (statics.has(k) || isSafeTile(ctx, s.zoneId, x, y, night) || !revealed(zone, x, y)) return true;
+          if (statics.has(k) || isSafeTile(ctx, s.zoneId, x, y, night) || inTorchlight(s.zoneId, x, y) || !revealed(zone, x, y)) return true;
           return k !== ownTile && creatureTiles.has(k);
         });
         dir = pickWanderDir(ctx, bounds, { x: Math.round(s.x), y: Math.round(s.y) }, 1);

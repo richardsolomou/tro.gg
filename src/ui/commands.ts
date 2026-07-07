@@ -6,7 +6,7 @@ import { audio } from "../audio.js";
 import { hudRoot } from "./hud.js";
 import { registerKeybind } from "./keybinds.js";
 import { currentCommandFlags, type ChatCommandFlags } from "./chat_commands.js";
-import { hauntGhost, jumpRegions, resetBoulders, resetDarkCreatures, resetFrontier, revealNextRegion, spawnDebugEntity } from "../net/procedures.js";
+import { hauntGhost, spawnDebugEntity } from "../net/procedures.js";
 import { itemIcon } from "./inventory.js";
 import { attachTip } from "./tooltip.js";
 
@@ -23,7 +23,7 @@ export interface CommandPanelContext {
  * crowds real controls. */
 export function mountCommands({ conn, zone }: CommandPanelContext): void {
   const flags = currentCommandFlags();
-  if (!flags.spawn && !flags.resetBoulders && !flags.resetDarkCreatures && !flags.ghost && !flags.cheats) return;
+  if (!flags.spawn && !flags.ghost && !flags.cheats) return;
 
   const root = document.createElement("div");
   root.className = "commands command-drawer";
@@ -48,7 +48,6 @@ export function mountCommands({ conn, zone }: CommandPanelContext): void {
     body.append(movementSection(toggle), survivalSection(conn, zone.slug, status, toggle), worldSection(conn, zone.slug, status));
   }
   if (flags.spawn) body.appendChild(spawnSection(conn, zone.slug, status));
-  if (flags.resetBoulders || flags.resetDarkCreatures) body.appendChild(resetSection(conn, zone.slug, flags, status));
   if (flags.ghost) body.appendChild(ghostSection(conn, zone.slug, status));
   body.appendChild(debugSection(status));
   body.appendChild(status);
@@ -117,50 +116,6 @@ function worldSection(conn: DbConnection, zone: string, status: HTMLElement): HT
   row.append(slider, live);
   section.append(row, label);
 
-  // The frontier (GDD "Generation: only as far as the light reaches"): claim
-  // one currently-penumbra region directly, skipping the usual clear-the-zone
-  // requirement, or reset the frontier back to just the Hearth — for testing
-  // the reveal boundary.
-  const frontierGrid = document.createElement("div");
-  frontierGrid.className = "command-grid";
-  const revealButton = commandButton("Reveal next region");
-  revealButton.addEventListener("click", () => {
-    void revealNextRegion(conn, "commands").catch((err) => {
-      logError("Command reveal request failed", { surface: "commands", action: "reveal_next_region", zone, error: err });
-      audio.playError();
-      status.textContent = "couldn't reveal a region";
-    });
-    logInfo("Command reveal requested", { surface: "commands", action: "reveal_next_region", zone, source: "commands" });
-    audio.playCommand();
-    status.textContent = "revealed the next region";
-  });
-  const resetFrontierButton = commandButton("Reset frontier");
-  resetFrontierButton.addEventListener("click", () => {
-    void resetFrontier(conn, "commands").catch((err) => {
-      logError("Command reset request failed", { surface: "commands", action: "reset_frontier", zone, error: err });
-      audio.playError();
-      status.textContent = "couldn't reset the frontier";
-    });
-    logInfo("Command reset requested", { surface: "commands", action: "reset_frontier", zone, source: "commands" });
-    audio.playCommand();
-    status.textContent = "reset the frontier to the Hearth";
-  });
-  // Jump N regions out: "Reveal next region" repeated N times in one shot,
-  // marching outward — for testing generation at genuine distance without
-  // claiming hundreds of regions by hand (GDD "Debug cheats").
-  const jumpButton = commandButton("Jump 10 regions out");
-  jumpButton.addEventListener("click", () => {
-    void jumpRegions(conn, 10, "commands").catch((err) => {
-      logError("Command jump request failed", { surface: "commands", action: "jump_regions", zone, error: err });
-      audio.playError();
-      status.textContent = "couldn't jump the frontier";
-    });
-    logInfo("Command jump requested", { surface: "commands", action: "jump_regions", zone, source: "commands" });
-    audio.playCommand();
-    status.textContent = "jumped the frontier 10 regions out";
-  });
-  frontierGrid.append(revealButton, jumpButton, resetFrontierButton);
-  section.appendChild(frontierGrid);
   return section;
 }
 
@@ -195,44 +150,6 @@ function requestSpawn(conn: DbConnection, zone: string, status: HTMLElement, req
   status.textContent = `requested ${label}`;
 }
 
-function resetSection(conn: DbConnection, zone: string, flags: ChatCommandFlags, status: HTMLElement): HTMLElement {
-  const section = commandSection("Reset");
-  const grid = document.createElement("div");
-  grid.className = "command-grid";
-
-  if (flags.resetBoulders) {
-    const button = commandButton("Reset boulders");
-    button.addEventListener("click", () => {
-      void resetBoulders(conn, "commands").catch((err) => {
-        logError("Command reset request failed", { surface: "commands", action: "reset_boulders", zone, error: err });
-        audio.playError();
-        status.textContent = "couldn't reset boulders";
-      });
-      logInfo("Command reset requested", { surface: "commands", action: "reset_boulders", zone, source: "commands" });
-      audio.playCommand();
-      status.textContent = "reset boulders";
-    });
-    grid.appendChild(button);
-  }
-
-  if (flags.resetDarkCreatures) {
-    const button = commandButton("Reset dark creatures");
-    button.addEventListener("click", () => {
-      void resetDarkCreatures(conn, "commands").catch((err) => {
-        logError("Command reset request failed", { surface: "commands", action: "reset_dark_creatures", zone, error: err });
-        audio.playError();
-        status.textContent = "couldn't reset dark creatures";
-      });
-      logInfo("Command reset requested", { surface: "commands", action: "reset_dark_creatures", zone, source: "commands" });
-      audio.playCommand();
-      status.textContent = "reset dark creatures";
-    });
-    grid.appendChild(button);
-  }
-
-  section.appendChild(grid);
-  return section;
-}
 
 function ghostSection(conn: DbConnection, zone: string, status: HTMLElement): HTMLElement {
   const section = commandSection("Ghost");
@@ -363,7 +280,7 @@ function debugSection(status: HTMLElement): HTMLElement {
   const grid = document.createElement("div");
   grid.className = "command-grid";
 
-  const button = commandButton("Hitboxes (B)");
+  const button = commandButton("Hitboxes");
   button.setAttribute("aria-pressed", "false");
   let on = false;
   const toggle = () => {
@@ -373,7 +290,6 @@ function debugSection(status: HTMLElement): HTMLElement {
     status.textContent = on ? "hitboxes shown" : "hitboxes hidden";
   };
   button.addEventListener("click", toggle);
-  registerKeybind({ id: "debug-hitboxes", matches: (event) => event.code === "KeyB", handler: toggle });
 
   grid.appendChild(button);
   section.appendChild(grid);

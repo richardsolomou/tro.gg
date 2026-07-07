@@ -33,7 +33,7 @@ function buildControls(): Row[] {
   const useInteract = isFeatureEnabled("interact");
   const chatEnabled = isFeatureEnabled("chat-enabled");
   const commandFlags = currentCommandFlags();
-  const commandPanelEnabled = commandFlags.spawn || commandFlags.resetBoulders || commandFlags.ghost;
+  const commandPanelEnabled = commandFlags.spawn || commandFlags.ghost;
 
   const controls: Row[] = [
     { key: "WASD / Arrows", desc: "Move" },
@@ -42,6 +42,7 @@ function buildControls(): Row[] {
   if (canRun) controls.push({ key: "Hold Shift", desc: "Run" });
   if (useInteract) controls.push({ key: "E", desc: "Pick up / put down" });
   controls.push({ key: "F", desc: "Use equipped item" });
+  controls.push({ key: "I / C / K / P", desc: "Pack · Crafting · Skills · Appearance" });
   controls.push({ key: "Sword + F", desc: "Attack a faced trogg" });
   controls.push({ key: "Carry + F", desc: "Throw held object" });
   controls.push({ key: "I", desc: "Inventory (right-click an item for actions)" });
