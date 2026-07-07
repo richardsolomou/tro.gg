@@ -120,6 +120,16 @@ export const AFK_CHARGE_MAX = 60;
 export const AFK_CHARGE_DECAY_RATE = 10; // charge per hour while AFK
 
 /**
+ * AFK work is unlocked once, ever, by real play (GDD "Presence" — the
+ * eligibility gate): a trogg's total XP across all skills must reach this
+ * before a disconnect leaves it working in the world at all. Below the gate,
+ * going offline is a plain offline — hidden, no instinct, no trickle — so a
+ * horde of fresh incognito guests farms nothing while away. 800 XP = overall
+ * level 5, roughly one genuinely played first session. (initial)
+ */
+export const AFK_UNLOCK_XP = 800;
+
+/**
  * An AFK trogg works safe interior ground on instinct (GDD "Presence"):
  * the scheduled `ember_wander` sweep (durable table name predates the AFK
  * naming) re-derives its position every

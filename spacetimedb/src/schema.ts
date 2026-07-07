@@ -21,6 +21,7 @@ import {
   AFK_EFFICIENCY_FRACTION,
   AFK_GATHER_DAMAGE,
   AFK_SEEK_RADIUS,
+  AFK_UNLOCK_XP,
   findPath,
   NODE_RESPAWN_MS,
   serializePath,
@@ -41,6 +42,7 @@ import {
   armRegen,
   armBrazierUpkeep,
   armAfkWander,
+  totalXp,
   respawnDue,
   scheduleRespawnAt,
   respawnPlayer,
@@ -666,7 +668,9 @@ export const brazierUpkeep = spacetimedb.reducer({ timer: brazierUpkeepTimer.row
 
 /**
  * The AFK-trogg and dark-creature wander sweep (GDD "The fire and the
- * dark" → Presence; "Dark creatures"). Every AFK trogg ambles safe interior
+ * dark" → Presence; "Dark creatures"). Every AFK-eligible trogg (total XP >=
+ * AFK_UNLOCK_XP — below the gate an offline trogg is simply out of the
+ * world) ambles safe interior
  * ground on instinct — confined to lit tiles — and gathers passively from an
  * adjacent boulder or tree at `AFK_EFFICIENCY_FRACTION` of an active trogg's
  * rate while its charge lasts (`AFK_TRICKLE_EFFICIENCY_FRACTION` once spent),
@@ -686,6 +690,9 @@ export const wanderPresence = spacetimedb.reducer({ timer: afkWanderTimer.rowTyp
     const revealed = (zone: Zone, x: number, y: number) => isRevealed(zone, revealedSlugs, penumbraSlugs, x, y);
     for (const p of ctx.db.player.iter()) {
       if (p.online) continue; // active troggs act on player input, not instinct
+      // The eligibility gate (GDD "Presence"): below AFK_UNLOCK_XP of earned
+      // XP a disconnect is a plain offline — no instinct work, no trickle.
+      if (totalXp(ctx, p.identity) < AFK_UNLOCK_XP) continue;
       const charge = deriveAfkCharge(p.kindlingCharge, p.kindlingChargeAt, false, now);
       // Instinct never fully sleeps (GDD "Presence"): a charged AFK trogg
       // works at the full instinct rate, a spent one keeps a slower trickle

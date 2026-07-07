@@ -46,6 +46,7 @@ import {
   AFK_CHARGE_ACCRUAL_RATE,
   AFK_CHARGE_DECAY_RATE,
   AFK_GATHER_DAMAGE,
+  AFK_UNLOCK_XP,
   GATHER_XP,
   COMBAT_XP_PER_DAMAGE,
   DARK_CREATURE_AGGRO_RANGE,
@@ -101,6 +102,9 @@ import { darkCreatureRow, id, makeCtx, playerRow, revealedRegionRow } from "./sp
 
 const ZONE = "world";
 const micros = (ms: number) => BigInt(ms) * 1000n;
+
+/** Put a trogg past the AFK eligibility gate (GDD "Presence") so its offline instinct runs. */
+const afkEligible = (ctx: any, playerId: any) => ctx.db.skills.insert({ id: 0n, playerId, skill: "mining", xp: AFK_UNLOCK_XP });
 
 /** Seed a ctx whose sender is an online player at `(x, y)`. */
 function withPlayer(over: Record<string, unknown> = {}, ctxOver: Partial<Parameters<typeof makeCtx>[0]> = {}) {
@@ -1074,6 +1078,7 @@ test("wanderPresence keeps a charged afk trogg confined to lit territory while i
   ctx.db.player.insert(playerRow(watcher, { online: true, x: 0, y: 0 }));
   const hearth = ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
   ctx.db.player.insert(playerRow(afk, { x: 69, y: 96, online: false, kindlingCharge: 10, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
+  afkEligible(ctx, afk);
   wanderPresence(ctx, {});
   const p = ctx.db.player.identity.find(afk);
   assert.ok(Math.hypot(p.x - hearth.x, p.y - hearth.y) <= hearth.radius);
@@ -1088,6 +1093,7 @@ test("wanderPresence keeps a spent-charge trogg gathering at the trickle rate", 
   ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
   ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96, health: AFK_GATHER_DAMAGE }); // breaks on one chip
   ctx.db.player.insert(playerRow(spent, { x: 69, y: 96, online: false, kindlingCharge: 0, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
+  afkEligible(ctx, spent);
   wanderPresence(ctx, {});
   assert.deepEqual(
     { boulders: ctx.db.boulder.rows().length, stone: ctx.db.stockpile.item.find("stone")?.qty },
@@ -1104,6 +1110,7 @@ test("wanderPresence holds a spent-charge trogg to the slower roll — a full-ra
   ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
   ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96, health: AFK_GATHER_DAMAGE });
   ctx.db.player.insert(playerRow(spent, { x: 69, y: 96, online: false, kindlingCharge: 0, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
+  afkEligible(ctx, spent);
   wanderPresence(ctx, {});
   assert.equal(ctx.db.boulder.rows()[0]?.health, AFK_GATHER_DAMAGE); // camped beside it, chip missed
 });
@@ -1117,6 +1124,7 @@ test("wanderPresence gathers on instinct from an adjacent boulder and deposits i
   ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
   ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96, health: AFK_GATHER_DAMAGE }); // breaks on one chip
   ctx.db.player.insert(playerRow(afk, { x: 69, y: 96, online: false, kindlingCharge: 10, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
+  afkEligible(ctx, afk);
   wanderPresence(ctx, {});
   assert.deepEqual(
     { boulders: ctx.db.boulder.rows().length, stone: ctx.db.stockpile.item.find("stone")?.qty, respawnsArmed: ctx.db.nodeRespawn.rows().length },
@@ -1133,6 +1141,7 @@ test("wanderPresence equips the pickaxe from the trogg's own inventory to work a
   ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96, health: 100 });
   const pick = ctx.db.inventory.insert({ id: 0n, playerId: afk, item: "pickaxe", qty: 1 });
   ctx.db.player.insert(playerRow(afk, { x: 69, y: 96, online: false, equippedMainHand: "axe", kindlingCharge: 10, kindlingChargeAt: { microsSinceUnixEpoch: micros(5_000) } }));
+  afkEligible(ctx, afk);
   wanderPresence(ctx, {});
   const p = ctx.db.player.identity.find(afk);
   assert.deepEqual(
@@ -1149,6 +1158,7 @@ test("wanderPresence swings bare fists at a node when the trogg owns no tool", (
   ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
   ctx.db.tree.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96, health: 100 });
   ctx.db.player.insert(playerRow(afk, { x: 69, y: 96, online: false, kindlingCharge: 10, kindlingChargeAt: { microsSinceUnixEpoch: micros(5_000) } }));
+  afkEligible(ctx, afk);
   wanderPresence(ctx, {});
   const p = ctx.db.player.identity.find(afk);
   assert.deepEqual({ held: p.equippedMainHand, swing: p.equipmentAction }, { held: "", swing: "fists" });
@@ -1163,6 +1173,7 @@ test("wanderPresence sheds run state and speed cheats — instinct moves at walk
   ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
   ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 66, y: 96, health: 100 });
   ctx.db.player.insert(playerRow(afk, { x: 69, y: 96, online: false, running: true, cheatSpeed: 5, kindlingCharge: 10, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
+  afkEligible(ctx, afk);
   wanderPresence(ctx, {});
   const p = ctx.db.player.identity.find(afk);
   assert.deepEqual({ running: p.running, cheatSpeed: p.cheatSpeed, pathing: p.path !== "" }, { running: false, cheatSpeed: 1, pathing: true });
@@ -1200,6 +1211,7 @@ test("wanderPresence routes an afk trogg toward the nearest node instead of drif
   ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
   ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 66, y: 96, health: 100 }); // three tiles of open floor west
   ctx.db.player.insert(playerRow(afk, { x: 69, y: 96, online: false, kindlingCharge: 10, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
+  afkEligible(ctx, afk);
   wanderPresence(ctx, {});
   const p = ctx.db.player.identity.find(afk);
   assert.deepEqual({ pathing: p.path !== "", dirX: p.dirX }, { pathing: true, dirX: -1 }); // en route west, toward the boulder
@@ -1213,6 +1225,7 @@ test("wanderPresence camps an afk trogg beside its node between chips", () => {
   ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
   ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96, health: 100 });
   ctx.db.player.insert(playerRow(afk, { x: 69, y: 96, online: false, kindlingCharge: 10, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
+  afkEligible(ctx, afk);
   wanderPresence(ctx, {});
   const p = ctx.db.player.identity.find(afk);
   assert.deepEqual(
@@ -1225,6 +1238,7 @@ test("wanderPresence re-arms only while a player is online", () => {
   const afk = id("alone");
   const ctx = makeCtx({ sender: afk });
   ctx.db.player.insert(playerRow(afk, { online: false, kindlingCharge: 10, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
+  afkEligible(ctx, afk);
   wanderPresence(ctx, {});
   assert.equal(ctx.db.afkWanderTimer.rows().length, 0); // nobody's watching, so no further work
 });
@@ -2029,9 +2043,45 @@ test("AFK instinct gathering deposits but never grants XP", () => {
   ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
   ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96, health: AFK_GATHER_DAMAGE }); // breaks on one chip
   ctx.db.player.insert(playerRow(afk, { x: 69, y: 96, online: false, kindlingCharge: 10, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
+  afkEligible(ctx, afk);
 
   wanderPresence(ctx, {});
 
   assert.equal(ctx.db.stockpile.item.find("stone")?.qty, 1); // instinct works...
-  assert.equal(ctx.db.skills.rows().length, 0); // ...but never grows (pillar 7)
+  assert.deepEqual(ctx.db.skills.rows().map((r: any) => r.xp), [AFK_UNLOCK_XP]); // ...but never grows (pillar 7)
+});
+
+
+// --- The AFK eligibility gate ---
+
+test("wanderPresence skips an offline trogg below the AFK eligibility gate", () => {
+  const watcher = id("watcher");
+  const fresh = id("freshguest");
+  const ctx = makeCtx({ sender: watcher, random: 0.05 }); // a roll that would chip for any eligible trogg
+  ctx.db.player.insert(playerRow(watcher, { online: true }));
+  ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
+  ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96, health: AFK_GATHER_DAMAGE });
+  ctx.db.player.insert(playerRow(fresh, { x: 69, y: 96, online: false, kindlingCharge: 10, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
+
+  wanderPresence(ctx, {});
+
+  // below the gate a disconnect is a plain offline: no instinct, no deposit
+  assert.equal(ctx.db.boulder.rows().length, 1);
+  assert.equal(ctx.db.stockpile.item.find("stone"), undefined);
+});
+
+test("the gate reads total XP across skills, not any single track", () => {
+  const watcher = id("watcher");
+  const mixed = id("mixedbag");
+  const ctx = makeCtx({ sender: watcher, random: 0.05 });
+  ctx.db.player.insert(playerRow(watcher, { online: true }));
+  ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
+  ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96, health: AFK_GATHER_DAMAGE });
+  ctx.db.player.insert(playerRow(mixed, { x: 69, y: 96, online: false, kindlingCharge: 10, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
+  ctx.db.skills.insert({ id: 0n, playerId: mixed, skill: "combat", xp: AFK_UNLOCK_XP - 300 });
+  ctx.db.skills.insert({ id: 0n, playerId: mixed, skill: "woodcutting", xp: 300 });
+
+  wanderPresence(ctx, {});
+
+  assert.equal(ctx.db.stockpile.item.find("stone")?.qty, 1); // 500 + 300 = the 800 gate, mixed tracks count
 });

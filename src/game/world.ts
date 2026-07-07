@@ -5,6 +5,7 @@ import {
   CAVE_DOOR,
   isBirthZone,
   DARK_CREATURES,
+  AFK_UNLOCK_XP,
   EQUIPMENT_ACTION_MS,
   CHAT_BUBBLE_MS,
   DIR_SCALE,
@@ -676,6 +677,7 @@ export class World3D {
       `SELECT * FROM brazier WHERE zone_id = '${this.slug}'`,
       "SELECT * FROM world_state",
       "SELECT * FROM stockpile",
+      "SELECT * FROM skills",
       "SELECT * FROM revealed_region",
     ];
     if (this.myId) queries.push(`SELECT * FROM inventory WHERE player_id = '${this.myId}'`);
@@ -1165,6 +1167,9 @@ export class World3D {
     conn.db.player.onInsert((_ctx, p) => this.addPlayer(p));
     conn.db.player.onUpdate((_ctx, _old, p) => {
       const id = p.identity.toHexString();
+      // An ineligible trogg going offline leaves the world entirely (GDD
+      // "Presence" — the eligibility gate): no dim body, no tag, no tile.
+      if (this.hiddenNow(p)) return this.removePlayer(id);
       const entry = this.tracked.get(id);
       if (!entry) return this.addPlayer(p);
 
@@ -1217,6 +1222,20 @@ export class World3D {
       this.applyPresence(entry);
     });
     conn.db.player.onDelete((_ctx, p) => this.removePlayer(p.identity.toHexString()));
+
+    // AFK eligibility is derived from the skills table (GDD "Presence"), and
+    // a snapshot can land skills rows after their player row — so re-evaluate
+    // hidden troggs whenever XP arrives, and let the coach announce the
+    // unlock the moment the local trogg crosses the gate.
+    const skillsChanged = (playerId: Player["identity"]): void => {
+      const id = playerId.toHexString();
+      if (id === this.myId && this.totalXpOf(playerId) >= AFK_UNLOCK_XP) coachHit("afk-unlocked");
+      const p = conn.db.player.identity.find(playerId);
+      if (!p || p.zoneId !== this.slug) return;
+      if (!this.tracked.has(id) && !this.hiddenNow(p)) this.addPlayer(p);
+    };
+    conn.db.skills.onInsert((_ctx, row) => skillsChanged(row.playerId));
+    conn.db.skills.onUpdate((_ctx, _old, row) => skillsChanged(row.playerId));
   }
 
   private observeLocalLifecycle(old: Player, p: Player): void {
@@ -1231,6 +1250,7 @@ export class World3D {
   private addPlayer(p: Player): void {
     const id = p.identity.toHexString();
     if (this.tracked.has(id)) return;
+    if (this.hiddenNow(p)) return;
 
     const face = playerFacing(p);
     const facing = facingFromDir(face.dirX, face.dirY, "down");
@@ -1269,6 +1289,23 @@ export class World3D {
 
   private presenceNow(p: Player): Presence {
     return presenceOf(p.online);
+  }
+
+  /** Total XP across a trogg's skills rows — what its overall level and the
+   *  AFK eligibility gate derive from (GDD "Skills and XP"; "Presence"). */
+  private totalXpOf(playerId: Player["identity"]): number {
+    const hex = playerId.toHexString();
+    let sum = 0;
+    for (const r of this.conn.db.skills.iter()) if (r.playerId.toHexString() === hex) sum += r.xp;
+    return sum;
+  }
+
+  /** Whether a trogg is out of the world right now: offline and below the
+   *  AFK eligibility gate (GDD "Presence") — a plain offline, not an AFK
+   *  body. Never true for the local trogg or anyone online. */
+  private hiddenNow(p: Player): boolean {
+    if (p.online || p.identity.toHexString() === this.myId) return false;
+    return this.totalXpOf(p.identity) < AFK_UNLOCK_XP;
   }
 
   /** Dim a tracked trogg's body to its current presence (GDD "The fire and
