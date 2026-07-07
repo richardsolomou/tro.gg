@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { logInfo } from "../analytics.js";
-import { DEEP_WATER_TILE, GLOWMOSS_TILE, GRAVEL_TILE, MOSS_TILE, regionAt, rockHeightAt, tileGlyph, WALL_TILE, WATER_TILE, type RegionVisibility, type Zone } from "@trogg/shared";
+import { BIOMES, DEEP_WATER_TILE, GLOWMOSS_TILE, GRAVEL_TILE, MOSS_TILE, regionAt, rockHeightAt, tileGlyph, WALL_TILE, WATER_TILE, type RegionVisibility, type Zone } from "@trogg/shared";
 import { biomePalette, DAYLIGHT_3D, FOG_MIX } from "./palette.js";
 
 /**
@@ -136,6 +136,22 @@ export function buildTerrain(zone: Zone, regionState: (x: number, y: number) => 
   };
   // region palettes are the world map's; any other zone is one biome throughout
   const tileBiome = (x: number, y: number): string => (zone.slug === "world" ? (regionAt(x, y)?.biome ?? "cave") : zone.biome);
+
+  // Pre-warm every biome's patch canvases shortly after boot, one biome per
+  // tick: first contact with a new biome used to pay all six paints
+  // synchronously mid-walk — the "entering a dark area hangs, re-entering is
+  // fine" cold cache. Warming them behind the boot screen makes first entry
+  // feel like re-entry.
+  if (zone.slug === "world") {
+    const pending = [...BIOMES];
+    const step = () => {
+      const biome = pending.shift();
+      if (!biome) return;
+      patchesFor(biome);
+      setTimeout(step, 100);
+    };
+    setTimeout(step, 1500);
+  }
 
   // The void beyond and beneath the world: one dim rock plane.
   const cavePal = biomePalette("cave");
@@ -411,13 +427,17 @@ export function buildTerrain(zone: Zone, regionState: (x: number, y: number) => 
     const c1x = zone.unbounded ? Math.floor((focusX + radius) / CHUNK) : Math.min(Math.ceil(zone.width / CHUNK) - 1, Math.floor((focusX + radius) / CHUNK));
     const c0y = zone.unbounded ? Math.floor((focusY - radius) / CHUNK) : Math.max(0, Math.floor((focusY - radius) / CHUNK));
     const c1y = zone.unbounded ? Math.floor((focusY + radius) / CHUNK) : Math.min(Math.ceil(zone.height / CHUNK) - 1, Math.floor((focusY + radius) / CHUNK));
-    const wanted: { cx: number; cy: number; dist: number }[] = [];
+    const wanted: { cx: number; cy: number; dist: number; needed: boolean }[] = [];
     for (let cy = c0y; cy <= c1y; cy++) {
       for (let cx = c0x; cx <= c1x; cx++) {
         const centreX = cx * CHUNK + CHUNK / 2;
         const centreY = cy * CHUNK + CHUNK / 2;
         const dist = Math.hypot(centreX - focusX, centreY - focusY);
-        if (dist <= radius + CHUNK) wanted.push({ cx, cy, dist });
+        // needed chunks are visible ground; the outer ring is prefetch —
+        // built ahead of the walk so entering fresh dark finds the ground
+        // already there (still inside the drop hysteresis, so prefetched
+        // chunks aren't immediately disposed).
+        if (dist <= radius + CHUNK * 2.5) wanted.push({ cx, cy, dist, needed: dist <= radius + CHUNK });
       }
     }
     // Build nearest-first on a TIME budget, not a count: a chunk's cost
@@ -433,9 +453,11 @@ export function buildTerrain(zone: Zone, regionState: (x: number, y: number) => 
     const keep = new Set<string>();
     for (const want of wanted) {
       const key = `${want.cx},${want.cy}`;
-      keep.add(key);
+      if (want.needed) keep.add(key);
       if (chunks.has(key)) continue;
-      if (built > 0 && performance.now() - buildStart > 6) continue; // budget spent — next frame
+      // a needed chunk always gets built (nearest first, one minimum);
+      // prefetch chunks only ever spend leftover budget, never force a build
+      if (want.needed ? built > 0 && performance.now() - buildStart > 6 : performance.now() - buildStart > 6) continue;
       const chunk = buildChunk(want.cx, want.cy);
       if (chunk) chunks.set(key, chunk);
       built++;
