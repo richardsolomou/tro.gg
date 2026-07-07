@@ -6,6 +6,7 @@ import {
   isBirthZone,
   DARK_CREATURES,
   AFK_UNLOCK_XP,
+  AFK_HIDE_AFTER_MS,
   EQUIPMENT_ACTION_MS,
   CHAT_BUBBLE_MS,
   DIR_SCALE,
@@ -377,6 +378,7 @@ export class World3D {
   private readonly sub = { live: false };
   private lastMs = performance.now();
   private lastFrameMs = 0;
+  private lastHideSweepMs = 0;
   /** The raw screen-space WASD intent and its last camera-mapped delivery, so the
    *  tick can re-steer a held walk when the camera turns. */
   private rawIntent: MoveIntent = { dirX: 0, dirY: 0, running: false };
@@ -708,6 +710,13 @@ export class World3D {
     this.lastFrameMs = now;
     const dt = Math.min(0.1, (now - this.lastMs) / 1000);
     this.lastMs = now;
+
+    // A trogg can cross the week-offline mark while rendered (GDD "Presence")
+    // — no row update fires for pure time passing, so sweep occasionally.
+    if (now - this.lastHideSweepMs > 60_000) {
+      this.lastHideSweepMs = now;
+      for (const [id, entry] of this.tracked) if (this.hiddenNow(entry.player)) this.removePlayer(id);
+    }
 
     this.crowd.begin();
 
@@ -1305,6 +1314,7 @@ export class World3D {
    *  body. Never true for the local trogg or anyone online. */
   private hiddenNow(p: Player): boolean {
     if (p.online || p.identity.toHexString() === this.myId) return false;
+    if (Date.now() - timestampMs(p.kindlingChargeAt) >= AFK_HIDE_AFTER_MS) return true; // a week away
     return this.totalXpOf(p.identity) < AFK_UNLOCK_XP;
   }
 

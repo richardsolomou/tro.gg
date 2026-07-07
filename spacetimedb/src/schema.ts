@@ -22,6 +22,8 @@ import {
   AFK_GATHER_DAMAGE,
   AFK_SEEK_RADIUS,
   AFK_UNLOCK_XP,
+  AFK_HIDE_AFTER_MS,
+  afkGatherFraction,
   findPath,
   NODE_RESPAWN_MS,
   serializePath,
@@ -673,9 +675,9 @@ export const brazierUpkeep = spacetimedb.reducer({ timer: brazierUpkeepTimer.row
  * world) ambles safe interior
  * ground on instinct — confined to lit tiles — and gathers passively from an
  * adjacent boulder or tree at `AFK_EFFICIENCY_FRACTION` of an active trogg's
- * rate while its charge lasts (`AFK_TRICKLE_EFFICIENCY_FRACTION` once spent),
- * with no XP; the instant its charge runs out it settles at its zone's
- * nearest hearth. Every living dark creature ambles the dark — confined to
+ * rate while its charge lasts (a trickle winding down across
+ * `AFK_HIDE_AFTER_MS` once spent — after a week away the trogg is hidden and
+ * the sweep skips it), with no XP. Every living dark creature ambles the dark — confined to
  * *unlit* tiles, the mirror boundary — until an active trogg comes within
  * `DARK_CREATURE_AGGRO_RANGE`, then turns to close the distance and attacks
  * once in reach; a target that disconnects, dies, or leaves the zone drops
@@ -693,11 +695,17 @@ export const wanderPresence = spacetimedb.reducer({ timer: afkWanderTimer.rowTyp
       // The eligibility gate (GDD "Presence"): below AFK_UNLOCK_XP of earned
       // XP a disconnect is a plain offline — no instinct work, no trickle.
       if (totalXp(ctx, p.identity) < AFK_UNLOCK_XP) continue;
+      // A week away hides the trogg entirely (GDD "Presence"): the sweep
+      // leaves it be — row and inventory persist untouched — until its
+      // player returns. kindlingChargeAt anchors at disconnect, so elapsed
+      // time since it IS the offline time.
+      const offlineMs = elapsedMs(p.kindlingChargeAt, now);
+      if (offlineMs >= AFK_HIDE_AFTER_MS) continue;
       const charge = deriveAfkCharge(p.kindlingCharge, p.kindlingChargeAt, false, now);
-      // Instinct never fully sleeps (GDD "Presence"): a charged AFK trogg
-      // works at the full instinct rate, a spent one keeps a slower trickle
-      // — the world stays busy, and active play still buys the better rate.
-      const gatherFraction = charge > 0 ? AFK_EFFICIENCY_FRACTION : AFK_TRICKLE_EFFICIENCY_FRACTION;
+      // Instinct never fully sleeps at first (GDD "Presence"): a charged AFK
+      // trogg works at the full instinct rate; a spent one keeps a trickle
+      // that winds down to nothing across the week that ends in hiding.
+      const gatherFraction = afkGatherFraction(charge, offlineMs);
 
       const zone = getZone(p.zoneId);
       if (!zone) continue;

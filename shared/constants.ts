@@ -137,10 +137,13 @@ export const AFK_UNLOCK_XP = 800;
  * revealed ground, and camps it there, rolling a per-tick chance for an
  * instinct-driven gather chip roughly the weight of one weak tool hit —
  * deposited into the stockpile the same way a real hit is, earning no XP.
- * The roll is `AFK_EFFICIENCY_FRACTION` while AFK charge lasts and
- * drops to `AFK_TRICKLE_EFFICIENCY_FRACTION` once the charge is spent —
- * instinct never fully
- * sleeps, but active play buys the better rate. `AFK_SEEK_RADIUS`
+ * The roll is `AFK_EFFICIENCY_FRACTION` while AFK charge lasts; once the
+ * charge is spent it drops to `AFK_TRICKLE_EFFICIENCY_FRACTION` and winds
+ * down linearly to zero across `AFK_HIDE_AFTER_MS` of absence (see
+ * `afkGatherFraction`), at which point the trogg is hidden from the world
+ * entirely until its player returns — the settlement reads as the tribe
+ * that actually plays here, not a museum. Offline time is measured from the
+ * disconnect anchor (`kindlingChargeAt`). `AFK_SEEK_RADIUS`
  * (manhattan tiles) is the routing budget, sized to span a whole settled zone
  * rather than a neighbourhood — park a trogg anywhere lit and it works that
  * ground. With no reachable node it falls back to an aimless wander. (initial)
@@ -150,6 +153,7 @@ export const AFK_TRICKLE_EFFICIENCY_FRACTION = 0.1;
 export const AFK_WANDER_TICK_MS = 1_000;
 export const AFK_GATHER_DAMAGE = 6;
 export const AFK_SEEK_RADIUS = 400;
+export const AFK_HIDE_AFTER_MS = 7 * 24 * 60 * 60 * 1000; // a week away hides the trogg (initial)
 
 /** Trogg combat health, damage, and respawn timing. (initial) */
 export const PLAYER_MAX_HEALTH = 100;

@@ -47,6 +47,7 @@ import {
   AFK_CHARGE_DECAY_RATE,
   AFK_GATHER_DAMAGE,
   AFK_UNLOCK_XP,
+  AFK_HIDE_AFTER_MS,
   GATHER_XP,
   COMBAT_XP_PER_DAMAGE,
   DARK_CREATURE_AGGRO_RANGE,
@@ -2084,4 +2085,44 @@ test("the gate reads total XP across skills, not any single track", () => {
   wanderPresence(ctx, {});
 
   assert.equal(ctx.db.stockpile.item.find("stone")?.qty, 1); // 500 + 300 = the 800 gate, mixed tracks count
+});
+
+
+// --- The trickle wind-down and week-offline hiding ---
+
+test("the spent trickle winds down with absence — a roll that chips early misses at half a week", () => {
+  const watcher = id("watcher");
+  const fading = id("fading");
+  const halfWeek = 3.5 * 24 * 60 * 60 * 1000;
+  // 0.07 chips against the flat trickle (0.1) but misses the half-week rate (0.05)
+  const ctx = makeCtx({ sender: watcher, random: 0.07, now: micros(halfWeek) });
+  ctx.db.player.insert(playerRow(watcher, { online: true }));
+  ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
+  ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96, health: AFK_GATHER_DAMAGE });
+  ctx.db.player.insert(playerRow(fading, { x: 69, y: 96, online: false, kindlingCharge: 0, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
+  afkEligible(ctx, fading);
+
+  wanderPresence(ctx, {});
+  assert.equal(ctx.db.stockpile.item.find("stone"), undefined); // wound down past this roll
+
+  ctx.random = () => 0.04; // still under the half-week rate — the trickle lives
+  wanderPresence(ctx, {});
+  assert.equal(ctx.db.stockpile.item.find("stone")?.qty, 1);
+});
+
+test("a week away hides the trogg: the sweep leaves it be entirely", () => {
+  const watcher = id("watcher");
+  const gone = id("longgone");
+  const ctx = makeCtx({ sender: watcher, random: 0.01, now: micros(AFK_HIDE_AFTER_MS + 60_000) });
+  ctx.db.player.insert(playerRow(watcher, { online: true }));
+  ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
+  ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96, health: AFK_GATHER_DAMAGE });
+  ctx.db.player.insert(playerRow(gone, { x: 69, y: 96, online: false, kindlingCharge: 0, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
+  afkEligible(ctx, gone);
+  const before = ctx.db.player.identity.find(gone);
+
+  wanderPresence(ctx, {});
+
+  assert.equal(ctx.db.stockpile.item.find("stone"), undefined); // no work
+  assert.deepEqual(ctx.db.player.identity.find(gone), before); // row untouched — hidden, not deleted
 });
