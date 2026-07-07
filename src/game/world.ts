@@ -989,7 +989,14 @@ export class World3D {
     // (`projectMotionState`), just driven directly rather than through the
     // heavier player `Tracked` pipeline — no equipment, carrying, or
     // appearance to reconcile, only motion, a gait, and a corpse pose.
+    // The zone subscription carries every creature in the whole world zone —
+    // hundreds once the frontier fills in. Anything far beyond the camera's
+    // range skips projection, steering, and the mixer entirely (cheap check
+    // on the raw row anchor; cullDistant already keeps them invisible).
+    const focusX = this.orbit?.target.x ?? this.selfPos?.x;
+    const focusY = this.orbit?.target.z ?? this.selfPos?.y;
     for (const view of this.darkCreatures.values()) {
+      if (focusX !== undefined && focusY !== undefined && Math.hypot(view.row.x - focusX, view.row.y - focusY) > CULL_RANGE * 1.5) continue;
       const motion = projectMotionState(view.row, now - view.baseMs, view.row.nightborn || view.row.aggroTargetId !== "" ? this.nightTideBounds : this.darkCreatureBounds);
       this.entities.place(view.group, motion.x, motion.y);
       if (!view.downed && view.group.visible) {
@@ -1585,10 +1592,29 @@ export class World3D {
     let view = this.braziers.get(key);
     if (!view) {
       const group = buildBrazier();
+      // Warm fill only — never a shadow caster: a shadow-casting point light
+      // re-renders a six-face cube shadow map every frame per brazier, and
+      // its shadows fought the sun's camera-riding shadow box, which read as
+      // "a different part is lit depending on where the camera looks".
       const light = new THREE.PointLight(0xff8c2e, 9, Math.max(14, row.radius * 2.4), 1.6);
       light.position.set(0.5, 0.7, 0.5);
-      light.castShadow = true;
       group.add(light);
+      // a soft additive halo over the flame, so the fire reads as a glow
+      // source even where the point light is subtle
+      const haloCanvas = document.createElement("canvas");
+      haloCanvas.width = haloCanvas.height = 64;
+      const hctx = haloCanvas.getContext("2d")!;
+      const grad = hctx.createRadialGradient(32, 32, 2, 32, 32, 32);
+      grad.addColorStop(0, "rgba(255, 176, 84, 0.85)");
+      grad.addColorStop(0.45, "rgba(255, 122, 36, 0.32)");
+      grad.addColorStop(1, "rgba(255, 100, 20, 0)");
+      hctx.fillStyle = grad;
+      hctx.fillRect(0, 0, 64, 64);
+      const haloTex = new THREE.CanvasTexture(haloCanvas);
+      const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: haloTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+      halo.scale.setScalar(2.6);
+      halo.position.set(0.5, 0.9, 0.5);
+      group.add(halo);
       const ground = new THREE.Mesh(
         new THREE.RingGeometry(0.6, row.radius, 32),
         new THREE.MeshBasicMaterial({ color: 0xff8c2e, transparent: true, opacity: 0.05, side: THREE.DoubleSide, depthWrite: false }),

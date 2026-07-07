@@ -427,6 +427,12 @@ export const DARK_CREATURE_AGGRO_RANGE = 6;
  *  beyond aggro range) — instinct stops pacing the fence (GDD "Dark
  *  creatures"). (initial) */
 export const DARK_CREATURE_LEASH_RANGE = DARK_CREATURE_AGGRO_RANGE * 2;
+/** The dark only churns where someone can see it: a creature with no online
+ *  trogg within this range is left untouched by the wander sweep — no
+ *  projection, no row update, no fanout to every client. Far larger than
+ *  aggro range, and beyond the client's own render cull, so nothing
+ *  gameplay- or eye-visible changes. (initial) */
+export const DARK_CREATURE_SIM_RANGE = 90;
 export const NPC_CORPSE_MS = 30_000;
 export const MAX_DARK_CREATURES_PER_ZONE = 120;
 

@@ -30,6 +30,7 @@ import {
   TORCH_LIT_RADIUS,
   AFK_WANDER_TICK_MS,
   DARK_CREATURE_LEASH_RANGE,
+  DARK_CREATURE_SIM_RANGE,
   findPath,
   NODE_RESPAWN_MS,
   serializePath,
@@ -974,12 +975,29 @@ export const wanderPresence = spacetimedb.reducer({ timer: afkWanderTimer.rowTyp
       }
       return set;
     };
+    // Where nobody watches, the dark holds still (DARK_CREATURE_SIM_RANGE):
+    // an unobserved creature is skipped whole — no settle, no update, no row
+    // diff for every client to chew each second. The tide and dawn passes
+    // (tideNight) and the corpse reap run on their own rules regardless.
+    const watchersByZone = new Map<string, { x: number; y: number }[]>();
+    for (const pl of ctx.db.player.iter()) {
+      if (!pl.online || pl.dead) continue;
+      let list = watchersByZone.get(pl.zoneId);
+      if (!list) watchersByZone.set(pl.zoneId, (list = []));
+      list.push(settle(ctx, pl, now));
+    }
+    const observed = (zoneId: string, x: number, y: number): boolean =>
+      (watchersByZone.get(zoneId) ?? []).some((w) => Math.hypot(w.x - x, w.y - y) <= DARK_CREATURE_SIM_RANGE);
+
     const creatureList = [...ctx.db.darkCreature.iter()];
     type CreatureRow = (typeof creatureList)[number];
     const settledCreatures: { row: CreatureRow; x: number; y: number; zoneId: string }[] = [];
     const creatureTilesByZone = new Map<string, Set<string>>();
     for (const c of creatureList) {
       if (c.health <= 0) continue; // corpses lie where they fell
+      // (a creature mid-chase always simulates, so stale aggro settles and
+      // drops even when its target just vanished from range)
+      if (c.aggroTargetId === "" && !observed(c.zoneId, c.x, c.y)) continue;
       const zone = getZone(c.zoneId);
       if (!zone) continue;
       const statics = staticBlockersFor(c.zoneId);
