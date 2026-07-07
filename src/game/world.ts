@@ -8,6 +8,7 @@ import {
   AFK_UNLOCK_XP,
   AFK_HIDE_AFTER_MS,
   TORCH_LIT_RADIUS,
+  TORCH_PROVOKED_MS,
   DAY_CYCLE_MS,
   dayPhaseAt,
   isNightPhase,
@@ -821,11 +822,16 @@ export class World3D {
 
     // Refresh the torch pockets once per frame — the creature-bounds
     // closures probe them per crossed tile, so they read a flat array
-    // instead of scanning the tracked map every probe.
+    // instead of scanning the tracked map every probe. Blood over flame
+    // (GDD "Crafting"): a bearer who drew a dark creature's blood in the
+    // last TORCH_PROVOKED_MS carries an unwarded pocket — the server lets
+    // creatures cross it, so the mirror must too or they'd visibly snap.
     this.torchPockets.length = 0;
     for (const entry of this.tracked.values()) {
       const p = entry.player;
-      if (p.online && !p.dead && p.equippedOffHand === "torch") this.torchPockets.push({ x: entry.marker.position.x, y: entry.marker.position.z });
+      if (!p.online || p.dead || p.equippedOffHand !== "torch") continue;
+      if (Date.now() - timestampMs(p.provokedAt) < TORCH_PROVOKED_MS) continue;
+      this.torchPockets.push({ x: entry.marker.position.x, y: entry.marker.position.z });
     }
 
     this.crowd.begin();

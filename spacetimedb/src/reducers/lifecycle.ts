@@ -164,6 +164,7 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
     dirZ: 0,
     kindlingCharge: 0,
     kindlingChargeAt: ctx.timestamp,
+    provokedAt: Timestamp.UNIX_EPOCH,
   });
 });
 

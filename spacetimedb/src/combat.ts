@@ -290,6 +290,9 @@ export function throwCarried(
     result.hitTarget = "dark_creature";
     result.damage = damage.dealt;
     result.killed = damage.killed;
+    // Blood over flame (GDD "Crafting"): a thrown rock provokes like a swing —
+    // no hunting from inside the torch's ward by any means.
+    p = { ...p, provokedAt: ctx.timestamp };
   } else if (hit) {
     const damage = damagePlayer(ctx, hit, THROWN_OBJECT_DAMAGE);
     result.hitTarget = "trogg";

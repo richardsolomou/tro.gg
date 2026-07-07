@@ -165,6 +165,7 @@ export const Player = __t.object("Player", {
   dirZ: __t.i32(),
   kindlingCharge: __t.f64(),
   kindlingChargeAt: __t.timestamp(),
+  provokedAt: __t.timestamp(),
 });
 export type Player = __Infer<typeof Player>;
 

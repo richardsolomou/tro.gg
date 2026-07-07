@@ -294,6 +294,7 @@ function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; d
   };
 
   let landed = false;
+  let provoked = false;
   if (range) {
     const roll = () => ctx.random.integerInRange(range[0], range[1]);
     const tool = gatherToolClass(item);
@@ -316,6 +317,7 @@ function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; d
         events.push({ distinctId: distinctId(ctx), event: "combat_hit", properties: { ...props, weapon: item, target: "dark_creature", damage: result.dealt, killed: result.killed } });
         grant("combat", Math.min(result.dealt, creature.target.health) * COMBAT_XP_PER_DAMAGE);
         landed = true;
+        provoked = true; // blood over flame: the torch ward drops (GDD "Crafting")
       } else if (trogg) {
         const result = damagePlayer(ctx, trogg.target, damage);
         events.push({ distinctId: distinctId(ctx), event: "combat_hit", properties: { ...props, weapon: item, target: "trogg", damage: result.dealt, killed: result.killed } });
@@ -339,6 +341,7 @@ function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; d
     equippedMainHandInventoryId: equipped?.id ?? 0n,
     equipmentAction: item,
     equipmentActionAt: ctx.timestamp,
+    provokedAt: provoked ? ctx.timestamp : p.provokedAt,
   });
   events.unshift({ distinctId: distinctId(ctx), event: "equipped_item_used", properties: { zone: p.zoneId, item, ...sourceProp(source) } });
   return events;

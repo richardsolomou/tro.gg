@@ -54,6 +54,7 @@ import {
   NPC_CORPSE_MS,
   upkeepReserve,
   TORCH_BURN_MS,
+  TORCH_PROVOKED_MS,
   AFK_WANDER_TICK_MS,
   GATHER_XP,
   COMBAT_XP_PER_DAMAGE,
@@ -2366,6 +2367,63 @@ test("a torch-bearer is not prey: creatures neither aggro nor keep chasing one",
   assert.equal(ctx.db.darkCreature.id.find(fresh.id)?.aggroTargetId, ""); // never acquired
   assert.equal(ctx.db.darkCreature.id.find(chasing.id)?.aggroTargetId, ""); // pursuit broken
   assert.equal(ctx.db.player.identity.find(me).health, PLAYER_MAX_HEALTH); // and no swings landed
+});
+
+
+test("blood over flame: a swing at a dark creature drops the torch ward, and the den answers", () => {
+  const me = id("provoker");
+  const ctx = makeCtx({ sender: me, random: 0.9, now: micros(60_000) });
+  const torch = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "torch", qty: 1, wear: 0 });
+  const sword = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1, wear: 0 });
+  ctx.db.player.insert(
+    playerRow(me, { online: true, x: 69, y: 96, equippedMainHand: "sword", equippedMainHandInventoryId: sword.id, equippedOffHand: "torch", equippedOffHandInventoryId: torch.id }),
+  );
+  const c = ctx.db.darkCreature.insert(darkCreatureRow({ x: 70, y: 96, health: 200 }));
+
+  useEquipped(ctx, { dirX: 1, dirY: 0 }); // the swing that draws blood
+
+  assert.ok(ctx.db.darkCreature.id.find(c.id).health < 200, "the swing landed");
+  assert.equal(ctx.db.player.identity.find(me).provokedAt.microsSinceUnixEpoch, micros(60_000)); // stamped
+
+  wanderPresence(ctx, {}); // inside TORCH_PROVOKED_MS: the torch no longer exempts its bearer
+  assert.equal(ctx.db.darkCreature.id.find(c.id)?.aggroTargetId, me.toHexString());
+
+  // Once the window passes, the ward returns and the pursuit breaks again.
+  ctx.timestamp = { microsSinceUnixEpoch: micros(60_000 + TORCH_PROVOKED_MS + AFK_WANDER_TICK_MS) };
+  wanderPresence(ctx, {});
+  assert.equal(ctx.db.darkCreature.id.find(c.id)?.aggroTargetId, "");
+});
+
+
+test("a warded torch draws a prowl: a nearby creature closes on the rim of the light instead of scattering", () => {
+  const me = id("prowlbait");
+  const ctx = makeCtx({ sender: me, random: 0.9 });
+  const torch = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "torch", qty: 1, wear: 0 });
+  ctx.db.player.insert(playerRow(me, { online: true, x: 69, y: 96, equippedOffHand: "torch", equippedOffHandInventoryId: torch.id }));
+  // Five tiles east: inside TORCH_PROWL_RADIUS, well outside the pocket itself.
+  const c = ctx.db.darkCreature.insert(darkCreatureRow({ x: 74, y: 96 }));
+
+  wanderPresence(ctx, {});
+
+  const after = ctx.db.darkCreature.id.find(c.id);
+  assert.equal(after?.aggroTargetId, ""); // warded: still not prey
+  assert.equal(after?.dirX, -1); // prowls toward the rim of the light, not away
+});
+
+
+test("torch wear rides its row: unequipping pauses the burn, it never resets", () => {
+  const { ctx, me } = withPlayer({ x: 69, y: 96 });
+  const torch = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "torch", qty: 1, wear: 0 });
+  ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedOffHand: "torch", equippedOffHandInventoryId: torch.id });
+
+  wanderPresence(ctx, {}); // one burn quantum while aloft
+  const quantum = 5 * AFK_WANDER_TICK_MS;
+  assert.equal(ctx.db.inventory.id.find(torch.id)?.wear, quantum);
+
+  ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedOffHand: "", equippedOffHandInventoryId: 0n }); // stowed
+  ctx.timestamp = { microsSinceUnixEpoch: micros(quantum) }; // the next quantum boundary
+  wanderPresence(ctx, {});
+  assert.equal(ctx.db.inventory.id.find(torch.id)?.wear, quantum); // paused where it stopped, not reset
 });
 
 

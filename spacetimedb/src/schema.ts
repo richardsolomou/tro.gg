@@ -28,6 +28,8 @@ import {
   isNightPhase,
   TORCH_BURN_MS,
   TORCH_LIT_RADIUS,
+  TORCH_PROVOKED_MS,
+  TORCH_PROWL_RADIUS,
   AFK_WANDER_TICK_MS,
   DARK_CREATURE_LEASH_RANGE,
   DARK_CREATURE_SIM_RANGE,
@@ -67,6 +69,7 @@ import {
   tideNight,
   nearestUnlitTile,
   pickWanderDir,
+  prowlDir,
   settle,
   darkCreatureDef,
   damagePlayer,
@@ -190,6 +193,10 @@ const player = table(
     // Columns keep their shipped kindling_charge names (additive-only schema).
     kindlingCharge: t.f64().default(0),
     kindlingChargeAt: t.timestamp().default(Timestamp.UNIX_EPOCH),
+    // Blood over flame (GDD "Crafting"): stamped when this trogg damages a
+    // dark creature; for TORCH_PROVOKED_MS after, an equipped torch stops
+    // warding — the bearer is prey and creatures cross their light.
+    provokedAt: t.timestamp().default(Timestamp.UNIX_EPOCH),
   },
 );
 
@@ -750,11 +757,16 @@ export const wanderPresence = spacetimedb.reducer({ timer: afkWanderTimer.rowTyp
     // Carried firelight (GDD "Crafting"): each online torch-bearer projects
     // a small pocket dark creatures cannot enter, and the torch burns down
     // while it does — wear accrues per sweep tick until the torch is spent.
-    const torchPockets: { zoneId: string; x: number; y: number }[] = [];
+    // Blood over flame: a bearer who drew a dark creature's blood in the last
+    // TORCH_PROVOKED_MS carries an unwarded pocket — it still burns and still
+    // lights, but stops keeping the dark out.
+    const torchPockets: { zoneId: string; x: number; y: number; warded: boolean }[] = [];
     for (const p of ctx.db.player.iter()) {
       if (!p.online || p.dead || p.equippedOffHand !== "torch") continue;
       const lit = settle(ctx, p, now);
-      torchPockets.push({ zoneId: p.zoneId, x: lit.x, y: lit.y });
+      // Epoch-zero provokedAt is the never-provoked default, not a real stamp.
+      const warded = p.provokedAt.microsSinceUnixEpoch === 0n || elapsedMs(p.provokedAt, now) >= TORCH_PROVOKED_MS;
+      torchPockets.push({ zoneId: p.zoneId, x: lit.x, y: lit.y, warded });
       const row = ctx.db.inventory.id.find(p.equippedOffHandInventoryId);
       if (!row) continue;
       // Persist wear in ~5s quanta, not every sweep tick: a row diff per
@@ -772,7 +784,7 @@ export const wanderPresence = spacetimedb.reducer({ timer: afkWanderTimer.rowTyp
       }
     }
     const inTorchlight = (zoneId: string, x: number, y: number): boolean =>
-      torchPockets.some((tp) => tp.zoneId === zoneId && Math.hypot(tp.x - x, tp.y - y) <= TORCH_LIT_RADIUS);
+      torchPockets.some((tp) => tp.warded && tp.zoneId === zoneId && Math.hypot(tp.x - x, tp.y - y) <= TORCH_LIT_RADIUS);
 
     const revealedSlugs = currentRevealedRegions(ctx);
     const penumbraSlugs = penumbraOf(revealedSlugs);
@@ -1026,10 +1038,14 @@ export const wanderPresence = spacetimedb.reducer({ timer: afkWanderTimer.rowTyp
       // active trogg within aggro range. Sighting is range-based, like earshot.
       // A torch-bearer is not prey (GDD "Crafting"): its firelight is ground
       // the creature can't enter, so it neither acquires nor keeps one as a
-      // chase target — equipping a torch mid-chase breaks the pursuit.
+      // chase target — equipping a torch mid-chase breaks the pursuit. Blood
+      // over flame: a bearer who drew a dark creature's blood in the last
+      // TORCH_PROVOKED_MS forfeits that exemption — the den answers.
+      const warded = (pl: NonNullable<ReturnType<typeof ctx.db.player.identity.find>>): boolean =>
+        pl.equippedOffHand === "torch" && (pl.provokedAt.microsSinceUnixEpoch === 0n || elapsedMs(pl.provokedAt, now) >= TORCH_PROVOKED_MS);
       let target: NonNullable<ReturnType<typeof ctx.db.player.identity.find>> | undefined;
       for (const pl of ctx.db.player.zoneId.filter(s.zoneId)) {
-        if (!pl.online || pl.dead || pl.equippedOffHand === "torch") continue;
+        if (!pl.online || pl.dead || warded(pl)) continue;
         if (c.aggroTargetId && pl.identity.toHexString() === c.aggroTargetId) {
           target = pl;
           break;
@@ -1037,7 +1053,7 @@ export const wanderPresence = spacetimedb.reducer({ timer: afkWanderTimer.rowTyp
       }
       if (!target) {
         for (const pl of ctx.db.player.zoneId.filter(s.zoneId)) {
-          if (!pl.online || pl.dead || pl.equippedOffHand === "torch") continue;
+          if (!pl.online || pl.dead || warded(pl)) continue;
           const tp = settle(ctx, pl, now);
           if (Math.hypot(tp.x - s.x, tp.y - s.y) <= DARK_CREATURE_AGGRO_RANGE) {
             target = pl;
@@ -1084,7 +1100,22 @@ export const wanderPresence = spacetimedb.reducer({ timer: afkWanderTimer.rowTyp
           if (statics.has(k) || isSafeTile(ctx, s.zoneId, x, y, night && s.row.nightborn) || inTorchlight(s.zoneId, x, y) || !revealed(zone, x, y)) return true;
           return k !== ownTile && creatureTiles.has(k);
         });
-        dir = pickWanderDir(ctx, bounds, { x: Math.round(s.x), y: Math.round(s.y) }, 1);
+        // Carried firelight draws a prowl (GDD "Crafting"): a creature near a
+        // warded torch holds at the rim of the light — hemming the bearer in,
+        // in reach the moment the ward falls — instead of scattering.
+        let pocket: { x: number; y: number } | undefined;
+        let nearest = TORCH_PROWL_RADIUS;
+        for (const tp of torchPockets) {
+          if (!tp.warded || tp.zoneId !== s.zoneId) continue;
+          const d = Math.hypot(tp.x - s.x, tp.y - s.y);
+          if (d <= nearest) {
+            nearest = d;
+            pocket = tp;
+          }
+        }
+        dir = pocket
+          ? prowlDir(bounds, { x: Math.round(s.x), y: Math.round(s.y) }, pocket, c.id)
+          : pickWanderDir(ctx, bounds, { x: Math.round(s.x), y: Math.round(s.y) }, 1);
       }
 
       const unchanged = s.x === c.x && s.y === c.y && dir.dirX === c.dirX && dir.dirY === c.dirY && aggroTargetId === c.aggroTargetId && strayed === c.strayed;

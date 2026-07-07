@@ -65,3 +65,16 @@ export const TORCH_BURN_MS = 5 * 60_000;
  *  "Crafting"): dark creatures cannot enter it — the same cannot-cross rule
  *  a brazier enforces, at a personal radius. Euclidean tiles. (initial) */
 export const TORCH_LIT_RADIUS = 2.5;
+
+/** Blood over flame (GDD "Crafting"): damaging a dark creature suspends the
+ *  bearer's torch ward for this long (refreshed per hit) — creatures may
+ *  target the bearer and cross their light. The torch means safe passage,
+ *  never safe hunting: any number of spare torches extends how far you can
+ *  walk, not how much you can kill. (initial) */
+export const TORCH_PROVOKED_MS = 10_000;
+
+/** How near a warded torch pocket a dark creature switches from wandering to
+ *  prowling its rim (GDD "Crafting") — holding at the edge of the light,
+ *  hemming the bearer in, in reach the moment the ward falls. Euclidean
+ *  tiles, centre to centre. (initial) */
+export const TORCH_PROWL_RADIUS = 6;

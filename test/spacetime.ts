@@ -164,6 +164,7 @@ export function playerRow(identity: Id, over: Record<string, unknown> = {}) {
     dirZ: 0,
     kindlingCharge: 0,
     kindlingChargeAt: { microsSinceUnixEpoch: 0n },
+    provokedAt: { microsSinceUnixEpoch: 0n },
     ...over,
   };
 }
