@@ -304,6 +304,14 @@ export class World3D {
     torches.forEach((entry, i) => {
       entry.torchLight!.visible = i < TORCH_LIGHT_BUDGET;
     });
+    // The fire's own shadow, budgeted to one: only the nearest lit fire
+    // casts (see upsertBrazier), which is the one you're standing at.
+    const fires = [...this.braziers.values()]
+      .filter((view) => view.row.lit && view.fx.light)
+      .sort((a, b) => dist(a.group) - dist(b.group));
+    fires.forEach((view, i) => {
+      view.fx.light!.castShadow = i === 0 && dist(view.group) < range;
+    });
     // trees and boulders are instanced whole-zone draws — nothing to cull per node
     for (const view of this.groundItems.values()) view.group.visible = inRange(view.group);
   }
@@ -1594,12 +1602,15 @@ export class World3D {
     let view = this.braziers.get(key);
     if (!view) {
       const group = buildBrazier();
-      // Warm fill only — never a shadow caster: a shadow-casting point light
-      // re-renders a six-face cube shadow map every frame per brazier, and
-      // its shadows fought the sun's camera-riding shadow box, which read as
-      // "a different part is lit depending on where the camera looks".
+      // A shadow-casting point light re-renders a six-face cube map every
+      // frame, so shadows are budgeted: cullDistant enables castShadow on the
+      // nearest lit fire only — standing at a fire throws your second shadow,
+      // and a zone full of braziers costs one cube map, not dozens.
       const light = new THREE.PointLight(0xff8c2e, 9, Math.max(14, row.radius * 2.4), 1.6);
       light.position.set(0.5, 0.7, 0.5);
+      light.shadow.mapSize.set(512, 512);
+      light.shadow.camera.near = 0.3;
+      light.shadow.bias = -0.005;
       group.add(light);
       // No billboard halo here: a camera-facing additive sprite spills its
       // glow onto whatever ground sits behind the fire from the viewer's
@@ -1611,6 +1622,13 @@ export class World3D {
       );
       ground.rotation.x = -Math.PI / 2;
       ground.position.set(0.5, 0.02, 0.5);
+      // The terrain floor is itself in the transparent queue (terrain.ts), and
+      // three.js sorts that queue by camera distance: floor meshes nearer than
+      // the fire draw AFTER this depthWrite-less disc and paint straight over
+      // it — cutting the "glow" to the half-disc beyond the fire, a semicircle
+      // that swings as the camera orbits. renderOrder 1 keeps the disc after
+      // every floor mesh regardless of the camera angle.
+      ground.renderOrder = 1;
       group.add(ground);
       view = { row, group, fx: { cels: group.userData.flameCels as THREE.Group[], light }, ground };
       this.braziers.set(key, view);

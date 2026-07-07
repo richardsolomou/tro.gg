@@ -52,10 +52,12 @@ export default defineConfig({
     sourcemap: true,
     rollupOptions: {
       input: {
-        // Pages: the landing at `/`, the game at `/play`, the dev art preview at `/preview`.
+        // Pages: the landing at `/`, the game at `/play`, the dev art preview
+        // at `/preview`, the campfire lighting lab at `/firelab`.
         main: fileURLToPath(new URL("./index.html", import.meta.url)),
         play: fileURLToPath(new URL("./play/index.html", import.meta.url)),
         preview: fileURLToPath(new URL("./preview/index.html", import.meta.url)),
+        firelab: fileURLToPath(new URL("./firelab/index.html", import.meta.url)),
       },
       output: {
         // Big third-party libraries get their own stable chunks: they download
