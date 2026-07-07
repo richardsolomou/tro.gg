@@ -467,7 +467,9 @@ export class World3D {
     const conn = this.conn;
     this.myId = conn.identity?.toHexString();
     this.parent.appendChild(this.renderer.domElement);
-    this.mountVignette();
+    // No screen-space vignette over the canvas: its bright centre is anchored
+    // to the camera, not the world, so near a fire the "lit" ground reads as
+    // swinging around to face wherever the player is looking.
 
     this.useGhost = isFeatureEnabled("ghost-trogg");
     this.canRun = isFeatureEnabled("running");
@@ -1243,12 +1245,6 @@ export class World3D {
   }
 
   /** A soft radial darkening over the whole viewport — the cave vignette. */
-  private mountVignette(): void {
-    const v = document.createElement("div");
-    v.style.cssText = "position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse at center, rgba(0,0,0,0) 42%, rgba(0,0,0,0.55) 100%)";
-    this.parent.appendChild(v);
-  }
-
   private rebuildMarker(id: string, entry: Tracked): void {
     if (entry.bubbleTimer) clearTimeout(entry.bubbleTimer);
     this.entities.destroy(entry);
