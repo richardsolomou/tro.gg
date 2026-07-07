@@ -13,6 +13,9 @@ import {
   OFF_TOOL_NODE_FACTOR,
   UNARMED_DAMAGE,
   tileKey,
+  GATHER_XP,
+  COMBAT_XP_PER_DAMAGE,
+  type SkillId,
 } from "../../../shared/index";
 import {
   captureProcedureEvents,
@@ -32,6 +35,7 @@ import {
   removeInventoryUnit,
   playerDiedEvent,
   depositStockpile,
+  grantXp,
   damagePlayer,
   damageDarkCreature,
   throwCarried,
@@ -204,6 +208,14 @@ function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; d
   const props = { zone: p.zoneId, ...sourceProp(source) };
   const events: AnalyticsEvent[] = [];
 
+  // Active-play XP (GDD "Skills and XP") — this reducer only ever runs on
+  // player input, so every grant here is attended by construction. A grant
+  // that crosses a level boundary emits level_up (analytics.md).
+  const grant = (skill: SkillId, xp: number): void => {
+    const gain = grantXp(ctx, p.identity, skill, xp);
+    if (gain.leveledUp) events.push({ distinctId: distinctId(ctx), event: "level_up", properties: { ...props, skill, level: gain.level } });
+  };
+
   if (p.carrying !== "") {
     const thrown = throwCarried(ctx, p, zone, pos, aim);
     if (!thrown) return [];
@@ -216,6 +228,7 @@ function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; d
         event: "combat_hit",
         properties: { ...props, weapon: `thrown_${thrown.kind}`, target: thrown.hitTarget, damage: thrown.damage, killed: thrown.killed },
       });
+      if (thrown.hitTarget === "dark_creature") grant("combat", thrown.damage * COMBAT_XP_PER_DAMAGE);
     }
     if (thrown.playerDeath) events.push(playerDiedEvent(thrown.playerDeath.distinctId, props, `thrown_${thrown.kind}`, thrown.playerDeath));
     return events;
@@ -250,6 +263,8 @@ function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; d
     }
     ctx.db.boulder.id.delete(b.id);
     depositStockpile(ctx, "stone", 1);
+    // the breaking hit is the completed gather, whatever weapon dealt it
+    grant("mining", GATHER_XP);
     scheduleNodeRespawn(ctx, p.zoneId, "boulder", b.x, b.y);
     return true;
   };
@@ -260,6 +275,7 @@ function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; d
     }
     ctx.db.tree.id.delete(tr.id);
     depositStockpile(ctx, "wood", 1);
+    grant("woodcutting", GATHER_XP);
     scheduleNodeRespawn(ctx, p.zoneId, "tree", tr.x, tr.y);
     return true;
   };
@@ -284,6 +300,7 @@ function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; d
       if (creature && (!trogg || creature.dist <= trogg.dist)) {
         const result = damageDarkCreature(ctx, creature.target, damage);
         events.push({ distinctId: distinctId(ctx), event: "combat_hit", properties: { ...props, weapon: item, target: "dark_creature", damage: result.dealt, killed: result.killed } });
+        grant("combat", Math.min(result.dealt, creature.target.health) * COMBAT_XP_PER_DAMAGE);
         landed = true;
       } else if (trogg) {
         const result = damagePlayer(ctx, trogg.target, damage);

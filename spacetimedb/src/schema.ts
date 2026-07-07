@@ -336,6 +336,23 @@ const inventory = table(
 );
 
 /**
+ * Per-player, per-skill accumulated XP (GDD "Skills and XP"). XP accrues only
+ * from active play — the player-initiated reducers call `grantXp`; the AFK
+ * instinct sweep deposits into the stockpile but never writes here (design
+ * pillar 7). Levels — per-skill and the overall level — are derived from xp
+ * via the shared curve, never stored.
+ */
+const skills = table(
+  { name: "skills", public: true },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    playerId: t.identity().index("btree"),
+    skill: t.string(),
+    xp: t.f64(),
+  },
+);
+
+/**
  * The tribe's one shared resource pool (GDD "The fire and the dark" → The
  * stockpile): one row per item id, fed directly by every gather action —
  * active or AFK — never by a personal inventory. Global, not per-zone: there
@@ -509,7 +526,7 @@ const worldState = table(
   },
 );
 
-const spacetimedb = schema({ player, chatMessage, ghostHaunt, claimCode, boulder, tree, darkCreature, groundItem, inventory, stockpile, brazier, brazierUpkeepTimer, afkWanderTimer, playerConnection, playerRespawn, nodeRespawn, creatureRegen, revealedRegion, worldState });
+const spacetimedb = schema({ player, chatMessage, ghostHaunt, claimCode, boulder, tree, darkCreature, groundItem, inventory, skills, stockpile, brazier, brazierUpkeepTimer, afkWanderTimer, playerConnection, playerRespawn, nodeRespawn, creatureRegen, revealedRegion, worldState });
 export default spacetimedb;
 
 /** The reducer context, typed against this module's schema (db view + sender). */

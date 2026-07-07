@@ -37,7 +37,7 @@ The buildable spec for tro.gg. If you are an agent working on this codebase: thi
 | interact | The generic action key (`E`). It picks up ground items and picks up / puts down tile-sized carryables; pickup scans adjacent tiles and prioritises the tile the trogg faces, while put-down uses the faced tile first. Future effects (switch, fire) hang off the same key. |
 | carry | A trogg holding a tile-sized object on its person — the object leaves its tile until put down. No carryable exists at this design's outset; the mechanism is generic infrastructure for whatever hangs off it later. `carrying` in code/schema. |
 | action | A timed activity a player starts on a node (mine, forage). One action at a time per player. |
-| skill | A progression track (mining, foraging, combat). XP and levels per skill, per player, earned only by active play. |
+| skill | A progression track (mining, woodcutting, combat today; foraging joins with glowcap nodes). XP and levels per skill, per player, earned only by active play. |
 | overall level | A trogg's single tribe-facing progress number: its total XP summed across every skill, read through the shared level curve. Derived, never stored — there is no separate character-level track. |
 | recipe | A crafting definition: inputs → output, skill requirement. |
 | guest | An anonymous player (self-issued anonymous session). Has a generated name until upgrade. |
@@ -212,7 +212,8 @@ Open questions to resolve before building: whether a slot carries a fit scale be
 - Total XP to reach level L: `50 × (L − 1)²` *(initial)* — level 2 at 50 XP, level 10 at 4,050.
 - Level cap: 50 *(initial)*.
 - **Overall level is derived from total XP, never a sum of skill levels.** Sum a trogg's XP across every skill and read the total through the same level curve — that's its overall level (glossary). Deliberately XP-based rather than level-summed: early levels are cheap on the quadratic curve, so a sum of per-skill levels is hit cheapest by spreading thin and silently inflates every time a new skill ships, while total XP measures the same effort whatever the mix — a specialist and a generalist with equal XP rank equally, and a future skill (herb foraging, crafting) just adds another way to earn it. Like every level it's derived, never stored, and it's a personal-progress stat, fine to display (see Generation for what must never leak). The AFK eligibility gate reads it (The fire and the dark → Presence).
-- First skills: **mining**, **foraging**, and **combat** — clearing a region and pushing the frontline out are no longer a future event to spec around; they're the game, so combat XP ships with them rather than waiting.
+- First skills (shipped): **mining** (boulders), **woodcutting** (trees), and **combat** (dark creatures) — the three things an active trogg can already do. **Foraging** joins when glowcap nodes ship; chopping trees trains woodcutting, not foraging, so a plant-gathering skill isn't stretched over an axe.
+- **Combat XP is damage-based** (shipped): `COMBAT_XP_PER_DAMAGE` *(initial — 1)* XP per point of damage an active trogg deals a dark creature — melee or thrown — clamped to the target's remaining health so overkill buys nothing; assists pay the same rate as killing blows, so chipping at a tough creature in company is real progression. Damaging a trogg grants nothing: no progression incentive to hit your own tribe. Crossing a level boundary emits `level_up` (analytics.md).
 - **Levels gate the tool ladder** (decided, ships with crafting): a recipe's level requirement (Crafting) is the primary thing a level unlocks — reaching the level lets you craft, and wield, that tool tier. The gating skill is **the skill the item serves** (mining for pickaxe tiers, combat for weapons and armor), and craft and wield share the one requirement, so "what can I make?" and "what can I wield?" always have the same answer. There is no crafting skill and no crafter class (Crafting).
 
 ### Gathering (nodes and actions)
@@ -222,10 +223,11 @@ Open questions to resolve before building: whether a slot carries a fit scale be
 - **AFK gathering is the same deposit, at a fraction of the rate and with no XP** — see "The fire and the dark" → Presence for the full AFK-trogg mechanic.
 - One action at a time per player. Starting a new one cancels the old.
 
-| Node type | Skill | Action time | XP | Item | Respawn |
-| --------- | ----- | ----------- | -- | ---- | ------- |
-| stone | mining | 3s *(initial)* | 10 *(initial)* | Stone | 30s *(initial)* |
-| glowcap | foraging | 3s *(initial)* | 10 *(initial)* | Glowcap Mushroom | 30s *(initial)* |
+| Node type | Skill | Gather | XP | Item | Respawn |
+| --------- | ----- | ------ | -- | ---- | ------- |
+| boulder | mining | hit-based (health; pickaxe at full damage) | `GATHER_XP` (10 *(initial)*) on the breaking hit | Stone | `NODE_RESPAWN_MS` *(initial)* |
+| tree | woodcutting | hit-based (health; axe at full damage) | `GATHER_XP` (10 *(initial)*) on the breaking hit | Wood | `NODE_RESPAWN_MS` *(initial)* |
+| glowcap | foraging | 3s timed action *(planned — timed actions and foraging are unbuilt)* | 10 *(initial)* | Glowcap Mushroom | 30s *(initial)* |
 
 New node types are added by extending this table — keep it the registry.
 
@@ -367,7 +369,7 @@ Developer/alpha-tester tools in the Commands drawer (a lone top-right toggle —
 Decided design, not yet built — nothing in this section exists in code yet.
 
 - **One crafting station at the Hearth.** Recipes are inputs → output with a skill/level requirement (Skills and XP). Bulk inputs draw from the shared stockpile, not personal stacks — consistent with gathering's direct-deposit model (see "The fire and the dark" → The stockpile); nobody hoards materials personally, crafting included. Crafting is stone's sink, alongside the claim-brazier cost (Territory claiming). Crafting can never draw the pool below the upkeep reserve — the fire eats first (The stockpile).
-- **Recipes are gated by the skill the output serves, and craft = wield.** A pickaxe tier requires mining level, weapons and armor require combat level, and crafting and wielding share the one requirement (Skills and XP). There is deliberately **no crafting skill and no crafter class**: the tribe's battle-readiness must never hinge on one absent specialist — pillar 6's logic applied to the social layer — so everyone crafts their own gear from the shared pool. If a crafting skill is ever added it slots under overall level like any other XP source, but nothing may ever depend on someone having leveled it, and it must not award XP for merely consuming stockpile (converting communal resources into private progression is the grief loop) — e.g. award XP only when the crafted piece is equipped by another trogg. Later design either way, not the first slice.
+- **Recipes are gated by the skill the output serves, and craft = wield.** A pickaxe tier requires mining level, an axe tier woodcutting level, weapons and armor combat level, and crafting and wielding share the one requirement (Skills and XP). There is deliberately **no crafting skill and no crafter class**: the tribe's battle-readiness must never hinge on one absent specialist — pillar 6's logic applied to the social layer — so everyone crafts their own gear from the shared pool. If a crafting skill is ever added it slots under overall level like any other XP source, but nothing may ever depend on someone having leveled it, and it must not award XP for merely consuming stockpile (converting communal resources into private progression is the grief loop) — e.g. award XP only when the crafted piece is equipped by another trogg. Later design either way, not the first slice.
 - **Weapons and armor join the same grammar** (direction, undetailed): the stockpile is how the tribe outfits itself for excursions against the dark — combat-level-gated recipes on the same station, so a group can self-organize, gear up, and push (Territory claiming). Content unspecced; the gating and economy rules above already cover it.
 - **Spending is visible and attributed.** Every craft names who drew what from the pool — instrumentation-first, and the tribe self-polices a known name draining the surplus better than any formula. The station UI shows current stock, the recipe's cost, and the upkeep reserve line at the moment of spending, so "keep enough for everyone" is a norm with data behind it. A first-open coach card (`coachHit`, Camera and rendering → First-time onboarding) introduces the model: crafting draws from the tribe's stockpile, not your pack — the fire eats first.
 - **The first slice ships tool tiers and torches together.**
@@ -513,9 +515,11 @@ claim_code     code (PK), guest (Identity), createdAt
                a pending guest → account claim (see "Identity"). Private (not public): the nonce lives
                only in the browser that minted it; no client reads this table. startClaim writes it under
                the guest Identity; redeemClaim consumes it as the account. Stale after CLAIM_CODE_TTL_MS.
-skills         playerId, skill, xp
-               XP accrues only from actively played actions — AFK work feeds the stockpile
-               but never a skill (see "Skills and XP"). index: by_player (playerId)
+skills         id (PK, auto-inc), playerId, skill, xp
+               per-player, per-skill accumulated XP. Accrues only from actively played actions
+               (`grantXp`, called from player-initiated reducers) — the AFK sweep feeds the
+               stockpile but never a skill (see "Skills and XP"). Levels are derived from xp
+               via the shared curve, never stored. index: by_player (playerId)
 revealed_region slug (PK), name, interior, revealedAt
                one row per region ever scouted, not only claimed ones (see "The fire and the dark" →
                Generation). A row is created the moment a region is first exposed as penumbra
@@ -564,6 +568,7 @@ The core systems, in dependency order:
 2. **Hearths, braziers, and territory** — the `brazier` table with the First Fire as the one eternal row, region-wide "dark creatures can't enter lit ground" collision, upkeep drain off the stockpile, and guttering ordered by claim-graph hop-depth (deepest claimed region first).
 3. **Presence: active / AFK** — the AFK charge (`kindlingCharge`) and its anchor on the player row, AFK troggs that keep working interior ground after a disconnect at a charge-dependent rate, and the recall-to-hearth for a disconnect on unclaimed ground.
 4. **Dark creatures** — the grask, on the shared rig/motion machinery: aggro-on-sight, light-bound movement, territory-linked respawn.
+4b. **Skills and XP** — the `skills` table; mining/woodcutting XP on the breaking hit, damage-based combat XP, levels and the overall level derived from the shared `50×(L−1)²` curve, `level_up` emitted at boundaries. AFK work grants none.
 5. **Territory claiming** — empty-handed `E` in a cleared penumbra region sets a brazier down for free and claims it; relighting a guttered brazier in interior ground is likewise free; the corpse-respawn clock is the claim pressure.
 6. **Infinite, region-at-a-time worldgen** — the unbounded capital lattice (`shared/worldgen.ts`): on-demand chunk synthesis, full-mesh corridors between lattice-adjacent capitals, depth-scaled seed density, `revealed_region` rows (`slug, name, interior, revealedAt`) with names locked at first scouting, fog-rendered penumbra/unreached ground, the unclaimed-crossing banner, and the frontier debug tools (reveal next, jump N out, reset).
 

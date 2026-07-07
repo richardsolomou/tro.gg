@@ -106,6 +106,7 @@ export function makeCtx(opts: FakeCtxOpts) {
       darkCreature: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
       groundItem: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
       inventory: makeTable({ pk: "id", autoInc: true, indexes: ["playerId"] }),
+      skills: makeTable({ pk: "id", autoInc: true, indexes: ["playerId"] }),
       stockpile: makeTable({ pk: "item" }),
       brazier: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
       brazierUpkeepTimer: makeTable({ pk: "scheduledId", autoInc: true }),

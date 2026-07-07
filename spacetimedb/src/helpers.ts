@@ -268,6 +268,7 @@ export * from "./tiles";
 export * from "./inventory";
 export * from "./combat";
 export * from "./stockpile";
+export * from "./skills";
 export * from "./brazier";
 export * from "./presence";
 export * from "./reveal";

@@ -46,6 +46,8 @@ import {
   AFK_CHARGE_ACCRUAL_RATE,
   AFK_CHARGE_DECAY_RATE,
   AFK_GATHER_DAMAGE,
+  GATHER_XP,
+  COMBAT_XP_PER_DAMAGE,
   DARK_CREATURE_AGGRO_RANGE,
   DARK_CREATURES,
   MAX_DARK_CREATURES_PER_ZONE,
@@ -1955,4 +1957,81 @@ test("a returning mid-dig trogg resumes its own cave exactly as it left it", () 
   const p = ctx.db.player.identity.find(me);
   assert.equal(p.zoneId, birthZone);
   assert.equal(ctx.db.boulder.zoneId.filter(birthZone).length, remaining);
+});
+
+
+// --- Skills and XP ---
+
+const skillXp = (ctx: any, playerId: any, skill: string) => ctx.db.skills.rows().find((r: any) => r.playerId === playerId && r.skill === skill)?.xp;
+
+test("the breaking hit grants mining XP; a mid-swing chip grants none", () => {
+  const { ctx, me } = withPlayer({ x: 69, y: 96, equippedMainHand: "pickaxe" });
+  const pickaxe = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "pickaxe", qty: 1 });
+  ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedMainHandInventoryId: pickaxe.id });
+  ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96, health: BOULDER_MAX_HEALTH });
+
+  useEquipped(ctx, { dirX: 1, dirY: 0 }); // chips, doesn't break
+  assert.equal(skillXp(ctx, me, "mining"), undefined);
+
+  ctx.db.boulder.rows().forEach((b: any) => ctx.db.boulder.id.update({ ...b, health: 1 })); // worn to the last blow
+  ctx.timestamp = { microsSinceUnixEpoch: micros(1000) };
+  useEquipped(ctx, { dirX: 1, dirY: 0 });
+  assert.equal(skillXp(ctx, me, "mining"), GATHER_XP); // the completed gather grants, once
+});
+
+test("felling a tree grants woodcutting XP", () => {
+  const { ctx, me } = withPlayer({ x: 69, y: 96, equippedMainHand: "axe" });
+  const axe = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "axe", qty: 1 });
+  ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedMainHandInventoryId: axe.id });
+  ctx.db.tree.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96, health: WEAPON_DAMAGE.axe![0] }); // breaks on one blow
+
+  useEquipped(ctx, { dirX: 1, dirY: 0 });
+
+  assert.equal(skillXp(ctx, me, "woodcutting"), GATHER_XP);
+  assert.equal(skillXp(ctx, me, "mining"), undefined); // each gather trains its own track
+});
+
+test("damaging a dark creature grants combat XP per point dealt, clamped to its remaining health", () => {
+  const { ctx, me } = withPlayer({ x: 69, y: 96, equippedMainHand: "sword" });
+  const sword = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });
+  ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedMainHandInventoryId: sword.id });
+  const perHit = WEAPON_DAMAGE.sword![0];
+  ctx.db.darkCreature.insert(darkCreatureRow({ x: 70, y: 96, health: perHit + 100 }));
+
+  useEquipped(ctx, { dirX: 1, dirY: 0 });
+  assert.equal(skillXp(ctx, me, "combat"), perHit * COMBAT_XP_PER_DAMAGE); // a clean hit pays its damage
+
+  // a killing blow on a nearly-dead creature pays only the health it took, not the overkill
+  ctx.db.darkCreature.rows().forEach((c: any) => ctx.db.darkCreature.id.delete(c.id));
+  ctx.db.darkCreature.insert(darkCreatureRow({ x: 70, y: 96, health: 3 }));
+  ctx.timestamp = { microsSinceUnixEpoch: micros(1000) };
+  useEquipped(ctx, { dirX: 1, dirY: 0 });
+  assert.equal(skillXp(ctx, me, "combat"), (perHit + 3) * COMBAT_XP_PER_DAMAGE);
+});
+
+test("damaging a trogg grants no combat XP — no progression incentive to hit the tribe", () => {
+  const { ctx, me } = withPlayer({ x: 69, y: 96, equippedMainHand: "sword" });
+  const sword = ctx.db.inventory.insert({ id: 0n, playerId: me, item: "sword", qty: 1 });
+  ctx.db.player.identity.update({ ...ctx.db.player.identity.find(me), equippedMainHandInventoryId: sword.id });
+  ctx.db.player.insert(playerRow(id("victim"), { x: 70, y: 96, health: PLAYER_MAX_HEALTH }));
+
+  useEquipped(ctx, { dirX: 1, dirY: 0 });
+
+  assert.notEqual(ctx.db.player.identity.find(id("victim")).health, PLAYER_MAX_HEALTH); // the hit landed
+  assert.equal(ctx.db.skills.rows().length, 0); // and paid nothing
+});
+
+test("AFK instinct gathering deposits but never grants XP", () => {
+  const watcher = id("watcher");
+  const afk = id("instinct");
+  const ctx = makeCtx({ sender: watcher, random: 0.05 }); // 0.05 chips even at the trickle rate
+  ctx.db.player.insert(playerRow(watcher, { online: true }));
+  ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
+  ctx.db.boulder.insert({ id: 0n, zoneId: ZONE, x: 70, y: 96, health: AFK_GATHER_DAMAGE }); // breaks on one chip
+  ctx.db.player.insert(playerRow(afk, { x: 69, y: 96, online: false, kindlingCharge: 10, kindlingChargeAt: { microsSinceUnixEpoch: 0n } }));
+
+  wanderPresence(ctx, {});
+
+  assert.equal(ctx.db.stockpile.item.find("stone")?.qty, 1); // instinct works...
+  assert.equal(ctx.db.skills.rows().length, 0); // ...but never grows (pillar 7)
 });

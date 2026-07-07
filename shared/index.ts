@@ -7,3 +7,4 @@ export * from "./motion";
 export * from "./creatures";
 export * from "./time";
 export * from "./presence";
+export * from "./skills";

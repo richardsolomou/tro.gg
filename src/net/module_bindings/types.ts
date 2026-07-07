@@ -181,6 +181,14 @@ export const RevealedRegion = __t.object("RevealedRegion", {
 });
 export type RevealedRegion = __Infer<typeof RevealedRegion>;
 
+export const Skills = __t.object("Skills", {
+  id: __t.u64(),
+  playerId: __t.identity(),
+  skill: __t.string(),
+  xp: __t.f64(),
+});
+export type Skills = __Infer<typeof Skills>;
+
 export const Stockpile = __t.object("Stockpile", {
   item: __t.string(),
   qty: __t.i32(),

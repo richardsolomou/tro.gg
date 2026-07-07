@@ -91,6 +91,7 @@ import GroundItemRow from "./ground_item_table";
 import InventoryRow from "./inventory_table";
 import PlayerRow from "./player_table";
 import RevealedRegionRow from "./revealed_region_table";
+import SkillsRow from "./skills_table";
 import StockpileRow from "./stockpile_table";
 import TreeRow from "./tree_table";
 import WorldStateRow from "./world_state_table";
@@ -222,6 +223,20 @@ const tablesSchema = __schema({
       { name: 'revealed_region_slug_key', constraint: 'unique', columns: ['slug'] },
     ],
   }, RevealedRegionRow),
+  skills: __table({
+    name: 'skills',
+    indexes: [
+      { accessor: 'id', name: 'skills_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+      { accessor: 'playerId', name: 'skills_player_id_idx_btree', algorithm: 'btree', columns: [
+        'playerId',
+      ] },
+    ],
+    constraints: [
+      { name: 'skills_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, SkillsRow),
   stockpile: __table({
     name: 'stockpile',
     indexes: [
