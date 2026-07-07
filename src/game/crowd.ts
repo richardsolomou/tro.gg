@@ -57,7 +57,7 @@ export class FarCrowd {
   private readonly colour = new THREE.Color();
 
   constructor(scene: THREE.Scene) {
-    const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, flatShading: true });
+    const mat = new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true });
     this.mesh = new THREE.InstancedMesh(troggSilhouette(), mat, CAPACITY);
     this.mesh.count = 0;
     this.mesh.frustumCulled = false; // instances span the zone

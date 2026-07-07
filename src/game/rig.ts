@@ -34,7 +34,7 @@ export interface CreatureModel {
   mixer: THREE.AnimationMixer;
   actions: { idle: GaitActions; walk: GaitActions; run: GaitActions; attacks: Record<Wield, THREE.AnimationAction> };
   /** Every material on this instance, for the hit flash. */
-  materials: THREE.MeshStandardMaterial[];
+  materials: THREE.MeshLambertMaterial[];
   /** Equip attach nodes: items parented here ride the animated arm. */
   handR: THREE.Group;
   handL: THREE.Group;
@@ -48,7 +48,7 @@ export interface CreatureModel {
 
 /** A model under construction: geometry helpers plus the per-instance material list. */
 export class Parts {
-  readonly materials: THREE.MeshStandardMaterial[] = [];
+  readonly materials: THREE.MeshLambertMaterial[] = [];
   private readonly tint?: THREE.Color;
 
   constructor(tint?: number) {
@@ -56,10 +56,14 @@ export class Parts {
     this.tint = tint === undefined ? undefined : new THREE.Color(tint);
   }
 
-  mat(colour: number, emissive = false): THREE.MeshStandardMaterial {
+  // Lambert, not Standard: Standard's specular lobe puts a view-dependent
+  // sheen on every body and prop — orbiting the camera visibly sweeps light
+  // across the world (worst near the campfire). Matte low-poly wants pure
+  // diffuse, and it's cheaper to shade.
+  mat(colour: number, emissive = false): THREE.MeshLambertMaterial {
     const c = new THREE.Color(colour);
     if (this.tint) c.multiply(this.tint);
-    const m = new THREE.MeshStandardMaterial({ color: c, roughness: 0.9, metalness: 0, flatShading: true });
+    const m = new THREE.MeshLambertMaterial({ color: c, flatShading: true });
     if (emissive) {
       m.emissive.copy(c);
       m.emissiveIntensity = 0.9;

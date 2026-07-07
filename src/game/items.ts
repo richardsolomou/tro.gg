@@ -12,8 +12,8 @@ import { poolGeometry, poolMaterial } from "./pool.js";
  * model down with a little scatter tilt.
  */
 
-function mat(colour: number): THREE.MeshStandardMaterial {
-  return poolMaterial(`item:${colour}`, () => new THREE.MeshStandardMaterial({ color: colour, roughness: 0.85, metalness: 0, flatShading: true }));
+function mat(colour: number): THREE.MeshLambertMaterial {
+  return poolMaterial(`item:${colour}`, () => new THREE.MeshLambertMaterial({ color: colour, flatShading: true }));
 }
 
 function box(parent: THREE.Object3D, w: number, h: number, d: number, colour: number, x = 0, y = 0, z = 0): THREE.Mesh {

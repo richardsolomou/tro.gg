@@ -106,7 +106,7 @@ export function buildGrask(): CreatureModel {
 export function buildGhost(): THREE.Group {
   const g = GHOST_3D;
   const root = new THREE.Group();
-  const sheet = new THREE.MeshStandardMaterial({ color: g.sheet, roughness: 0.9, flatShading: true, transparent: true, opacity: 0.92 });
+  const sheet = new THREE.MeshLambertMaterial({ color: g.sheet, flatShading: true, transparent: true, opacity: 0.92 });
   const dome = new THREE.Mesh(new THREE.ConeGeometry(0.42, 1.0, 9), sheet);
   dome.position.y = 0.62;
   dome.castShadow = true;
@@ -114,12 +114,12 @@ export function buildGhost(): THREE.Group {
   const headCap = new THREE.Mesh(new THREE.IcosahedronGeometry(0.3, 1), sheet);
   headCap.position.y = 1.05;
   root.add(headCap);
-  const dark = new THREE.MeshStandardMaterial({ color: g.eye, roughness: 1 });
+  const dark = new THREE.MeshLambertMaterial({ color: g.eye });
   for (const side of [-1, 1] as const) {
     const eye = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.12, 0.03), dark);
     eye.position.set(side * 0.11, 1.02, 0.27);
     root.add(eye);
-    const foot = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.08, 0.14), new THREE.MeshStandardMaterial({ color: g.foot, roughness: 1 }));
+    const foot = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.08, 0.14), new THREE.MeshLambertMaterial({ color: g.foot }));
     foot.position.set(side * 0.14, 0.05, 0.05);
     root.add(foot);
   }
