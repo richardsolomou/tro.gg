@@ -20,7 +20,7 @@ export const MOVE_SPEED_TILES_PER_SEC = 4;
 export const RUN_SPEED_TILES_PER_SEC = 7;
 
 /**
- * A wanderer's turn/idle rolls (ember troggs today, dark creatures once they
+ * A wanderer's turn/idle rolls (AFK troggs today, dark creatures once they
  * exist): a scheduled reducer re-derives the wanderer's settled position each
  * tick and either keeps its heading or rolls a fresh one, riding the same
  * intent-based motion as troggs (no per-frame sync). A moving wanderer keeps
@@ -72,7 +72,7 @@ export interface Coord {
 }
 
 /** Item ids are canonical across inventory rows, equipment slots, and UI labels. */
-export const ITEM_IDS = ["stone", "wood", "pickaxe", "shovel", "axe", "sword", "shield", "torch"] as const;
+export const ITEM_IDS = ["stone", "wood", "pickaxe", "shovel", "axe", "sword", "shield", "torch", "fine_pickaxe", "fine_axe"] as const;
 export type ItemId = (typeof ITEM_IDS)[number];
 export const SPAWNABLE_ITEM_IDS = ["pickaxe", "shovel", "axe", "sword", "shield", "torch", "stone", "wood"] as const satisfies readonly ItemId[];
 export type SpawnableItemId = (typeof SPAWNABLE_ITEM_IDS)[number];
@@ -88,9 +88,11 @@ export const STOCKPILE_CAP = 2000;
 
 /**
  * Hearths and braziers (GDD "The fire and the dark" → Territory and
- * permanence). `BRAZIER_LIT_RADIUS` is how far a brazier's light reaches, the
- * "cannot enter a lit tile" boundary for dark creatures; the First Fire lights
- * a wider ring since it anchors the whole hub. Upkeep is billed in Wood — a
+ * permanence). `BRAZIER_LIT_RADIUS`/`FIRST_FIRE_LIT_RADIUS` size each
+ * brazier's glow ring — by day safety is region-wide (`isLitTile`) and the
+ * ring is presentation; at night the ring is the sanctuary creatures cannot
+ * enter (GDD "The fire and the dark" → Night; `isSanctuaryTile`). The
+ * First Fire's is wider since it anchors the whole hub. Upkeep is billed in Wood — a
  * lit brazier draws `BRAZIER_UPKEEP_RATE` from the stockpile every
  * `BRAZIER_UPKEEP_TICK_MS`; when the tribe can't cover total upkeep, braziers
  * furthest from the First Fire gutter first (never the interior, never at
@@ -99,42 +101,64 @@ export const STOCKPILE_CAP = 2000;
  */
 export const BRAZIER_LIT_RADIUS = 6;
 export const FIRST_FIRE_LIT_RADIUS = 10;
+/** Stone drawn from the stockpile to set a claim brazier down (GDD
+ *  "Territory claiming") — the fight buys the right, the stone builds the
+ *  fire, so expansion is a tribe-level economic decision. Relighting a
+ *  guttered brazier stays free. (initial) */
+export const BRAZIER_CLAIM_STONE_COST = 20;
 export const BRAZIER_UPKEEP_ITEM: ItemId = "wood";
 export const BRAZIER_UPKEEP_RATE = 1;
 export const BRAZIER_UPKEEP_TICK_MS = 30_000;
 
 /**
- * Presence: bright, ember, dormant (GDD "The fire and the dark" → Presence).
- * `kindlingCharge` is stored the way motion is — a value plus the anchor it
- * was true at — so its current value is *derived* by applying the accrual
- * rate while bright or the decay rate while ember, never advanced on a timer
- * (invariant 1; see `deriveKindlingCharge`). Decaying faster than it accrues
- * means keeping a trogg productive while away costs the same thing it always
- * should: showing up. (initial)
+ * Presence: active or AFK (GDD "The fire and the dark" → Presence).
+ * The AFK charge (`kindlingCharge` on the player row — the column keeps its
+ * shipped name; prod schema changes only additively) is stored the way
+ * motion is — a value plus the anchor it was true at — so its current value
+ * is *derived* by applying the accrual rate while active or the decay rate
+ * while AFK, never advanced on a timer (invariant 1; see `deriveAfkCharge`).
+ * Decaying faster than it accrues means keeping a trogg productive while
+ * away costs the same thing it always should: showing up. (initial)
  */
-export const CHARGE_ACCRUAL_RATE = 1; // charge per minute of bright play
-export const CHARGE_MAX = 60;
-export const CHARGE_DECAY_RATE = 10; // charge per hour while ember
+export const AFK_CHARGE_ACCRUAL_RATE = 1; // charge per minute of active play
+export const AFK_CHARGE_MAX = 60;
+export const AFK_CHARGE_DECAY_RATE = 10; // charge per hour while AFK
 
 /**
- * An offline trogg works safe interior ground on instinct (GDD "Presence"):
- * the scheduled `ember_wander` sweep re-derives its position every
- * `EMBER_WANDER_TICK_MS`, routes it to the nearest boulder or tree on lit
+ * AFK work is unlocked once, ever, by real play (GDD "Presence" — the
+ * eligibility gate): a trogg's total XP across all skills must reach this
+ * before a disconnect leaves it working in the world at all. Below the gate,
+ * going offline is a plain offline — hidden, no instinct, no trickle — so a
+ * horde of fresh incognito guests farms nothing while away. 800 XP = overall
+ * level 5, roughly one genuinely played first session. (initial)
+ */
+export const AFK_UNLOCK_XP = 800;
+
+/**
+ * An AFK trogg works safe interior ground on instinct (GDD "Presence"):
+ * the scheduled `ember_wander` sweep (durable table name predates the AFK
+ * naming) re-derives its position every
+ * `AFK_WANDER_TICK_MS`, routes it to the nearest boulder or tree on lit
  * revealed ground, and camps it there, rolling a per-tick chance for an
  * instinct-driven gather chip roughly the weight of one weak tool hit —
  * deposited into the stockpile the same way a real hit is, earning no XP.
- * The roll is `EMBER_EFFICIENCY_FRACTION` while kindling charge lasts and
- * drops to `DORMANT_EFFICIENCY_FRACTION` once dormant — instinct never fully
- * sleeps, but bright play buys the better rate. `EMBER_SEEK_RADIUS`
+ * The roll is `AFK_EFFICIENCY_FRACTION` while AFK charge lasts; once the
+ * charge is spent it drops to `AFK_TRICKLE_EFFICIENCY_FRACTION` and winds
+ * down linearly to zero across `AFK_HIDE_AFTER_MS` of absence (see
+ * `afkGatherFraction`), at which point the trogg is hidden from the world
+ * entirely until its player returns — the settlement reads as the tribe
+ * that actually plays here, not a museum. Offline time is measured from the
+ * disconnect anchor (`kindlingChargeAt`). `AFK_SEEK_RADIUS`
  * (manhattan tiles) is the routing budget, sized to span a whole settled zone
  * rather than a neighbourhood — park a trogg anywhere lit and it works that
  * ground. With no reachable node it falls back to an aimless wander. (initial)
  */
-export const EMBER_EFFICIENCY_FRACTION = 0.3;
-export const DORMANT_EFFICIENCY_FRACTION = 0.1;
-export const EMBER_WANDER_TICK_MS = 1_000;
-export const EMBER_GATHER_DAMAGE = 6;
-export const EMBER_SEEK_RADIUS = 400;
+export const AFK_EFFICIENCY_FRACTION = 0.3;
+export const AFK_TRICKLE_EFFICIENCY_FRACTION = 0.1;
+export const AFK_WANDER_TICK_MS = 1_000;
+export const AFK_GATHER_DAMAGE = 6;
+export const AFK_SEEK_RADIUS = 400;
+export const AFK_HIDE_AFTER_MS = 7 * 24 * 60 * 60 * 1000; // a week away hides the trogg (initial)
 
 /** Trogg combat health, damage, and respawn timing. (initial) */
 export const PLAYER_MAX_HEALTH = 100;
@@ -178,6 +202,8 @@ export const WEAPON_DAMAGE: Partial<Record<ItemId, readonly [number, number]>> =
   axe: [14, 22],
   pickaxe: [11, 19],
   shovel: [8, 16],
+  fine_pickaxe: [16, 26],
+  fine_axe: [20, 30],
 };
 
 /** The melee damage range an equipped item rolls against creatures, if it can hurt them. */
@@ -248,6 +274,9 @@ export interface ItemDef {
   blurb: string;
   slot?: EquipmentSlot;
   wield?: Wield;
+  /** The gathering-tool class this item swings as (GDD "Gathering"): every
+   *  tier of pickaxe mines, every tier of axe fells. Absent = not a tool. */
+  tool?: "pickaxe" | "axe";
   /** Fraction of incoming damage this item's wearer blocks while it's equipped
    *  in the off hand. Absent (or main-hand) items block nothing. */
   block?: number;
@@ -278,6 +307,7 @@ export const ITEMS: Record<ItemId, ItemDef> = {
     blurb: "Equipped in the main hand. Use it to mine boulders into stone.",
     slot: "mainHand",
     wield: "chop",
+    tool: "pickaxe",
   },
   shovel: {
     id: "shovel",
@@ -294,6 +324,7 @@ export const ITEMS: Record<ItemId, ItemDef> = {
     blurb: "Equipped in the main hand. Use it to fell trees into wood.",
     slot: "mainHand",
     wield: "chop",
+    tool: "axe",
   },
   sword: {
     id: "sword",
@@ -315,8 +346,26 @@ export const ITEMS: Record<ItemId, ItemDef> = {
     id: "torch",
     name: "Torch",
     stackable: false,
-    blurb: "Equipped in the off hand. Carries a pool of firelight into the dark.",
+    blurb: "Equipped in the off hand. Carries a pool of firelight the dark cannot enter — and burns down while it does.",
     slot: "offHand",
+  },
+  fine_pickaxe: {
+    id: "fine_pickaxe",
+    name: "Fine Pickaxe",
+    stackable: false,
+    blurb: "A keener head on a truer haft. Mines faster; asks mining 5 of its wielder.",
+    slot: "mainHand",
+    wield: "chop",
+    tool: "pickaxe",
+  },
+  fine_axe: {
+    id: "fine_axe",
+    name: "Fine Axe",
+    stackable: false,
+    blurb: "A heavier bit, better balanced. Fells faster; asks woodcutting 5 of its wielder.",
+    slot: "mainHand",
+    wield: "chop",
+    tool: "axe",
   },
 };
 
@@ -347,6 +396,11 @@ export function blockFractionOf(item: string): number {
   return (isItemId(item) ? ITEMS[item].block : undefined) ?? 0;
 }
 
+/** The gathering-tool class an item swings as, whatever its tier. */
+export function gatherToolClass(item: string): "pickaxe" | "axe" | undefined {
+  return isItemId(item) ? ITEMS[item].tool : undefined;
+}
+
 export function isStackableItem(item: string): item is ItemId {
   return isItemId(item) && ITEMS[item].stackable;
 }
@@ -359,7 +413,7 @@ export interface GroundItemSeed extends Coord {
  * Dark creatures (GDD "Dark creatures" / "The fire and the dark" → Territory
  * and permanence): hostile inhabitants of the dark, aggressive on sight, kept
  * off any lit ground by the hearth rule. `DARK_CREATURE_AGGRO_RANGE` is how
- * close a bright trogg must come to break a creature's wander into a chase.
+ * close an active trogg must come to break a creature's wander into a chase.
  * `NPC_CORPSE_MS` is how long a killed creature lies as a corpse before the
  * regen sweep reaps it — whether a fresh one then takes its place depends on
  * whether the ground is lit at that moment (evaluated at the reap, not the
@@ -369,6 +423,16 @@ export interface GroundItemSeed extends Coord {
  * builder (`src/game/creatures.ts`) and a row here. (initial)
  */
 export const DARK_CREATURE_AGGRO_RANGE = 6;
+/** A chase gives up past this (or when pinned against ground it can't cross
+ *  beyond aggro range) — instinct stops pacing the fence (GDD "Dark
+ *  creatures"). (initial) */
+export const DARK_CREATURE_LEASH_RANGE = DARK_CREATURE_AGGRO_RANGE * 2;
+/** The dark only churns where someone can see it: a creature with no online
+ *  trogg within this range is left untouched by the wander sweep — no
+ *  projection, no row update, no fanout to every client. Far larger than
+ *  aggro range, and beyond the client's own render cull, so nothing
+ *  gameplay- or eye-visible changes. (initial) */
+export const DARK_CREATURE_SIM_RANGE = 90;
 export const NPC_CORPSE_MS = 30_000;
 export const MAX_DARK_CREATURES_PER_ZONE = 120;
 

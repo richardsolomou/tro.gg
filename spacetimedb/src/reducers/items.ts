@@ -13,6 +13,15 @@ import {
   OFF_TOOL_NODE_FACTOR,
   UNARMED_DAMAGE,
   tileKey,
+  GATHER_XP,
+  COMBAT_XP_PER_DAMAGE,
+  type SkillId,
+  gatherToolClass,
+  wieldRequirement,
+  recipeFor,
+  upkeepReserve,
+  levelForXp,
+  INVENTORY_SLOT_COUNT,
 } from "../../../shared/index";
 import {
   captureProcedureEvents,
@@ -32,6 +41,9 @@ import {
   removeInventoryUnit,
   playerDiedEvent,
   depositStockpile,
+  withdrawStockpile,
+  grantXp,
+  skillXp,
   damagePlayer,
   damageDarkCreature,
   throwCarried,
@@ -66,6 +78,11 @@ function runEquipItem(ctx: Ctx, { inventoryId, source = "" }: { inventoryId: big
 
   const row = ownedInventoryRow(ctx, p.identity, inventoryId);
   if (!row || row.qty <= 0 || !isEquippableItem(row.item)) return [];
+
+  // Craft = wield (GDD "Crafting"): tier gear demands the same skill level
+  // that crafted it, whoever's pack it ended up in.
+  const wieldReq = wieldRequirement(row.item);
+  if (wieldReq && levelForXp(skillXp(ctx, p.identity, wieldReq.skill)) < wieldReq.level) return [];
 
   if (equipSlotOf(row.item) === "offHand") {
     if (p.equippedOffHandInventoryId === row.id) {
@@ -204,6 +221,14 @@ function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; d
   const props = { zone: p.zoneId, ...sourceProp(source) };
   const events: AnalyticsEvent[] = [];
 
+  // Active-play XP (GDD "Skills and XP") — this reducer only ever runs on
+  // player input, so every grant here is attended by construction. A grant
+  // that crosses a level boundary emits level_up (analytics.md).
+  const grant = (skill: SkillId, xp: number): void => {
+    const gain = grantXp(ctx, p.identity, skill, xp);
+    if (gain.leveledUp) events.push({ distinctId: distinctId(ctx), event: "level_up", properties: { ...props, skill, level: gain.level } });
+  };
+
   if (p.carrying !== "") {
     const thrown = throwCarried(ctx, p, zone, pos, aim);
     if (!thrown) return [];
@@ -216,6 +241,7 @@ function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; d
         event: "combat_hit",
         properties: { ...props, weapon: `thrown_${thrown.kind}`, target: thrown.hitTarget, damage: thrown.damage, killed: thrown.killed },
       });
+      if (thrown.hitTarget === "dark_creature") grant("combat", thrown.damage * COMBAT_XP_PER_DAMAGE);
     }
     if (thrown.playerDeath) events.push(playerDiedEvent(thrown.playerDeath.distinctId, props, `thrown_${thrown.kind}`, thrown.playerDeath));
     return events;
@@ -250,6 +276,8 @@ function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; d
     }
     ctx.db.boulder.id.delete(b.id);
     depositStockpile(ctx, "stone", 1);
+    // the breaking hit is the completed gather, whatever weapon dealt it
+    grant("mining", GATHER_XP);
     scheduleNodeRespawn(ctx, p.zoneId, "boulder", b.x, b.y);
     return true;
   };
@@ -260,17 +288,20 @@ function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; d
     }
     ctx.db.tree.id.delete(tr.id);
     depositStockpile(ctx, "wood", 1);
+    grant("woodcutting", GATHER_XP);
     scheduleNodeRespawn(ctx, p.zoneId, "tree", tr.x, tr.y);
     return true;
   };
 
   let landed = false;
+  let provoked = false;
   if (range) {
     const roll = () => ctx.random.integerInRange(range[0], range[1]);
-    if (item === "pickaxe") {
+    const tool = gatherToolClass(item);
+    if (tool === "pickaxe") {
       const b = meleeBoulderTarget(ctx, p.zoneId, cx, cy, aim);
       if (b) landed = strikeBoulder(b.target, roll());
-    } else if (item === "axe") {
+    } else if (tool === "axe") {
       const tr = meleeTreeTarget(ctx, p.zoneId, cx, cy, aim);
       if (tr) landed = strikeTree(tr.target, roll());
     }
@@ -284,7 +315,9 @@ function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; d
       if (creature && (!trogg || creature.dist <= trogg.dist)) {
         const result = damageDarkCreature(ctx, creature.target, damage);
         events.push({ distinctId: distinctId(ctx), event: "combat_hit", properties: { ...props, weapon: item, target: "dark_creature", damage: result.dealt, killed: result.killed } });
+        grant("combat", Math.min(result.dealt, creature.target.health) * COMBAT_XP_PER_DAMAGE);
         landed = true;
+        provoked = true; // blood over flame: the torch ward drops (GDD "Crafting")
       } else if (trogg) {
         const result = damagePlayer(ctx, trogg.target, damage);
         events.push({ distinctId: distinctId(ctx), event: "combat_hit", properties: { ...props, weapon: item, target: "trogg", damage: result.dealt, killed: result.killed } });
@@ -294,8 +327,8 @@ function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; d
     }
     if (!landed) {
       // no creature and no matching node in the swing: any node takes a scratch
-      const b = item === "pickaxe" ? undefined : meleeBoulderTarget(ctx, p.zoneId, cx, cy, aim);
-      const tr = item === "axe" ? undefined : meleeTreeTarget(ctx, p.zoneId, cx, cy, aim);
+      const b = tool === "pickaxe" ? undefined : meleeBoulderTarget(ctx, p.zoneId, cx, cy, aim);
+      const tr = tool === "axe" ? undefined : meleeTreeTarget(ctx, p.zoneId, cx, cy, aim);
       const chip = Math.max(1, Math.round(roll() * OFF_TOOL_NODE_FACTOR));
       if (b && (!tr || b.dist <= tr.dist)) strikeBoulder(b.target, chip);
       else if (tr) strikeTree(tr.target, chip);
@@ -308,6 +341,7 @@ function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; d
     equippedMainHandInventoryId: equipped?.id ?? 0n,
     equipmentAction: item,
     equipmentActionAt: ctx.timestamp,
+    provokedAt: provoked ? ctx.timestamp : p.provokedAt,
   });
   events.unshift({ distinctId: distinctId(ctx), event: "equipped_item_used", properties: { zone: p.zoneId, item, ...sourceProp(source) } });
   return events;
@@ -327,3 +361,64 @@ export const useEquippedAction = spacetimedb.procedure(
   },
 );
 
+
+
+/**
+ * Craft a recipe at the Hearth's station (GDD "Crafting"). The station is the
+ * First Fire itself for now — stand inside its ring — a dedicated station
+ * model is presentation, not mechanics. Validation is all server-side
+ * (invariant 3): the recipe's skill level gates the craft (craft = wield),
+ * bulk inputs come off the shared stockpile, and the withdrawal can never
+ * take wood below the upkeep reserve — the fire eats first (The stockpile).
+ * The craft is attributed: `item_crafted` names who drew what from the pool.
+ */
+function runCraft(ctx: Ctx, { item, source = "" }: { item: string; source?: string }): AnalyticsEvent[] {
+  const p = ctx.db.player.identity.find(ctx.sender);
+  if (!p || p.dead) return [];
+  const recipe = recipeFor(item);
+  if (!recipe) return [];
+  if (levelForXp(skillXp(ctx, p.identity, recipe.skill)) < recipe.level) return [];
+
+  // at the station: inside the First Fire's ring
+  const pos = settle(ctx, p, ctx.timestamp);
+  const station = [...ctx.db.brazier.zoneId.filter(p.zoneId)].find((b) => b.isEternal && b.lit);
+  if (!station || Math.hypot(station.x - pos.x, station.y - pos.y) > station.radius) return [];
+
+  // a non-stackable output needs a free carry slot
+  if (countRows(ctx.db.inventory.playerId.filter(p.identity)) >= INVENTORY_SLOT_COUNT) return [];
+
+  // both inputs must clear, and wood must stay above the upkeep reserve,
+  // before anything is withdrawn — no partial spends
+  const stoneCost = recipe.costs.stone ?? 0;
+  const woodCost = recipe.costs.wood ?? 0;
+  const wood = ctx.db.stockpile.item.find("wood")?.qty ?? 0;
+  const stone = ctx.db.stockpile.item.find("stone")?.qty ?? 0;
+  const litUpkeep = [...ctx.db.brazier.iter()].filter((b) => b.lit && !b.isEternal).length;
+  if (stone < stoneCost) return [];
+  if (wood < woodCost || wood - woodCost < upkeepReserve(litUpkeep)) return [];
+  if (stoneCost > 0) withdrawStockpile(ctx, "stone", stoneCost);
+  if (woodCost > 0) withdrawStockpile(ctx, "wood", woodCost);
+
+  ctx.db.inventory.insert({ id: 0n, playerId: p.identity, item: recipe.output, qty: 1, wear: 0 });
+  return [
+    {
+      distinctId: distinctId(ctx),
+      event: "item_crafted",
+      properties: { zone: p.zoneId, item: recipe.output, stone_cost: stoneCost, wood_cost: woodCost, skill: recipe.skill, level: recipe.level, ...sourceProp(source) },
+    },
+  ];
+}
+
+export const craftItem = spacetimedb.reducer({ item: t.string() }, (ctx, args) => {
+  runCraft(ctx, args);
+});
+
+export const craftItemAction = spacetimedb.procedure(
+  { item: t.string(), posthogKey: t.string(), source: t.string() },
+  t.unit(),
+  (ctx, args) => {
+    const events = ctx.withTx((tx) => runCraft(tx, args));
+    captureProcedureEvents(ctx, args.posthogKey, events);
+    return unit();
+  },
+);

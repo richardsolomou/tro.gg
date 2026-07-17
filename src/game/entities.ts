@@ -124,11 +124,11 @@ export function setDowned(model: CreatureModel, downed: boolean): void {
 }
 
 /** Fade a living trogg's body toward its presence (GDD "The fire and the
- *  dark" → Presence): bright is fully opaque, ember dims a touch — working
- *  the margins on instinct — and dormant dims further — present, waiting,
- *  visibly idle. Dead troggs keep `setDowned`'s translucency instead. */
+ *  dark" → Presence): active is fully opaque, AFK dims — still here, still
+ *  working, visibly unattended. Dead troggs keep `setDowned`'s translucency
+ *  instead. */
 export function setPresenceDim(model: CreatureModel, presence: Presence): void {
-  const opacity = presence === "bright" ? 1 : presence === "ember" ? 0.75 : 0.5;
+  const opacity = presence === "active" ? 1 : 0.6;
   for (const m of model.materials) {
     m.transparent = opacity < 1;
     m.opacity = opacity;
@@ -289,11 +289,11 @@ export function createEntities(scene: THREE.Scene) {
     }
     addHitbox(marker, hitRing(PLAYER_HIT_RADIUS, 0x6fdc9c), 0.5);
     if (self) addReach(marker);
-    // An offline trogg's name tag says so (GDD "Presence"): the dim body alone
-    // is easy to miss, so ember and dormant get a suffix and a muted colour.
+    // An AFK trogg's name tag says so (GDD "Presence"): the dim body alone
+    // is easy to miss, so AFK gets a suffix and a muted colour.
     const label = makeLabel(
-      dead || presence === "bright" ? name : `${name} · ${presence}`,
-      dead ? UI_3D.deadName : presence === "ember" ? UI_3D.emberName : presence === "dormant" ? UI_3D.dormantName : UI_3D.parchment,
+      dead || presence === "active" ? name : `${name} · AFK`,
+      dead ? UI_3D.deadName : presence === "afk" ? UI_3D.afkName : UI_3D.parchment,
     );
     label.sprite.position.set(0.5, model.height + 0.5, 0.5);
     marker.add(label.sprite);

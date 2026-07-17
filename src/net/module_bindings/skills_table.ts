@@ -13,7 +13,6 @@ import {
 export default __t.row({
   id: __t.u64().primaryKey(),
   playerId: __t.identity().name("player_id"),
-  item: __t.string(),
-  qty: __t.i32(),
-  wear: __t.f64(),
+  skill: __t.string(),
+  xp: __t.f64(),
 });

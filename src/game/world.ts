@@ -5,7 +5,13 @@ import {
   CAVE_DOOR,
   isBirthZone,
   DARK_CREATURES,
-  deriveKindlingCharge,
+  AFK_UNLOCK_XP,
+  AFK_HIDE_AFTER_MS,
+  TORCH_LIT_RADIUS,
+  TORCH_PROVOKED_MS,
+  DAY_CYCLE_MS,
+  dayPhaseAt,
+  isNightPhase,
   EQUIPMENT_ACTION_MS,
   CHAT_BUBBLE_MS,
   DIR_SCALE,
@@ -52,7 +58,7 @@ import { coachHit } from "../ui/coach.js";
 import { mountCommands } from "../ui/commands.js";
 import { regionToast } from "../ui/toasts.js";
 import { createSelfController, type SelfController } from "../movement.js";
-import { captureEvent, isFeatureEnabled, logError, logInfo } from "../analytics.js";
+import { bumpPerf, captureEvent, isFeatureEnabled, logError, logInfo } from "../analytics.js";
 import { audio } from "../audio.js";
 import { interact, useEquipped } from "../net/procedures.js";
 import { isOlderPlayerMotion, playerMotionChanged, withPlayerMotion } from "../motion_sync.js";
@@ -106,8 +112,7 @@ interface DarkCreatureView {
  * table syncs origin/direction/start-time and every client extrapolates locally each
  * frame (invariant 2); all authority stays server-side (invariant 3).
  */
-/** One full in-game day, dawn to dawn. */
-const DAY_CYCLE_MS = 12 * 60 * 1000;
+
 
 /** World objects beyond this many tiles from the camera focus stop rendering. */
 const CULL_RANGE = 72;
@@ -187,14 +192,56 @@ export class World3D {
    *  already-subscribed brazier rows. Region-wide in the world zone: a whole
    *  region counts as lit the moment any brazier inside it is lit. */
   private isLitTileClient(x: number, y: number): boolean {
-    if (this.slug !== STARTING_ZONE_SLUG) {
-      for (const view of this.braziers.values()) if (view.row.lit) return true;
-      return false;
-    }
+    if (this.slug !== STARTING_ZONE_SLUG) return this.anyBrazierLit;
     const slug = regionAt(x, y)?.slug;
-    if (!slug) return false;
+    return slug !== undefined && this.litRegionSlugs.has(slug);
+  }
+
+  /** Lit regions, cached off the subscribed brazier rows. The creature-bounds
+   *  closures probe `isLitTileClient` for every crossed tile of every creature
+   *  every frame — recomputing braziers × regionAt per probe scaled with the
+   *  world and showed up as main-thread hitches; braziers change rarely, so
+   *  cache on their row events instead. */
+  private readonly litRegionSlugs = new Set<string>();
+  private anyBrazierLit = false;
+  private syncLitRegions(): void {
+    this.litRegionSlugs.clear();
+    this.anyBrazierLit = false;
     for (const view of this.braziers.values()) {
-      if (view.row.lit && regionAt(view.row.x, view.row.y)?.slug === slug) return true;
+      if (!view.row.lit) continue;
+      this.anyBrazierLit = true;
+      const slug = regionAt(view.row.x, view.row.y)?.slug;
+      if (slug) this.litRegionSlugs.add(slug);
+    }
+  }
+
+  /** The shared day phase, honouring the debug sky lock (GDD "Zones"). */
+  private dayPhaseNow(): number {
+    return this.dayPhaseOverride ?? dayPhaseAt(Date.now());
+  }
+
+  /** Whether (x, y) is inside a lit brazier's sanctuary ring — the only safe
+   *  ground at night (GDD "Night"), mirroring the server's isSanctuaryTile. */
+  private isSanctuaryTileClient(x: number, y: number): boolean {
+    for (const view of this.braziers.values()) {
+      if (view.row.lit && Math.hypot(view.row.x - x, view.row.y - y) <= view.row.radius) return true;
+    }
+    return false;
+  }
+
+  /** The ground the dark cannot enter right now (GDD "Bound by the light"):
+   *  whole lit regions by day, sanctuary rings at night. */
+  private isSafeTileClient(x: number, y: number): boolean {
+    return isNightPhase(this.dayPhaseNow()) ? this.isSanctuaryTileClient(x, y) : this.isLitTileClient(x, y);
+  }
+
+  /** The moving pockets of carried firelight (GDD "Crafting") — the client
+   *  mirror of the server's torch bounds, read live off tracked torch-bearers
+   *  so a creature never renders walking through someone's light. */
+  private readonly torchPockets: { x: number; y: number }[] = [];
+  private inTorchlightClient(x: number, y: number): boolean {
+    for (const t of this.torchPockets) {
+      if (Math.hypot(t.x - x, t.y - y) <= TORCH_LIT_RADIUS) return true;
     }
     return false;
   }
@@ -258,6 +305,14 @@ export class World3D {
     torches.forEach((entry, i) => {
       entry.torchLight!.visible = i < TORCH_LIGHT_BUDGET;
     });
+    // The fire's own shadow, budgeted to one: only the nearest lit fire
+    // casts (see upsertBrazier), which is the one you're standing at.
+    const fires = [...this.braziers.values()]
+      .filter((view) => view.row.lit && view.fx.light)
+      .sort((a, b) => dist(a.group) - dist(b.group));
+    fires.forEach((view, i) => {
+      view.fx.light!.castShadow = i === 0 && dist(view.group) < range;
+    });
     // trees and boulders are instanced whole-zone draws — nothing to cull per node
     for (const view of this.groundItems.values()) view.group.visible = inRange(view.group);
   }
@@ -274,6 +329,7 @@ export class World3D {
   private readonly braziers = new Map<string, { row: Brazier; group: THREE.Group; fx: HeldFx; ground: THREE.Mesh }>();
   private readonly darkCreatures = new Map<string, DarkCreatureView>();
   private darkCreatureBounds!: ZoneBounds;
+  private nightTideBounds!: ZoneBounds;
 
   private readonly boulderTiles = new Set<string>();
   private readonly treeTiles = new Set<string>();
@@ -342,9 +398,15 @@ export class World3D {
     const daylight = Math.max(0, Math.min(1, (elevation + 0.12) * 2.4));
     const fx = this.orbit.target.x;
     const fz = this.orbit.target.z;
+    // The shadow box rides the focus — snapped to its own texel grid, so its
+    // shadow edges hold still instead of crawling across the ground with
+    // every step (the classic moving-orthographic-shadow shimmer).
+    const texel = 112 / 2048;
+    const sfx = Math.round(fx / texel) * texel;
+    const sfz = Math.round(fz / texel) * texel;
     // the sun arcs across the sky; at night it parks low so shadows fade with it
-    this.keyLight.position.set(fx + Math.cos(sunAngle) * 30, 8 + Math.max(0.05, elevation) * 26, fz + Math.sin(sunAngle) * 14 + 8);
-    this.keyLight.target.position.set(fx, 0, fz);
+    this.keyLight.position.set(sfx + Math.cos(sunAngle) * 30, 8 + Math.max(0.05, elevation) * 26, sfz + Math.sin(sunAngle) * 14 + 8);
+    this.keyLight.target.position.set(sfx, 0, sfz);
     this.keyLight.intensity = 3.2 * daylight * (1 - dark);
     // cave-dark is dim, not blind: enough ambient to read the walls around you
     this.hemi.intensity = (0.3 + 1.2 * daylight) * (1 - dark) + 0.5 * dark;
@@ -377,6 +439,8 @@ export class World3D {
   private readonly sub = { live: false };
   private lastMs = performance.now();
   private lastFrameMs = 0;
+  private lastHideSweepMs = 0;
+  private wasNight?: boolean;
   /** The raw screen-space WASD intent and its last camera-mapped delivery, so the
    *  tick can re-steer a held walk when the camera turns. */
   private rawIntent: MoveIntent = { dirX: 0, dirY: 0, running: false };
@@ -412,7 +476,9 @@ export class World3D {
     const conn = this.conn;
     this.myId = conn.identity?.toHexString();
     this.parent.appendChild(this.renderer.domElement);
-    this.mountVignette();
+    // No screen-space vignette over the canvas: its bright centre is anchored
+    // to the camera, not the world, so near a fire the "lit" ground reads as
+    // swinging around to face wherever the player is looking.
 
     this.useGhost = isFeatureEnabled("ghost-trogg");
     this.canRun = isFeatureEnabled("running");
@@ -428,10 +494,13 @@ export class World3D {
 
     const obstructed = (x: number, y: number) => this.boulderTiles.has(tileKey(x, y)) || this.treeTiles.has(tileKey(x, y)) || !this.isRegionRevealed(x, y);
     this.troggBounds = zoneBounds(this.zone, obstructed);
-    // A dark creature can't stand on lit ground (GDD "Dark creatures"), the
-    // mirror of an ember trogg's confinement — read live off the subscribed
-    // brazier rows, so it stays correct as braziers light or gutter.
-    this.darkCreatureBounds = zoneBounds(this.zone, (x, y) => obstructed(x, y) || this.isLitTileClient(x, y));
+    // A dark creature can't stand on safe ground (GDD "Dark creatures";
+    // "Night") — read live off the subscribed brazier rows and the shared
+    // clock. Residents keep the day boundary (whole lit regions) around the
+    // clock; only the night tide gets the ring-shrunk night bounds, so dawn
+    // never strands a resident inside claimed ground.
+    this.darkCreatureBounds = zoneBounds(this.zone, (x, y) => obstructed(x, y) || this.isLitTileClient(x, y) || this.inTorchlightClient(x, y));
+    this.nightTideBounds = zoneBounds(this.zone, (x, y) => obstructed(x, y) || this.isSafeTileClient(x, y) || this.inTorchlightClient(x, y));
 
     // Torch-lit cave: dim warm ambient, one shadowing key light, dark fog closing in
     // past the zone. Glowmoss tiles add their own teal point lights (terrain3d).
@@ -523,14 +592,37 @@ export class World3D {
       }
     }
     if (!isBirthZone(this.slug)) {
-      // the way back down: the alcove's deep end is a dark tunnel mouth — the
-      // black of the underworld, no props, no sparkle
-      const mouth = new THREE.Mesh(
-        new THREE.PlaneGeometry(2.4, 1.9),
-        new THREE.MeshBasicMaterial({ color: 0x050307 }),
-      );
-      mouth.position.set(CAVE_DOOR.x + 0.5, 0.95, CAVE_DOOR.y + 0.98);
-      mouth.rotation.y = Math.PI; // faces the approach from the coast
+      // The way back down reads as a cave mouth, not a floating dark plane:
+      // a hewn rock arch — two canted jambs under a heavy lintel — frames the
+      // underworld's black, with rubble spilling out over the threshold. Cut
+      // from the same low-poly cloth as the terrain (GDD "Onboarding").
+      const mouth = new THREE.Group();
+      const rock = new THREE.MeshLambertMaterial({ color: 0x5d5648, flatShading: true });
+      const dark = new THREE.MeshBasicMaterial({ color: 0x050307 });
+      const opening = new THREE.Mesh(new THREE.PlaneGeometry(2.3, 2.1), dark);
+      opening.position.set(0, 1.05, 0.18);
+      opening.rotation.y = Math.PI; // faces the approach from the coast
+      const jamb = (dx: number, lean: number) => {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(0.6, 2.5, 0.9), rock);
+        m.position.set(dx, 1.15, 0.28);
+        m.rotation.z = lean;
+        return m;
+      };
+      const lintel = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.65, 1.0), rock);
+      lintel.position.set(0.06, 2.42, 0.28);
+      lintel.rotation.z = 0.055; // hand-hewn, not machined
+      const rubble = [
+        { x: -0.95, s: 0.16, z: -0.55, turn: 0.5 },
+        { x: 0.75, s: 0.11, z: -0.8, turn: 1.1 },
+        { x: 0.1, s: 0.09, z: -0.45, turn: 2.2 },
+      ].map(({ x, s, z, turn }) => {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(s * 2.2, s, s * 1.7), rock);
+        m.position.set(x, s / 2, z);
+        m.rotation.y = turn;
+        return m;
+      });
+      mouth.add(opening, jamb(-1.4, 0.05), jamb(1.45, -0.07), lintel, ...rubble);
+      mouth.position.set(CAVE_DOOR.x + 0.5, 0, CAVE_DOOR.y + 0.8);
       this.scene.add(mouth);
     }
     if (!isBirthZone(this.slug) && sessionStorage.getItem("trogg-emerged") === "1") {
@@ -667,7 +759,7 @@ export class World3D {
     mountCommands({ conn, zone: this.zone });
 
     const queries = [
-      // Ember and dormant troggs stay in view after disconnect (GDD "The fire
+      // AFK troggs stay in view after disconnect (GDD "The fire
       // and the dark" → Presence), so this doesn't filter on `online`.
       `SELECT * FROM player WHERE zone_id = '${this.slug}'`,
       `SELECT * FROM chat_message WHERE zone_id = '${this.slug}'`,
@@ -677,6 +769,7 @@ export class World3D {
       `SELECT * FROM brazier WHERE zone_id = '${this.slug}'`,
       "SELECT * FROM world_state",
       "SELECT * FROM stockpile",
+      "SELECT * FROM skills",
       "SELECT * FROM revealed_region",
     ];
     if (this.myId) queries.push(`SELECT * FROM inventory WHERE player_id = '${this.myId}'`);
@@ -707,6 +800,39 @@ export class World3D {
     this.lastFrameMs = now;
     const dt = Math.min(0.1, (now - this.lastMs) / 1000);
     this.lastMs = now;
+
+    // Dusk is telegraphed world-wide (GDD "Night"): every client derives the
+    // same phase from the shared clock, so the banner needs no server fanout.
+    const nightNow = isNightPhase(this.dayPhaseNow());
+    if (this.wasNight === undefined) this.wasNight = nightNow;
+    else if (nightNow !== this.wasNight) {
+      this.wasNight = nightNow;
+      if (nightNow) {
+        regionToast("Night is falling — the fires hold only their rings");
+        coachHit("first-dusk");
+      }
+    }
+
+    // A trogg can cross the week-offline mark while rendered (GDD "Presence")
+    // — no row update fires for pure time passing, so sweep occasionally.
+    if (now - this.lastHideSweepMs > 60_000) {
+      this.lastHideSweepMs = now;
+      for (const [id, entry] of this.tracked) if (this.hiddenNow(entry.player)) this.removePlayer(id);
+    }
+
+    // Refresh the torch pockets once per frame — the creature-bounds
+    // closures probe them per crossed tile, so they read a flat array
+    // instead of scanning the tracked map every probe. Blood over flame
+    // (GDD "Crafting"): a bearer who drew a dark creature's blood in the
+    // last TORCH_PROVOKED_MS carries an unwarded pocket — the server lets
+    // creatures cross it, so the mirror must too or they'd visibly snap.
+    this.torchPockets.length = 0;
+    for (const entry of this.tracked.values()) {
+      const p = entry.player;
+      if (!p.online || p.dead || p.equippedOffHand !== "torch") continue;
+      if (Date.now() - timestampMs(p.provokedAt) < TORCH_PROVOKED_MS) continue;
+      this.torchPockets.push({ x: entry.marker.position.x, y: entry.marker.position.z });
+    }
 
     this.crowd.begin();
 
@@ -786,9 +912,14 @@ export class World3D {
       // penumbra, easy to miss mid-exploration. Announce it once per region
       // entered, only when the new ground is unclaimed.
       const here = this.slug === STARTING_ZONE_SLUG ? regionAt(Math.round(motion.x), Math.round(motion.y)) : undefined;
-      if (here?.slug !== this.lastRegionSlug) {
+      if (this.sub.live && here?.slug !== this.lastRegionSlug) {
+        // Waking up somewhere isn't a crossing: the first observation (and
+        // anything before the region rows have applied — `sub.live`) seeds
+        // the current region silently, so a fresh boot at the Hearth never
+        // announces "entering unnamed ground".
+        const wasSomewhere = this.lastRegionSlug !== undefined;
         this.lastRegionSlug = here?.slug;
-        if (here && !this.revealedRegions.has(here.slug)) {
+        if (wasSomewhere && here && !this.revealedRegions.has(here.slug)) {
           regionToast(`Entering ${this.regionNames.get(here.slug) ?? "unnamed ground"} — unclaimed`);
         }
       }
@@ -880,8 +1011,15 @@ export class World3D {
     // (`projectMotionState`), just driven directly rather than through the
     // heavier player `Tracked` pipeline — no equipment, carrying, or
     // appearance to reconcile, only motion, a gait, and a corpse pose.
+    // The zone subscription carries every creature in the whole world zone —
+    // hundreds once the frontier fills in. Anything far beyond the camera's
+    // range skips projection, steering, and the mixer entirely (cheap check
+    // on the raw row anchor; cullDistant already keeps them invisible).
+    const focusX = this.orbit?.target.x ?? this.selfPos?.x;
+    const focusY = this.orbit?.target.z ?? this.selfPos?.y;
     for (const view of this.darkCreatures.values()) {
-      const motion = projectMotionState(view.row, now - view.baseMs, this.darkCreatureBounds);
+      if (focusX !== undefined && focusY !== undefined && Math.hypot(view.row.x - focusX, view.row.y - focusY) > CULL_RANGE * 1.5) continue;
+      const motion = projectMotionState(view.row, now - view.baseMs, view.row.nightborn || view.row.aggroTargetId !== "" ? this.nightTideBounds : this.darkCreatureBounds);
       this.entities.place(view.group, motion.x, motion.y);
       if (!view.downed && view.group.visible) {
         const moving = motion.dirX !== 0 || motion.dirY !== 0;
@@ -1121,12 +1259,6 @@ export class World3D {
   }
 
   /** A soft radial darkening over the whole viewport — the cave vignette. */
-  private mountVignette(): void {
-    const v = document.createElement("div");
-    v.style.cssText = "position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse at center, rgba(0,0,0,0) 42%, rgba(0,0,0,0.55) 100%)";
-    this.parent.appendChild(v);
-  }
-
   private rebuildMarker(id: string, entry: Tracked): void {
     if (entry.bubbleTimer) clearTimeout(entry.bubbleTimer);
     this.entities.destroy(entry);
@@ -1165,7 +1297,11 @@ export class World3D {
     }
     conn.db.player.onInsert((_ctx, p) => this.addPlayer(p));
     conn.db.player.onUpdate((_ctx, _old, p) => {
+      bumpPerf("rows_player");
       const id = p.identity.toHexString();
+      // An ineligible trogg going offline leaves the world entirely (GDD
+      // "Presence" — the eligibility gate): no dim body, no tag, no tile.
+      if (this.hiddenNow(p)) return this.removePlayer(id);
       const entry = this.tracked.get(id);
       if (!entry) return this.addPlayer(p);
 
@@ -1218,6 +1354,20 @@ export class World3D {
       this.applyPresence(entry);
     });
     conn.db.player.onDelete((_ctx, p) => this.removePlayer(p.identity.toHexString()));
+
+    // AFK eligibility is derived from the skills table (GDD "Presence"), and
+    // a snapshot can land skills rows after their player row — so re-evaluate
+    // hidden troggs whenever XP arrives, and let the coach announce the
+    // unlock the moment the local trogg crosses the gate.
+    const skillsChanged = (playerId: Player["identity"]): void => {
+      const id = playerId.toHexString();
+      if (id === this.myId && this.totalXpOf(playerId) >= AFK_UNLOCK_XP) coachHit("afk-unlocked");
+      const p = conn.db.player.identity.find(playerId);
+      if (!p || p.zoneId !== this.slug) return;
+      if (!this.tracked.has(id) && !this.hiddenNow(p)) this.addPlayer(p);
+    };
+    conn.db.skills.onInsert((_ctx, row) => skillsChanged(row.playerId));
+    conn.db.skills.onUpdate((_ctx, _old, row) => skillsChanged(row.playerId));
   }
 
   private observeLocalLifecycle(old: Player, p: Player): void {
@@ -1232,6 +1382,7 @@ export class World3D {
   private addPlayer(p: Player): void {
     const id = p.identity.toHexString();
     if (this.tracked.has(id)) return;
+    if (this.hiddenNow(p)) return;
 
     const face = playerFacing(p);
     const facing = facingFromDir(face.dirX, face.dirY, "down");
@@ -1269,8 +1420,25 @@ export class World3D {
   }
 
   private presenceNow(p: Player): Presence {
-    const now: Stamp = { microsSinceUnixEpoch: BigInt(Date.now()) * 1000n };
-    return presenceOf(p.online, deriveKindlingCharge(p.kindlingCharge, p.kindlingChargeAt, p.online, now));
+    return presenceOf(p.online);
+  }
+
+  /** Total XP across a trogg's skills rows — what its overall level and the
+   *  AFK eligibility gate derive from (GDD "Skills and XP"; "Presence"). */
+  private totalXpOf(playerId: Player["identity"]): number {
+    const hex = playerId.toHexString();
+    let sum = 0;
+    for (const r of this.conn.db.skills.iter()) if (r.playerId.toHexString() === hex) sum += r.xp;
+    return sum;
+  }
+
+  /** Whether a trogg is out of the world right now: offline and below the
+   *  AFK eligibility gate (GDD "Presence") — a plain offline, not an AFK
+   *  body. Never true for the local trogg or anyone online. */
+  private hiddenNow(p: Player): boolean {
+    if (p.online || p.identity.toHexString() === this.myId) return false;
+    if (Date.now() - timestampMs(p.kindlingChargeAt) >= AFK_HIDE_AFTER_MS) return true; // a week away
+    return this.totalXpOf(p.identity) < AFK_UNLOCK_XP;
   }
 
   /** Dim a tracked trogg's body to its current presence (GDD "The fire and
@@ -1440,16 +1608,33 @@ export class World3D {
     let view = this.braziers.get(key);
     if (!view) {
       const group = buildBrazier();
+      // A shadow-casting point light re-renders a six-face cube map every
+      // frame, so shadows are budgeted: cullDistant enables castShadow on the
+      // nearest lit fire only — standing at a fire throws your second shadow,
+      // and a zone full of braziers costs one cube map, not dozens.
       const light = new THREE.PointLight(0xff8c2e, 9, Math.max(14, row.radius * 2.4), 1.6);
       light.position.set(0.5, 0.7, 0.5);
-      light.castShadow = true;
+      light.shadow.mapSize.set(512, 512);
+      light.shadow.camera.near = 0.3;
+      light.shadow.bias = -0.005;
       group.add(light);
+      // No billboard halo here: a camera-facing additive sprite spills its
+      // glow onto whatever ground sits behind the fire from the viewer's
+      // angle — a lit smear that swings around the fire as the camera
+      // orbits. The flame cels, the flicker, and the warm fill are the fire.
       const ground = new THREE.Mesh(
         new THREE.RingGeometry(0.6, row.radius, 32),
         new THREE.MeshBasicMaterial({ color: 0xff8c2e, transparent: true, opacity: 0.05, side: THREE.DoubleSide, depthWrite: false }),
       );
       ground.rotation.x = -Math.PI / 2;
       ground.position.set(0.5, 0.02, 0.5);
+      // The terrain floor is itself in the transparent queue (terrain.ts), and
+      // three.js sorts that queue by camera distance: floor meshes nearer than
+      // the fire draw AFTER this depthWrite-less disc and paint straight over
+      // it — cutting the "glow" to the half-disc beyond the fire, a semicircle
+      // that swings as the camera orbits. renderOrder 1 keeps the disc after
+      // every floor mesh regardless of the camera angle.
+      ground.renderOrder = 1;
       group.add(ground);
       view = { row, group, fx: { cels: group.userData.flameCels as THREE.Group[], light }, ground };
       this.braziers.set(key, view);
@@ -1471,12 +1656,22 @@ export class World3D {
 
   private wireBraziers(): void {
     const conn = this.conn;
-    conn.db.brazier.onInsert((_ctx, row) => this.upsertBrazier(row));
-    conn.db.brazier.onUpdate((_ctx, _old, row) => this.upsertBrazier(row));
-    conn.db.brazier.onDelete((_ctx, row) => this.removeBrazier(row));
+    conn.db.brazier.onInsert((_ctx, row) => {
+      this.upsertBrazier(row);
+      this.syncLitRegions();
+    });
+    conn.db.brazier.onUpdate((_ctx, _old, row) => {
+      this.upsertBrazier(row);
+      this.syncLitRegions();
+    });
+    conn.db.brazier.onDelete((_ctx, row) => {
+      this.removeBrazier(row);
+      this.syncLitRegions();
+    });
   }
 
   private upsertDarkCreature(row: DarkCreature): void {
+    bumpPerf("rows_creature");
     const key = row.id.toString();
     let view = this.darkCreatures.get(key);
     const def = DARK_CREATURES[row.species as keyof typeof DARK_CREATURES] ?? Object.values(DARK_CREATURES)[0]!;

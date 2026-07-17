@@ -106,3 +106,52 @@ function normalizeLogAttribute(value: unknown): LogAttribute {
 }
 
 export { posthog };
+
+/** Cheap counters the hitch log snapshots, so a stall report says what the
+ *  client was chewing on (row diffs applied, chunk build time) — bumped from
+ *  the hot paths, reset on every report. */
+export const perfCounters: Record<string, number> = {};
+export function bumpPerf(key: string, n = 1): void {
+  perfCounters[key] = (perfCounters[key] ?? 0) + n;
+}
+
+/**
+ * Main-thread hitch telemetry: long tasks block input and the render loop —
+ * the "screen hangs, then catches up" symptom — and a report with durations
+ * beats a hunch. Logs at most one entry per 10s, only for tasks >= 250ms,
+ * with a running count so frequency is visible too (instrumentation is
+ * first-class, GDD pillar 3).
+ */
+export function watchHitches(): void {
+  if (typeof PerformanceObserver === "undefined") return;
+  let recent = 0;
+  let worst = 0;
+  let lastReport = 0;
+  try {
+    const observer = new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) {
+        recent++;
+        if (entry.duration > worst) worst = entry.duration;
+        if (entry.duration >= 250 && performance.now() - lastReport > 10_000) {
+          lastReport = performance.now();
+          logInfo("Main-thread hitch", {
+            surface: "perf",
+            action: "long_task",
+            duration_ms: Math.round(entry.duration),
+            worst_ms: Math.round(worst),
+            recent_long_tasks: recent,
+            focused: document.hasFocus(),
+            visibility: document.visibilityState,
+            ...perfCounters,
+          });
+          recent = 0;
+          worst = 0;
+          for (const key of Object.keys(perfCounters)) perfCounters[key] = 0;
+        }
+      }
+    });
+    observer.observe({ entryTypes: ["longtask"] });
+  } catch {
+    // longtask isn't supported everywhere; no data beats broken boot
+  }
+}

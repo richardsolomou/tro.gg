@@ -29,6 +29,7 @@ import {
   spawnAt,
   seedBoulders,
   seedDarkCreatures,
+  healRegionPopulations,
   darkCreatureDef,
   isLitTile,
   captureProcedureEvents,
@@ -112,6 +113,8 @@ function runSpawn(ctx: Ctx, { kind, item = "", source = "" }: { kind: string; it
       health: darkCreatureDef(item).maxHealth,
       lastDamagedAt: ctx.timestamp,
       aggroTargetId: "",
+      nightborn: false,
+      strayed: false,
     });
   } else {
     ctx.db.groundItem.insert({ id: 0n, zoneId: p.zoneId, item, x: tile.x, y: tile.y, qty: 1 });
@@ -154,6 +157,9 @@ function runResetBoulders(ctx: Ctx, source = ""): AnalyticsEvent[] {
     if (!b.cellId) ctx.db.boulder.id.delete(b.id);
   }
   seedBoulders(ctx, zone);
+  // Region-seeded rows are what actually populates the world zone — reseed
+  // them too, or a "reset" strips revealed ground bare (GDD "Generation").
+  healRegionPopulations(ctx, zone);
   return [{ distinctId: distinctId(ctx), event: "boulders_reset", properties: { zone: zone.slug, ...sourceProp(source) } }];
 }
 
@@ -183,6 +189,7 @@ function runResetDarkCreatures(ctx: Ctx, source = ""): AnalyticsEvent[] {
   if (!zone) return [];
   for (const c of [...ctx.db.darkCreature.zoneId.filter(zone.slug)]) ctx.db.darkCreature.id.delete(c.id);
   seedDarkCreatures(ctx, zone);
+  healRegionPopulations(ctx, zone);
   return [{ distinctId: distinctId(ctx), event: "dark_creatures_reset", properties: { zone: zone.slug, ...sourceProp(source) } }];
 }
 

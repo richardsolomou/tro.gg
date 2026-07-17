@@ -1,10 +1,11 @@
 import { ScheduleAt, Timestamp } from "spacetimedb";
 import {
   GHOST_HAUNT_HISTORY_MAX,
+  TORCH_LIT_RADIUS,
   WANDER_IDLE_CHANCE,
   HEALTH_REGEN_TICK_MS,
   BRAZIER_UPKEEP_TICK_MS,
-  EMBER_WANDER_TICK_MS,
+  AFK_WANDER_TICK_MS,
   NODE_RESPAWN_MS,
   isValidName,
   isWalkable,
@@ -117,6 +118,8 @@ export function seedDarkCreatures(ctx: Ctx, zone: Zone): void {
       health: darkCreatureDef(seed.species).maxHealth,
       lastDamagedAt: Timestamp.UNIX_EPOCH,
       aggroTargetId: "",
+      nightborn: false,
+      strayed: false,
     });
   }
 }
@@ -208,6 +211,44 @@ export function pickWanderDir(
   return options[ctx.random.integerInRange(0, options.length - 1)]!;
 }
 
+/**
+ * A prowl step around carried firelight (GDD "Crafting"): a dark creature near
+ * a warded torch closes to the rim of the pocket it cannot enter, then circles
+ * it, instead of wandering off — the bearer walks hemmed in, and the prowlers
+ * are in reach the moment the ward falls. Deterministic (no random roll): each
+ * open step is scored by how close it lands to the prowl ring, biased along
+ * the creature's own circling direction (id parity), so a pack spreads around
+ * the bearer instead of stacking on one flank. `bounds` already excludes the
+ * pocket itself, so the ring is approached, never entered.
+ */
+export function prowlDir(
+  bounds: ZoneBounds,
+  pos: { x: number; y: number },
+  pocket: { x: number; y: number },
+  creatureId: bigint,
+): { dirX: number; dirY: number } {
+  const ring = TORCH_LIT_RADIUS + 1;
+  const spin = creatureId % 2n === 0n ? 1 : -1;
+  // Tangent of the circle around the pocket, in this creature's spin direction.
+  const rx = pos.x - pocket.x;
+  const ry = pos.y - pocket.y;
+  const rlen = Math.hypot(rx, ry) || 1;
+  const tx = (-ry / rlen) * spin;
+  const ty = (rx / rlen) * spin;
+  let best = { dirX: 0, dirY: 0 };
+  let bestScore = Math.abs(rlen - ring); // standing still is an option
+  for (const step of walkableSteps(bounds, pos.x, pos.y, 1)) {
+    const dist = Math.hypot(pos.x + step.dirX - pocket.x, pos.y + step.dirY - pocket.y);
+    const along = (step.dirX * tx + step.dirY * ty) / Math.hypot(step.dirX, step.dirY);
+    const score = Math.abs(dist - ring) - along * 0.4;
+    if (score < bestScore) {
+      bestScore = score;
+      best = step;
+    }
+  }
+  return best;
+}
+
 /** Arm the out-of-combat regen sweep, unless one is already pending (GDD "Combat"). */
 export function armRegen(ctx: Ctx): void {
   if (ctx.db.creatureRegen.count() > 0n) return;
@@ -231,12 +272,12 @@ export function scheduleNodeRespawn(ctx: Ctx, zoneId: string, kind: "boulder" | 
   ctx.db.nodeRespawn.insert({ scheduledId: 0n, scheduledAt: ScheduleAt.time(at), zoneId, kind, x, y });
 }
 
-/** Arm the ember-trogg wander sweep, unless one is already pending (GDD "The
+/** Arm the AFK-trogg wander sweep, unless one is already pending (GDD "The
  *  fire and the dark" → Presence). */
-export function armEmberWander(ctx: Ctx): void {
-  if (ctx.db.emberWanderTimer.count() > 0n) return;
-  const at = ctx.timestamp.microsSinceUnixEpoch + BigInt(EMBER_WANDER_TICK_MS) * 1000n;
-  ctx.db.emberWanderTimer.insert({ scheduledId: 0n, scheduledAt: ScheduleAt.time(at) });
+export function armAfkWander(ctx: Ctx): void {
+  if (ctx.db.afkWanderTimer.count() > 0n) return;
+  const at = ctx.timestamp.microsSinceUnixEpoch + BigInt(AFK_WANDER_TICK_MS) * 1000n;
+  ctx.db.afkWanderTimer.insert({ scheduledId: 0n, scheduledAt: ScheduleAt.time(at) });
 }
 
 /** Whether the caller authenticated with a SpacetimeAuth OIDC token (an account, not a guest). */
@@ -268,6 +309,8 @@ export * from "./tiles";
 export * from "./inventory";
 export * from "./combat";
 export * from "./stockpile";
+export * from "./skills";
+export * from "./night";
 export * from "./brazier";
 export * from "./presence";
 export * from "./reveal";

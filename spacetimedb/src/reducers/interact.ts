@@ -1,6 +1,6 @@
 import spacetimedb, { type Ctx, type AnalyticsEvent } from "../schema";
 import { t } from "spacetimedb/server";
-import { BRAZIER_LIT_RADIUS, getZone, isItemId, ITEM_PICKUP_RADIUS, penumbraOf, regionAt, spawnTile, tileKey } from "../../../shared/index";
+import { BRAZIER_CLAIM_STONE_COST, BRAZIER_LIT_RADIUS, getZone, isItemId, ITEM_PICKUP_RADIUS, penumbraOf, regionAt, spawnTile, tileKey } from "../../../shared/index";
 import {
   captureProcedureEvents,
   sourceProp,
@@ -10,6 +10,7 @@ import {
   solidTiles,
   addInventory,
   claimRegionAndExposePenumbra,
+  withdrawStockpile,
   currentRevealedRegions,
   livingDarkCreaturesInRegion,
   nearestGroundItem,
@@ -65,16 +66,17 @@ function runInteract(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; dirY
 
   // Standing in a penumbra region with nothing left alive in it: set a new
   // brazier down and claim the region (GDD "Generation: only as far as the
-  // light reaches" / "Territory and permanence") — clearing it is what
-  // claims it, not a separate event, and it costs nothing.
+  // light reaches" / "Territory claiming") — clearing it is what buys the
+  // right to claim; the brazier itself is paid in stone from the stockpile,
+  // so expansion is a tribe-level economic decision.
   const slug = regionAt(px, py)?.slug;
   if (slug && penumbraOf(currentRevealedRegions(ctx)).has(slug) && livingDarkCreaturesInRegion(ctx, p.zoneId, slug) === 0) {
     const occupied = solidTiles(ctx, p.zoneId, ctx.timestamp, p.identity);
     const tile = spawnTile(zone, (tx, ty) => occupied.has(tileKey(tx, ty)), px, py, dir?.dirX ?? 0, dir?.dirY ?? 0);
-    if (tile) {
+    if (tile && withdrawStockpile(ctx, "stone", BRAZIER_CLAIM_STONE_COST)) {
       ctx.db.brazier.insert({ id: 0n, zoneId: p.zoneId, x: tile.x, y: tile.y, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: false });
       claimRegionAndExposePenumbra(ctx, zone, slug);
-      return [{ distinctId: distinctId(ctx), event: "region_claimed", properties: { ...props, region: slug } }];
+      return [{ distinctId: distinctId(ctx), event: "region_claimed", properties: { ...props, region: slug, stone_cost: BRAZIER_CLAIM_STONE_COST } }];
     }
   }
 

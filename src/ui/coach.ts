@@ -11,7 +11,7 @@ import { hudRoot } from "./hud.js";
  * component needs a reference to the coach); the coach shows the matching hint
  * if it hasn't already.
  */
-export type MilestoneId = "find-pickaxe" | "first-pickup" | "first-equip" | "first-use" | "mined-stone" | "chopped-wood";
+export type MilestoneId = "find-pickaxe" | "first-pickup" | "first-equip" | "first-use" | "mined-stone" | "chopped-wood" | "afk-unlocked" | "first-dusk" | "first-craft";
 
 const HINTS: Record<MilestoneId, string> = {
   "find-pickaxe": "You wake beside a pickaxe. Walk onto it and press E to pick it up.",
@@ -20,6 +20,9 @@ const HINTS: Record<MilestoneId, string> = {
   "first-use": "Keep at it — face a boulder or tree and hold F until it breaks.",
   "mined-stone": "Stone! Boulders break into it — the stuff you'll build with.",
   "chopped-wood": "Wood! Felled trees give it.",
+  "afk-unlocked": "Your trogg can now keep gathering while you're away — log off on safe ground and it works on.",
+  "first-dusk": "Night falls, and the dark seeps back into claimed ground. The fire's ring is safe — stay in the light or fight until dawn.",
+  "first-craft": "Crafting draws from the tribe's stockpile, not your pack — the fire eats first.",
 };
 
 const STORE_KEY = "tro.gg:coach";

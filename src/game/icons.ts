@@ -105,8 +105,8 @@ export function darkCreatureIcon(species: string): HTMLCanvasElement {
 // The panel toggles get the same treatment as the items: tiny low-poly props
 // rendered by the shared rig, so every icon in the HUD is a 3D model.
 
-function propMat(colour: number): THREE.MeshStandardMaterial {
-  return new THREE.MeshStandardMaterial({ color: colour, roughness: 0.9, flatShading: true });
+function propMat(colour: number): THREE.MeshLambertMaterial {
+  return new THREE.MeshLambertMaterial({ color: colour, flatShading: true });
 }
 
 function propBox(parent: THREE.Object3D, w: number, h: number, d: number, colour: number, x = 0, y = 0, z = 0): THREE.Mesh {

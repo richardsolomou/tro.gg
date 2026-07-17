@@ -7,6 +7,7 @@ import { type Infer as __Infer } from "spacetimedb";
 
 // Import all procedure arg schemas
 import * as ChatActionProcedure from "../chat_action_procedure";
+import * as CraftItemActionProcedure from "../craft_item_action_procedure";
 import * as DiscardItemActionProcedure from "../discard_item_action_procedure";
 import * as DropItemActionProcedure from "../drop_item_action_procedure";
 import * as EquipItemActionProcedure from "../equip_item_action_procedure";
@@ -25,6 +26,8 @@ import * as UseEquippedActionProcedure from "../use_equipped_action_procedure";
 
 export type ChatActionArgs = __Infer<typeof ChatActionProcedure.params>;
 export type ChatActionResult = __Infer<typeof ChatActionProcedure.returnType>;
+export type CraftItemActionArgs = __Infer<typeof CraftItemActionProcedure.params>;
+export type CraftItemActionResult = __Infer<typeof CraftItemActionProcedure.returnType>;
 export type DiscardItemActionArgs = __Infer<typeof DiscardItemActionProcedure.params>;
 export type DiscardItemActionResult = __Infer<typeof DiscardItemActionProcedure.returnType>;
 export type DropItemActionArgs = __Infer<typeof DropItemActionProcedure.params>;

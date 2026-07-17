@@ -48,4 +48,5 @@ export default __t.row({
   dirZ: __t.i32().name("dir_z"),
   kindlingCharge: __t.f64().name("kindling_charge"),
   kindlingChargeAt: __t.timestamp().name("kindling_charge_at"),
+  provokedAt: __t.timestamp().name("provoked_at"),
 });

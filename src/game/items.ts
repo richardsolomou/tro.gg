@@ -12,8 +12,8 @@ import { poolGeometry, poolMaterial } from "./pool.js";
  * model down with a little scatter tilt.
  */
 
-function mat(colour: number): THREE.MeshStandardMaterial {
-  return poolMaterial(`item:${colour}`, () => new THREE.MeshStandardMaterial({ color: colour, roughness: 0.85, metalness: 0, flatShading: true }));
+function mat(colour: number): THREE.MeshLambertMaterial {
+  return poolMaterial(`item:${colour}`, () => new THREE.MeshLambertMaterial({ color: colour, flatShading: true }));
 }
 
 function box(parent: THREE.Object3D, w: number, h: number, d: number, colour: number, x = 0, y = 0, z = 0): THREE.Mesh {
@@ -191,7 +191,7 @@ function wood(): THREE.Group {
   return g;
 }
 
-const BUILDERS: Record<string, () => THREE.Group> = { pickaxe, shovel, axe, sword, shield, torch, stone, wood, quill };
+const BUILDERS: Record<string, () => THREE.Group> = { pickaxe, shovel, axe, sword, shield, torch, stone, wood, quill, fine_pickaxe: pickaxe, fine_axe: axe };
 
 export function hasItem3D(item: string): boolean {
   return BUILDERS[item] !== undefined;
@@ -203,7 +203,9 @@ export function hasItem3D(item: string): boolean {
 const HELD_PITCH: Record<string, number> = {
   sword: Math.PI / 2 - 0.9, // blade up-forward, at the ready
   pickaxe: Math.PI / 2 - 0.35, // hafted forward, head riding high
+  fine_pickaxe: Math.PI / 2 - 0.35,
   axe: Math.PI / 2 - 0.35, // hafted like the pick, bit leading
+  fine_axe: Math.PI / 2 - 0.35,
   shovel: Math.PI / 2 + 0.25, // blade low, ready to dig
   torch: 1.25, // cancels the raised-arm pitch so the flame stands vertical
   stone: Math.PI / 2,
@@ -265,7 +267,7 @@ export function buildHeldItem(item: string): THREE.Group | undefined {
     return g;
   }
   g.rotation.x = HELD_PITCH[item] ?? Math.PI / 2;
-  if (item === "pickaxe" || item === "axe") g.rotation.y = Math.PI / 2; // striking edge forward
+  if (item === "pickaxe" || item === "axe" || item === "fine_pickaxe" || item === "fine_axe") g.rotation.y = Math.PI / 2; // striking edge forward
   return g;
 }
 

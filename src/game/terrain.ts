@@ -1,5 +1,6 @@
 import * as THREE from "three";
-import { DEEP_WATER_TILE, GLOWMOSS_TILE, GRAVEL_TILE, MOSS_TILE, regionAt, rockHeightAt, tileGlyph, WALL_TILE, WATER_TILE, type RegionVisibility, type Zone } from "@trogg/shared";
+import { bumpPerf, logInfo } from "../analytics.js";
+import { BIOMES, DEEP_WATER_TILE, GLOWMOSS_TILE, GRAVEL_TILE, MOSS_TILE, regionAt, rockHeightAt, tileGlyph, WALL_TILE, WATER_TILE, type RegionVisibility, type Zone } from "@trogg/shared";
 import { biomePalette, DAYLIGHT_3D, FOG_MIX } from "./palette.js";
 
 /**
@@ -136,6 +137,22 @@ export function buildTerrain(zone: Zone, regionState: (x: number, y: number) => 
   // region palettes are the world map's; any other zone is one biome throughout
   const tileBiome = (x: number, y: number): string => (zone.slug === "world" ? (regionAt(x, y)?.biome ?? "cave") : zone.biome);
 
+  // Pre-warm every biome's patch canvases shortly after boot, one biome per
+  // tick: first contact with a new biome used to pay all six paints
+  // synchronously mid-walk — the "entering a dark area hangs, re-entering is
+  // fine" cold cache. Warming them behind the boot screen makes first entry
+  // feel like re-entry.
+  if (zone.slug === "world") {
+    const pending = [...BIOMES];
+    const step = () => {
+      const biome = pending.shift();
+      if (!biome) return;
+      patchesFor(biome);
+      setTimeout(step, 100);
+    };
+    setTimeout(step, 1500);
+  }
+
   // The void beyond and beneath the world: one dim rock plane.
   const cavePal = biomePalette("cave");
   const voidTex = new THREE.CanvasTexture(floorlessPatch(cavePal));
@@ -146,7 +163,11 @@ export function buildTerrain(zone: Zone, regionState: (x: number, y: number) => 
   voidTex.wrapT = THREE.RepeatWrapping;
   voidTex.repeat.set(600 / PATCH, 600 / PATCH);
   globalDisposables.push(voidTex);
-  const voidPlane = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), new THREE.MeshStandardMaterial({ map: voidTex, roughness: 1 }));
+  // Lambert everywhere the ground is matte: Standard's specular lobe (even at
+  // roughness 1) slides a view-dependent sheen across the floor as the camera
+  // orbits — worst beside a bright point light like a campfire. Water keeps
+  // Standard below: a glint that moves with the eye is what water should do.
+  const voidPlane = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), new THREE.MeshLambertMaterial({ map: voidTex }));
   voidPlane.rotation.x = -Math.PI / 2;
   // well below the sunken river channels (whose tops sit at -0.18): anything cut
   // out of the floor must reveal what's carved beneath it, not this underlay
@@ -159,7 +180,7 @@ export function buildTerrain(zone: Zone, regionState: (x: number, y: number) => 
 
   // Walls tint per tile through instance colours, so biome borders stay
   // tile-exact even when a chunk straddles two regions.
-  const wallMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1 });
+  const wallMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
   const wallGeo = new THREE.BoxGeometry(1, 1, 1); // unit box, scaled per instance to its rock height
   globalDisposables.push(wallMat, wallGeo);
   const rockHeight = (x: number, y: number): number => rockHeightAt(zone, x, y);
@@ -172,7 +193,7 @@ export function buildTerrain(zone: Zone, regionState: (x: number, y: number) => 
   riverTopTex.magFilter = THREE.NearestFilter;
   riverTopTex.minFilter = THREE.NearestFilter;
   const riverTop = new THREE.MeshStandardMaterial({ map: riverTopTex, roughness: 0.7 });
-  const riverBank = new THREE.MeshStandardMaterial({ color: cavePal.floor.crack, roughness: 1 });
+  const riverBank = new THREE.MeshLambertMaterial({ color: cavePal.floor.crack });
   const riverMats = [riverBank, riverBank, riverTop, riverBank, riverBank, riverBank];
   const RIVER_DEPTH = 0.5;
   const riverGeo = new THREE.BoxGeometry(1, RIVER_DEPTH, 1);
@@ -256,7 +277,7 @@ export function buildTerrain(zone: Zone, regionState: (x: number, y: number) => 
     floorTex.magFilter = THREE.NearestFilter;
     floorTex.minFilter = THREE.NearestFilter;
     disposables.push(floorTex);
-    const floorMat = new THREE.MeshStandardMaterial({ map: floorTex, roughness: 1, transparent: true });
+    const floorMat = new THREE.MeshLambertMaterial({ map: floorTex, transparent: true });
     disposables.push(floorMat);
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(w, h), floorMat);
     floor.rotation.x = -Math.PI / 2;
@@ -410,28 +431,44 @@ export function buildTerrain(zone: Zone, regionState: (x: number, y: number) => 
     const c1x = zone.unbounded ? Math.floor((focusX + radius) / CHUNK) : Math.min(Math.ceil(zone.width / CHUNK) - 1, Math.floor((focusX + radius) / CHUNK));
     const c0y = zone.unbounded ? Math.floor((focusY - radius) / CHUNK) : Math.max(0, Math.floor((focusY - radius) / CHUNK));
     const c1y = zone.unbounded ? Math.floor((focusY + radius) / CHUNK) : Math.min(Math.ceil(zone.height / CHUNK) - 1, Math.floor((focusY + radius) / CHUNK));
-    const wanted: { cx: number; cy: number; dist: number }[] = [];
+    const wanted: { cx: number; cy: number; dist: number; needed: boolean }[] = [];
     for (let cy = c0y; cy <= c1y; cy++) {
       for (let cx = c0x; cx <= c1x; cx++) {
         const centreX = cx * CHUNK + CHUNK / 2;
         const centreY = cy * CHUNK + CHUNK / 2;
         const dist = Math.hypot(centreX - focusX, centreY - focusY);
-        if (dist <= radius + CHUNK) wanted.push({ cx, cy, dist });
+        // needed chunks are visible ground; the outer ring is prefetch —
+        // built ahead of the walk so entering fresh dark finds the ground
+        // already there (still inside the drop hysteresis, so prefetched
+        // chunks aren't immediately disposed).
+        if (dist <= radius + CHUNK * 2.5) wanted.push({ cx, cy, dist, needed: dist <= radius + CHUNK });
       }
     }
-    // build nearest-first, at most two per frame so streaming never hitches
+    // Build nearest-first on a TIME budget, not a count: a chunk's cost
+    // varies wildly with terrain (mountain cores merge far more geometry
+    // than flat floor), and "two per frame" of expensive chunks was a
+    // sustained main-thread hitch while panning across unbuilt dark ground
+    // — always build the nearest missing chunk, then keep building only
+    // while the frame's budget has room. Slow builds also get logged, so
+    // hitch reports come with the culprit named.
     wanted.sort((a, b) => a.dist - b.dist);
+    const buildStart = performance.now();
     let built = 0;
     const keep = new Set<string>();
     for (const want of wanted) {
       const key = `${want.cx},${want.cy}`;
-      keep.add(key);
-      if (!chunks.has(key) && built < 2) {
-        const chunk = buildChunk(want.cx, want.cy);
-        if (chunk) chunks.set(key, chunk);
-        built++;
-      }
+      if (want.needed) keep.add(key);
+      if (chunks.has(key)) continue;
+      // a needed chunk always gets built (nearest first, one minimum);
+      // prefetch chunks only ever spend leftover budget, never force a build
+      if (want.needed ? built > 0 && performance.now() - buildStart > 6 : performance.now() - buildStart > 6) continue;
+      const chunk = buildChunk(want.cx, want.cy);
+      if (chunk) chunks.set(key, chunk);
+      built++;
     }
+    const buildMs = performance.now() - buildStart;
+    if (built > 0) bumpPerf("chunk_build_ms", Math.round(buildMs));
+    if (buildMs > 40) logInfo("Chunk build hitch", { surface: "perf", action: "chunk_build", duration_ms: Math.round(buildMs), chunks_built: built });
     // drop chunks that fell out of range (with hysteresis so edges don't thrash)
     for (const key of [...chunks.keys()]) {
       if (keep.has(key)) continue;

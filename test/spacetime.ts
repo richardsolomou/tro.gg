@@ -106,10 +106,11 @@ export function makeCtx(opts: FakeCtxOpts) {
       darkCreature: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
       groundItem: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
       inventory: makeTable({ pk: "id", autoInc: true, indexes: ["playerId"] }),
+      skills: makeTable({ pk: "id", autoInc: true, indexes: ["playerId"] }),
       stockpile: makeTable({ pk: "item" }),
       brazier: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
       brazierUpkeepTimer: makeTable({ pk: "scheduledId", autoInc: true }),
-      emberWanderTimer: makeTable({ pk: "scheduledId", autoInc: true }),
+      afkWanderTimer: makeTable({ pk: "scheduledId", autoInc: true }),
       playerConnection: makeTable({ pk: "connectionId", indexes: ["playerId"] }),
       chatMessage: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
       ghostHaunt: makeTable({ pk: "id", autoInc: true, indexes: ["zoneId"] }),
@@ -118,6 +119,7 @@ export function makeCtx(opts: FakeCtxOpts) {
       nodeRespawn: makeTable({ pk: "scheduledId", autoInc: true }),
       worldState: makeTable({ pk: "id" }),
       creatureRegen: makeTable({ pk: "scheduledId", autoInc: true }),
+      nightTide: makeTable({ pk: "id" }),
       revealedRegion,
     },
   };
@@ -162,6 +164,7 @@ export function playerRow(identity: Id, over: Record<string, unknown> = {}) {
     dirZ: 0,
     kindlingCharge: 0,
     kindlingChargeAt: { microsSinceUnixEpoch: 0n },
+    provokedAt: { microsSinceUnixEpoch: 0n },
     ...over,
   };
 }
@@ -180,6 +183,8 @@ export function darkCreatureRow(over: Record<string, unknown> = {}) {
     health: 40,
     lastDamagedAt: { microsSinceUnixEpoch: 0n },
     aggroTargetId: "",
+    nightborn: false,
+    strayed: false,
     ...over,
   };
 }

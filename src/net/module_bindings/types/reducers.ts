@@ -7,6 +7,7 @@ import { type Infer as __Infer } from "spacetimedb";
 
 // Import all reducer arg schemas
 import ChatReducer from "../chat_reducer";
+import CraftItemReducer from "../craft_item_reducer";
 import DiscardItemReducer from "../discard_item_reducer";
 import DropItemReducer from "../drop_item_reducer";
 import EmergeReducer from "../emerge_reducer";
@@ -36,6 +37,7 @@ import StartClaimReducer from "../start_claim_reducer";
 import UseEquippedReducer from "../use_equipped_reducer";
 
 export type ChatParams = __Infer<typeof ChatReducer>;
+export type CraftItemParams = __Infer<typeof CraftItemReducer>;
 export type DiscardItemParams = __Infer<typeof DiscardItemReducer>;
 export type DropItemParams = __Infer<typeof DropItemReducer>;
 export type EmergeParams = __Infer<typeof EmergeReducer>;

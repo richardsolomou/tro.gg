@@ -1,6 +1,6 @@
 import { getZone, STARTING_ZONE_SLUG } from "@trogg/shared";
 import { accountSubject, authConfigured, completeSignIn, currentIdToken } from "./auth.js";
-import { captureEvent, identifyUser, initAnalytics, isFeatureEnabled, logError, logInfo } from "./analytics.js";
+import { watchHitches, captureEvent, identifyUser, initAnalytics, isFeatureEnabled, logError, logInfo } from "./analytics.js";
 import { theme } from "./theme.js";
 import { clearStoredToken, clearPendingClaim, getPendingClaim } from "./identity.js";
 import { connect } from "./net/net.js";
@@ -10,6 +10,8 @@ import { mountGameMenu } from "./ui/menu.js";
 import { mountWorldMap } from "./ui/worldmap.js";
 import { mountInventory } from "./ui/inventory.js";
 import { mountStockpile } from "./ui/stockpile.js";
+import { mountCrafting } from "./ui/crafting.js";
+import { mountSkills } from "./ui/skills.js";
 import { startReconnect } from "./net/reconnect.js";
 import { watchForUpdate } from "./version.js";
 import { StartGame } from "./game/main.js";
@@ -90,6 +92,7 @@ async function main() {
     // the first one (a newborn's "find the pickaxe", fired during world boot)
     // isn't dispatched into the void before its listener exists.
     mountCoach();
+    watchHitches();
 
     // Three.js owns the canvas and the world render loop; StartGame boots the 3D
     // world with the live connection (game/main.ts, GDD "Camera and rendering").
@@ -114,6 +117,8 @@ async function main() {
     // trogg is".
     mountAppearance(conn, { signedIn, authAvailable, claimFailed: signInReturn === "error" });
     if (conn.identity) mountInventory(conn, conn.identity.toHexString());
+    if (conn.identity) mountCrafting(conn, conn.identity.toHexString());
+    if (conn.identity) mountSkills(conn, conn.identity.toHexString());
     mountStockpile(conn);
 
     // The frontend deploys separately from the backend (Cloudflare vs the VPS), so

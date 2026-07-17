@@ -1,4 +1,4 @@
-import { equipSlotOf, INVENTORY_SLOT_COUNT, ITEMS, isEquippableItem } from "@trogg/shared";
+import { equipSlotOf, INVENTORY_SLOT_COUNT, ITEMS, isEquippableItem, TORCH_BURN_MS } from "@trogg/shared";
 import { hudIcon, itemIcon } from "../game/icons.js";
 import { audio } from "../audio.js";
 import { logError } from "../analytics.js";
@@ -134,7 +134,27 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
     if ((event as CustomEvent<string>).detail !== "inventory") setOpen(false);
   }) as EventListener);
 
-  const equippedGroup = (label: string, item: string): HTMLDivElement => {
+  // A torch's remaining burn (GDD "Crafting"): wear rides the inventory row —
+  // it accrues only while the torch is equipped and never resets, so the bar
+  // shows the same truth stowed or aloft.
+  const burnBar = (row: Inventory): HTMLSpanElement => {
+    const track = document.createElement("span");
+    track.className = "inventory-burn";
+    const fill = document.createElement("span");
+    fill.className = "inventory-burn-fill";
+    fill.style.width = `${burnLeftPct(row.wear)}%`;
+    track.appendChild(fill);
+    return track;
+  };
+  const burnLeftPct = (wear: number): number => Math.max(0, Math.min(100, Math.round((1 - wear / TORCH_BURN_MS) * 100)));
+  const burnLeftText = (wear: number): string => {
+    const left = Math.max(0, TORCH_BURN_MS - wear);
+    const m = Math.floor(left / 60_000);
+    const s = Math.round((left % 60_000) / 1000);
+    return `Burns about ${m > 0 ? `${m}m ` : ""}${s}s more`;
+  };
+
+  const equippedGroup = (label: string, item: string, inventoryId: bigint): HTMLDivElement => {
     const group = document.createElement("div");
     group.className = "inventory-equipped-group";
     const text = document.createElement("span");
@@ -144,9 +164,14 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
     const def = item ? ITEMS[item as keyof typeof ITEMS] : undefined;
     const itemName = item ? (def?.name ?? item) : "Empty";
     slot.setAttribute("aria-label", `${label}: ${itemName}`);
-    if (item) attachTip(slot, itemName, def?.blurb ?? "");
+    const worn = item === "torch" ? rows.get(inventoryId.toString()) : undefined;
+    if (item) attachTip(slot, itemName, worn ? burnLeftText(worn.wear) : (def?.blurb ?? ""));
     else slot.title = "Empty";
     slot.appendChild(itemIcon(item || "empty"));
+    if (worn) {
+      slot.dataset.invId = worn.id.toString();
+      slot.appendChild(burnBar(worn));
+    }
     group.append(text, slot);
     return group;
   };
@@ -154,7 +179,7 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
   const render = () => {
     hideTip(); // the hovered tile may not survive the rebuild
     closeMenu(); // nor may the menu's row
-    equipped.replaceChildren(equippedGroup("Main hand", mainHand), equippedGroup("Off hand", offHand));
+    equipped.replaceChildren(equippedGroup("Main hand", mainHand, mainHandInventoryId), equippedGroup("Off hand", offHand, offHandInventoryId));
 
     list.replaceChildren();
 
@@ -170,8 +195,12 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
       item.setAttribute("aria-label", `${name}${equippedNow ? ", equipped" : ""}`);
       item.setAttribute("aria-pressed", String(equippedNow));
       item.setAttribute("aria-haspopup", "menu");
-      attachTip(item, name, def?.blurb ?? "");
+      attachTip(item, name, row.item === "torch" ? burnLeftText(row.wear) : (def?.blurb ?? ""));
       item.appendChild(itemIcon(row.item));
+      if (row.item === "torch") {
+        item.dataset.invId = row.id.toString();
+        item.appendChild(burnBar(row));
+      }
 
       if (row.qty > 1) {
         const qty = document.createElement("span");
@@ -184,6 +213,10 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
         event.stopPropagation();
         openMenuFor(row, event.clientX, event.clientY);
       });
+      // Double-click equips (or unequips) without the menu detour.
+      if (isEquippableItem(row.item)) {
+        item.addEventListener("dblclick", () => run("Equip item", row.item, () => equipItem(conn, row.id), "equip_item"));
+      }
 
       list.appendChild(item);
     }
@@ -221,6 +254,17 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
   conn.db.inventory.onUpdate((ctx, old, row) => {
     if (!mine(row)) return;
     rows.set(row.id.toString(), row);
+    // Wear ticks (a burning torch) move only the burn bar — update it in
+    // place instead of rebuilding the whole panel once per burn quantum.
+    if (old.item === row.item && old.qty === row.qty) {
+      if (old.wear !== row.wear) {
+        for (const tile of body.querySelectorAll<HTMLElement>(`[data-inv-id="${row.id.toString()}"]`)) {
+          const fill = tile.querySelector<HTMLElement>(".inventory-burn-fill");
+          if (fill) fill.style.width = `${burnLeftPct(row.wear)}%`;
+        }
+      }
+      return;
+    }
     render();
     if (ctx.event.tag !== "SubscribeApplied" && row.qty > old.qty) announcePickup(row.item, row.qty - old.qty);
   });

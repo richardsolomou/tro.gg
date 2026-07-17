@@ -2,9 +2,9 @@ import "./preview.css";
 import * as THREE from "three";
 import { createOrbit } from "../game/controls.js";
 import { TROGG_STYLES, wieldOf } from "@trogg/shared";
-import { buildTrogg } from "../game/creatures.js";
+import { buildGrask, buildTrogg } from "../game/creatures.js";
 import { buildHeldItem, hasItem3D, updateHeldFx, wireHeldFx, type HeldFx } from "../game/items.js";
-import { itemIcon, troggIcon } from "../game/icons.js";
+import { darkCreatureIcon, itemIcon, troggIcon } from "../game/icons.js";
 import { applyFlinch, disposeObject, FLINCH_MS, poseDead, setDowned } from "../game/entities.js";
 import { type CreatureModel } from "../game/rig.js";
 
@@ -18,7 +18,9 @@ import { type CreatureModel } from "../game/rig.js";
  * headless and asserts the canvas still renders (`e2e/preview.spec.ts`).
  */
 
-const CREATURES: readonly string[] = TROGG_STYLES;
+// Every trogg style, plus the dark creatures — the bestiary previews on the
+// same stage as the tribe (GDD "Dark creatures").
+const CREATURES: readonly string[] = [...TROGG_STYLES, "grask"];
 const ITEM_CHOICES = ["none", "pickaxe", "shovel", "axe", "sword", "shield", "torch", "stone", "wood"] as const;
 const MODES = ["idle", "walk", "run", "attack", "hit", "dead"] as const;
 type Mode = (typeof MODES)[number];
@@ -192,7 +194,7 @@ function rebuild(): void {
     return;
   }
 
-  model = buildTrogg(state.creature);
+  model = state.creature === "grask" ? buildGrask() : buildTrogg(state.creature);
   model.root.rotation.y = state.yaw;
   subject = model.root;
   scene.add(model.root);
@@ -201,9 +203,9 @@ function rebuild(): void {
   flinchView.flinchBaseMs = undefined;
 
   // held items ride the rig's hand nodes, exactly like the game (a corpse is
-  // empty-handed — death drops everything)
+  // empty-handed — death drops everything; a dark creature carries nothing)
   for (const [id, hand, arm] of [[state.item, model.handR, "ArmR"], [state.off, model.handL, "ArmL"]] as const) {
-    if (id === "none" || state.mode === "dead") continue;
+    if (id === "none" || state.mode === "dead" || state.creature === "grask") continue;
     const m = buildHeldItem(id);
     if (!m) continue;
     m.scale.setScalar(model.fit);
@@ -302,7 +304,7 @@ function mountControls(): void {
   const creatures = document.createElement("div");
   creatures.className = "palette";
   for (const style of CREATURES) {
-    creatures.appendChild(slot(troggIcon(style), () => state.creature === style, () => (state.creature = style), true));
+    creatures.appendChild(slot(style === "grask" ? darkCreatureIcon(style) : troggIcon(style), () => state.creature === style, () => (state.creature = style), true));
   }
 
   const items = document.createElement("div");

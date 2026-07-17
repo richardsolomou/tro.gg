@@ -72,6 +72,8 @@ export const DarkCreature = __t.object("DarkCreature", {
   health: __t.i32(),
   lastDamagedAt: __t.timestamp(),
   aggroTargetId: __t.string(),
+  nightborn: __t.bool(),
+  strayed: __t.bool(),
 });
 export type DarkCreature = __Infer<typeof DarkCreature>;
 
@@ -105,8 +107,15 @@ export const Inventory = __t.object("Inventory", {
   playerId: __t.identity(),
   item: __t.string(),
   qty: __t.i32(),
+  wear: __t.f64(),
 });
 export type Inventory = __Infer<typeof Inventory>;
+
+export const NightTide = __t.object("NightTide", {
+  id: __t.u32(),
+  cycle: __t.u64(),
+});
+export type NightTide = __Infer<typeof NightTide>;
 
 export const NodeRespawn = __t.object("NodeRespawn", {
   scheduledId: __t.u64(),
@@ -156,6 +165,7 @@ export const Player = __t.object("Player", {
   dirZ: __t.i32(),
   kindlingCharge: __t.f64(),
   kindlingChargeAt: __t.timestamp(),
+  provokedAt: __t.timestamp(),
 });
 export type Player = __Infer<typeof Player>;
 
@@ -180,6 +190,14 @@ export const RevealedRegion = __t.object("RevealedRegion", {
   revealedAt: __t.timestamp(),
 });
 export type RevealedRegion = __Infer<typeof RevealedRegion>;
+
+export const Skills = __t.object("Skills", {
+  id: __t.u64(),
+  playerId: __t.identity(),
+  skill: __t.string(),
+  xp: __t.f64(),
+});
+export type Skills = __Infer<typeof Skills>;
 
 export const Stockpile = __t.object("Stockpile", {
   item: __t.string(),

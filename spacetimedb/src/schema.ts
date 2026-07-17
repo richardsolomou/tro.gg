@@ -16,11 +16,23 @@ import {
   PLAYER_MAX_HEALTH,
   BRAZIER_UPKEEP_ITEM,
   BRAZIER_UPKEEP_RATE,
-  deriveKindlingCharge,
-  DORMANT_EFFICIENCY_FRACTION,
-  EMBER_EFFICIENCY_FRACTION,
-  EMBER_GATHER_DAMAGE,
-  EMBER_SEEK_RADIUS,
+  deriveAfkCharge,
+  AFK_TRICKLE_EFFICIENCY_FRACTION,
+  AFK_EFFICIENCY_FRACTION,
+  AFK_GATHER_DAMAGE,
+  AFK_SEEK_RADIUS,
+  AFK_UNLOCK_XP,
+  gatherToolClass,
+  AFK_HIDE_AFTER_MS,
+  afkGatherFraction,
+  isNightPhase,
+  TORCH_BURN_MS,
+  TORCH_LIT_RADIUS,
+  TORCH_PROVOKED_MS,
+  TORCH_PROWL_RADIUS,
+  AFK_WANDER_TICK_MS,
+  DARK_CREATURE_LEASH_RANGE,
+  DARK_CREATURE_SIM_RANGE,
   findPath,
   NODE_RESPAWN_MS,
   serializePath,
@@ -40,7 +52,8 @@ import {
   anyPlayerOnline,
   armRegen,
   armBrazierUpkeep,
-  armEmberWander,
+  armAfkWander,
+  totalXp,
   respawnDue,
   scheduleRespawnAt,
   respawnPlayer,
@@ -50,7 +63,13 @@ import {
   boulderAt,
   treeAt,
   isLitTile,
+  isSafeTile,
+  worldDayPhase,
+  nearestLitBrazier,
+  tideNight,
+  nearestUnlitTile,
   pickWanderDir,
+  prowlDir,
   settle,
   darkCreatureDef,
   damagePlayer,
@@ -164,15 +183,20 @@ const player = table(
     // ticked. Grounded rows stay 0/0.
     z: t.f64().default(0),
     dirZ: t.i32().default(0),
-    // Earned ember-time (GDD "The fire and the dark" → Presence), stored the
-    // way motion is: a value plus the anchor it was true at. Current charge is
-    // *derived* (`deriveKindlingCharge`) by applying the accrual rate while
+    // Earned AFK-work budget (GDD "The fire and the dark" → Presence), stored
+    // the way motion is: a value plus the anchor it was true at. Current charge
+    // is *derived* (`deriveAfkCharge`) by applying the accrual rate while
     // online or the decay rate while offline over elapsed real time since the
-    // anchor — never advanced on a timer (invariant 1). Bright/ember/dormant
-    // are therefore derived state, not stored: bright = online; ember =
-    // !online && derived charge > 0; dormant = !online && derived charge <= 0.
+    // anchor — never advanced on a timer (invariant 1). Presence is therefore
+    // derived state, not stored: active = online, AFK = !online; remaining
+    // charge only picks the AFK gather rate (full fraction vs trickle).
+    // Columns keep their shipped kindling_charge names (additive-only schema).
     kindlingCharge: t.f64().default(0),
     kindlingChargeAt: t.timestamp().default(Timestamp.UNIX_EPOCH),
+    // Blood over flame (GDD "Crafting"): stamped when this trogg damages a
+    // dark creature; for TORCH_PROVOKED_MS after, an equipped torch stops
+    // warding — the bearer is prey and creatures cross their light.
+    provokedAt: t.timestamp().default(Timestamp.UNIX_EPOCH),
   },
 );
 
@@ -299,6 +323,16 @@ const darkCreature = table(
     health: t.i32(),
     lastDamagedAt: t.timestamp(),
     aggroTargetId: t.string().default(""),
+    // A night-tide visitor (GDD "Night"): seeded at dusk into a lit region,
+    // despawned at dawn, exempt from territory-linked respawn. Residents of
+    // the dark keep the default false.
+    nightborn: t.bool().default(false),
+    // A resident that hunted a trogg onto claimed ground at night (GDD
+    // "Night"): killed there, it respawns back in the dark instead of dying
+    // permanently — so luring a chase into town never farms a claim. Cleared
+    // at dawn. Freshly-claimed ground's own corpses keep strayed=false and
+    // stay dead (Territory and permanence).
+    strayed: t.bool().default(false),
   },
 );
 
@@ -331,13 +365,34 @@ const inventory = table(
     playerId: t.identity().index("btree"),
     item: t.string(),
     qty: t.i32(),
+    // Consumable burn-down (GDD "Crafting"): an equipped torch accrues wear
+    // per wander-sweep tick and is consumed at TORCH_BURN_MS. Zero for
+    // everything durable.
+    wear: t.f64().default(0),
+  },
+);
+
+/**
+ * Per-player, per-skill accumulated XP (GDD "Skills and XP"). XP accrues only
+ * from active play — the player-initiated reducers call `grantXp`; the AFK
+ * instinct sweep deposits into the stockpile but never writes here (design
+ * pillar 7). Levels — per-skill and the overall level — are derived from xp
+ * via the shared curve, never stored.
+ */
+const skills = table(
+  { name: "skills", public: true },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    playerId: t.identity().index("btree"),
+    skill: t.string(),
+    xp: t.f64(),
   },
 );
 
 /**
  * The tribe's one shared resource pool (GDD "The fire and the dark" → The
  * stockpile): one row per item id, fed directly by every gather action —
- * bright or ember — never by a personal inventory. Global, not per-zone: there
+ * active or AFK — never by a personal inventory. Global, not per-zone: there
  * is only one world. Read-only from a player's perspective; capped at
  * `STOCKPILE_CAP` per item so a long-idle tribe can't bank an indefinite
  * surplus. No index needed at this size.
@@ -389,15 +444,28 @@ const brazierUpkeepTimer = table(
 );
 
 /**
- * The ember-trogg and dark-creature wander timer (GDD "The fire and the
+ * The AFK-trogg and dark-creature wander timer (GDD "The fire and the
  * dark" → Presence; "Dark creatures") — a sanctioned scheduled-reducer
  * exception: re-armed only while a player is online, so an empty world does
  * no work. Private (no
  * client reads it). `wanderPresence` is the one reducer bound to it — a
  * SpacetimeDB scheduled table calls exactly one reducer — steering both an
- * ember trogg's instinct amble and a dark creature's wander/aggro/chase.
+ * AFK trogg's instinct amble and a dark creature's wander/aggro/chase.
+ * The durable table name `ember_wander` predates the AFK naming and stays
+ * (prod schema changes only additively).
  */
-const emberWanderTimer = table(
+/** The night tide's one-row memory (GDD "Night"): which day-cycle last
+ *  seeded the dusk cohorts, so a night is one tide, not a per-tick spawner.
+ *  Private — no client reads it. */
+const nightTide = table(
+  { name: "night_tide" },
+  {
+    id: t.u32().primaryKey(),
+    cycle: t.u64(),
+  },
+);
+
+const afkWanderTimer = table(
   { name: "ember_wander", scheduled: (): any => wanderPresence },
   {
     scheduledId: t.u64().primaryKey().autoInc(),
@@ -439,7 +507,7 @@ const playerRespawn = table(
  * One-shot node respawn timers (GDD "Territory claiming"): each breaking hit
  * on a boulder or tree arms one, and the firing re-plants the node in place
  * at full health after `NODE_RESPAWN_MS` — settled ground never runs dry, for
- * bright farming and ember instinct alike.
+ * active farming and AFK instinct alike.
  */
 const nodeRespawn = table(
   { name: "node_respawn", scheduled: (): any => respawnNodes },
@@ -506,7 +574,7 @@ const worldState = table(
   },
 );
 
-const spacetimedb = schema({ player, chatMessage, ghostHaunt, claimCode, boulder, tree, darkCreature, groundItem, inventory, stockpile, brazier, brazierUpkeepTimer, emberWanderTimer, playerConnection, playerRespawn, nodeRespawn, creatureRegen, revealedRegion, worldState });
+const spacetimedb = schema({ player, chatMessage, ghostHaunt, claimCode, boulder, tree, darkCreature, groundItem, inventory, skills, stockpile, brazier, brazierUpkeepTimer, afkWanderTimer, nightTide, playerConnection, playerRespawn, nodeRespawn, creatureRegen, revealedRegion, worldState });
 export default spacetimedb;
 
 /** The reducer context, typed against this module's schema (db view + sender). */
@@ -543,12 +611,29 @@ export const regenCreatures = spacetimedb.reducer({ timer: creatureRegen.rowType
         if (elapsedMs(c.lastDamagedAt, now) < NPC_CORPSE_MS) continue;
         const unlit = !isLitTile(ctx, c.zoneId, Math.round(c.x), Math.round(c.y));
         ctx.db.darkCreature.id.delete(c.id);
-        if (unlit) {
+        // Visitors, not residents (GDD "Night"): a dead night creature never
+        // replenishes the dark's own population, wherever it fell. Residents
+        // respawn where they fell when the ground is unlit; a strayed hunter
+        // killed on claimed ground respawns back at the nearest unlit tile —
+        // it reverts to its own ground, so luring a night chase into town
+        // never farms a claim. A claimed region's own corpses (strayed
+        // false, lit ground) still stay dead (Territory and permanence).
+        if (c.nightborn) continue;
+        let at: { x: number; y: number } | undefined = unlit ? { x: c.x, y: c.y } : undefined;
+        if (!unlit && c.strayed) {
+          const zone = getZone(c.zoneId);
+          if (zone) {
+            const revealedSlugs = currentRevealedRegions(ctx);
+            const penumbraSlugs = penumbraOf(revealedSlugs);
+            at = nearestUnlitTile(ctx, zone, Math.round(c.x), Math.round(c.y), (z, x, y) => isRevealed(z, revealedSlugs, penumbraSlugs, x, y));
+          }
+        }
+        if (at) {
           ctx.db.darkCreature.insert({
             id: 0n,
             zoneId: c.zoneId,
-            x: c.x,
-            y: c.y,
+            x: at.x,
+            y: at.y,
             dirX: 0,
             dirY: 0,
             movedAt: now,
@@ -556,6 +641,8 @@ export const regenCreatures = spacetimedb.reducer({ timer: creatureRegen.rowType
             health: def.maxHealth,
             lastDamagedAt: now,
             aggroTargetId: "",
+            nightborn: false,
+            strayed: false,
           });
         }
         continue;
@@ -645,32 +732,80 @@ export const brazierUpkeep = spacetimedb.reducer({ timer: brazierUpkeepTimer.row
 });
 
 /**
- * The ember-trogg and dark-creature wander sweep (GDD "The fire and the
- * dark" → Presence; "Dark creatures"). Every offline trogg still carrying
- * kindling charge ambles safe interior ground on instinct — confined to lit
- * tiles — and gathers passively from an adjacent boulder or tree at
- * `EMBER_EFFICIENCY_FRACTION` of a bright trogg's rate, with no XP; the
- * instant its charge reaches zero it goes dormant, settled at its zone's
- * nearest hearth. Every living dark creature ambles the dark — confined to
- * *unlit* tiles, the mirror boundary — until a bright trogg comes within
+ * The AFK-trogg and dark-creature wander sweep (GDD "The fire and the
+ * dark" → Presence; "Dark creatures"). Every AFK-eligible trogg (total XP >=
+ * AFK_UNLOCK_XP — below the gate an offline trogg is simply out of the
+ * world) ambles safe interior
+ * ground on instinct — confined to lit tiles — and gathers passively from an
+ * adjacent boulder or tree at `AFK_EFFICIENCY_FRACTION` of an active trogg's
+ * rate while its charge lasts (a trickle winding down across
+ * `AFK_HIDE_AFTER_MS` once spent — after a week away the trogg is hidden and
+ * the sweep skips it), with no XP. Every living dark creature ambles the dark — confined to
+ * *unlit* tiles, the mirror boundary — until an active trogg comes within
  * `DARK_CREATURE_AGGRO_RANGE`, then turns to close the distance and attacks
  * once in reach; a target that disconnects, dies, or leaves the zone drops
  * the chase. The timer re-arms only while a player is online.
  */
-export const wanderPresence = spacetimedb.reducer({ timer: emberWanderTimer.rowType }, (ctx) => {
+export const wanderPresence = spacetimedb.reducer({ timer: afkWanderTimer.rowType }, (ctx) => {
   const online = anyPlayerOnline(ctx);
   const now = ctx.timestamp;
   if (online) {
+    // The shared day phase decides the safety rule for this tick (GDD
+    // "Night"): by day whole lit regions are safe; at night only the rings.
+    const night = isNightPhase(worldDayPhase(ctx));
+
+    // Carried firelight (GDD "Crafting"): each online torch-bearer projects
+    // a small pocket dark creatures cannot enter, and the torch burns down
+    // while it does — wear accrues per sweep tick until the torch is spent.
+    // Blood over flame: a bearer who drew a dark creature's blood in the last
+    // TORCH_PROVOKED_MS carries an unwarded pocket — it still burns and still
+    // lights, but stops keeping the dark out.
+    const torchPockets: { zoneId: string; x: number; y: number; warded: boolean }[] = [];
+    for (const p of ctx.db.player.iter()) {
+      if (!p.online || p.dead || p.equippedOffHand !== "torch") continue;
+      const lit = settle(ctx, p, now);
+      // Epoch-zero provokedAt is the never-provoked default, not a real stamp.
+      const warded = p.provokedAt.microsSinceUnixEpoch === 0n || elapsedMs(p.provokedAt, now) >= TORCH_PROVOKED_MS;
+      torchPockets.push({ zoneId: p.zoneId, x: lit.x, y: lit.y, warded });
+      const row = ctx.db.inventory.id.find(p.equippedOffHandInventoryId);
+      if (!row) continue;
+      // Persist wear in ~5s quanta, not every sweep tick: a row diff per
+      // second per torch-bearer is pure background churn for every client
+      // (each one rebuilt the holder's inventory panel). A torch timer can
+      // drift a few seconds without anyone noticing.
+      const quantum = 5 * AFK_WANDER_TICK_MS;
+      if (Number(now.microsSinceUnixEpoch / 1000n) % quantum >= AFK_WANDER_TICK_MS) continue;
+      const wear = row.wear + quantum;
+      if (wear < TORCH_BURN_MS) ctx.db.inventory.id.update({ ...row, wear });
+      else {
+        ctx.db.inventory.id.delete(row.id);
+        const holder = ctx.db.player.identity.find(p.identity);
+        if (holder) ctx.db.player.identity.update({ ...holder, equippedOffHand: "", equippedOffHandInventoryId: 0n });
+      }
+    }
+    const inTorchlight = (zoneId: string, x: number, y: number): boolean =>
+      torchPockets.some((tp) => tp.warded && tp.zoneId === zoneId && Math.hypot(tp.x - x, tp.y - y) <= TORCH_LIT_RADIUS);
+
     const revealedSlugs = currentRevealedRegions(ctx);
     const penumbraSlugs = penumbraOf(revealedSlugs);
     const revealed = (zone: Zone, x: number, y: number) => isRevealed(zone, revealedSlugs, penumbraSlugs, x, y);
+    tideNight(ctx, now, night, revealed);
     for (const p of ctx.db.player.iter()) {
-      if (p.online) continue; // bright troggs act on player input, not instinct
-      const charge = deriveKindlingCharge(p.kindlingCharge, p.kindlingChargeAt, false, now);
-      // Instinct never fully sleeps (GDD "Presence"): a charged ember trogg
-      // works at the full instinct rate, a dormant one keeps a slower trickle
-      // — the world stays busy, and bright play still buys the better rate.
-      const gatherFraction = charge > 0 ? EMBER_EFFICIENCY_FRACTION : DORMANT_EFFICIENCY_FRACTION;
+      if (p.online) continue; // active troggs act on player input, not instinct
+      // The eligibility gate (GDD "Presence"): below AFK_UNLOCK_XP of earned
+      // XP a disconnect is a plain offline — no instinct work, no trickle.
+      if (totalXp(ctx, p.identity) < AFK_UNLOCK_XP) continue;
+      // A week away hides the trogg entirely (GDD "Presence"): the sweep
+      // leaves it be — row and inventory persist untouched — until its
+      // player returns. kindlingChargeAt anchors at disconnect, so elapsed
+      // time since it IS the offline time.
+      const offlineMs = elapsedMs(p.kindlingChargeAt, now);
+      if (offlineMs >= AFK_HIDE_AFTER_MS) continue;
+      const charge = deriveAfkCharge(p.kindlingCharge, p.kindlingChargeAt, false, now);
+      // Instinct never fully sleeps at first (GDD "Presence"): a charged AFK
+      // trogg works at the full instinct rate; a spent one keeps a trickle
+      // that winds down to nothing across the week that ends in hiding.
+      const gatherFraction = afkGatherFraction(charge, offlineMs);
 
       const zone = getZone(p.zoneId);
       if (!zone) continue;
@@ -685,6 +820,33 @@ export const wanderPresence = spacetimedb.reducer({ timer: emberWanderTimer.rowT
       // under the old flags, so the settle below anchors it correctly.
       const sober = { running: false, cheatSpeed: 1, cheatFly: false, cheatNoclip: false, z: 0, dirZ: 0 };
       const fast = p.running || p.cheatSpeed !== 1 || p.cheatFly || p.cheatNoclip;
+
+      if (night) {
+        // Dusk sends instinct home (GDD "Night"; "Presence"): gathering
+        // pauses and the trogg walks inside its nearest lit brazier's ring,
+        // idling by the fire until dawn — safe the same way it always is,
+        // because the ring is ground the dark cannot enter. Movement uses
+        // the day bounds: light never blocks a trogg, only its work.
+        const hearth = nearestLitBrazier(ctx, p.zoneId, at.x, at.y);
+        const home = hearth !== undefined && Math.hypot(hearth.x - at.x, hearth.y - at.y) <= Math.max(1, hearth.radius - 1);
+        if (hearth && !home) {
+          if (p.path !== "" && !at.arrived && (at.dirX !== 0 || at.dirY !== 0)) continue; // already walking home
+          const path = smoothPath(bounds, at, findPath(bounds, at, { x: hearth.x, y: hearth.y }, AFK_SEEK_RADIUS));
+          const first = path[0];
+          if (first) {
+            const hopX = first.x - at.x;
+            const hopY = first.y - at.y;
+            const faceX = Math.abs(hopX) >= Math.abs(hopY) ? Math.sign(hopX) : 0;
+            const faceY = Math.abs(hopX) >= Math.abs(hopY) ? 0 : Math.sign(hopY);
+            ctx.db.player.identity.update({ ...p, ...sober, x: at.x, y: at.y, dirX: faceX, dirY: faceY, faceX, faceY, path: serializePath(path), movedAt: now });
+            continue;
+          }
+        }
+        // by the fire (or unroutable): settle and idle until dawn
+        const idle = !fast && p.dirX === 0 && p.dirY === 0 && p.path === "" && at.x === p.x && at.y === p.y;
+        if (!idle) ctx.db.player.identity.update({ ...p, ...sober, x: at.x, y: at.y, dirX: 0, dirY: 0, path: "", movedAt: now });
+        continue;
+      }
 
       // Camped beside a node: chip it on a chance per tick, scaled by the same
       // fraction that governs its whole stockpile rate, and stay put — the
@@ -712,16 +874,17 @@ export const wanderPresence = spacetimedb.reducer({ timer: emberWanderTimer.rowT
         // — bare fists included.
         const wanted = camped.kind === "boulder" ? "pickaxe" : "axe";
         let equip: { equippedMainHand: string; equippedMainHandInventoryId: bigint } | undefined;
-        if (p.equippedMainHand !== wanted) {
-          const owned = [...ctx.db.inventory.playerId.filter(p.identity)].find((r) => r.item === wanted && r.qty > 0);
-          if (owned) equip = { equippedMainHand: wanted, equippedMainHandInventoryId: owned.id };
+        if (gatherToolClass(p.equippedMainHand) !== wanted) {
+          // any tier of the right tool class serves instinct (GDD "Crafting")
+          const owned = [...ctx.db.inventory.playerId.filter(p.identity)].find((r) => gatherToolClass(r.item) === wanted && r.qty > 0);
+          if (owned) equip = { equippedMainHand: owned.item, equippedMainHandInventoryId: owned.id };
         }
 
         const chipping = ctx.random() < gatherFraction;
         if (chipping) {
           if (camped.kind === "boulder") {
             const b = boulderAt(ctx, p.zoneId, camped.x, camped.y)!;
-            if (b.health > EMBER_GATHER_DAMAGE) ctx.db.boulder.id.update({ ...b, health: b.health - EMBER_GATHER_DAMAGE });
+            if (b.health > AFK_GATHER_DAMAGE) ctx.db.boulder.id.update({ ...b, health: b.health - AFK_GATHER_DAMAGE });
             else {
               ctx.db.boulder.id.delete(b.id);
               depositStockpile(ctx, "stone", 1);
@@ -729,7 +892,7 @@ export const wanderPresence = spacetimedb.reducer({ timer: emberWanderTimer.rowT
             }
           } else {
             const tr = treeAt(ctx, p.zoneId, camped.x, camped.y)!;
-            if (tr.health > EMBER_GATHER_DAMAGE) ctx.db.tree.id.update({ ...tr, health: tr.health - EMBER_GATHER_DAMAGE });
+            if (tr.health > AFK_GATHER_DAMAGE) ctx.db.tree.id.update({ ...tr, health: tr.health - AFK_GATHER_DAMAGE });
             else {
               ctx.db.tree.id.delete(tr.id);
               depositStockpile(ctx, "wood", 1);
@@ -739,7 +902,7 @@ export const wanderPresence = spacetimedb.reducer({ timer: emberWanderTimer.rowT
         }
 
         // Face the node, and stamp the swing impulse on a chip — the same
-        // synced fields a bright trogg's F writes, so every client animates
+        // synced fields an active trogg's F writes, so every client animates
         // the strike with the held tool.
         const faceX = Math.sign(camped.x - cx);
         const faceY = Math.sign(camped.y - cy);
@@ -771,22 +934,22 @@ export const wanderPresence = spacetimedb.reducer({ timer: emberWanderTimer.rowT
       if (p.path !== "" && !at.arrived && (at.dirX !== 0 || at.dirY !== 0)) continue;
 
       // Seek: route to the nearest node on lit, revealed ground, anywhere in
-      // the zone (`EMBER_SEEK_RADIUS` is a routing budget, not a leash). The
+      // the zone (`AFK_SEEK_RADIUS` is a routing budget, not a leash). The
       // node tile itself is an obstacle, so `findPath` lands on a walkable
       // tile beside it — the camping spot. A* only runs between nodes.
       const nodes: { x: number; y: number; d: number }[] = [];
       for (const b of ctx.db.boulder.zoneId.filter(p.zoneId)) {
         const d = Math.abs(b.x - cx) + Math.abs(b.y - cy);
-        if (d <= EMBER_SEEK_RADIUS) nodes.push({ x: b.x, y: b.y, d });
+        if (d <= AFK_SEEK_RADIUS) nodes.push({ x: b.x, y: b.y, d });
       }
       for (const tr of ctx.db.tree.zoneId.filter(p.zoneId)) {
         const d = Math.abs(tr.x - cx) + Math.abs(tr.y - cy);
-        if (d <= EMBER_SEEK_RADIUS) nodes.push({ x: tr.x, y: tr.y, d });
+        if (d <= AFK_SEEK_RADIUS) nodes.push({ x: tr.x, y: tr.y, d });
       }
       nodes.sort((a, b) => a.d - b.d);
       let routed = false;
       for (const node of nodes.slice(0, 4)) {
-        const path = smoothPath(bounds, at, findPath(bounds, at, { x: node.x, y: node.y }, EMBER_SEEK_RADIUS));
+        const path = smoothPath(bounds, at, findPath(bounds, at, { x: node.x, y: node.y }, AFK_SEEK_RADIUS));
         const first = path[0];
         if (!first) continue;
         const hopX = first.x - at.x;
@@ -824,16 +987,36 @@ export const wanderPresence = spacetimedb.reducer({ timer: emberWanderTimer.rowT
       }
       return set;
     };
+    // Where nobody watches, the dark holds still (DARK_CREATURE_SIM_RANGE):
+    // an unobserved creature is skipped whole — no settle, no update, no row
+    // diff for every client to chew each second. The tide and dawn passes
+    // (tideNight) and the corpse reap run on their own rules regardless.
+    const watchersByZone = new Map<string, { x: number; y: number }[]>();
+    for (const pl of ctx.db.player.iter()) {
+      if (!pl.online || pl.dead) continue;
+      let list = watchersByZone.get(pl.zoneId);
+      if (!list) watchersByZone.set(pl.zoneId, (list = []));
+      list.push(settle(ctx, pl, now));
+    }
+    const observed = (zoneId: string, x: number, y: number): boolean =>
+      (watchersByZone.get(zoneId) ?? []).some((w) => Math.hypot(w.x - x, w.y - y) <= DARK_CREATURE_SIM_RANGE);
+
     const creatureList = [...ctx.db.darkCreature.iter()];
     type CreatureRow = (typeof creatureList)[number];
     const settledCreatures: { row: CreatureRow; x: number; y: number; zoneId: string }[] = [];
     const creatureTilesByZone = new Map<string, Set<string>>();
     for (const c of creatureList) {
       if (c.health <= 0) continue; // corpses lie where they fell
+      // (a creature mid-chase always simulates, so stale aggro settles and
+      // drops even when its target just vanished from range)
+      if (c.aggroTargetId === "" && !observed(c.zoneId, c.x, c.y)) continue;
       const zone = getZone(c.zoneId);
       if (!zone) continue;
       const statics = staticBlockersFor(c.zoneId);
-      const bounds = zoneBounds(zone, (x, y) => statics.has(tileKey(x, y)) || isLitTile(ctx, c.zoneId, x, y) || !revealed(zone, x, y));
+      // Only the night tide — and a resident mid-hunt — crosses into claimed
+      // ground at night (GDD "Night"): passive residents keep the day
+      // boundary around the clock, and the dawn recede walks any stray home.
+      const bounds = zoneBounds(zone, (x, y) => statics.has(tileKey(x, y)) || isSafeTile(ctx, c.zoneId, x, y, night && (c.nightborn || c.aggroTargetId !== "")) || inTorchlight(c.zoneId, x, y) || !revealed(zone, x, y));
       const at = projectMotionState(c, elapsedMs(c.movedAt, now), bounds);
       settledCreatures.push({ row: c, x: at.x, y: at.y, zoneId: c.zoneId });
       let tiles = creatureTilesByZone.get(c.zoneId);
@@ -852,10 +1035,17 @@ export const wanderPresence = spacetimedb.reducer({ timer: emberWanderTimer.rowT
       const ownTile = tileKey(Math.round(s.x), Math.round(s.y));
 
       // Keep a live target (same zone, online, alive); else look for a fresh
-      // bright trogg within aggro range. Sighting is range-based, like earshot.
+      // active trogg within aggro range. Sighting is range-based, like earshot.
+      // A torch-bearer is not prey (GDD "Crafting"): its firelight is ground
+      // the creature can't enter, so it neither acquires nor keeps one as a
+      // chase target — equipping a torch mid-chase breaks the pursuit. Blood
+      // over flame: a bearer who drew a dark creature's blood in the last
+      // TORCH_PROVOKED_MS forfeits that exemption — the den answers.
+      const warded = (pl: NonNullable<ReturnType<typeof ctx.db.player.identity.find>>): boolean =>
+        pl.equippedOffHand === "torch" && (pl.provokedAt.microsSinceUnixEpoch === 0n || elapsedMs(pl.provokedAt, now) >= TORCH_PROVOKED_MS);
       let target: NonNullable<ReturnType<typeof ctx.db.player.identity.find>> | undefined;
       for (const pl of ctx.db.player.zoneId.filter(s.zoneId)) {
-        if (!pl.online || pl.dead) continue;
+        if (!pl.online || pl.dead || warded(pl)) continue;
         if (c.aggroTargetId && pl.identity.toHexString() === c.aggroTargetId) {
           target = pl;
           break;
@@ -863,7 +1053,7 @@ export const wanderPresence = spacetimedb.reducer({ timer: emberWanderTimer.rowT
       }
       if (!target) {
         for (const pl of ctx.db.player.zoneId.filter(s.zoneId)) {
-          if (!pl.online || pl.dead) continue;
+          if (!pl.online || pl.dead || warded(pl)) continue;
           const tp = settle(ctx, pl, now);
           if (Math.hypot(tp.x - s.x, tp.y - s.y) <= DARK_CREATURE_AGGRO_RANGE) {
             target = pl;
@@ -871,7 +1061,21 @@ export const wanderPresence = spacetimedb.reducer({ timer: emberWanderTimer.rowT
           }
         }
       }
+      // A chase that can't progress gives up (GDD "Dark creatures"): past
+      // the leash, or pinned against ground it can't cross (the reveal
+      // frontier, a day boundary) while the prey is out of reach — instinct
+      // stops pacing the fence and goes back to its ground.
+      if (target) {
+        const tp = settle(ctx, target, now);
+        const dist = Math.hypot(tp.x - s.x, tp.y - s.y);
+        const pinned = (c.dirX !== 0 || c.dirY !== 0) && Math.abs(s.x - c.x) < 0.05 && Math.abs(s.y - c.y) < 0.05;
+        if (dist > DARK_CREATURE_LEASH_RANGE || (pinned && dist > DARK_CREATURE_AGGRO_RANGE)) target = undefined;
+      }
       const aggroTargetId = target ? target.identity.toHexString() : "";
+      // Hunting onto claimed ground at night marks the resident strayed —
+      // its death in town sends it home instead of deleting it (see the
+      // corpse reap); day clears the mark (the recede already walked it out).
+      const strayed = night ? c.strayed || (!c.nightborn && aggroTargetId !== "") : false;
 
       let dir = { dirX: 0, dirY: 0 };
       if (target) {
@@ -893,17 +1097,32 @@ export const wanderPresence = spacetimedb.reducer({ timer: emberWanderTimer.rowT
       } else {
         const bounds = zoneBounds(zone, (x, y) => {
           const k = tileKey(x, y);
-          if (statics.has(k) || isLitTile(ctx, s.zoneId, x, y) || !revealed(zone, x, y)) return true;
+          if (statics.has(k) || isSafeTile(ctx, s.zoneId, x, y, night && s.row.nightborn) || inTorchlight(s.zoneId, x, y) || !revealed(zone, x, y)) return true;
           return k !== ownTile && creatureTiles.has(k);
         });
-        dir = pickWanderDir(ctx, bounds, { x: Math.round(s.x), y: Math.round(s.y) }, 1);
+        // Carried firelight draws a prowl (GDD "Crafting"): a creature near a
+        // warded torch holds at the rim of the light — hemming the bearer in,
+        // in reach the moment the ward falls — instead of scattering.
+        let pocket: { x: number; y: number } | undefined;
+        let nearest = TORCH_PROWL_RADIUS;
+        for (const tp of torchPockets) {
+          if (!tp.warded || tp.zoneId !== s.zoneId) continue;
+          const d = Math.hypot(tp.x - s.x, tp.y - s.y);
+          if (d <= nearest) {
+            nearest = d;
+            pocket = tp;
+          }
+        }
+        dir = pocket
+          ? prowlDir(bounds, { x: Math.round(s.x), y: Math.round(s.y) }, pocket, c.id)
+          : pickWanderDir(ctx, bounds, { x: Math.round(s.x), y: Math.round(s.y) }, 1);
       }
 
-      const unchanged = s.x === c.x && s.y === c.y && dir.dirX === c.dirX && dir.dirY === c.dirY && aggroTargetId === c.aggroTargetId;
+      const unchanged = s.x === c.x && s.y === c.y && dir.dirX === c.dirX && dir.dirY === c.dirY && aggroTargetId === c.aggroTargetId && strayed === c.strayed;
       if (unchanged) continue;
-      ctx.db.darkCreature.id.update({ ...c, x: s.x, y: s.y, dirX: dir.dirX, dirY: dir.dirY, movedAt: now, aggroTargetId });
+      ctx.db.darkCreature.id.update({ ...c, x: s.x, y: s.y, dirX: dir.dirX, dirY: dir.dirY, movedAt: now, aggroTargetId, strayed });
     }
   }
-  ctx.db.emberWanderTimer.clear();
-  if (online) armEmberWander(ctx);
+  ctx.db.afkWanderTimer.clear();
+  if (online) armAfkWander(ctx);
 });

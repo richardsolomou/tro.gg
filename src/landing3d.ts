@@ -1,7 +1,7 @@
 import * as THREE from "three";
-import { buildTrogg } from "./game/creatures.js";
+import { buildGrask, buildTrogg } from "./game/creatures.js";
 import type { CreatureModel } from "./game/rig.js";
-import { CAVE_3D } from "./game/palette.js";
+import { CAVE_3D, GRASK_3D } from "./game/palette.js";
 
 /**
  * The landing page's ambient backdrop: darkness, a rocky low-poly floor, two
@@ -168,6 +168,27 @@ function seat(model: CreatureModel, x: number, z: number, yaw: number, sink: num
   return model;
 }
 
+/** Pose a grask prowling the rim of the torchlight (GDD "Dark creatures"):
+ *  far enough back that the fog nearly swallows the body, leaving a hunched
+ *  silhouette and its eye-glow — which skips the fog so it stays baleful. */
+function lurk(model: CreatureModel, x: number, z: number, yaw: number): CreatureModel {
+  model.root.position.set(x, 0, z);
+  model.root.rotation.y = yaw;
+  model.root.traverse((obj) => {
+    if (!(obj instanceof THREE.Mesh)) return;
+    const mat = obj.material as THREE.MeshLambertMaterial;
+    if (mat.emissive && mat.emissive.getHex() !== 0) mat.fog = false;
+  });
+  // A cold violet gleam clinging to the body — the dark's answer to the
+  // torch pools, just enough to pick the silhouette out of the black.
+  const gleam = new THREE.PointLight(GRASK_3D.eye, 2.2, 4.5, 1.8);
+  gleam.position.set(0, 1.1, 0.6);
+  model.root.add(gleam);
+  model.actions.idle.legs.play();
+  model.actions.idle.arms.play();
+  return model;
+}
+
 export interface BackdropOptions {
   /** Scales the torch light — the ending scene runs dimmer, like a fire burning down. */
   glow?: number;
@@ -202,6 +223,14 @@ function buildBackdropScene(glow: number, spacing: number, layout: "pair" | "rig
     torches.push(buildTorch(-4.6 * spacing, 1.0, 1, shadows));
     creatures.push(seat(buildTrogg("moss"), -3.9 * spacing, 1.2, 0.6, 0.44));
   }
+  // Grasks prowl the rim where the light gives out — deep enough that the fog
+  // reduces them to hunched silhouettes and a violet eye-glow, facing the fire.
+  creatures.push(lurk(buildGrask(), 5.0 * spacing, -4.8, -0.6));
+  if (layout === "pair") {
+    creatures.push(lurk(buildGrask(), -5.2 * spacing, -5.4, 0.6));
+    creatures.push(lurk(buildGrask(), -0.9, -8.0, 0.1));
+  }
+
   for (const torch of torches) scene.add(torch.group);
   for (const creature of creatures) scene.add(creature.root);
 

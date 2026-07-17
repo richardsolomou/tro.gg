@@ -13,6 +13,10 @@ export function spawnDebugEntity(conn: DbConnection, kind: "boulder" | "tree" | 
   return conn.procedures.spawnAction({ kind, item, ...telemetry(source) });
 }
 
+export function craftItem(conn: DbConnection, item: string, source: string) {
+  return conn.procedures.craftItemAction({ item, ...telemetry(source) });
+}
+
 export function resetBoulders(conn: DbConnection, source: string) {
   return conn.procedures.resetBouldersAction(telemetry(source));
 }
