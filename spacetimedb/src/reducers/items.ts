@@ -17,6 +17,7 @@ import {
   COMBAT_XP_PER_DAMAGE,
   type SkillId,
   gatherToolClass,
+  atFirstFire,
   wieldRequirement,
   recipeFor,
   upkeepReserve,
@@ -381,8 +382,7 @@ function runCraft(ctx: Ctx, { item, source = "" }: { item: string; source?: stri
 
   // at the station: inside the First Fire's ring
   const pos = settle(ctx, p, ctx.timestamp);
-  const station = [...ctx.db.brazier.zoneId.filter(p.zoneId)].find((b) => b.isEternal && b.lit);
-  if (!station || Math.hypot(station.x - pos.x, station.y - pos.y) > station.radius) return [];
+  if (!atFirstFire(pos, ctx.db.brazier.zoneId.filter(p.zoneId))) return [];
 
   // a non-stackable output needs a free carry slot
   if (countRows(ctx.db.inventory.playerId.filter(p.identity)) >= INVENTORY_SLOT_COUNT) return [];
