@@ -1055,25 +1055,29 @@ export const wanderPresence = spacetimedb.reducer({ timer: afkWanderTimer.rowTyp
           break;
         }
       }
+      // A chase that can't progress gives up (GDD "Dark creatures"): past
+      // the leash, onto lit ground, or pinned against ground it can't cross
+      // while the prey is out of reach. It may acquire another exposed trogg,
+      // but never reacquires the target it just abandoned in the same sweep.
+      let abandonedTargetId = c.aggroTargetId;
+      if (target) {
+        const tp = settle(ctx, target, now);
+        const dist = Math.hypot(tp.x - s.x, tp.y - s.y);
+        const pinned = (c.dirX !== 0 || c.dirY !== 0) && Math.abs(s.x - c.x) < 0.05 && Math.abs(s.y - c.y) < 0.05;
+        const safe = isSafeTile(ctx, s.zoneId, Math.round(tp.x), Math.round(tp.y), night);
+        if (safe || dist > DARK_CREATURE_LEASH_RANGE || (pinned && dist > DARK_CREATURE_AGGRO_RANGE)) target = undefined;
+        else abandonedTargetId = "";
+      }
       if (!target) {
         for (const pl of ctx.db.player.zoneId.filter(s.zoneId)) {
-          if (!pl.online || pl.dead || warded(pl)) continue;
+          if (!pl.online || pl.dead || warded(pl) || pl.identity.toHexString() === abandonedTargetId) continue;
           const tp = settle(ctx, pl, now);
+          if (isSafeTile(ctx, s.zoneId, Math.round(tp.x), Math.round(tp.y), night)) continue;
           if (Math.hypot(tp.x - s.x, tp.y - s.y) <= DARK_CREATURE_AGGRO_RANGE) {
             target = pl;
             break;
           }
         }
-      }
-      // A chase that can't progress gives up (GDD "Dark creatures"): past
-      // the leash, or pinned against ground it can't cross (the reveal
-      // frontier, a day boundary) while the prey is out of reach — instinct
-      // stops pacing the fence and goes back to its ground.
-      if (target) {
-        const tp = settle(ctx, target, now);
-        const dist = Math.hypot(tp.x - s.x, tp.y - s.y);
-        const pinned = (c.dirX !== 0 || c.dirY !== 0) && Math.abs(s.x - c.x) < 0.05 && Math.abs(s.y - c.y) < 0.05;
-        if (dist > DARK_CREATURE_LEASH_RANGE || (pinned && dist > DARK_CREATURE_AGGRO_RANGE)) target = undefined;
       }
       const aggroTargetId = target ? target.identity.toHexString() : "";
       // Hunting onto claimed ground at night marks the resident strayed —

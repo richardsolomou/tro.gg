@@ -267,7 +267,8 @@ export function buildHeldItem(item: string): THREE.Group | undefined {
     return g;
   }
   g.rotation.x = HELD_PITCH[item] ?? Math.PI / 2;
-  if (item === "pickaxe" || item === "axe" || item === "fine_pickaxe" || item === "fine_axe") g.rotation.y = Math.PI / 2; // striking edge forward
+  if (item === "pickaxe" || item === "fine_pickaxe") g.rotation.y = Math.PI / 2;
+  if (item === "axe" || item === "fine_axe") g.rotation.y = -Math.PI / 2;
   return g;
 }
 

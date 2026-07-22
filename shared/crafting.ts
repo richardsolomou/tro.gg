@@ -56,6 +56,12 @@ export function upkeepReserve(litUpkeepBraziers: number): number {
   return Math.max(0, litUpkeepBraziers) * BRAZIER_UPKEEP_RATE * ticks;
 }
 
+export function atFirstFire(position: { x: number; y: number } | undefined, fires: Iterable<{ x: number; y: number; radius: number; lit: boolean; isEternal: boolean }>): boolean {
+  if (!position) return false;
+  for (const fire of fires) if (fire.isEternal && fire.lit && Math.hypot(fire.x - position.x, fire.y - position.y) <= fire.radius) return true;
+  return false;
+}
+
 /** A torch burns down while equipped (GDD "Crafting"): wear accrues on its
  *  inventory row each wander-sweep tick, and at this total the torch is
  *  spent — consumed, unequipped, gone. Pushing into the dark costs wood. (initial) */

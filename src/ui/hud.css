@@ -1088,6 +1088,14 @@ textarea {
   opacity: 0.85;
   border-bottom: 1px solid rgba(255, 255, 255, 0.12);
 }
+#hud .crafting-station {
+  padding: 6px 8px;
+  color: var(--hud-moss);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+#hud .crafting-station.is-blocked {
+  color: var(--hud-ember);
+}
 #hud .crafting-row {
   display: flex;
   align-items: center;
@@ -1111,6 +1119,9 @@ textarea {
 #hud .crafting-craft {
   font: inherit;
   font-size: 14px;
+  color: var(--hud-ink);
+  background: var(--hud-ember);
+  border: 0;
   padding: 2px 10px;
   cursor: pointer;
 }
