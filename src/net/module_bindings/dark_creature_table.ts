@@ -24,4 +24,5 @@ export default __t.row({
   aggroTargetId: __t.string().name("aggro_target_id"),
   nightborn: __t.bool(),
   strayed: __t.bool(),
+  attackAt: __t.timestamp().name("attack_at"),
 });

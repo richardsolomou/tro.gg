@@ -120,6 +120,7 @@ export function seedDarkCreatures(ctx: Ctx, zone: Zone): void {
       aggroTargetId: "",
       nightborn: false,
       strayed: false,
+      attackAt: Timestamp.UNIX_EPOCH,
     });
   }
 }

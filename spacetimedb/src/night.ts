@@ -92,6 +92,7 @@ export function tideNight(ctx: Ctx, now: Ctx["timestamp"], night: boolean, revea
         aggroTargetId: "",
         nightborn: true,
         strayed: false,
+        attackAt: now,
       });
       population++;
     }

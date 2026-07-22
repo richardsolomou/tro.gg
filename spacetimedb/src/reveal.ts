@@ -169,7 +169,8 @@ export function seedRegionPopulation(ctx: Ctx, zone: Zone, slug: string, multipl
         lastDamagedAt: Timestamp.UNIX_EPOCH,
         aggroTargetId: "",
         nightborn: false,
-      strayed: false,
+        strayed: false,
+        attackAt: Timestamp.UNIX_EPOCH,
       });
     }
   }

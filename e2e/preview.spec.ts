@@ -37,6 +37,7 @@ const STATES = [
   { name: "ridge trogg idle", query: "creature=ridge&item=none&mode=idle&paused=1" },
   { name: "stone trogg dead pose", query: "creature=stone&item=none&mode=dead&paused=1" },
   { name: "trogg hit-flinch", query: "creature=moss&item=sword&mode=hit&paused=1&scrub=0.2" },
+  { name: "grask mid-headbutt", query: "creature=grask&item=none&mode=attack&paused=1&scrub=0.35" },
   { name: "item view: sword", query: "view=item&item=sword" },
   { name: "bones overlay", query: "creature=moss&item=pickaxe&mode=walk&paused=1&bones=1" },
 ];
