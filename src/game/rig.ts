@@ -217,6 +217,8 @@ function attackClips(s: GaitSpec): Record<Wield, THREE.AnimationClip> {
         ]),
         pitchTrack("Torso", s.restTorso, t, [0, -0.3, 0.42, 0]),
         pitchTrack("Head", 0.3, t, [0, -0.45, 0.25, 0]),
+        pitchTrack("ArmL", s.restArm, t, [0, 0, 0, 0]),
+        pitchTrack("ArmR", s.restArm, t, [0, 0, 0, 0]),
       ])
     : attackClip("swing", s, 0.35, (t) => [
         pitchTrack("ArmR", s.restArm, t, [0, 0.9, -1.5, -0.1]),

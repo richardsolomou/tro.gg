@@ -1708,10 +1708,10 @@ export class World3D {
     }
     if (row.movedAt.microsSinceUnixEpoch !== view.row.movedAt.microsSinceUnixEpoch) view.baseMs = timestampBaseMs(row.movedAt);
     if (row.attackAt.microsSinceUnixEpoch !== view.row.attackAt.microsSinceUnixEpoch) {
-      view.model.actions[view.gait].arms.fadeOut(0.05);
+      view.model.actions[view.gait].arms.stop();
       view.attacking?.stop();
       view.attacking = view.model.actions.attacks.swing;
-      view.attacking.reset().setDuration(ATTACK_PERIOD).fadeIn(0.05).play();
+      view.attacking.reset().setDuration(ATTACK_PERIOD).play();
       view.attackBaseMs = performance.now();
     }
     if (row.health <= 0 && !view.downed) {
