@@ -221,3 +221,4 @@ export const WorldState = __t.object("WorldState", {
   skyPhase: __t.f64(),
 });
 export type WorldState = __Infer<typeof WorldState>;
+
