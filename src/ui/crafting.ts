@@ -1,4 +1,4 @@
-import { BRAZIER_UPKEEP_ITEM, ITEMS, levelForXp, RECIPES, upkeepReserve, type Recipe } from "@trogg/shared";
+import { atFirstFire, BRAZIER_UPKEEP_ITEM, ITEMS, levelForXp, RECIPES, upkeepReserve, type Recipe } from "@trogg/shared";
 import type { DbConnection } from "../net/module_bindings";
 import { itemIcon } from "../game/icons.js";
 import { hudLeft } from "./hud.js";
@@ -16,7 +16,7 @@ import { craftItem } from "../net/procedures.js";
  * standing inside the First Fire's ring); the panel just disables what it
  * can already see won't fly.
  */
-export function mountCrafting(conn: DbConnection, playerId: string): void {
+export function mountCrafting(conn: DbConnection, playerId: string, selfPosition: () => { x: number; y: number } | undefined): void {
   document.getElementById("crafting-panel")?.remove();
 
   const root = document.createElement("div");
@@ -37,9 +37,11 @@ export function mountCrafting(conn: DbConnection, playerId: string): void {
 
   const pool = document.createElement("div");
   pool.className = "crafting-pool";
+  const station = document.createElement("div");
+  station.className = "crafting-station";
   const list = document.createElement("div");
   list.className = "crafting-list";
-  body.append(pool, list);
+  body.append(pool, station, list);
   root.append(toggle, body);
   hudLeft().appendChild(root);
 
@@ -63,9 +65,15 @@ export function mountCrafting(conn: DbConnection, playerId: string): void {
       .map(([item, qty]) => `${qty} ${ITEMS[item as keyof typeof ITEMS]?.name.toLowerCase() ?? item}`)
       .join(" · ");
 
+  const atStationNow = () => atFirstFire(selfPosition(), conn.db.brazier.iter());
+  let wasAtStation: boolean | undefined;
   const render = () => {
     const reserve = reserveNow();
+    const atStation = atStationNow();
+    wasAtStation = atStation;
     pool.textContent = `Stockpile: ${stock("stone")} stone · ${stock("wood")} wood — ${reserve} ${BRAZIER_UPKEEP_ITEM} held back for the fires`;
+    station.textContent = atStation ? "Crafting at the First Fire" : "Craft beside the First Fire — return to its light";
+    station.classList.toggle("is-blocked", !atStation);
 
     list.replaceChildren();
     for (const recipe of RECIPES) {
@@ -90,11 +98,11 @@ export function mountCrafting(conn: DbConnection, playerId: string): void {
       button.type = "button";
       button.className = "crafting-craft";
       button.textContent = levelOk ? "Craft" : `${recipe.skill} ${recipe.level}`;
-      button.disabled = !levelOk || !stoneOk || !woodOk;
+      button.disabled = !atStation || !levelOk || !stoneOk || !woodOk;
       attachTip(
         button,
-        levelOk ? `Craft ${def.name}` : `Needs ${recipe.skill} level ${recipe.level}`,
-        !stoneOk || !woodOk ? "The stockpile can't cover it right now — the fire eats first" : "Drawn from the tribe's stockpile, beside the First Fire",
+        !atStation ? "Return to the First Fire" : levelOk ? `Craft ${def.name}` : `Needs ${recipe.skill} level ${recipe.level}`,
+        !atStation ? "Crafting only works within its light" : !stoneOk || !woodOk ? "The stockpile can't cover it right now — the fire eats first" : "Drawn from the tribe's stockpile, beside the First Fire",
       );
       button.addEventListener("click", () => void craftItem(conn, recipe.output, "crafting-panel"));
 
@@ -103,8 +111,15 @@ export function mountCrafting(conn: DbConnection, playerId: string): void {
     }
   };
 
+  let stationRefresh: number | undefined;
   const setOpen = (opening: boolean) => {
     body.hidden = !opening;
+    if (stationRefresh !== undefined) window.clearInterval(stationRefresh);
+    stationRefresh = opening
+      ? window.setInterval(() => {
+          if (atStationNow() !== wasAtStation) render();
+        }, 250)
+      : undefined;
     if (opening) {
       render();
       coachHit("first-craft");

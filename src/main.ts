@@ -117,7 +117,7 @@ async function main() {
     // trogg is".
     mountAppearance(conn, { signedIn, authAvailable, claimFailed: signInReturn === "error" });
     if (conn.identity) mountInventory(conn, conn.identity.toHexString());
-    if (conn.identity) mountCrafting(conn, conn.identity.toHexString());
+    if (conn.identity) mountCrafting(conn, conn.identity.toHexString(), () => world.selfPosition());
     if (conn.identity) mountSkills(conn, conn.identity.toHexString());
     mountStockpile(conn);
 
