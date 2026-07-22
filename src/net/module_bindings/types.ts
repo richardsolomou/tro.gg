@@ -74,6 +74,7 @@ export const DarkCreature = __t.object("DarkCreature", {
   aggroTargetId: __t.string(),
   nightborn: __t.bool(),
   strayed: __t.bool(),
+  attackAt: __t.timestamp(),
 });
 export type DarkCreature = __Infer<typeof DarkCreature>;
 
@@ -220,4 +221,3 @@ export const WorldState = __t.object("WorldState", {
   skyPhase: __t.f64(),
 });
 export type WorldState = __Infer<typeof WorldState>;
-

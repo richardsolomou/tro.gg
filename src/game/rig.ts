@@ -120,6 +120,16 @@ function pitchTrack(node: string, rest: number, times: number[], pitches: number
   return new THREE.QuaternionKeyframeTrack(`${node}.quaternion`, times, values);
 }
 
+function rotationTrack(node: string, rest: number, times: number[], rotations: [number, number, number][]): THREE.QuaternionKeyframeTrack {
+  const q = new THREE.Quaternion();
+  const values: number[] = [];
+  for (const [pitch, yaw, roll] of rotations) {
+    q.setFromEuler(new THREE.Euler(rest + pitch, yaw, roll));
+    values.push(q.x, q.y, q.z, q.w);
+  }
+  return new THREE.QuaternionKeyframeTrack(`${node}.quaternion`, times, values);
+}
+
 function bobTrack(times: number[], ys: number[]): THREE.VectorKeyframeTrack {
   const values: number[] = [];
   for (const y of ys) values.push(0, y, 0);
@@ -138,6 +148,7 @@ export interface GaitSpec {
   runLean: number;
   /** Breathing depth at idle. */
   breathe: number;
+  feralAttack?: boolean;
 }
 
 /** A stride's lower layer: legs scissor in opposite phase, the body dips on each
@@ -194,12 +205,39 @@ function attackClip(name: Wield, s: GaitSpec, strikeAt: number, tracks: (t: numb
 }
 
 function attackClips(s: GaitSpec): Record<Wield, THREE.AnimationClip> {
+  const swing = s.feralAttack
+    ? attackClip("swing", s, 0.35, (t) => [
+        rotationTrack("ArmL", s.restArm, t, [
+          [0, 0, 0],
+          [-0.9, 0, -0.35],
+          [-1.75, 0, 0.45],
+          [0, 0, 0],
+        ]),
+        rotationTrack("ArmR", s.restArm, t, [
+          [0, 0, 0],
+          [0.5, 0, 0.4],
+          [-1.35, 0, -0.5],
+          [0, 0, 0],
+        ]),
+        rotationTrack("Torso", s.restTorso, t, [
+          [0, 0, 0],
+          [-0.22, -0.28, -0.18],
+          [0.3, 0.34, 0.2],
+          [0, 0, 0],
+        ]),
+        rotationTrack("Head", 0.3, t, [
+          [0, 0, 0],
+          [-0.18, 0.42, 0.16],
+          [0.24, -0.48, -0.2],
+          [0, 0, 0],
+        ]),
+      ])
+    : attackClip("swing", s, 0.35, (t) => [
+        pitchTrack("ArmR", s.restArm, t, [0, 0.9, -1.5, -0.1]),
+        pitchTrack("Torso", s.restTorso, t, [0, -0.06, 0.14, 0.02]),
+      ]);
   return {
-    // bare-fisted haymaker: cock back, throw forward past horizontal
-    swing: attackClip("swing", s, 0.35, (t) => [
-      pitchTrack("ArmR", s.restArm, t, [0, 0.9, -1.5, -0.1]),
-      pitchTrack("Torso", s.restTorso, t, [0, -0.06, 0.14, 0.02]),
-    ]),
+    swing,
     // sword thrust: draw back at the waist, lunge with the blade level along the arm
     stab: attackClip("stab", s, 0.35, (t) => [
       pitchTrack("ArmR", s.restArm, t, [0, 0.55, -1.5, -0.15]),

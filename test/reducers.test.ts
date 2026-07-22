@@ -1325,6 +1325,7 @@ test("wanderPresence attacks an aggroed target in melee range and stops advancin
   const c = ctx.db.darkCreature.insert(darkCreatureRow({ x: 69, y: 96, aggroTargetId: target.toHexString() }));
   wanderPresence(ctx, {});
   const after = ctx.db.darkCreature.id.find(c.id);
+  assert.equal(after.attackAt.microsSinceUnixEpoch, ctx.timestamp.microsSinceUnixEpoch);
   const def = DARK_CREATURES.grask!;
   assert.deepEqual(
     { dirX: after.dirX, dirY: after.dirY, health: ctx.db.player.identity.find(target).health },

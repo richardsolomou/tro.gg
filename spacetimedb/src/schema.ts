@@ -333,6 +333,8 @@ const darkCreature = table(
     // at dawn. Freshly-claimed ground's own corpses keep strayed=false and
     // stay dead (Territory and permanence).
     strayed: t.bool().default(false),
+    // The last server-resolved strike, consumed by clients as a one-shot animation impulse.
+    attackAt: t.timestamp().default(Timestamp.UNIX_EPOCH),
   },
 );
 
@@ -643,6 +645,7 @@ export const regenCreatures = spacetimedb.reducer({ timer: creatureRegen.rowType
             aggroTargetId: "",
             nightborn: false,
             strayed: false,
+            attackAt: Timestamp.UNIX_EPOCH,
           });
         }
         continue;
@@ -1033,6 +1036,7 @@ export const wanderPresence = spacetimedb.reducer({ timer: afkWanderTimer.rowTyp
       const statics = staticBlockersFor(s.zoneId);
       const creatureTiles = creatureTilesByZone.get(s.zoneId)!;
       const ownTile = tileKey(Math.round(s.x), Math.round(s.y));
+      let attackAt = c.attackAt;
 
       // Keep a live target (same zone, online, alive); else look for a fresh
       // active trogg within aggro range. Sighting is range-based, like earshot.
@@ -1091,6 +1095,7 @@ export const wanderPresence = spacetimedb.reducer({ timer: afkWanderTimer.rowTyp
           // "no twitch checks" slow rhythm as a trogg's own swing (invariant 7).
           const def = darkCreatureDef(c.species);
           damagePlayer(ctx, target, ctx.random.integerInRange(def.damage[0], def.damage[1]));
+          attackAt = now;
         } else {
           dir = toward;
         }
@@ -1118,9 +1123,9 @@ export const wanderPresence = spacetimedb.reducer({ timer: afkWanderTimer.rowTyp
           : pickWanderDir(ctx, bounds, { x: Math.round(s.x), y: Math.round(s.y) }, 1);
       }
 
-      const unchanged = s.x === c.x && s.y === c.y && dir.dirX === c.dirX && dir.dirY === c.dirY && aggroTargetId === c.aggroTargetId && strayed === c.strayed;
+      const unchanged = s.x === c.x && s.y === c.y && dir.dirX === c.dirX && dir.dirY === c.dirY && aggroTargetId === c.aggroTargetId && strayed === c.strayed && attackAt === c.attackAt;
       if (unchanged) continue;
-      ctx.db.darkCreature.id.update({ ...c, x: s.x, y: s.y, dirX: dir.dirX, dirY: dir.dirY, movedAt: now, aggroTargetId, strayed });
+      ctx.db.darkCreature.id.update({ ...c, x: s.x, y: s.y, dirX: dir.dirX, dirY: dir.dirY, movedAt: now, aggroTargetId, strayed, attackAt });
     }
   }
   ctx.db.afkWanderTimer.clear();

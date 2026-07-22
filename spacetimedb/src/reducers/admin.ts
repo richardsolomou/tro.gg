@@ -115,6 +115,7 @@ function runSpawn(ctx: Ctx, { kind, item = "", source = "" }: { kind: string; it
       aggroTargetId: "",
       nightborn: false,
       strayed: false,
+      attackAt: ctx.timestamp,
     });
   } else {
     ctx.db.groundItem.insert({ id: 0n, zoneId: p.zoneId, item, x: tile.x, y: tile.y, qty: 1 });

@@ -68,7 +68,7 @@ import { buildGrask } from "./creatures.js";
 import { buildBoulder, buildBrazier, buildTree, updateHeldFx, type HeldFx } from "./items.js";
 import { NodeField } from "./nodes.js";
 import { makeHealthBar, type Overlay } from "./overlays.js";
-import type { CreatureModel } from "./rig.js";
+import { ATTACK_PERIOD, type CreatureModel } from "./rig.js";
 import { buildTerrain, type Terrain3D } from "./terrain.js";
 import { biomePalette, DAYLIGHT_3D, UI_3D } from "./palette.js";
 
@@ -104,6 +104,8 @@ interface DarkCreatureView {
   baseMs: number;
   flashUntil?: number;
   downed: boolean;
+  attacking?: THREE.AnimationAction;
+  attackBaseMs?: number;
 }
 
 /**
@@ -1030,9 +1032,15 @@ export class World3D {
           const to = view.model.actions[nextGait];
           from.legs.fadeOut(0.12);
           to.legs.reset().fadeIn(0.12).play();
-          from.arms.fadeOut(0.12);
-          to.arms.reset().fadeIn(0.12).play();
+          from.arms.fadeOut(view.attacking ? 0.05 : 0.12);
+          if (!view.attacking) to.arms.reset().fadeIn(0.12).play();
           view.gait = nextGait;
+        }
+        if (view.attacking && view.attackBaseMs !== undefined && now - view.attackBaseMs >= ATTACK_PERIOD * 1000) {
+          view.attacking.fadeOut(0.1);
+          view.attacking = undefined;
+          view.attackBaseMs = undefined;
+          view.model.actions[view.gait].arms.reset().fadeIn(0.1).play();
         }
         view.model.mixer.update(dt);
       }
@@ -1699,6 +1707,13 @@ export class World3D {
       view.health = health;
     }
     if (row.movedAt.microsSinceUnixEpoch !== view.row.movedAt.microsSinceUnixEpoch) view.baseMs = timestampBaseMs(row.movedAt);
+    if (row.attackAt.microsSinceUnixEpoch !== view.row.attackAt.microsSinceUnixEpoch) {
+      view.model.actions[view.gait].arms.fadeOut(0.05);
+      view.attacking?.stop();
+      view.attacking = view.model.actions.attacks.swing;
+      view.attacking.reset().setDuration(ATTACK_PERIOD).fadeIn(0.05).play();
+      view.attackBaseMs = performance.now();
+    }
     if (row.health <= 0 && !view.downed) {
       view.downed = true;
       setDowned(view.model, true);
