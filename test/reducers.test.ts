@@ -2438,6 +2438,34 @@ test("a chase past the leash range is dropped — instinct stops pacing the fenc
   assert.equal(ctx.db.darkCreature.id.find(c.id)?.aggroTargetId, ""); // gave up
 });
 
+test("a trogg inside a brazier sanctuary breaks a grask chase", () => {
+  const me = id("safe-prey");
+  const ctx = makeCtx({ sender: me, random: 0.9 });
+  lockNight(ctx);
+  ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: true });
+  ctx.db.player.insert(playerRow(me, { online: true, x: 74, y: 96 }));
+  const c = ctx.db.darkCreature.insert(darkCreatureRow({ x: 76, y: 96, aggroTargetId: me.toHexString() }));
+
+  wanderPresence(ctx, {});
+
+  assert.equal(ctx.db.darkCreature.id.find(c.id)?.aggroTargetId, "");
+});
+
+test("a grask whose prey reaches sanctuary switches to another nearby trogg", () => {
+  const safe = id("safe-prey");
+  const exposed = id("exposed-prey");
+  const ctx = makeCtx({ sender: safe, random: 0.9 });
+  lockNight(ctx);
+  ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: BRAZIER_LIT_RADIUS, lit: true, isEternal: true });
+  ctx.db.player.insert(playerRow(safe, { online: true, x: 74, y: 96 }));
+  ctx.db.player.insert(playerRow(exposed, { online: true, x: 78, y: 96 }));
+  const c = ctx.db.darkCreature.insert(darkCreatureRow({ x: 76, y: 96, aggroTargetId: safe.toHexString() }));
+
+  wanderPresence(ctx, {});
+
+  assert.equal(ctx.db.darkCreature.id.find(c.id)?.aggroTargetId, exposed.toHexString());
+});
+
 test("at night a hunting resident is marked strayed, and its death on lit ground sends it home", () => {
   const me = id("nightprey");
   const ctx = makeCtx({ sender: me, random: 0.9 });
