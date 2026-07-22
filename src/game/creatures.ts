@@ -61,7 +61,7 @@ export function buildTrogg(style: string, tint?: number): CreatureModel {
   return finishCreature(root, p, TROGG_GAIT, 1.75);
 }
 
-const GRASK_GAIT: GaitSpec = { restTorso: 0.7, restArm: 0.35, legSwing: 0.7, armSwing: 0.55, walkDip: 0.07, runDip: 0.12, runLean: 0.1, breathe: 0.02, feralAttack: true };
+const GRASK_GAIT: GaitSpec = { restTorso: 0.7, restArm: 0.35, legSwing: 0.7, armSwing: 0.55, walkDip: 0.07, runDip: 0.12, runLean: 0.1, breathe: 0.02, headbuttAttack: true };
 
 /** The grask (GDD "Dark creatures"): a low, feral thing the dark has claimed —
  *  hunched near-flat over its own short legs, long clawed forelimbs trailing

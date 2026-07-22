@@ -120,14 +120,10 @@ function pitchTrack(node: string, rest: number, times: number[], pitches: number
   return new THREE.QuaternionKeyframeTrack(`${node}.quaternion`, times, values);
 }
 
-function rotationTrack(node: string, rest: number, times: number[], rotations: [number, number, number][]): THREE.QuaternionKeyframeTrack {
-  const q = new THREE.Quaternion();
+function positionTrack(node: string, times: number[], positions: [number, number, number][]): THREE.VectorKeyframeTrack {
   const values: number[] = [];
-  for (const [pitch, yaw, roll] of rotations) {
-    q.setFromEuler(new THREE.Euler(rest + pitch, yaw, roll));
-    values.push(q.x, q.y, q.z, q.w);
-  }
-  return new THREE.QuaternionKeyframeTrack(`${node}.quaternion`, times, values);
+  for (const position of positions) values.push(...position);
+  return new THREE.VectorKeyframeTrack(`${node}.position`, times, values);
 }
 
 function bobTrack(times: number[], ys: number[]): THREE.VectorKeyframeTrack {
@@ -148,7 +144,7 @@ export interface GaitSpec {
   runLean: number;
   /** Breathing depth at idle. */
   breathe: number;
-  feralAttack?: boolean;
+  headbuttAttack?: boolean;
 }
 
 /** A stride's lower layer: legs scissor in opposite phase, the body dips on each
@@ -205,32 +201,22 @@ function attackClip(name: Wield, s: GaitSpec, strikeAt: number, tracks: (t: numb
 }
 
 function attackClips(s: GaitSpec): Record<Wield, THREE.AnimationClip> {
-  const swing = s.feralAttack
+  const swing = s.headbuttAttack
     ? attackClip("swing", s, 0.35, (t) => [
-        rotationTrack("ArmL", s.restArm, t, [
-          [0, 0, 0],
-          [-0.9, 0, -0.35],
-          [-1.75, 0, 0.45],
-          [0, 0, 0],
+        positionTrack("Torso", t, [
+          [0, 0.34, 0],
+          [0, 0.38, -0.16],
+          [0, 0.26, 0.28],
+          [0, 0.34, 0],
         ]),
-        rotationTrack("ArmR", s.restArm, t, [
-          [0, 0, 0],
-          [0.5, 0, 0.4],
-          [-1.35, 0, -0.5],
-          [0, 0, 0],
+        positionTrack("Head", t, [
+          [0, 0.5, 0.28],
+          [0, 0.56, 0.2],
+          [0, 0.4, 0.42],
+          [0, 0.5, 0.28],
         ]),
-        rotationTrack("Torso", s.restTorso, t, [
-          [0, 0, 0],
-          [-0.22, -0.28, -0.18],
-          [0.3, 0.34, 0.2],
-          [0, 0, 0],
-        ]),
-        rotationTrack("Head", 0.3, t, [
-          [0, 0, 0],
-          [-0.18, 0.42, 0.16],
-          [0.24, -0.48, -0.2],
-          [0, 0, 0],
-        ]),
+        pitchTrack("Torso", s.restTorso, t, [0, -0.3, 0.42, 0]),
+        pitchTrack("Head", 0.3, t, [0, -0.45, 0.25, 0]),
       ])
     : attackClip("swing", s, 0.35, (t) => [
         pitchTrack("ArmR", s.restArm, t, [0, 0.9, -1.5, -0.1]),
