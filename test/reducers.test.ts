@@ -61,7 +61,6 @@ import {
   DARK_CREATURE_AGGRO_RANGE,
   DARK_CREATURES,
   MAX_DARK_CREATURES_PER_ZONE,
-  NPC_CORPSE_MS,
   isRevealed,
   neighborsOf,
   penumbraOf,

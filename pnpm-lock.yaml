@@ -30,6 +30,9 @@ importers:
       '@types/three':
         specifier: ^0.185.0
         version: 0.185.0
+      ras-stack:
+        specifier: ^0.8.2
+        version: 0.8.2
       tsx:
         specifier: ^4.19.2
         version: 4.22.4
@@ -38,7 +41,7 @@ importers:
         version: 6.0.3
       vite:
         specifier: ^8.0.16
-        version: 8.0.16(@types/node@26.0.1)(esbuild@0.28.1)(tsx@4.22.4)
+        version: 8.0.16(@types/node@26.0.1)(esbuild@0.28.1)(tsx@4.22.4)(yaml@2.9.0)
 
 packages:
 
@@ -825,6 +828,28 @@ packages:
   queue-microtask@1.2.3:
     resolution: {integrity: sha512-NuaNSa6flKT5JaSYQzJok04JzTL1CA6aGhv5rfLW3PgqA+M2ChpZQnAC8h8i4ZFkBS8X5RqkDBHA7r4hej3K9A==}
 
+  ras-stack@0.8.2:
+    resolution: {integrity: sha512-zu7qxodt1Hoy6AKLnglGVULKaoyRni8hHZZ7btgkqbU4HQdecODfCXmAdN/pwFYW1VOY3YwpYGAWK5/I8CEHjw==}
+    engines: {node: '>=24 <25'}
+    hasBin: true
+    peerDependencies:
+      '@tanstack/react-query': '>=5 <6'
+      '@tanstack/react-start': '>=1 <2'
+      centrifuge: '>=5 <6'
+      nodemailer: '>=9 <10'
+      tus-js-client: '>=4 <5'
+    peerDependenciesMeta:
+      '@tanstack/react-query':
+        optional: true
+      '@tanstack/react-start':
+        optional: true
+      centrifuge:
+        optional: true
+      nodemailer:
+        optional: true
+      tus-js-client:
+        optional: true
+
   read-yaml-file@1.1.0:
     resolution: {integrity: sha512-VIMnQi/Z4HT2Fxuwg5KrY174U1VdUIASQVWXXyqtNRtxSr9IYkn1rsI6Tb6HsrHCmB7gVpNwX6JxPTHcH6IoTA==}
     engines: {node: '>=6'}
@@ -1008,6 +1033,11 @@ packages:
   which@2.0.2:
     resolution: {integrity: sha512-BLI3Tl1TW3Pvl70l3yq3Y64i+awpwXqsGBYWkkqMtnbXgrMD+yj7rhW0kuEDxzJaYXGjEW5ogapKNMEKNMjibA==}
     engines: {node: '>= 8'}
+    hasBin: true
+
+  yaml@2.9.0:
+    resolution: {integrity: sha512-2AvhNX3mb8zd6Zy7INTtSpl1F15HW6Wnqj0srWlkKLcpYl/gMIMJiyuGq2KeI2YFxUPjdlB+3Lc10seMLtL4cA==}
+    engines: {node: '>= 14.6'}
     hasBin: true
 
 snapshots:
@@ -1722,6 +1752,10 @@ snapshots:
 
   queue-microtask@1.2.3: {}
 
+  ras-stack@0.8.2:
+    dependencies:
+      yaml: 2.9.0
+
   read-yaml-file@1.1.0:
     dependencies:
       graceful-fs: 4.2.11
@@ -1833,7 +1867,7 @@ snapshots:
 
   url-polyfill@1.1.14: {}
 
-  vite@8.0.16(@types/node@26.0.1)(esbuild@0.28.1)(tsx@4.22.4):
+  vite@8.0.16(@types/node@26.0.1)(esbuild@0.28.1)(tsx@4.22.4)(yaml@2.9.0):
     dependencies:
       lightningcss: 1.32.0
       picomatch: 4.0.4
@@ -1845,9 +1879,12 @@ snapshots:
       esbuild: 0.28.1
       fsevents: 2.3.3
       tsx: 4.22.4
+      yaml: 2.9.0
 
   web-vitals@5.3.0: {}
 
   which@2.0.2:
     dependencies:
       isexe: 2.0.0
+
+  yaml@2.9.0: {}
