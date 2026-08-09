@@ -5,7 +5,7 @@
   "type": "module",
   "packageManager": "pnpm@10.33.0",
   "engines": {
-    "node": ">=24"
+    "node": ">=24 <25"
   },
   "scripts": {
     "dev": "vite",
@@ -15,6 +15,8 @@
     "typecheck:module": "tsc -p spacetimedb/tsconfig.json --noEmit",
     "test": "TSX_TSCONFIG_PATH=test/tsconfig.json node --import tsx --test \"shared/*.test.ts\" \"src/*.test.ts\" \"test/*.test.ts\"",
     "test:e2e": "playwright test",
+    "policy:sync": "ras-stack-policy sync",
+    "policy:check": "ras-stack-policy check",
     "changeset": "changeset",
     "version-packages": "changeset version",
     "release": "changeset tag"
@@ -29,6 +31,7 @@
     "@changesets/cli": "2.31.1",
     "@playwright/test": "^1.61.1",
     "@types/three": "^0.185.0",
+    "ras-stack": "^0.8.2",
     "tsx": "^4.19.2",
     "typescript": "^6.0.3",
     "vite": "^8.0.16"
