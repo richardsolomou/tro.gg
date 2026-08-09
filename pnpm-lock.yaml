@@ -31,8 +31,8 @@ importers:
         specifier: ^0.185.3
         version: 0.185.3
       ras-stack:
-        specifier: ^0.8.2
-        version: 0.8.2
+        specifier: ^0.22.0
+        version: 0.22.0
       tsx:
         specifier: ^4.23.4
         version: 4.23.4
@@ -933,24 +933,36 @@ packages:
   queue-microtask@1.2.3:
     resolution: {integrity: sha512-NuaNSa6flKT5JaSYQzJok04JzTL1CA6aGhv5rfLW3PgqA+M2ChpZQnAC8h8i4ZFkBS8X5RqkDBHA7r4hej3K9A==}
 
-  ras-stack@0.8.2:
-    resolution: {integrity: sha512-zu7qxodt1Hoy6AKLnglGVULKaoyRni8hHZZ7btgkqbU4HQdecODfCXmAdN/pwFYW1VOY3YwpYGAWK5/I8CEHjw==}
+  ras-stack@0.22.0:
+    resolution: {integrity: sha512-OhZedNwjDUhuYQxgANB8ZS+UCz9KvxsBx1Om4XeYxhy35Aw9+xm4J1ob3thgCNwp1qZA67l9/M2Q05KOJMT/5w==}
     engines: {node: '>=24 <25'}
     hasBin: true
     peerDependencies:
       '@tanstack/react-query': '>=5 <6'
       '@tanstack/react-start': '>=1 <2'
+      better-sqlite3: '>=12 <13'
       centrifuge: '>=5 <6'
+      drizzle-orm: '>=0.45 <1'
       nodemailer: '>=9 <10'
+      postgres: '>=3.4 <4'
+      react: '>=19 <20'
       tus-js-client: '>=4 <5'
     peerDependenciesMeta:
       '@tanstack/react-query':
         optional: true
       '@tanstack/react-start':
         optional: true
+      better-sqlite3:
+        optional: true
       centrifuge:
         optional: true
+      drizzle-orm:
+        optional: true
       nodemailer:
+        optional: true
+      postgres:
+        optional: true
+      react:
         optional: true
       tus-js-client:
         optional: true
@@ -1887,7 +1899,7 @@ snapshots:
 
   queue-microtask@1.2.3: {}
 
-  ras-stack@0.8.2:
+  ras-stack@0.22.0:
     dependencies:
       yaml: 2.9.0
 

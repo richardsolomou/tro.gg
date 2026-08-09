@@ -39,7 +39,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: richardsolomou/ras-stack/actions/setup-js@v0.8.0
+      - uses: richardsolomou/ras-stack/actions/setup-js@v0.22.0
 
       - name: Derive database name
         id: db
