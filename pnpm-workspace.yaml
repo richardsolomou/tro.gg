@@ -8,3 +8,6 @@
 # their transitive deps all ship frequently), so the global minimum-release-age
 # install guard blocks legitimate pinned versions. Disable it for this repo.
 minimumReleaseAge: 0
+allowBuilds:
+  core-js: true
+  esbuild: true
