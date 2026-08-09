@@ -62,3 +62,16 @@ typecheck:
 # Run the shared pure-logic unit tests.
 test:
     pnpm test
+
+# Run every local gate used by CI.
+check:
+    pnpm typecheck
+    pnpm typecheck:module
+    pnpm test
+    pnpm build
+
+e2e-install:
+    pnpm exec playwright install --with-deps chromium
+
+e2e:
+    pnpm test:e2e

@@ -21,31 +21,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
-
-      - uses: actions/setup-node@v4
+      - uses: richardsolomou/ras-stack/actions/setup-js@v0.2.0
+      - uses: richardsolomou/ras-stack/actions/setup-just@v0.2.0
         with:
-          node-version: 24
-          cache: pnpm
+          version: '1.58.0'
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Type-check module
-        run: pnpm typecheck:module
-
-      - name: Test
-        run: pnpm test
-
-      - name: Build client
-        run: pnpm build
+      - name: Check
+        run: just check
 
       - name: Install Playwright browser
         run: pnpm exec playwright install --with-deps chromium
 
       - name: Preview render harness
-        run: pnpm test:e2e
+        run: just e2e
 
       - name: Install SpacetimeDB CLI
         run: |
@@ -64,3 +52,11 @@ jobs:
             echo "::error::src/net/module_bindings is stale — run 'just generate' and commit the result."
             exit 1
           fi
+
+  release:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: [check]
+    permissions:
+      contents: write
+    uses: richardsolomou/ras-stack/.github/workflows/release-changesets.yml@v0.2.0
+    secrets: inherit
