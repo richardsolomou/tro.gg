@@ -13,7 +13,7 @@
     "minimumReleaseAge": 0
   },
   "adoption": {
-    "minimumRasStackVersion": "0.29.0",
+    "minimumRasStackVersion": "0.33.0",
     "node": ">=24 <25",
     "pnpm": "11.15.0",
     "requiredReferences": ["ras-stack/config/typescript/bundler"]

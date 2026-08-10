@@ -15,8 +15,8 @@
     "typecheck:module": "tsc -p spacetimedb/tsconfig.json --noEmit",
     "test": "TSX_TSCONFIG_PATH=test/tsconfig.json node --import tsx --test \"shared/*.test.ts\" \"src/*.test.ts\" \"test/*.test.ts\"",
     "test:e2e": "playwright test",
-    "policy:sync": "ras-stack-policy sync",
-    "policy:check": "ras-stack-policy check",
+    "policy:sync": "ras policy sync",
+    "policy:check": "ras policy check",
     "changeset": "changeset",
     "version-packages": "changeset version",
     "release": "changeset tag"
@@ -31,7 +31,7 @@
     "@changesets/cli": "2.31.1",
     "@playwright/test": "^1.62.1",
     "@types/three": "^0.185.3",
-    "ras-stack": "^0.29.0",
+    "ras-stack": "^0.33.0",
     "tsx": "^4.23.4",
     "typescript": "^7.0.2",
     "vite": "^8.2.0"
