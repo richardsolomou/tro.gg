@@ -31,8 +31,8 @@ importers:
         specifier: ^0.185.3
         version: 0.185.3
       ras-stack:
-        specifier: ^0.33.0
-        version: 0.33.0(posthog-js@1.409.5)
+        specifier: ^0.35.0
+        version: 0.35.0(posthog-js@1.409.5)
       tsx:
         specifier: ^4.23.4
         version: 4.23.4
@@ -933,11 +933,15 @@ packages:
   queue-microtask@1.2.3:
     resolution: {integrity: sha512-NuaNSa6flKT5JaSYQzJok04JzTL1CA6aGhv5rfLW3PgqA+M2ChpZQnAC8h8i4ZFkBS8X5RqkDBHA7r4hej3K9A==}
 
-  ras-stack@0.33.0:
-    resolution: {integrity: sha512-3OiTReatoKNjQeQUs7WI1dmqo9YgTyZMILssdaEmLp8qZViNOm5dsuvObaKPclkGOx+IGLqtMVX8Lxny/JPHYg==}
+  ras-stack@0.35.0:
+    resolution: {integrity: sha512-hhEDIekCfzr0bdG5JS/Ow3mbPzRA0YJvHCHjFDlJ2aI3dopm5HMgCiAOGrd33XvmY0sJNJyrpmk7+bhhoVWkMA==}
     engines: {node: '>=24 <25'}
     hasBin: true
     peerDependencies:
+      '@opentelemetry/api-logs': ^0.221.0
+      '@opentelemetry/exporter-logs-otlp-http': ^0.221.0
+      '@opentelemetry/resources': ^2.10.0
+      '@opentelemetry/sdk-logs': ^0.221.0
       '@posthog/react': '>=1 <2'
       '@tanstack/react-query': '>=5 <6'
       '@tanstack/react-start': '>=1 <2'
@@ -951,6 +955,14 @@ packages:
       react: '>=19 <20'
       tus-js-client: '>=4 <5'
     peerDependenciesMeta:
+      '@opentelemetry/api-logs':
+        optional: true
+      '@opentelemetry/exporter-logs-otlp-http':
+        optional: true
+      '@opentelemetry/resources':
+        optional: true
+      '@opentelemetry/sdk-logs':
+        optional: true
       '@posthog/react':
         optional: true
       '@tanstack/react-query':
@@ -1908,7 +1920,7 @@ snapshots:
 
   queue-microtask@1.2.3: {}
 
-  ras-stack@0.33.0(posthog-js@1.409.5):
+  ras-stack@0.35.0(posthog-js@1.409.5):
     dependencies:
       yaml: 2.9.0
     optionalDependencies:
