@@ -1,5 +1,9 @@
 import posthog from "posthog-js";
+import { postHogEnvironment } from "ras-stack/posthog";
+import { postHogBrowserOptions } from "ras-stack/posthog/client";
 import { POSTHOG_HOST, POSTHOG_KEY } from "./env.js";
+
+const posthogEnvironment = POSTHOG_KEY ? postHogEnvironment({ projectToken: POSTHOG_KEY, host: POSTHOG_HOST }) : undefined;
 
 const serviceContext = {
   serviceName: "trogg-web",
@@ -16,16 +20,9 @@ type LogAttributes = Record<string, LogAttribute>;
  * No-op without a key.
  */
 export function initAnalytics() {
-  if (!POSTHOG_KEY) return;
-  posthog.init(POSTHOG_KEY, {
-    api_host: POSTHOG_HOST,
-    defaults: "2026-05-30",
-    person_profiles: "always",
-    capture_exceptions: {
-      capture_unhandled_errors: true,
-      capture_unhandled_rejections: true,
-      capture_console_errors: true,
-    },
+  if (!posthogEnvironment) return;
+  posthog.init(posthogEnvironment.projectToken, {
+    ...postHogBrowserOptions({ apiHost: posthogEnvironment.host, uiHost: posthogEnvironment.uiHost }),
     logs: {
       ...serviceContext,
       captureConsoleLogs: false,
