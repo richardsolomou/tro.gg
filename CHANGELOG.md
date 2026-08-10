@@ -1,5 +1,11 @@
 # tro.gg
 
+## 0.1.2
+
+### Patch Changes
+
+- 225108c: Use shared PostHog defaults while preserving gameplay analytics, replay, feature flags, and logs.
+
 ## 0.1.1
 
 ### Patch Changes
