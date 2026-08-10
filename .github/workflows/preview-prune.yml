@@ -47,7 +47,7 @@ jobs:
           }
 
           active="$(mktemp)"
-          gh pr list --state open --json headRefName --jq '.[].headRefName' \
+          gh pr list --repo "$GITHUB_REPOSITORY" --state open --json headRefName --jq '.[].headRefName' \
             | while IFS= read -r branch; do
                 [ -n "$branch" ] && echo "trogg-$(slugify "$branch")"
               done > "$active"
