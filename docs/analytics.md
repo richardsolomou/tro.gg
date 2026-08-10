@@ -28,6 +28,7 @@ snake_case. Low-volume by design — anything that could fire more than ~once/se
 | `client_update_available` | — | Polling spotted a newer deployed frontend than the running build (a Cloudflare-only deploy); the refresh prompt is shown. Measures how many players are on a stale client after a frontend deploy |
 | `account_claim_started` | — | Player starts the guest → account claim flow and is about to leave for SpacetimeAuth |
 | `account_claim_failed` | `had_pending_claim` | The return from SpacetimeAuth failed — the provider came back with `?error=…` or the token exchange threw, so no account token was obtained. `had_pending_claim` is `true` when a guest was mid-claim (vs a fresh-device sign-in). Makes a broken claim/identify flow visible instead of looking like nobody tried |
+| `account_session_lapsed` | — | A stored account session produced no usable ID token — it had expired and the silent renew failed — so a player who *had* an account boots as a guest. Their pre-claim guest token was cleared when they claimed, so they land on a brand-new trogg; without this event that is indistinguishable from a first-time visitor, which is how a broken claim flow hides behind "zero `player_named`" |
 | `account_signed_out` | — | Signed-in player explicitly signs out from the account panel |
 | `player_named` | — | Guest upgrades to an account — fires when a claim is redeemed, alongside `identify()` (the OIDC subject), merging the guest's history |
 | `trogg_renamed` | `zone, source?` | Player's own name changes after the authoritative player row updates |
@@ -71,7 +72,7 @@ Code currently reads these flag keys:
 
 | Flag | Controls | Fallback |
 | ---- | -------- | -------- |
-| `auth-enabled` | Account sign-in / claim panel (the top-right claim/sign-out control) | On, but the UI still requires `VITE_SPACETIMEAUTH_CLIENT_ID` |
+| `auth-enabled` | Account sign-in / claim controls (the Appearance panel's claim button and the game menu's Log out) | On, but the UI still requires `VITE_SPACETIMEAUTH_CLIENT_ID` |
 | `ghost-trogg` | Zone-synced cosmetic ghost easter egg (Commands panel ghost button) | On |
 | `interact` | Interact key (`E`) — pick up ground items, pick up / put down tile-sized carryables | On |
 | `dark-creature-rendering` | Dark-creature rendering and subscription (kill-switch if creature sync misbehaves) | On |

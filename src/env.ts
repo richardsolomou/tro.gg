@@ -13,6 +13,12 @@ export const POSTHOG_HOST = import.meta.env.VITE_POSTHOG_HOST ?? "https://us.i.p
  * is unset, keeping the guest-only loop working with no auth config (local dev).
  * The issuer is fixed in `shared` (the module trusts only it); only the client id
  * and redirect URI are per-deployment.
+ *
+ * The redirect URI has **no trailing slash** and must not grow one. Production
+ * serves the game at `/play/` and 307s `/play` onto it, which reads like a
+ * mismatch and has been "fixed" once already — but `/play` is what is registered
+ * with SpacetimeAuth, and `/play/` is rejected outright at the authorize step. The
+ * extra hop is harmless: the redirect carries `?code=&state=` through untouched.
  */
 export const SPACETIMEAUTH_CLIENT_ID = import.meta.env.VITE_SPACETIMEAUTH_CLIENT_ID as string | undefined;
 export const SPACETIMEAUTH_REDIRECT_URI =
