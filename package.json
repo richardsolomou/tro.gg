@@ -31,7 +31,7 @@
     "@changesets/cli": "2.31.1",
     "@playwright/test": "^1.62.1",
     "@types/three": "^0.185.3",
-    "ras-stack": "^0.27.0",
+    "ras-stack": "^0.29.0",
     "tsx": "^4.23.4",
     "typescript": "^7.0.2",
     "vite": "^8.2.0"
