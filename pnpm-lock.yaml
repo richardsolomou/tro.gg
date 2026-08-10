@@ -31,8 +31,8 @@ importers:
         specifier: ^0.185.3
         version: 0.185.3
       ras-stack:
-        specifier: ^0.27.0
-        version: 0.27.0
+        specifier: ^0.29.0
+        version: 0.29.0
       tsx:
         specifier: ^4.23.4
         version: 4.23.4
@@ -933,14 +933,14 @@ packages:
   queue-microtask@1.2.3:
     resolution: {integrity: sha512-NuaNSa6flKT5JaSYQzJok04JzTL1CA6aGhv5rfLW3PgqA+M2ChpZQnAC8h8i4ZFkBS8X5RqkDBHA7r4hej3K9A==}
 
-  ras-stack@0.27.0:
-    resolution: {integrity: sha512-PDz5b0eFlXWLHlW6+f4TqbS40vlZR5XWBqcdhlDpTXJ1uz8PnpZhy5RkABZr6rHX4KbX3Sc393XocQJdUk/JEw==}
+  ras-stack@0.29.0:
+    resolution: {integrity: sha512-mthzzlrLZhoaXhT/bDVJnWooKBQDCxZkFSul7LqRTp6WDMqHfDJ0wvnsDh0U2I02nrO2Cr8JPV8b0TCMAatHtg==}
     engines: {node: '>=24 <25'}
     hasBin: true
     peerDependencies:
       '@tanstack/react-query': '>=5 <6'
       '@tanstack/react-start': '>=1 <2'
-      better-sqlite3: '>=12 <13'
+      better-sqlite3: '>=12 <14'
       centrifuge: '>=5 <6'
       drizzle-orm: '>=0.45 <1'
       nodemailer: '>=9 <10'
@@ -1899,7 +1899,7 @@ snapshots:
 
   queue-microtask@1.2.3: {}
 
-  ras-stack@0.27.0:
+  ras-stack@0.29.0:
     dependencies:
       yaml: 2.9.0
 
