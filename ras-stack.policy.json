@@ -11,11 +11,5 @@
   "dependabot": true,
   "pnpm": {
     "minimumReleaseAge": 0
-  },
-  "adoption": {
-    "minimumRasStackVersion": "0.35.0",
-    "node": ">=24 <25",
-    "pnpm": "11.15.0",
-    "requiredReferences": ["ras-stack/config/typescript/bundler"]
   }
 }
