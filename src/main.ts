@@ -1,5 +1,5 @@
 import { getZone, STARTING_ZONE_SLUG } from "@trogg/shared";
-import { accountSubject, authConfigured, completeSignIn, currentIdToken } from "./auth.js";
+import { accountSubject, authConfigured, completeSignIn, completeSilentSignIn, currentIdToken } from "./auth.js";
 import { watchHitches, captureEvent, identifyUser, initAnalytics, isFeatureEnabled, logError, logInfo } from "./analytics.js";
 import { theme } from "./theme.js";
 import { clearStoredToken, clearPendingClaim, getPendingClaim } from "./identity.js";
@@ -24,6 +24,11 @@ function bootStage(text: string): void {
 }
 
 async function main() {
+  // A silent token renew loads its response into a hidden iframe pointed at this
+  // same page. Answer it and stop before anything else starts — a renew must not
+  // open a second analytics session, socket, and world behind the real one (auth.ts).
+  if (await completeSilentSignIn()) return;
+
   initAnalytics();
 
   try {
