@@ -21,8 +21,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: richardsolomou/ras-stack/actions/setup-js@v0.39.5
-      - uses: richardsolomou/ras-stack/actions/setup-just@v0.39.5
+      - uses: richardsolomou/ras-stack/actions/setup-js@v0.41.1
+      - uses: richardsolomou/ras-stack/actions/setup-just@v0.41.1
         with:
           version: '1.58.0'
 
@@ -58,5 +58,5 @@ jobs:
     needs: [check]
     permissions:
       contents: write
-    uses: richardsolomou/ras-stack/.github/workflows/release-changesets.yml@v0.39.5
+    uses: richardsolomou/ras-stack/.github/workflows/release-changesets.yml@v0.41.1
     secrets: inherit
