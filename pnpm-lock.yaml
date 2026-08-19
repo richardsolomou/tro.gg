@@ -31,8 +31,8 @@ importers:
         specifier: ^0.185.4
         version: 0.185.4
       ras-stack:
-        specifier: ^0.39.5
-        version: 0.39.5(@types/node@26.0.1)(posthog-js@1.414.0)
+        specifier: ^0.41.1
+        version: 0.41.1(@types/node@26.0.1)(posthog-js@1.414.0)
       tsx:
         specifier: ^4.23.11
         version: 4.23.11
@@ -994,8 +994,8 @@ packages:
   queue-microtask@1.2.3:
     resolution: {integrity: sha512-NuaNSa6flKT5JaSYQzJok04JzTL1CA6aGhv5rfLW3PgqA+M2ChpZQnAC8h8i4ZFkBS8X5RqkDBHA7r4hej3K9A==}
 
-  ras-stack@0.39.5:
-    resolution: {integrity: sha512-VRMFNAVOWf3Yu+5GheN4QIBPEXGFZaPIuLX6BGpxPa+ECFXF4LVzRA3ORo5m9DyR6k9kfGHPZ3AfIGd6n4Z44w==}
+  ras-stack@0.41.1:
+    resolution: {integrity: sha512-RFSUKNYsSI74uYiL18Xb81eNFSo4qKg/XFDAWsgRhneFMdeE1ZGdyRiqau//pVbPGu9R+65Z79TETKrvmJWBqQ==}
     engines: {node: '>=24 <25'}
     hasBin: true
     peerDependencies:
@@ -1003,9 +1003,9 @@ packages:
       '@opentelemetry/exporter-logs-otlp-http': ^0.221.0
       '@opentelemetry/resources': ^2.10.0
       '@opentelemetry/sdk-logs': ^0.221.0
-      '@posthog/react': '>=1 <2'
-      '@tanstack/react-query': '>=5 <6'
-      '@tanstack/react-start': '>=1 <2'
+      '@posthog/react': '>=1.1 <2'
+      '@tanstack/react-query': '>=5.62.8 <6'
+      '@tanstack/react-start': '>=1.168.10 <2'
       better-sqlite3: '>=12 <14'
       centrifuge: '>=5 <6'
       drizzle-orm: '>=0.45 <1'
@@ -2035,7 +2035,7 @@ snapshots:
 
   queue-microtask@1.2.3: {}
 
-  ras-stack@0.39.5(@types/node@26.0.1)(posthog-js@1.414.0):
+  ras-stack@0.41.1(@types/node@26.0.1)(posthog-js@1.414.0):
     dependencies:
       '@inquirer/confirm': 6.1.1(@types/node@26.0.1)
       '@inquirer/select': 5.2.1(@types/node@26.0.1)
