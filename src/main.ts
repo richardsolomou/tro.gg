@@ -15,6 +15,7 @@ import { mountSkills } from "./ui/skills.js";
 import { startReconnect } from "./net/reconnect.js";
 import { watchForUpdate } from "./version.js";
 import { StartGame } from "./game/main.js";
+import { isWebGLAvailable } from "./webgl.js";
 
 /** Narrate boot progress onto the play page's boot screen — when the game feels
  *  slow to open, the stage on screen names which phase is eating the time. */
@@ -30,6 +31,15 @@ async function main() {
   if (await completeSilentSignIn()) return;
 
   initAnalytics();
+
+  // The world needs WebGL. Probe before connecting so a GPU-less or
+  // WebGL-blocked visitor gets a plain notice instead of the misleading
+  // "server up?" message, and we skip opening a socket they can't use.
+  if (!isWebGLAvailable()) {
+    bootStage("your browser can't run this — it needs WebGL");
+    logError("WebGL unavailable", { surface: "startup", action: "webgl_probe" });
+    return;
+  }
 
   try {
     // If this load is the redirect back from SpacetimeAuth, finish the exchange

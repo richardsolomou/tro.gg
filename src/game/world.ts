@@ -71,6 +71,7 @@ import { makeHealthBar, type Overlay } from "./overlays.js";
 import { ATTACK_PERIOD, type CreatureModel } from "./rig.js";
 import { buildTerrain, type Terrain3D } from "./terrain.js";
 import { biomePalette, DAYLIGHT_3D, UI_3D } from "./palette.js";
+import { createRenderer } from "../webgl.js";
 
 /** Fraction of the viewport the zone fills, leaving a rim of cave around it. */
 const ZONE_FILL = 0.92;
@@ -467,7 +468,11 @@ export class World3D {
     this.parent = parent;
     // No preserveDrawingBuffer: it forces a framebuffer copy every frame on
     // tile-based GPUs (Apple); probes screenshot via the compositor instead.
-    this.renderer = new THREE.WebGLRenderer({ antialias: true });
+    // A null renderer means no WebGL context — main.ts guards with a probe
+    // before boot, so this throw is only a backstop, never the notice path.
+    const renderer = createRenderer({ antialias: true });
+    if (!renderer) throw new Error("WebGL is unavailable");
+    this.renderer = renderer;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;

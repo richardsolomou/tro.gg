@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { buildGrask, buildTrogg } from "./game/creatures.js";
 import type { CreatureModel } from "./game/rig.js";
 import { CAVE_3D, GRASK_3D } from "./game/palette.js";
+import { createRenderer } from "./webgl.js";
 
 /**
  * The landing page's ambient backdrop: darkness, a rocky low-poly floor, two
@@ -260,8 +261,10 @@ function buildBackdropScene(glow: number, spacing: number, layout: "pair" | "rig
  *  a slow breath, so a backdrop rendering faster than this only makes heat. */
 const BACKDROP_FPS = 30;
 
-export function mountBackdrop(canvas: HTMLCanvasElement, { glow = 1, spacing = 1, layout = "pair" }: BackdropOptions = {}): { stop(): void } {
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+export function mountBackdrop(canvas: HTMLCanvasElement, { glow = 1, spacing = 1, layout = "pair" }: BackdropOptions = {}): { stop(): void } | null {
+  const renderer = createRenderer({ canvas, antialias: true });
+  // No WebGL context — the caller shows a static hero instead of the loop.
+  if (!renderer) return null;
   // a fogged, near-black backdrop — nobody can see past 1.5x density
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
 
@@ -277,6 +280,14 @@ export function mountBackdrop(canvas: HTMLCanvasElement, { glow = 1, spacing = 1
   window.addEventListener("resize", resize);
   resize();
 
+  // A lost context can't render; stop the loop rather than throw on the next
+  // frame, and keep the default so the browser can restore it later.
+  const onContextLost = (event: Event) => {
+    event.preventDefault();
+    renderer.setAnimationLoop(null);
+  };
+  canvas.addEventListener("webglcontextlost", onContextLost);
+
   const clock = new THREE.Clock();
   let last = 0;
   let lastFrame = -Infinity;
@@ -289,10 +300,14 @@ export function mountBackdrop(canvas: HTMLCanvasElement, { glow = 1, spacing = 1
     renderer.render(scene, camera);
   });
   // Hand the caller the off switch: the page stops burning GPU the moment the
-  // player heads into the world, instead of racing the game's load.
+  // player heads into the world, instead of racing the game's load. Free the
+  // context too, so a stopped backdrop holds no GPU memory.
   return {
     stop() {
       renderer.setAnimationLoop(null);
+      window.removeEventListener("resize", resize);
+      canvas.removeEventListener("webglcontextlost", onContextLost);
+      renderer.dispose();
     },
   };
 }

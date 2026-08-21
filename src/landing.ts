@@ -1,4 +1,4 @@
-import { initAnalytics } from "./analytics.js";
+import { initAnalytics, logWarn } from "./analytics.js";
 import { mountBackdrop } from "./landing3d.js";
 import { theme } from "./theme.js";
 
@@ -12,13 +12,6 @@ initAnalytics();
 // The game theme starts here and swells in — walking into the world doesn't
 // audibly restart it (the stream is generative; the fade is the continuity).
 theme.start();
-
-const canvas = document.getElementById("backdrop");
-const backdrop = canvas instanceof HTMLCanvasElement ? mountBackdrop(canvas) : undefined;
-
-// The moment the player heads for the world, the backdrop stops rendering —
-// navigation and the game's module load shouldn't race an ambient GPU loop.
-document.getElementById("play")?.addEventListener("click", () => backdrop?.stop());
 
 // Warm the game while the page idles: importing the entry pulls the whole
 // render + net module graph into cache (no boot side effects — StartGame and
@@ -50,3 +43,22 @@ const refreshLive = async () => {
 };
 void refreshLive();
 setInterval(() => void refreshLive(), 60_000);
+
+// The ambient 3D backdrop boots last: a WebGL-less visitor can't get a
+// renderer, and mounting earlier let that failure abort every statement below
+// it (the play handler, the game prefetch, the live pill). mountBackdrop now
+// returns null instead of throwing, and the static cave hero (index.html
+// #backdrop.fallback) stands in.
+const canvas = document.getElementById("backdrop");
+let backdrop: { stop(): void } | null = null;
+if (canvas instanceof HTMLCanvasElement) {
+  backdrop = mountBackdrop(canvas);
+  if (!backdrop) {
+    canvas.classList.add("fallback");
+    logWarn("Landing backdrop unavailable — WebGL context creation failed", { surface: "landing", action: "mount_backdrop" });
+  }
+}
+
+// The moment the player heads for the world, the backdrop stops rendering —
+// navigation and the game's module load shouldn't race an ambient GPU loop.
+document.getElementById("play")?.addEventListener("click", () => backdrop?.stop());
