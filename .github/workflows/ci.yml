@@ -58,5 +58,5 @@ jobs:
     needs: [check]
     permissions:
       contents: write
-    uses: richardsolomou/ras-stack/.github/workflows/release-changesets.yml@v0.41.1
+    uses: richardsolomou/ras-stack/.github/workflows/release-changesets.yml@v2.0.0
     secrets: inherit
