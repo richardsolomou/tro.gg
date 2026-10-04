@@ -1,5 +1,5 @@
 {
-  "extends": "ras-stack/config/typescript/bundler",
+  "extends": "ras-stack-config/config/typescript/bundler",
   "compilerOptions": {
     "target": "ES2022",
     "module": "ESNext",

@@ -21,8 +21,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: richardsolomou/ras-stack/actions/setup-js@v0.41.1
-      - uses: richardsolomou/ras-stack/actions/setup-just@v0.41.1
+      - uses: richardsolomou/ras-stack/actions/setup-js@v1
+      - uses: richardsolomou/ras-stack/actions/setup-just@v1
         with:
           version: '1.58.0'
 
@@ -35,15 +35,10 @@ jobs:
       - name: Preview render harness
         run: just e2e
 
-      - name: Install SpacetimeDB CLI
-        run: |
-          curl -sSf https://install.spacetimedb.com | sh -s -- --yes
-          echo "$HOME/.local/share/spacetime/bin/current" >> "$GITHUB_PATH"
-
-      - name: Pin CLI version
-        run: |
-          spacetime version install 2.6.0 || true
-          spacetime version use 2.6.0
+      - uses: richardsolomou/ras-stack/actions/setup-spacetime@v1
+        with:
+          version: '2.6.0'
+          sha256: 24f5c011a1c5b14e9458f230f67f4700f2c89ce1d26bfee35c1f4d3570dc1ac8
 
       - name: Verify committed bindings match the module schema
         run: |
@@ -57,6 +52,8 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     needs: [check]
     permissions:
+      actions: write
       contents: write
-    uses: richardsolomou/ras-stack/.github/workflows/release-changesets.yml@v0.41.1
+      pull-requests: write
+    uses: richardsolomou/ras-stack/.github/workflows/release-changesets.yml@v1
     secrets: inherit
