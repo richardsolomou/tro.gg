@@ -18,7 +18,7 @@
   },
   "dependencies": {
     "oidc-client-ts": "^3.5.0",
-    "posthog-js": "^1.414.0",
+    "posthog-js": "^1.430.3",
     "ras-stack": "^3.0.0",
     "spacetimedb": "2.7.1",
     "three": "^0.185.1"
