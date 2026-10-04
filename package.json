@@ -18,19 +18,19 @@
   },
   "dependencies": {
     "oidc-client-ts": "^3.5.0",
-    "posthog-js": "^1.414.0",
+    "posthog-js": "^1.434.15",
     "ras-stack": "^3.0.0",
-    "spacetimedb": "2.7.1",
-    "three": "^0.185.1"
+    "spacetimedb": "2.10.1",
+    "three": "^0.186.1"
   },
   "devDependencies": {
-    "@changesets/cli": "2.31.1",
-    "@playwright/test": "^1.62.1",
-    "@types/three": "^0.185.4",
+    "@changesets/cli": "3.0.3",
+    "@playwright/test": "^1.63.0",
+    "@types/three": "^0.186.0",
     "ras-stack-config": "^1.0.0",
-    "tsx": "^4.23.11",
+    "tsx": "^4.23.15",
     "typescript": "^7.0.2",
-    "vite": "^8.2.1"
+    "vite": "^8.3.1"
   },
   "engines": {
     "node": ">=24 <25"
