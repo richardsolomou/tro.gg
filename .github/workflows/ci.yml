@@ -56,4 +56,6 @@ jobs:
       contents: write
       pull-requests: write
     uses: richardsolomou/ras-stack/.github/workflows/release-changesets.yml@v1
+    with:
+      validation-workflow: ci.yml
     secrets: inherit
