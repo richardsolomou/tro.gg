@@ -9,7 +9,7 @@ name: PR preview prune
 
 on:
   schedule:
-    - cron: "0 4 * * 1" # Mondays 04:00 UTC
+    - cron: '0 4 * * 1' # Mondays 04:00 UTC
   workflow_dispatch:
 
 jobs:
@@ -18,15 +18,10 @@ jobs:
     permissions:
       pull-requests: read
     steps:
-      - name: Install SpacetimeDB CLI
-        run: |
-          curl -sSf https://install.spacetimedb.com | sh -s -- --yes
-          echo "$HOME/.local/share/spacetime/bin/current" >> "$GITHUB_PATH"
-
-      - name: Pin CLI version
-        run: |
-          spacetime version install 2.6.0 || true
-          spacetime version use 2.6.0
+      - uses: richardsolomou/ras-stack/actions/setup-spacetime@v1
+        with:
+          version: '2.6.0'
+          sha256: 24f5c011a1c5b14e9458f230f67f4700f2c89ce1d26bfee35c1f4d3570dc1ac8
 
       - name: Authenticate
         run: spacetime login --token "${{ secrets.SPACETIME_TOKEN }}"

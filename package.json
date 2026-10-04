@@ -3,10 +3,6 @@
   "version": "0.1.2",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@11.15.0",
-  "engines": {
-    "node": ">=24 <25"
-  },
   "scripts": {
     "dev": "vite",
     "build": "tsc -p tsconfig.json --noEmit && vite build",
@@ -15,15 +11,15 @@
     "typecheck:module": "tsc -p spacetimedb/tsconfig.json --noEmit",
     "test": "TSX_TSCONFIG_PATH=test/tsconfig.json node --import tsx --test \"shared/*.test.ts\" \"src/*.test.ts\" \"test/*.test.ts\"",
     "test:e2e": "playwright test",
-    "policy:sync": "ras policy sync",
-    "policy:check": "ras policy check",
     "changeset": "changeset",
     "version-packages": "changeset version",
-    "release": "changeset tag"
+    "release": "changeset tag",
+    "changesets:check": "ras changesets check"
   },
   "dependencies": {
     "oidc-client-ts": "^3.5.0",
     "posthog-js": "^1.414.0",
+    "ras-stack": "^3.0.0",
     "spacetimedb": "2.7.1",
     "three": "^0.185.1"
   },
@@ -31,9 +27,13 @@
     "@changesets/cli": "2.31.1",
     "@playwright/test": "^1.62.1",
     "@types/three": "^0.185.4",
-    "ras-stack": "^0.41.1",
+    "ras-stack-config": "^1.0.0",
     "tsx": "^4.23.11",
     "typescript": "^7.0.2",
     "vite": "^8.2.1"
-  }
+  },
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "packageManager": "pnpm@11.15.0"
 }

@@ -65,7 +65,7 @@ test:
 
 # Run every local gate used by CI.
 check:
-    pnpm policy:check
+    pnpm changesets:check
     pnpm typecheck
     pnpm typecheck:module
     pnpm test
