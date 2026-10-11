@@ -33,7 +33,7 @@ jobs:
           fi
           echo "name=trogg-$slug" >> "$GITHUB_OUTPUT"
 
-      - uses: richardsolomou/ras-stack/actions/setup-spacetime@v1
+      - uses: richardsolomou/ras-stack/actions/setup-spacetime@v2
         with:
           version: '2.6.0'
           sha256: 24f5c011a1c5b14e9458f230f67f4700f2c89ce1d26bfee35c1f4d3570dc1ac8
