@@ -23,9 +23,10 @@ snake_case. Low-volume by design — anything that could fire more than ~once/se
 
 | Event | Properties | Fires when |
 | ----- | ---------- | ---------- |
-| `player_joined` | `zone, is_guest` | Session starts and the trogg exists in the world |
+| `player_joined` | `zone, is_guest, auth_configured` | Session starts and the trogg exists in the world. `auth_configured` is `false` when the build has no `VITE_SPACETIMEAUTH_CLIENT_ID`, so no claim button can render — that build also logs a `warn` (`surface=auth`, `action=auth_config`) |
 | `connection_lost` | — | Live SpacetimeDB socket dropped after being connected (usually a backend redeploy); the client begins auto-reconnecting. Best-effort — fired just before the recovery reload, so it measures deploy disruption |
 | `client_update_available` | — | Polling spotted a newer deployed frontend than the running build (a Cloudflare-only deploy); the refresh prompt is shown. Measures how many players are on a stale client after a frontend deploy |
+| `account_claim_shown` | — | A guest opens the Appearance panel and it shows the "Claim account with Discord" button — once per session. Together with `account_claim_started` it tells "saw the button and ignored it" apart from "never saw it" |
 | `account_claim_started` | — | Player starts the guest → account claim flow and is about to leave for SpacetimeAuth |
 | `account_claim_failed` | `had_pending_claim` | The return from SpacetimeAuth failed — the provider came back with `?error=…` or the token exchange threw, so no account token was obtained. `had_pending_claim` is `true` when a guest was mid-claim (vs a fresh-device sign-in). Makes a broken claim/identify flow visible instead of looking like nobody tried |
 | `account_session_lapsed` | — | A stored account session produced no usable ID token — it had expired and the silent renew failed — so a player who *had* an account boots as a guest. Their pre-claim guest token was cleared when they claimed, so they land on a brand-new trogg; without this event that is indistinguishable from a first-time visitor, which is how a broken claim flow hides behind "zero `player_named`" |
