@@ -1,6 +1,7 @@
 import { getZone, STARTING_ZONE_SLUG } from "@trogg/shared";
 import { accountSubject, authConfigured, completeSignIn, completeSilentSignIn, currentIdToken } from "./auth.js";
-import { watchHitches, captureEvent, identifyUser, initAnalytics, isFeatureEnabled, logError, logInfo } from "./analytics.js";
+import { watchHitches, captureEvent, identifyUser, initAnalytics, isFeatureEnabled, logError, logInfo, logWarn } from "./analytics.js";
+import { POSTHOG_KEY } from "./env.js";
 import { theme } from "./theme.js";
 import { clearStoredToken, clearPendingClaim, getPendingClaim } from "./identity.js";
 import { connect } from "./net/net.js";
@@ -100,7 +101,10 @@ async function main() {
       slug = conn.db.player.identity.find(identity)?.zoneId ?? STARTING_ZONE_SLUG;
     }
 
-    captureEvent("player_joined", { zone: slug, is_guest: !signedIn });
+    // `auth_configured` splits "the claim button can't render" (no client id baked
+    // into this build) from "nobody clicks it" — both read as zero
+    // `account_claim_started` otherwise (docs/analytics.md).
+    captureEvent("player_joined", { zone: slug, is_guest: !signedIn, auth_configured: authConfigured() });
     logInfo("Player joined world", { zone: slug, is_guest: !signedIn });
 
     // The coach listens for onboarding milestones; mount it before the world so
@@ -122,6 +126,14 @@ async function main() {
     });
 
     const authAvailable = isFeatureEnabled("auth-enabled") && authConfigured();
+    // A production build (one that reports analytics) without a SpacetimeAuth client
+    // id hides the claim button for everyone; say so rather than fail silently.
+    if (!import.meta.env.DEV && POSTHOG_KEY && !authConfigured()) {
+      logWarn("Account sign-in is not configured in this build; the claim button is hidden", {
+        surface: "auth",
+        action: "auth_config",
+      });
+    }
 
     // HUD chrome is HTML overlaid on the canvas (hud.css); chat is mounted by
     // the scene since its speech bubbles live in the world. The game menu

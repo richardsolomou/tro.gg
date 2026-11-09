@@ -37,6 +37,8 @@ export interface AppearanceContext {
 }
 
 export function mountAppearance(conn: DbConnection, account: AppearanceContext): void {
+  const offerClaim = account.authAvailable && !account.signedIn;
+  let claimShown = false;
   const myId = conn.identity?.toHexString();
   const me = () => (conn.identity ? conn.db.player.identity.find(conn.identity) : undefined);
   const myName = () => me()?.name ?? "";
@@ -62,6 +64,12 @@ export function mountAppearance(conn: DbConnection, account: AppearanceContext):
     body.hidden = !open;
     toggle.setAttribute("aria-expanded", String(!body.hidden));
     if (opening) window.dispatchEvent(new CustomEvent("hud-menu-open", { detail: "appearance" }));
+    // Once per session, the first time a guest actually sees the claim button, so a
+    // zero `account_claim_started` reads as "seen and ignored" vs "never seen".
+    if (opening && offerClaim && !claimShown) {
+      claimShown = true;
+      captureEvent("account_claim_shown");
+    }
   };
   const toggleOpen = () => setOpen(body.hidden === true);
   toggle.addEventListener("click", toggleOpen);
@@ -168,7 +176,7 @@ export function mountAppearance(conn: DbConnection, account: AppearanceContext):
   // Claiming an account (sign in with Discord) lets a guest log back into the
   // same trogg on any device. It lives here beside name/colour — the rest of
   // "who your trogg is" — while Log out lives in the game menu (Esc).
-  if (account.authAvailable && !account.signedIn) {
+  if (offerClaim) {
     const claim = document.createElement("button");
     claim.type = "button";
     claim.className = "btn";
