@@ -21,22 +21,22 @@
   },
   "dependencies": {
     "oidc-client-ts": "^3.5.0",
-    "posthog-js": "^1.430.3",
-    "spacetimedb": "2.7.1",
-    "three": "^0.185.1"
+    "posthog-js": "^1.450.0",
+    "spacetimedb": "2.14.1",
+    "three": "^0.187.0"
   },
   "devDependencies": {
     "@changesets/cli": "2.31.1",
-    "@playwright/test": "^1.62.1",
+    "@playwright/test": "^1.65.0",
     "@types/node": "^26.6.6",
-    "@types/three": "^0.185.4",
-    "oxfmt": "^0.75.0",
+    "@types/three": "^0.187.0",
+    "oxfmt": "^0.78.0",
     "oxlint": "^1.94.0",
     "oxlint-tsgolint": "^7.0.2007",
     "ras-stack": "^6.0.0",
     "tsx": "^4.23.11",
     "typescript": "^7.0.2",
-    "vite": "^8.2.1",
+    "vite": "^8.3.7",
     "vitest": "^4.1.12"
   },
   "engines": {
