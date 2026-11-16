@@ -1,10 +1,10 @@
 name: Deploy module
 
 # Publishes the SpacetimeDB module to production (spacetime.tro.gg) on merge to main, through
-# spacetime.yml's guarded publish: compatible migrations apply in place, a migration that needs
-# manual steps is refused, and one that would break clients still on the old bindings is refused
-# unless this workflow is dispatched with `break-clients`. The client deploys separately through
-# Cloudflare Workers Builds.
+# spacetime.yml's guarded publish: compatible migrations apply in place and a migration that needs
+# manual steps is refused. A merge accepts migrations that break clients on the old bindings,
+# because Cloudflare Workers Builds deploys the new client independently and open clients reload
+# through version.json; a manual run accepts them only with `break-clients`.
 
 on:
   push:
@@ -33,5 +33,5 @@ jobs:
     uses: ./.github/workflows/spacetime.yml
     with:
       ref: ${{ github.sha }}
-      break-clients: ${{ inputs.break-clients || false }}
+      break-clients: ${{ github.event_name == 'push' || inputs.break-clients }}
     secrets: inherit

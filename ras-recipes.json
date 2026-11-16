@@ -39,7 +39,7 @@
         "Bindings stay at `src/net/module_bindings`, where the client imports them; `pnpm spacetime:generate` and `just generate` write there.",
         "The CLI stays pinned at 2.6.0, the version the committed bindings were generated with, and the `spacetimedb` package at 2.7.1; bump the CLI, the package, and the bindings together in a deliberate upgrade, after checking the production server's version.",
         "The module's `package.json` keeps the name `@trogg/module`.",
-        "`deploy-module.yml` calls `spacetime.yml` on pushes to main that touch the module or `shared/`, because the client deploys through Cloudflare Workers Builds, which cannot call a workflow; the module therefore publishes beside the client deploy rather than before it.",
+        "`deploy-module.yml` calls `spacetime.yml` on pushes to main that touch the module or `shared/`, because the client deploys through Cloudflare Workers Builds, which cannot call a workflow; the module therefore publishes beside the client deploy rather than before it, and a merge accepts migrations that break clients on the old bindings (open clients reload through `version.json`) while still refusing ones that need manual steps.",
         "Preview workflows keep `spacetime publish --delete-data=on-conflict -y` for per-branch databases, whose data is disposable, and use the local `setup-spacetime` action so the CLI version is pinned once."
       ]
     },
