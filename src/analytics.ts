@@ -1,9 +1,13 @@
 import posthog from "posthog-js";
-import { postHogEnvironment } from "ras-stack/posthog";
-import { postHogBrowserOptions } from "ras-stack/posthog/client";
 import { POSTHOG_HOST, POSTHOG_KEY } from "./env.js";
 
-const posthogEnvironment = POSTHOG_KEY ? postHogEnvironment({ projectToken: POSTHOG_KEY, host: POSTHOG_HOST }) : undefined;
+/** The PostHog app for an ingestion host, so links from the toolbar and replays open the right region. */
+function postHogUiHost(host: string): string {
+  const { hostname, origin } = new URL(host);
+  if (hostname === "us.i.posthog.com") return "https://us.posthog.com";
+  if (hostname === "eu.i.posthog.com") return "https://eu.posthog.com";
+  return origin;
+}
 
 const serviceContext = {
   serviceName: "trogg-web",
@@ -20,9 +24,18 @@ type LogAttributes = Record<string, LogAttribute>;
  * No-op without a key.
  */
 export function initAnalytics() {
-  if (!posthogEnvironment) return;
-  posthog.init(posthogEnvironment.projectToken, {
-    ...postHogBrowserOptions({ apiHost: posthogEnvironment.host, uiHost: posthogEnvironment.uiHost }),
+  if (!POSTHOG_KEY) return;
+  posthog.init(POSTHOG_KEY, {
+    api_host: POSTHOG_HOST,
+    ui_host: postHogUiHost(POSTHOG_HOST),
+    // Pins the SDK's dated defaults, so an upgrade changes behaviour only when this date is raised on purpose.
+    defaults: "2026-05-30",
+    person_profiles: "identified_only",
+    capture_exceptions: true,
+    capture_pageview: "history_change",
+    capture_performance: true,
+    mask_personal_data_properties: true,
+    custom_personal_data_properties: ["token"],
     logs: {
       ...serviceContext,
       captureConsoleLogs: false,
