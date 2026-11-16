@@ -7,14 +7,17 @@ export type SpacetimeConnection = {
   headers?: Record<string, string>
   /** A container name on a private network, such as `spacetime`, that may be reached over plain HTTP. */
   internalHost?: string
+  /** Replaces the global `fetch`, such as in a test of code that calls the database. */
+  fetch?: typeof fetch
 }
 
+// Scripts load this file with Node's type stripping, which rejects parameter properties.
 export class SpacetimeRequestError extends Error {
-  constructor(
-    readonly status: number,
-    message: string,
-  ) {
+  readonly status: number
+
+  constructor(status: number, message: string) {
     super(message)
+    this.status = status
     this.name = 'SpacetimeRequestError'
   }
 }
@@ -116,7 +119,7 @@ async function request(
   const headers = new Headers(init.headers)
   for (const [name, value] of Object.entries(connection.headers ?? {})) headers.set(name, value)
   headers.set('authorization', `Bearer ${connection.token}`)
-  const response = await fetch(url, {
+  const response = await (connection.fetch ?? fetch)(url, {
     method: init.method,
     headers,
     ...(init.body === undefined ? {} : { body: init.body }),

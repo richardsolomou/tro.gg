@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   callSpacetime,
@@ -24,6 +25,12 @@ function sent(request: ReturnType<typeof server>, call = 0) {
   const [url, init] = request.mock.calls[call] ?? []
   return { url: (url as URL).href, method: init?.method, headers: new Headers(init?.headers) }
 }
+
+it('loads with Node type stripping, as scripts load it', () => {
+  const module = JSON.stringify(new URL('spacetime.ts', import.meta.url).href)
+  const script = `const { SpacetimeRequestError } = await import(${module}); process.stdout.write(String(new SpacetimeRequestError(503, 'down').status))`
+  expect(execFileSync(process.execPath, ['--input-type=module', '--eval', script], { encoding: 'utf8' })).toBe('503')
+})
 
 describe('SpacetimeDB database URLs', () => {
   it('builds a database route on an HTTPS origin', () => {
@@ -66,6 +73,12 @@ describe('SpacetimeDB calls', () => {
       'cf-access-client-id': 'client',
       'content-type': 'application/json',
     })
+  })
+
+  it("sends through the connection's own fetch", async () => {
+    const own = vi.fn<typeof fetch>().mockResolvedValue(Response.json('ok'))
+    await callSpacetime({ ...connection, fetch: own }, 'operator_health', [])
+    expect(own).toHaveBeenCalledOnce()
   })
 
   it('throws the HTTP status and a bounded body for a failed call', async () => {

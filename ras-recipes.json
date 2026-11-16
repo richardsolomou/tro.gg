@@ -16,8 +16,8 @@
       ]
     },
     "spacetimedb": {
-      "version": 2,
-      "commit": "82fce4523ec914bd2e70aefd4bff84c10fb278c6",
+      "version": 3,
+      "commit": "0184a1e1bc4ababa9b89b4455014ba13be436df2",
       "files": {
         ".github/actions/setup-spacetime/action.yml": ".github/actions/setup-spacetime/action.yml",
         ".github/workflows/spacetime.yml": ".github/workflows/spacetime.yml",
