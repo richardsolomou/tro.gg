@@ -1,5 +1,5 @@
-const STORAGE_KEY = "tro.gg:authToken";
-const CLAIM_KEY = "tro.gg:claimCode";
+const STORAGE_KEY = 'tro.gg:authToken'
+const CLAIM_KEY = 'tro.gg:claimCode'
 
 /**
  * The browser's half of guest identity (GDD "Identity"): the connection token
@@ -11,16 +11,16 @@ const CLAIM_KEY = "tro.gg:claimCode";
  * its tokens are never stored as this guest token.
  */
 export function getStoredToken(): string | null {
-  return localStorage.getItem(STORAGE_KEY);
+  return localStorage.getItem(STORAGE_KEY)
 }
 
 export function storeToken(token: string): void {
-  localStorage.setItem(STORAGE_KEY, token);
+  localStorage.setItem(STORAGE_KEY, token)
 }
 
 /** Forget the guest token — used once a guest is folded into an account, so we never resume the now-absorbed trogg. */
 export function clearStoredToken(): void {
-  localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(STORAGE_KEY)
 }
 
 /**
@@ -31,13 +31,13 @@ export function clearStoredToken(): void {
  * browser session that started the claim.
  */
 export function setPendingClaim(code: string): void {
-  sessionStorage.setItem(CLAIM_KEY, code);
+  sessionStorage.setItem(CLAIM_KEY, code)
 }
 
 export function getPendingClaim(): string | null {
-  return sessionStorage.getItem(CLAIM_KEY);
+  return sessionStorage.getItem(CLAIM_KEY)
 }
 
 export function clearPendingClaim(): void {
-  sessionStorage.removeItem(CLAIM_KEY);
+  sessionStorage.removeItem(CLAIM_KEY)
 }

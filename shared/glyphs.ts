@@ -10,13 +10,13 @@
  * A separate module from the zone registry so the cave generator can use the
  * vocabulary without an import cycle (constants → worldgen → glyphs).
  */
-export const WALL_TILE = "#";
-export const FLOOR_TILE = ".";
-export const GRAVEL_TILE = ",";
-export const MOSS_TILE = '"';
-export const WATER_TILE = "~";
-export const GLOWMOSS_TILE = "*";
-export const DEEP_WATER_TILE = "=";
+export const WALL_TILE = '#'
+export const FLOOR_TILE = '.'
+export const GRAVEL_TILE = ','
+export const MOSS_TILE = '"'
+export const WATER_TILE = '~'
+export const GLOWMOSS_TILE = '*'
+export const DEEP_WATER_TILE = '='
 
 /** Every recognised tilemap glyph. A character outside this set is a typo, not a tile. */
 export const TILE_GLYPHS: ReadonlySet<string> = new Set([
@@ -27,8 +27,8 @@ export const TILE_GLYPHS: ReadonlySet<string> = new Set([
   WATER_TILE,
   GLOWMOSS_TILE,
   DEEP_WATER_TILE,
-]);
+])
 
 /** The unwalkable glyphs: rock, and river water too deep to wade (cross at a
  *  ford, where the river runs shallow). Everything else is floor. */
-export const SOLID_GLYPHS: ReadonlySet<string> = new Set([WALL_TILE, DEEP_WATER_TILE]);
+export const SOLID_GLYPHS: ReadonlySet<string> = new Set([WALL_TILE, DEEP_WATER_TILE])

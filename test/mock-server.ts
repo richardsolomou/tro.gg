@@ -8,12 +8,12 @@
 /** A chainable column builder. Only needs to not throw at definition time; the fake ctx
  *  owns the real table semantics, so the column metadata here is inert. */
 function col(): any {
-  const c: any = {};
-  c.primaryKey = () => c;
-  c.autoInc = () => c;
-  c.index = () => c;
-  c.default = () => c;
-  return c;
+  const c: any = {}
+  c.primaryKey = () => c
+  c.autoInc = () => c
+  c.index = () => c
+  c.default = () => c
+  return c
 }
 
 export const t = {
@@ -30,21 +30,24 @@ export const t = {
   scheduleAt: col,
   option: (_inner?: unknown) => col(),
   unit: col,
-};
-
-export function table(_opts: unknown, cols?: unknown): any {
-  return { rowType: cols ?? {} };
 }
 
-type Handler = (...args: any[]) => unknown;
-const callable = (fn: Handler) => (...args: any[]) => fn(...args);
+export function table(_opts: unknown, cols?: unknown): any {
+  return { rowType: cols ?? {} }
+}
+
+type Handler = (...args: any[]) => unknown
+const callable =
+  (fn: Handler) =>
+  (...args: any[]) =>
+    fn(...args)
 
 export function schema(_tables: unknown): any {
   return {
-    reducer: (a: unknown, b?: Handler) => callable(typeof a === "function" ? (a as Handler) : (b as Handler)),
+    reducer: (a: unknown, b?: Handler) => callable(typeof a === 'function' ? (a as Handler) : (b as Handler)),
     procedure: (_params: unknown, _ret: unknown, fn: Handler) => callable(fn),
     clientConnected: (fn: Handler) => callable(fn),
     clientDisconnected: (fn: Handler) => callable(fn),
     init: (fn: Handler) => callable(fn),
-  };
+  }
 }

@@ -10,12 +10,12 @@ You're a trogg in a shared world. Gather to feed the tribe's one fire, hold the 
 
 ## Docs
 
-| Doc | What it is |
-| --- | ---------- |
-| [docs/challenge.md](docs/challenge.md) | The premise — why this project exists |
-| [docs/gdd.md](docs/gdd.md) | Game design document — the binding spec for systems, data, and scope |
-| [docs/world.md](docs/world.md) | Setting and tone — what's fixed, what's deferred |
-| [docs/analytics.md](docs/analytics.md) | The PostHog plan — events, flags, experiments |
+| Doc                                    | What it is                                                           |
+| -------------------------------------- | -------------------------------------------------------------------- |
+| [docs/challenge.md](docs/challenge.md) | The premise — why this project exists                                |
+| [docs/gdd.md](docs/gdd.md)             | Game design document — the binding spec for systems, data, and scope |
+| [docs/world.md](docs/world.md)         | Setting and tone — what's fixed, what's deferred                     |
+| [docs/analytics.md](docs/analytics.md) | The PostHog plan — events, flags, experiments                        |
 
 ## Status
 
@@ -27,11 +27,11 @@ The game is a fire-and-dark survival world (see [docs/gdd.md](docs/gdd.md)): hea
 
 The repo follows SpacetimeDB's layout:
 
-| Path | What it is | Runs on |
-| ---- | ---------- | ------- |
-| `src/` | Three.js + Vite game client (`spacetimedb` SDK, `posthog-js`), grouped into `game/` (the 3D world: renderer, creature/item models, rig, HUD icons), `preview/` (the dev model preview page), `ui/` (HTML/CSS HUD), and `net/` (connection + the generated `module_bindings/`, produced from the module schema) | Cloudflare Workers |
-| `spacetimedb/` | SpacetimeDB TypeScript module — the tables, reducers, and telemetry procedure wrappers that are the whole backend (matches SpacetimeDB's template layout; intentionally not a pnpm workspace package, so it resolves the SDK from the root `node_modules`) | Self-hosted SpacetimeDB (Hetzner VPS) |
-| `shared/` | Pure game logic (motion, constants, avatar colours), imported by both the client and the module | — |
+| Path           | What it is                                                                                                                                                                                                                                                                                                     | Runs on                               |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
+| `src/`         | Three.js + Vite game client (`spacetimedb` SDK, `posthog-js`), grouped into `game/` (the 3D world: renderer, creature/item models, rig, HUD icons), `preview/` (the dev model preview page), `ui/` (HTML/CSS HUD), and `net/` (connection + the generated `module_bindings/`, produced from the module schema) | Cloudflare Workers                    |
+| `spacetimedb/` | SpacetimeDB TypeScript module — the tables, reducers, and telemetry procedure wrappers that are the whole backend (matches SpacetimeDB's template layout; intentionally not a pnpm workspace package, so it resolves the SDK from the root `node_modules`)                                                     | Self-hosted SpacetimeDB (Hetzner VPS) |
+| `shared/`      | Pure game logic (motion, constants, avatar colours), imported by both the client and the module                                                                                                                                                                                                                | —                                     |
 
 Tasks run through [`just`](https://github.com/casey/just) — run `just` to list recipes. Use `pnpm` for dependency installation and the package scripts consumed by CI/hosting; use `just` for local project tasks. You'll need the [`spacetime` CLI](https://spacetimedb.com/install) installed (it replaces the old Docker requirement).
 

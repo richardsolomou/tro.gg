@@ -1,4 +1,4 @@
-import * as THREE from "three";
+import * as THREE from 'three'
 
 /**
  * Shared GPU resource pools. The models are all built from a small vocabulary
@@ -14,26 +14,26 @@ import * as THREE from "three";
  * textures — must stay per-instance.
  */
 
-const geometries = new Map<string, THREE.BufferGeometry>();
+const geometries = new Map<string, THREE.BufferGeometry>()
 
 export function poolGeometry(key: string, make: () => THREE.BufferGeometry): THREE.BufferGeometry {
-  let geo = geometries.get(key);
+  let geo = geometries.get(key)
   if (!geo) {
-    geo = make();
-    geo.userData.shared = true;
-    geometries.set(key, geo);
+    geo = make()
+    geo.userData.shared = true
+    geometries.set(key, geo)
   }
-  return geo;
+  return geo
 }
 
-const materials = new Map<string, THREE.Material>();
+const materials = new Map<string, THREE.Material>()
 
 export function poolMaterial<T extends THREE.Material>(key: string, make: () => T): T {
-  let mat = materials.get(key);
+  let mat = materials.get(key)
   if (!mat) {
-    mat = make();
-    mat.userData.shared = true;
-    materials.set(key, mat);
+    mat = make()
+    mat.userData.shared = true
+    materials.set(key, mat)
   }
-  return mat as T;
+  return mat as T
 }

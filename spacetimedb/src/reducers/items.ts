@@ -1,6 +1,6 @@
-import spacetimedb, { type Ctx, type AnalyticsEvent } from "../schema";
-import { t } from "spacetimedb/server";
-import { ScheduleAt, Timestamp } from "spacetimedb";
+import spacetimedb, { type Ctx, type AnalyticsEvent } from '../schema'
+import { t } from 'spacetimedb/server'
+import { ScheduleAt, Timestamp } from 'spacetimedb'
 import {
   elapsedMs,
   EQUIPMENT_USE_COOLDOWN_MS,
@@ -23,7 +23,7 @@ import {
   upkeepReserve,
   levelForXp,
   INVENTORY_SLOT_COUNT,
-} from "../../../shared/index";
+} from '../../../shared/index'
 import {
   captureProcedureEvents,
   sourceProp,
@@ -52,7 +52,7 @@ import {
   directionVector,
   revealGate,
   scheduleNodeRespawn,
-} from "../helpers";
+} from '../helpers'
 
 /**
  * Equip/unequip an owned item in its slot (GDD "Inventory"). Equipment references a
@@ -60,68 +60,76 @@ import {
  * already in its slot toggles it off; `0` clears both hands. The reducer validates
  * ownership and routes to the item's slot (main or off hand) server-side.
  */
-function runEquipItem(ctx: Ctx, { inventoryId, source = "" }: { inventoryId: bigint; source?: string }): AnalyticsEvent[] {
-  const p = ctx.db.player.identity.find(ctx.sender);
-  if (!p) return [];
+function runEquipItem(ctx: Ctx, { inventoryId, source = '' }: { inventoryId: bigint; source?: string }): AnalyticsEvent[] {
+  const p = ctx.db.player.identity.find(ctx.sender)
+  if (!p) return []
   const unequipped = (item: string): AnalyticsEvent[] => [
-    { distinctId: distinctId(ctx), event: "item_equipped", properties: { zone: p.zoneId, item, equipped: false, ...sourceProp(source) } },
-  ];
+    { distinctId: distinctId(ctx), event: 'item_equipped', properties: { zone: p.zoneId, item, equipped: false, ...sourceProp(source) } },
+  ]
   const equipped = (item: string): AnalyticsEvent[] => [
-    { distinctId: distinctId(ctx), event: "item_equipped", properties: { zone: p.zoneId, item, equipped: true, ...sourceProp(source) } },
-  ];
+    { distinctId: distinctId(ctx), event: 'item_equipped', properties: { zone: p.zoneId, item, equipped: true, ...sourceProp(source) } },
+  ]
 
   if (inventoryId === 0n) {
-    if (p.equippedMainHand === "" && p.equippedOffHand === "") return [];
-    const item = p.equippedMainHand || p.equippedOffHand;
-    ctx.db.player.identity.update({ ...p, equippedMainHand: "", equippedMainHandInventoryId: 0n, equippedOffHand: "", equippedOffHandInventoryId: 0n });
-    return unequipped(item);
+    if (p.equippedMainHand === '' && p.equippedOffHand === '') return []
+    const item = p.equippedMainHand || p.equippedOffHand
+    ctx.db.player.identity.update({
+      ...p,
+      equippedMainHand: '',
+      equippedMainHandInventoryId: 0n,
+      equippedOffHand: '',
+      equippedOffHandInventoryId: 0n,
+    })
+    return unequipped(item)
   }
 
-  const row = ownedInventoryRow(ctx, p.identity, inventoryId);
-  if (!row || row.qty <= 0 || !isEquippableItem(row.item)) return [];
+  const row = ownedInventoryRow(ctx, p.identity, inventoryId)
+  if (!row || row.qty <= 0 || !isEquippableItem(row.item)) return []
 
   // Craft = wield (GDD "Crafting"): tier gear demands the same skill level
   // that crafted it, whoever's pack it ended up in.
-  const wieldReq = wieldRequirement(row.item);
-  if (wieldReq && levelForXp(skillXp(ctx, p.identity, wieldReq.skill)) < wieldReq.level) return [];
+  const wieldReq = wieldRequirement(row.item)
+  if (wieldReq && levelForXp(skillXp(ctx, p.identity, wieldReq.skill)) < wieldReq.level) return []
 
-  if (equipSlotOf(row.item) === "offHand") {
+  if (equipSlotOf(row.item) === 'offHand') {
     if (p.equippedOffHandInventoryId === row.id) {
-      ctx.db.player.identity.update({ ...p, equippedOffHand: "", equippedOffHandInventoryId: 0n });
-      return unequipped(row.item);
+      ctx.db.player.identity.update({ ...p, equippedOffHand: '', equippedOffHandInventoryId: 0n })
+      return unequipped(row.item)
     }
-    ctx.db.player.identity.update({ ...p, equippedOffHand: row.item, equippedOffHandInventoryId: row.id });
-    return equipped(row.item);
+    ctx.db.player.identity.update({ ...p, equippedOffHand: row.item, equippedOffHandInventoryId: row.id })
+    return equipped(row.item)
   }
 
   if (p.equippedMainHandInventoryId === row.id) {
-    ctx.db.player.identity.update({ ...p, equippedMainHand: "", equippedMainHandInventoryId: 0n });
-    return unequipped(row.item);
+    ctx.db.player.identity.update({ ...p, equippedMainHand: '', equippedMainHandInventoryId: 0n })
+    return unequipped(row.item)
   }
-  ctx.db.player.identity.update({ ...p, equippedMainHand: row.item, equippedMainHandInventoryId: row.id });
-  return equipped(row.item);
+  ctx.db.player.identity.update({ ...p, equippedMainHand: row.item, equippedMainHandInventoryId: row.id })
+  return equipped(row.item)
 }
 
 export const equipItem = spacetimedb.reducer({ inventoryId: t.u64() }, (ctx, args) => {
-  runEquipItem(ctx, args);
-});
+  runEquipItem(ctx, args)
+})
 
 export const equipItemAction = spacetimedb.procedure(
   { inventoryId: t.u64(), posthogKey: t.string(), source: t.string() },
   t.unit(),
   (ctx, args) => {
-    const events = ctx.withTx((tx) => runEquipItem(tx, args));
-    captureProcedureEvents(ctx, args.posthogKey, events);
-    return unit();
+    const events = ctx.withTx((tx) => runEquipItem(tx, args))
+    captureProcedureEvents(ctx, args.posthogKey, events)
+    return unit()
   },
-);
+)
 
 /** Clear whichever hand was holding `inventoryId` — called when that row's last unit is removed. */
 function unequipIfHeld(ctx: Ctx, inventoryId: bigint): void {
-  const p = ctx.db.player.identity.find(ctx.sender);
-  if (!p) return;
-  if (p.equippedMainHandInventoryId === inventoryId) ctx.db.player.identity.update({ ...p, equippedMainHand: "", equippedMainHandInventoryId: 0n });
-  else if (p.equippedOffHandInventoryId === inventoryId) ctx.db.player.identity.update({ ...p, equippedOffHand: "", equippedOffHandInventoryId: 0n });
+  const p = ctx.db.player.identity.find(ctx.sender)
+  if (!p) return
+  if (p.equippedMainHandInventoryId === inventoryId)
+    ctx.db.player.identity.update({ ...p, equippedMainHand: '', equippedMainHandInventoryId: 0n })
+  else if (p.equippedOffHandInventoryId === inventoryId)
+    ctx.db.player.identity.update({ ...p, equippedOffHand: '', equippedOffHandInventoryId: 0n })
 }
 
 /**
@@ -132,70 +140,82 @@ function unequipIfHeld(ctx: Ctx, inventoryId: bigint): void {
  * or every candidate tile is blocked the drop is refused and nothing is removed, so
  * the item is never lost. Removing the equipped row unequips it.
  */
-function runDropItem(ctx: Ctx, { inventoryId, source = "" }: { inventoryId: bigint; source?: string }): AnalyticsEvent[] {
-  const p = ctx.db.player.identity.find(ctx.sender);
-  if (!p) return [];
-  const row = ownedInventoryRow(ctx, p.identity, inventoryId);
-  if (!row || row.qty <= 0) return [];
-  const zone = getZone(p.zoneId);
-  if (!zone) return [];
-  if (countRows(ctx.db.groundItem.zoneId.filter(p.zoneId)) >= MAX_GROUND_ITEMS_PER_ZONE) return [];
+function runDropItem(ctx: Ctx, { inventoryId, source = '' }: { inventoryId: bigint; source?: string }): AnalyticsEvent[] {
+  const p = ctx.db.player.identity.find(ctx.sender)
+  if (!p) return []
+  const row = ownedInventoryRow(ctx, p.identity, inventoryId)
+  if (!row || row.qty <= 0) return []
+  const zone = getZone(p.zoneId)
+  if (!zone) return []
+  if (countRows(ctx.db.groundItem.zoneId.filter(p.zoneId)) >= MAX_GROUND_ITEMS_PER_ZONE) return []
 
-  const occupied = solidTiles(ctx, p.zoneId, ctx.timestamp, p.identity);
-  addGroundItemTiles(ctx, p.zoneId, occupied);
-  const pos = settle(ctx, p, ctx.timestamp);
-  const face = facingDir(p);
-  const gate = revealGate(ctx, zone);
-  const tile = spawnTile(zone, (x, y) => occupied.has(tileKey(x, y)) || gate(x, y), pos.x, pos.y, face.dirX, face.dirY);
-  if (!tile) return [];
+  const occupied = solidTiles(ctx, p.zoneId, ctx.timestamp, p.identity)
+  addGroundItemTiles(ctx, p.zoneId, occupied)
+  const pos = settle(ctx, p, ctx.timestamp)
+  const face = facingDir(p)
+  const gate = revealGate(ctx, zone)
+  const tile = spawnTile(zone, (x, y) => occupied.has(tileKey(x, y)) || gate(x, y), pos.x, pos.y, face.dirX, face.dirY)
+  if (!tile) return []
 
-  const removed = removeInventoryUnit(ctx, p.identity, inventoryId);
-  if (!removed) return [];
-  if (removed.removedLastUnit) unequipIfHeld(ctx, inventoryId);
-  ctx.db.groundItem.insert({ id: 0n, zoneId: p.zoneId, item: removed.item, x: tile.x, y: tile.y, qty: 1 });
-  return [{ distinctId: distinctId(ctx), event: "inventory_item_dropped", properties: { zone: p.zoneId, item: removed.item, ...sourceProp(source) } }];
+  const removed = removeInventoryUnit(ctx, p.identity, inventoryId)
+  if (!removed) return []
+  if (removed.removedLastUnit) unequipIfHeld(ctx, inventoryId)
+  ctx.db.groundItem.insert({ id: 0n, zoneId: p.zoneId, item: removed.item, x: tile.x, y: tile.y, qty: 1 })
+  return [
+    {
+      distinctId: distinctId(ctx),
+      event: 'inventory_item_dropped',
+      properties: { zone: p.zoneId, item: removed.item, ...sourceProp(source) },
+    },
+  ]
 }
 
 export const dropItem = spacetimedb.reducer({ inventoryId: t.u64() }, (ctx, args) => {
-  runDropItem(ctx, args);
-});
+  runDropItem(ctx, args)
+})
 
 export const dropItemAction = spacetimedb.procedure(
   { inventoryId: t.u64(), posthogKey: t.string(), source: t.string() },
   t.unit(),
   (ctx, args) => {
-    const events = ctx.withTx((tx) => runDropItem(tx, args));
-    captureProcedureEvents(ctx, args.posthogKey, events);
-    return unit();
+    const events = ctx.withTx((tx) => runDropItem(tx, args))
+    captureProcedureEvents(ctx, args.posthogKey, events)
+    return unit()
   },
-);
+)
 
 /**
  * Permanently destroy one unit of an owned inventory item (GDD "Inventory") — no
  * `ground_item` is created. Removing the equipped row unequips it.
  */
-function runDiscardItem(ctx: Ctx, { inventoryId, source = "" }: { inventoryId: bigint; source?: string }): AnalyticsEvent[] {
-  const p = ctx.db.player.identity.find(ctx.sender);
-  if (!p) return [];
-  const removed = removeInventoryUnit(ctx, p.identity, inventoryId);
-  if (!removed) return [];
-  if (removed.removedLastUnit) unequipIfHeld(ctx, inventoryId);
-  return [{ distinctId: distinctId(ctx), event: "inventory_item_discarded", properties: { zone: p.zoneId, item: removed.item, ...sourceProp(source) } }];
+function runDiscardItem(ctx: Ctx, { inventoryId, source = '' }: { inventoryId: bigint; source?: string }): AnalyticsEvent[] {
+  const p = ctx.db.player.identity.find(ctx.sender)
+  if (!p) return []
+  const removed = removeInventoryUnit(ctx, p.identity, inventoryId)
+  if (!removed) return []
+  if (removed.removedLastUnit) unequipIfHeld(ctx, inventoryId)
+  return [
+    {
+      distinctId: distinctId(ctx),
+      event: 'inventory_item_discarded',
+      properties: { zone: p.zoneId, item: removed.item, ...sourceProp(source) },
+    },
+  ]
 }
 
 export const discardItem = spacetimedb.reducer({ inventoryId: t.u64() }, (ctx, args) => {
-  runDiscardItem(ctx, args);
-});
+  runDiscardItem(ctx, args)
+})
 
 export const discardItemAction = spacetimedb.procedure(
   { inventoryId: t.u64(), posthogKey: t.string(), source: t.string() },
   t.unit(),
   (ctx, args) => {
-    const events = ctx.withTx((tx) => runDiscardItem(tx, args));
-    captureProcedureEvents(ctx, args.posthogKey, events);
-    return unit();
+    const events = ctx.withTx((tx) => runDiscardItem(tx, args))
+    captureProcedureEvents(ctx, args.posthogKey, events)
+    return unit()
   },
-);
+)
 
 /**
  * Use the equipped main-hand item (GDD "Avatars and equipment"). The row update
@@ -206,54 +226,54 @@ export const discardItemAction = spacetimedb.procedure(
  * trogg, then any node at a fraction of the roll; at zero health the target dies
  * or the node breaks and grants its resource.
  */
-function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; dirY: number; source?: string }): AnalyticsEvent[] {
-  const p = ctx.db.player.identity.find(ctx.sender);
-  if (!p) return [];
-  if (p.dead) return [];
+function runUseEquipped(ctx: Ctx, { dirX, dirY, source = '' }: { dirX: number; dirY: number; source?: string }): AnalyticsEvent[] {
+  const p = ctx.db.player.identity.find(ctx.sender)
+  if (!p) return []
+  if (p.dead) return []
   // The client sends its exact aim. A throw travels along it (free-direction);
   // the tile mechanics (melee, gathering, facing) take its dominant cardinal.
-  const aim = directionVector(dirX, dirY);
-  if (aim.dirX === 0 && aim.dirY === 0) return [];
-  const dir = Math.abs(aim.dirX) >= Math.abs(aim.dirY) ? { dirX: Math.sign(aim.dirX), dirY: 0 } : { dirX: 0, dirY: Math.sign(aim.dirY) };
+  const aim = directionVector(dirX, dirY)
+  if (aim.dirX === 0 && aim.dirY === 0) return []
+  const dir = Math.abs(aim.dirX) >= Math.abs(aim.dirY) ? { dirX: Math.sign(aim.dirX), dirY: 0 } : { dirX: 0, dirY: Math.sign(aim.dirY) }
 
-  const zone = getZone(p.zoneId);
-  if (!zone) return [];
-  const pos = settle(ctx, p, ctx.timestamp);
-  const props = { zone: p.zoneId, ...sourceProp(source) };
-  const events: AnalyticsEvent[] = [];
+  const zone = getZone(p.zoneId)
+  if (!zone) return []
+  const pos = settle(ctx, p, ctx.timestamp)
+  const props = { zone: p.zoneId, ...sourceProp(source) }
+  const events: AnalyticsEvent[] = []
 
   // Active-play XP (GDD "Skills and XP") — this reducer only ever runs on
   // player input, so every grant here is attended by construction. A grant
   // that crosses a level boundary emits level_up (analytics.md).
   const grant = (skill: SkillId, xp: number): void => {
-    const gain = grantXp(ctx, p.identity, skill, xp);
-    if (gain.leveledUp) events.push({ distinctId: distinctId(ctx), event: "level_up", properties: { ...props, skill, level: gain.level } });
-  };
+    const gain = grantXp(ctx, p.identity, skill, xp)
+    if (gain.leveledUp) events.push({ distinctId: distinctId(ctx), event: 'level_up', properties: { ...props, skill, level: gain.level } })
+  }
 
-  if (p.carrying !== "") {
-    const thrown = throwCarried(ctx, p, zone, pos, aim);
-    if (!thrown) return [];
-    const throwProps: Record<string, string | number | boolean> = { ...props, kind: thrown.kind, range: thrown.range };
-    if (thrown.hitTarget) throwProps.hit_target = thrown.hitTarget;
-    events.push({ distinctId: distinctId(ctx), event: "object_thrown", properties: throwProps });
+  if (p.carrying !== '') {
+    const thrown = throwCarried(ctx, p, zone, pos, aim)
+    if (!thrown) return []
+    const throwProps: Record<string, string | number | boolean> = { ...props, kind: thrown.kind, range: thrown.range }
+    if (thrown.hitTarget) throwProps.hit_target = thrown.hitTarget
+    events.push({ distinctId: distinctId(ctx), event: 'object_thrown', properties: throwProps })
     if (thrown.hitTarget && thrown.damage) {
       events.push({
         distinctId: distinctId(ctx),
-        event: "combat_hit",
+        event: 'combat_hit',
         properties: { ...props, weapon: `thrown_${thrown.kind}`, target: thrown.hitTarget, damage: thrown.damage, killed: thrown.killed },
-      });
-      if (thrown.hitTarget === "dark_creature") grant("combat", thrown.damage * COMBAT_XP_PER_DAMAGE);
+      })
+      if (thrown.hitTarget === 'dark_creature') grant('combat', thrown.damage * COMBAT_XP_PER_DAMAGE)
     }
-    if (thrown.playerDeath) events.push(playerDiedEvent(thrown.playerDeath.distinctId, props, `thrown_${thrown.kind}`, thrown.playerDeath));
-    return events;
+    if (thrown.playerDeath) events.push(playerDiedEvent(thrown.playerDeath.distinctId, props, `thrown_${thrown.kind}`, thrown.playerDeath))
+    return events
   }
 
   // Empty-handed, `F` still swings: bare fists, the weakest weapon, stored as
   // the "fists" action impulse so every client animates the bare swing.
-  const equipped = equippedInventoryRow(ctx, p);
-  const item = equipped?.item ?? "fists";
+  const equipped = equippedInventoryRow(ctx, p)
+  const item = equipped?.item ?? 'fists'
   // a fresh use inside the previous swing's cooldown is dropped (invariant 3)
-  if (p.equipmentAction !== "" && elapsedMs(p.equipmentActionAt, ctx.timestamp) < EQUIPMENT_USE_COOLDOWN_MS) return [];
+  if (p.equipmentAction !== '' && elapsedMs(p.equipmentActionAt, ctx.timestamp) < EQUIPMENT_USE_COOLDOWN_MS) return []
 
   // Melee resolves by reach and swing arc around the exact aim vector (shared
   // meleeHit), not tile adjacency — free movement means the eye judges reach in
@@ -264,105 +284,111 @@ function runUseEquipped(ctx: Ctx, { dirX, dirY, source = "" }: { dirX: number; d
   // OFF_TOOL_NODE_FACTOR of the roll — a sword can whittle a tree down for the
   // first wood, it's just a terrible saw. Each node hit rolls into the node's
   // health; the breaking hit drops the yield on the floor whatever weapon dealt it.
-  const cx = pos.x + 0.5;
-  const cy = pos.y + 0.5;
-  const range = equipped ? weaponDamageRange(item) : UNARMED_DAMAGE;
+  const cx = pos.x + 0.5
+  const cy = pos.y + 0.5
+  const range = equipped ? weaponDamageRange(item) : UNARMED_DAMAGE
 
   // A breaking hit never fills a personal inventory: the yield deposits straight
   // into the shared stockpile (GDD "The fire and the dark" → The stockpile).
-  const strikeBoulder = (b: NonNullable<ReturnType<typeof meleeBoulderTarget>>["target"], damage: number): boolean => {
+  const strikeBoulder = (b: NonNullable<ReturnType<typeof meleeBoulderTarget>>['target'], damage: number): boolean => {
     if (b.health > damage) {
-      ctx.db.boulder.id.update({ ...b, health: b.health - damage });
-      return true;
+      ctx.db.boulder.id.update({ ...b, health: b.health - damage })
+      return true
     }
-    ctx.db.boulder.id.delete(b.id);
-    depositStockpile(ctx, "stone", 1);
+    ctx.db.boulder.id.delete(b.id)
+    depositStockpile(ctx, 'stone', 1)
     // the breaking hit is the completed gather, whatever weapon dealt it
-    grant("mining", GATHER_XP);
-    scheduleNodeRespawn(ctx, p.zoneId, "boulder", b.x, b.y);
-    return true;
-  };
-  const strikeTree = (tr: NonNullable<ReturnType<typeof meleeTreeTarget>>["target"], damage: number): boolean => {
+    grant('mining', GATHER_XP)
+    scheduleNodeRespawn(ctx, p.zoneId, 'boulder', b.x, b.y)
+    return true
+  }
+  const strikeTree = (tr: NonNullable<ReturnType<typeof meleeTreeTarget>>['target'], damage: number): boolean => {
     if (tr.health > damage) {
-      ctx.db.tree.id.update({ ...tr, health: tr.health - damage });
-      return true;
+      ctx.db.tree.id.update({ ...tr, health: tr.health - damage })
+      return true
     }
-    ctx.db.tree.id.delete(tr.id);
-    depositStockpile(ctx, "wood", 1);
-    grant("woodcutting", GATHER_XP);
-    scheduleNodeRespawn(ctx, p.zoneId, "tree", tr.x, tr.y);
-    return true;
-  };
+    ctx.db.tree.id.delete(tr.id)
+    depositStockpile(ctx, 'wood', 1)
+    grant('woodcutting', GATHER_XP)
+    scheduleNodeRespawn(ctx, p.zoneId, 'tree', tr.x, tr.y)
+    return true
+  }
 
-  let landed = false;
-  let provoked = false;
+  let landed = false
+  let provoked = false
   if (range) {
-    const roll = () => ctx.random.integerInRange(range[0], range[1]);
-    const tool = gatherToolClass(item);
-    if (tool === "pickaxe") {
-      const b = meleeBoulderTarget(ctx, p.zoneId, cx, cy, aim);
-      if (b) landed = strikeBoulder(b.target, roll());
-    } else if (tool === "axe") {
-      const tr = meleeTreeTarget(ctx, p.zoneId, cx, cy, aim);
-      if (tr) landed = strikeTree(tr.target, roll());
+    const roll = () => ctx.random.integerInRange(range[0], range[1])
+    const tool = gatherToolClass(item)
+    if (tool === 'pickaxe') {
+      const b = meleeBoulderTarget(ctx, p.zoneId, cx, cy, aim)
+      if (b) landed = strikeBoulder(b.target, roll())
+    } else if (tool === 'axe') {
+      const tr = meleeTreeTarget(ctx, p.zoneId, cx, cy, aim)
+      if (tr) landed = strikeTree(tr.target, roll())
     }
     if (!landed) {
-      const damage = roll();
+      const damage = roll()
       // A dark creature outranks a trogg at equal distance (GDD "Combat") —
       // a swing meant for a hostile creature shouldn't clip a bystanding
       // trogg fighting at its side.
-      const creature = meleeDarkCreatureTarget(ctx, p.zoneId, cx, cy, aim, ctx.timestamp);
-      const trogg = meleePlayerTarget(ctx, p.zoneId, cx, cy, aim, ctx.timestamp, p.identity);
+      const creature = meleeDarkCreatureTarget(ctx, p.zoneId, cx, cy, aim, ctx.timestamp)
+      const trogg = meleePlayerTarget(ctx, p.zoneId, cx, cy, aim, ctx.timestamp, p.identity)
       if (creature && (!trogg || creature.dist <= trogg.dist)) {
-        const result = damageDarkCreature(ctx, creature.target, damage);
-        events.push({ distinctId: distinctId(ctx), event: "combat_hit", properties: { ...props, weapon: item, target: "dark_creature", damage: result.dealt, killed: result.killed } });
-        grant("combat", Math.min(result.dealt, creature.target.health) * COMBAT_XP_PER_DAMAGE);
-        landed = true;
-        provoked = true; // blood over flame: the torch ward drops (GDD "Crafting")
+        const result = damageDarkCreature(ctx, creature.target, damage)
+        events.push({
+          distinctId: distinctId(ctx),
+          event: 'combat_hit',
+          properties: { ...props, weapon: item, target: 'dark_creature', damage: result.dealt, killed: result.killed },
+        })
+        grant('combat', Math.min(result.dealt, creature.target.health) * COMBAT_XP_PER_DAMAGE)
+        landed = true
+        provoked = true // blood over flame: the torch ward drops (GDD "Crafting")
       } else if (trogg) {
-        const result = damagePlayer(ctx, trogg.target, damage);
-        events.push({ distinctId: distinctId(ctx), event: "combat_hit", properties: { ...props, weapon: item, target: "trogg", damage: result.dealt, killed: result.killed } });
-        if (result.killed) events.push(playerDiedEvent(trogg.target.identity.toHexString(), props, item, result));
-        landed = true;
+        const result = damagePlayer(ctx, trogg.target, damage)
+        events.push({
+          distinctId: distinctId(ctx),
+          event: 'combat_hit',
+          properties: { ...props, weapon: item, target: 'trogg', damage: result.dealt, killed: result.killed },
+        })
+        if (result.killed) events.push(playerDiedEvent(trogg.target.identity.toHexString(), props, item, result))
+        landed = true
       }
     }
     if (!landed) {
       // no creature and no matching node in the swing: any node takes a scratch
-      const b = tool === "pickaxe" ? undefined : meleeBoulderTarget(ctx, p.zoneId, cx, cy, aim);
-      const tr = tool === "axe" ? undefined : meleeTreeTarget(ctx, p.zoneId, cx, cy, aim);
-      const chip = Math.max(1, Math.round(roll() * OFF_TOOL_NODE_FACTOR));
-      if (b && (!tr || b.dist <= tr.dist)) strikeBoulder(b.target, chip);
-      else if (tr) strikeTree(tr.target, chip);
+      const b = tool === 'pickaxe' ? undefined : meleeBoulderTarget(ctx, p.zoneId, cx, cy, aim)
+      const tr = tool === 'axe' ? undefined : meleeTreeTarget(ctx, p.zoneId, cx, cy, aim)
+      const chip = Math.max(1, Math.round(roll() * OFF_TOOL_NODE_FACTOR))
+      if (b && (!tr || b.dist <= tr.dist)) strikeBoulder(b.target, chip)
+      else if (tr) strikeTree(tr.target, chip)
     }
   }
 
   ctx.db.player.identity.update({
     ...p,
-    equippedMainHand: equipped?.item ?? "",
+    equippedMainHand: equipped?.item ?? '',
     equippedMainHandInventoryId: equipped?.id ?? 0n,
     equipmentAction: item,
     equipmentActionAt: ctx.timestamp,
     provokedAt: provoked ? ctx.timestamp : p.provokedAt,
-  });
-  events.unshift({ distinctId: distinctId(ctx), event: "equipped_item_used", properties: { zone: p.zoneId, item, ...sourceProp(source) } });
-  return events;
+  })
+  events.unshift({ distinctId: distinctId(ctx), event: 'equipped_item_used', properties: { zone: p.zoneId, item, ...sourceProp(source) } })
+  return events
 }
 
 export const useEquipped = spacetimedb.reducer({ dirX: t.i32(), dirY: t.i32() }, (ctx, args) => {
-  runUseEquipped(ctx, args);
-});
+  runUseEquipped(ctx, args)
+})
 
 export const useEquippedAction = spacetimedb.procedure(
   { dirX: t.i32(), dirY: t.i32(), posthogKey: t.string(), source: t.string() },
   t.unit(),
   (ctx, args) => {
-    const events = ctx.withTx((tx) => runUseEquipped(tx, args));
-    captureProcedureEvents(ctx, args.posthogKey, events);
-    return unit();
+    const events = ctx.withTx((tx) => runUseEquipped(tx, args))
+    captureProcedureEvents(ctx, args.posthogKey, events)
+    return unit()
   },
-);
-
-
+)
 
 /**
  * Craft a recipe at the Hearth's station (GDD "Crafting"). The station is the
@@ -373,52 +399,60 @@ export const useEquippedAction = spacetimedb.procedure(
  * take wood below the upkeep reserve — the fire eats first (The stockpile).
  * The craft is attributed: `item_crafted` names who drew what from the pool.
  */
-function runCraft(ctx: Ctx, { item, source = "" }: { item: string; source?: string }): AnalyticsEvent[] {
-  const p = ctx.db.player.identity.find(ctx.sender);
-  if (!p || p.dead) return [];
-  const recipe = recipeFor(item);
-  if (!recipe) return [];
-  if (levelForXp(skillXp(ctx, p.identity, recipe.skill)) < recipe.level) return [];
+function runCraft(ctx: Ctx, { item, source = '' }: { item: string; source?: string }): AnalyticsEvent[] {
+  const p = ctx.db.player.identity.find(ctx.sender)
+  if (!p || p.dead) return []
+  const recipe = recipeFor(item)
+  if (!recipe) return []
+  if (levelForXp(skillXp(ctx, p.identity, recipe.skill)) < recipe.level) return []
 
   // at the station: inside the First Fire's ring
-  const pos = settle(ctx, p, ctx.timestamp);
-  if (!atFirstFire(pos, ctx.db.brazier.zoneId.filter(p.zoneId))) return [];
+  const pos = settle(ctx, p, ctx.timestamp)
+  if (!atFirstFire(pos, ctx.db.brazier.zoneId.filter(p.zoneId))) return []
 
   // a non-stackable output needs a free carry slot
-  if (countRows(ctx.db.inventory.playerId.filter(p.identity)) >= INVENTORY_SLOT_COUNT) return [];
+  if (countRows(ctx.db.inventory.playerId.filter(p.identity)) >= INVENTORY_SLOT_COUNT) return []
 
   // both inputs must clear, and wood must stay above the upkeep reserve,
   // before anything is withdrawn — no partial spends
-  const stoneCost = recipe.costs.stone ?? 0;
-  const woodCost = recipe.costs.wood ?? 0;
-  const wood = ctx.db.stockpile.item.find("wood")?.qty ?? 0;
-  const stone = ctx.db.stockpile.item.find("stone")?.qty ?? 0;
-  const litUpkeep = [...ctx.db.brazier.iter()].filter((b) => b.lit && !b.isEternal).length;
-  if (stone < stoneCost) return [];
-  if (wood < woodCost || wood - woodCost < upkeepReserve(litUpkeep)) return [];
-  if (stoneCost > 0) withdrawStockpile(ctx, "stone", stoneCost);
-  if (woodCost > 0) withdrawStockpile(ctx, "wood", woodCost);
+  const stoneCost = recipe.costs.stone ?? 0
+  const woodCost = recipe.costs.wood ?? 0
+  const wood = ctx.db.stockpile.item.find('wood')?.qty ?? 0
+  const stone = ctx.db.stockpile.item.find('stone')?.qty ?? 0
+  const litUpkeep = [...ctx.db.brazier.iter()].filter((b) => b.lit && !b.isEternal).length
+  if (stone < stoneCost) return []
+  if (wood < woodCost || wood - woodCost < upkeepReserve(litUpkeep)) return []
+  if (stoneCost > 0) withdrawStockpile(ctx, 'stone', stoneCost)
+  if (woodCost > 0) withdrawStockpile(ctx, 'wood', woodCost)
 
-  ctx.db.inventory.insert({ id: 0n, playerId: p.identity, item: recipe.output, qty: 1, wear: 0 });
+  ctx.db.inventory.insert({ id: 0n, playerId: p.identity, item: recipe.output, qty: 1, wear: 0 })
   return [
     {
       distinctId: distinctId(ctx),
-      event: "item_crafted",
-      properties: { zone: p.zoneId, item: recipe.output, stone_cost: stoneCost, wood_cost: woodCost, skill: recipe.skill, level: recipe.level, ...sourceProp(source) },
+      event: 'item_crafted',
+      properties: {
+        zone: p.zoneId,
+        item: recipe.output,
+        stone_cost: stoneCost,
+        wood_cost: woodCost,
+        skill: recipe.skill,
+        level: recipe.level,
+        ...sourceProp(source),
+      },
     },
-  ];
+  ]
 }
 
 export const craftItem = spacetimedb.reducer({ item: t.string() }, (ctx, args) => {
-  runCraft(ctx, args);
-});
+  runCraft(ctx, args)
+})
 
 export const craftItemAction = spacetimedb.procedure(
   { item: t.string(), posthogKey: t.string(), source: t.string() },
   t.unit(),
   (ctx, args) => {
-    const events = ctx.withTx((tx) => runCraft(tx, args));
-    captureProcedureEvents(ctx, args.posthogKey, events);
-    return unit();
+    const events = ctx.withTx((tx) => runCraft(tx, args))
+    captureProcedureEvents(ctx, args.posthogKey, events)
+    return unit()
   },
-);
+)

@@ -6,12 +6,12 @@
  * `schema.ts`; shared server-side helpers in `helpers.ts`; the rest of the reducers
  * are grouped by domain under `reducers/`.
  */
-export { default } from "./schema";
-export * from "./schema";
-export * from "./reducers/lifecycle";
-export * from "./reducers/movement";
-export * from "./reducers/interact";
-export * from "./reducers/admin";
-export * from "./reducers/social";
-export * from "./reducers/items";
-export * from "./reducers/claim";
+export { default } from './schema'
+export * from './schema'
+export * from './reducers/lifecycle'
+export * from './reducers/movement'
+export * from './reducers/interact'
+export * from './reducers/admin'
+export * from './reducers/social'
+export * from './reducers/items'
+export * from './reducers/claim'

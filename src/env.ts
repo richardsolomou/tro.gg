@@ -1,10 +1,10 @@
 /** WebSocket URL of the SpacetimeDB instance, and the module (database) name. */
-export const SPACETIMEDB_HOST = import.meta.env.VITE_SPACETIMEDB_HOST ?? "ws://localhost:3001";
-export const SPACETIMEDB_DB_NAME = import.meta.env.VITE_SPACETIMEDB_DB_NAME ?? "trogg";
+export const SPACETIMEDB_HOST = import.meta.env.VITE_SPACETIMEDB_HOST ?? 'ws://localhost:3001'
+export const SPACETIMEDB_DB_NAME = import.meta.env.VITE_SPACETIMEDB_DB_NAME ?? 'trogg'
 
 /** PostHog project key. Telemetry is a no-op when unset (e.g. local dev). */
-export const POSTHOG_KEY = import.meta.env.VITE_POSTHOG_KEY as string | undefined;
-export const POSTHOG_HOST = import.meta.env.VITE_POSTHOG_HOST ?? "https://us.i.posthog.com";
+export const POSTHOG_KEY = import.meta.env.VITE_POSTHOG_KEY as string | undefined
+export const POSTHOG_HOST = import.meta.env.VITE_POSTHOG_HOST ?? 'https://us.i.posthog.com'
 
 /**
  * SpacetimeAuth (GDD "Identity") — the OIDC provider that backs account sign-in.
@@ -20,6 +20,6 @@ export const POSTHOG_HOST = import.meta.env.VITE_POSTHOG_HOST ?? "https://us.i.p
  * with SpacetimeAuth, and `/play/` is rejected outright at the authorize step. The
  * extra hop is harmless: the redirect carries `?code=&state=` through untouched.
  */
-export const SPACETIMEAUTH_CLIENT_ID = import.meta.env.VITE_SPACETIMEAUTH_CLIENT_ID as string | undefined;
+export const SPACETIMEAUTH_CLIENT_ID = import.meta.env.VITE_SPACETIMEAUTH_CLIENT_ID as string | undefined
 export const SPACETIMEAUTH_REDIRECT_URI =
-  (import.meta.env.VITE_SPACETIMEAUTH_REDIRECT_URI as string | undefined) ?? `${window.location.origin}/play`;
+  (import.meta.env.VITE_SPACETIMEAUTH_REDIRECT_URI as string | undefined) ?? `${window.location.origin}/play`

@@ -1,9 +1,9 @@
 ---
 name: Feature request
 about: Propose a player-facing mechanic, tool, or system improvement.
-title: ""
+title: ''
 labels: enhancement
-assignees: ""
+assignees: ''
 ---
 
 ## Summary
@@ -20,9 +20,8 @@ assignees: ""
 
 ## Acceptance criteria
 
-- [ ] 
+- [ ]
 
 ## Implementation notes
 
 <!-- Optional: known files, systems, feature flags, telemetry, or migration concerns. -->
-

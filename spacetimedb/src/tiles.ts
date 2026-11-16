@@ -1,4 +1,4 @@
-import { Timestamp } from "spacetimedb";
+import { Timestamp } from 'spacetimedb'
 import {
   BOULDER_HIT_RADIUS,
   TREE_HIT_RADIUS,
@@ -21,50 +21,50 @@ import {
   tileKey,
   type Zone,
   zoneBounds,
-} from "../../shared/index";
-import { currentRevealedRegions } from "./reveal";
-import type { Ctx } from "./schema";
+} from '../../shared/index'
+import { currentRevealedRegions } from './reveal'
+import type { Ctx } from './schema'
 
 /** A zone's occupied-predicate reveal clause: unrevealed ground is a hard
  *  wall, exactly like a zone edge, until a group clears it and claims it (GDD
  *  "Generation: only as far as the light reaches"). Computed once per bounds
  *  construction, not per tile. */
 export function revealGate(ctx: Ctx, zone: Zone): (x: number, y: number) => boolean {
-  const revealedSlugs = currentRevealedRegions(ctx);
-  const penumbraSlugs = penumbraOf(revealedSlugs);
-  return (x, y) => !isRevealed(zone, revealedSlugs, penumbraSlugs, x, y);
+  const revealedSlugs = currentRevealedRegions(ctx)
+  const penumbraSlugs = penumbraOf(revealedSlugs)
+  return (x, y) => !isRevealed(zone, revealedSlugs, penumbraSlugs, x, y)
 }
 
 /** A species' stats, falling back to the registry's first entry for a stale
  *  or unrecognised id (never expected in practice; a row's species always
  *  comes from `DARK_CREATURE_SPECIES`). */
 export function darkCreatureDef(species: string) {
-  return DARK_CREATURES[species as DarkCreatureSpecies] ?? Object.values(DARK_CREATURES)[0]!;
+  return DARK_CREATURES[species as DarkCreatureSpecies] ?? Object.values(DARK_CREATURES)[0]!
 }
 
 /** A fresh trogg's spawn tile: the zone's spawn point (the zone centre when unset). */
 export function spawnAt(zone: Zone): { x: number; y: number } {
-  return zone.spawn ?? { x: Math.floor(zone.width / 2), y: Math.floor(zone.height / 2) };
+  return zone.spawn ?? { x: Math.floor(zone.width / 2), y: Math.floor(zone.height / 2) }
 }
 
 /** The motion-bearing slice of a player row that `settle` derives position from.
  *  The cheat and altitude fields ride along so the projection applies the same
  *  speed, clearance, and z derivation authority-side (GDD "Debug cheats"). */
 type Settleable = {
-  x: number;
-  y: number;
-  dirX: number;
-  dirY: number;
-  running: boolean;
-  path?: string;
-  zoneId: string;
-  movedAt: Stamp;
-  cheatSpeed?: number;
-  cheatFly?: boolean;
-  cheatNoclip?: boolean;
-  z?: number;
-  dirZ?: number;
-};
+  x: number
+  y: number
+  dirX: number
+  dirY: number
+  running: boolean
+  path?: string
+  zoneId: string
+  movedAt: Stamp
+  cheatSpeed?: number
+  cheatFly?: boolean
+  cheatNoclip?: boolean
+  z?: number
+  dirZ?: number
+}
 
 /**
  * Derive the trogg's position at `now` from its stored motion intent, colliding
@@ -75,29 +75,29 @@ type Settleable = {
  * do *not* collide with each other, so other players are absent here.
  */
 export function settle(ctx: Ctx, p: Settleable, now: Stamp): { x: number; y: number; z: number } {
-  const zone = getZone(p.zoneId);
-  if (!zone) return { x: p.x, y: p.y, z: p.z ?? 0 };
-  const blockers = troggBlockers(ctx, p.zoneId, now);
-  const gate = revealGate(ctx, zone);
-  const bounds = zoneBounds(zone, (x, y) => blockers.has(tileKey(x, y)) || gate(x, y));
-  const at = projectMotionState(p, elapsedMs(p.movedAt, now), bounds);
-  return { x: at.x, y: at.y, z: at.z };
+  const zone = getZone(p.zoneId)
+  if (!zone) return { x: p.x, y: p.y, z: p.z ?? 0 }
+  const blockers = troggBlockers(ctx, p.zoneId, now)
+  const gate = revealGate(ctx, zone)
+  const bounds = zoneBounds(zone, (x, y) => blockers.has(tileKey(x, y)) || gate(x, y))
+  const at = projectMotionState(p, elapsedMs(p.movedAt, now), bounds)
+  return { x: at.x, y: at.y, z: at.z }
 }
 
 /** Count rows in a table iterable without materializing an array. */
 export function countRows(rows: Iterable<unknown>): number {
-  let n = 0;
-  for (const _ of rows) n++;
-  return n;
+  let n = 0
+  for (const _ of rows) n++
+  return n
 }
 
 /** The set of tiles occupied by static obstacles — boulders and trees — in a
  *  zone, keyed by `tileKey`. The base layer every blocker set builds on. */
 export function obstacleTiles(ctx: Ctx, zoneId: string): Set<string> {
-  const tiles = new Set<string>();
-  for (const b of ctx.db.boulder.zoneId.filter(zoneId)) tiles.add(tileKey(b.x, b.y));
-  for (const tr of ctx.db.tree.zoneId.filter(zoneId)) tiles.add(tileKey(tr.x, tr.y));
-  return tiles;
+  const tiles = new Set<string>()
+  for (const b of ctx.db.boulder.zoneId.filter(zoneId)) tiles.add(tileKey(b.x, b.y))
+  for (const tr of ctx.db.tree.zoneId.filter(zoneId)) tiles.add(tileKey(tr.x, tr.y))
+  return tiles
 }
 
 /** The tiles solid to a trogg in a zone: boulders, trees, and living dark
@@ -105,40 +105,40 @@ export function obstacleTiles(ctx: Ctx, zoneId: string): Set<string> {
  *  trogg the same way a wall does). Not other troggs — trogg↔trogg has no
  *  collision. */
 export function troggBlockers(ctx: Ctx, zoneId: string, now: Stamp): Set<string> {
-  const tiles = obstacleTiles(ctx, zoneId);
-  addDarkCreatureTiles(ctx, zoneId, now, tiles);
-  return tiles;
+  const tiles = obstacleTiles(ctx, zoneId)
+  addDarkCreatureTiles(ctx, zoneId, now, tiles)
+  return tiles
 }
 
 /** Add each living dark creature's current tile (projected to `now`, against
  *  walls, boulders, and trees) to `set`. Corpses aren't solid. */
 export function addDarkCreatureTiles(ctx: Ctx, zoneId: string, now: Stamp, set: Set<string>): void {
-  const zone = getZone(zoneId);
-  if (!zone) return;
-  const blockers = obstacleTiles(ctx, zoneId);
-  const gate = revealGate(ctx, zone);
-  const bounds = zoneBounds(zone, (x, y) => blockers.has(tileKey(x, y)) || gate(x, y));
+  const zone = getZone(zoneId)
+  if (!zone) return
+  const blockers = obstacleTiles(ctx, zoneId)
+  const gate = revealGate(ctx, zone)
+  const bounds = zoneBounds(zone, (x, y) => blockers.has(tileKey(x, y)) || gate(x, y))
   for (const c of ctx.db.darkCreature.zoneId.filter(zoneId)) {
-    if (c.health <= 0) continue;
-    const pos = projectMotion(c, elapsedMs(c.movedAt, now), bounds);
-    set.add(tileKey(Math.round(pos.x), Math.round(pos.y)));
+    if (c.health <= 0) continue
+    const pos = projectMotion(c, elapsedMs(c.movedAt, now), bounds)
+    set.add(tileKey(Math.round(pos.x), Math.round(pos.y)))
   }
 }
 
 /** Add each online trogg's current tile (projected to `now`, against walls,
  *  boulders, trees, and dark creatures) to `set`, skipping `exclude` (a trogg
  *  never blocks itself). Lets dropped objects avoid the tiles troggs stand on. */
-export function addPlayerTiles(ctx: Ctx, zoneId: string, now: Stamp, set: Set<string>, exclude?: Ctx["sender"]): void {
-  const zone = getZone(zoneId);
-  if (!zone) return;
-  const blockers = troggBlockers(ctx, zoneId, now);
-  const gate = revealGate(ctx, zone);
-  const bounds = zoneBounds(zone, (x, y) => blockers.has(tileKey(x, y)) || gate(x, y));
+export function addPlayerTiles(ctx: Ctx, zoneId: string, now: Stamp, set: Set<string>, exclude?: Ctx['sender']): void {
+  const zone = getZone(zoneId)
+  if (!zone) return
+  const blockers = troggBlockers(ctx, zoneId, now)
+  const gate = revealGate(ctx, zone)
+  const bounds = zoneBounds(zone, (x, y) => blockers.has(tileKey(x, y)) || gate(x, y))
   for (const p of ctx.db.player.zoneId.filter(zoneId)) {
-    if (!p.online) continue;
-    if (exclude && p.identity.isEqual(exclude)) continue;
-    const pos = projectMotion(p, elapsedMs(p.movedAt, now), bounds);
-    set.add(tileKey(Math.round(pos.x), Math.round(pos.y)));
+    if (!p.online) continue
+    if (exclude && p.identity.isEqual(exclude)) continue
+    const pos = projectMotion(p, elapsedMs(p.movedAt, now), bounds)
+    set.add(tileKey(Math.round(pos.x), Math.round(pos.y)))
   }
 }
 
@@ -146,51 +146,51 @@ export function addPlayerTiles(ctx: Ctx, zoneId: string, now: Stamp, set: Set<st
  *  other troggs, and dark creatures — so a spawn or drop never lands on top
  *  of something. `exclude` skips the acting trogg's own tile, leaving it as a
  *  last-resort fallback when boxed in. */
-export function solidTiles(ctx: Ctx, zoneId: string, now: Stamp, exclude?: Ctx["sender"]): Set<string> {
-  const tiles = obstacleTiles(ctx, zoneId);
-  addPlayerTiles(ctx, zoneId, now, tiles, exclude);
-  addDarkCreatureTiles(ctx, zoneId, now, tiles);
-  return tiles;
+export function solidTiles(ctx: Ctx, zoneId: string, now: Stamp, exclude?: Ctx['sender']): Set<string> {
+  const tiles = obstacleTiles(ctx, zoneId)
+  addPlayerTiles(ctx, zoneId, now, tiles, exclude)
+  addDarkCreatureTiles(ctx, zoneId, now, tiles)
+  return tiles
 }
 
 /** Mark existing pickup items as visually occupied for new debug spawns. */
 export function addGroundItemTiles(ctx: Ctx, zoneId: string, set: Set<string>): void {
-  for (const item of ctx.db.groundItem.zoneId.filter(zoneId)) set.add(tileKey(item.x, item.y));
+  for (const item of ctx.db.groundItem.zoneId.filter(zoneId)) set.add(tileKey(item.x, item.y))
 }
 
 /** The boulder at a tile in a zone, or undefined. */
 export function boulderAt(ctx: Ctx, zoneId: string, x: number, y: number) {
   for (const b of ctx.db.boulder.zoneId.filter(zoneId)) {
-    if (b.x === x && b.y === y) return b;
+    if (b.x === x && b.y === y) return b
   }
-  return undefined;
+  return undefined
 }
 
 /** The tree at a tile in a zone, or undefined. */
 export function treeAt(ctx: Ctx, zoneId: string, x: number, y: number) {
   for (const tr of ctx.db.tree.zoneId.filter(zoneId)) {
-    if (tr.x === x && tr.y === y) return tr;
+    if (tr.x === x && tr.y === y) return tr
   }
-  return undefined;
+  return undefined
 }
 
 /** The pickup item at a tile in a zone, or undefined. */
 export function groundItemAt(ctx: Ctx, zoneId: string, x: number, y: number) {
   for (const item of ctx.db.groundItem.zoneId.filter(zoneId)) {
-    if (item.x === x && item.y === y) return item;
+    if (item.x === x && item.y === y) return item
   }
-  return undefined;
+  return undefined
 }
 
 /** The nearest ground item within `radius` tiles of (cx, cy), centre to centre —
  *  `E` reaches loot by distance, not facing, so a drop at your feet always lifts. */
 export function nearestGroundItem(ctx: Ctx, zoneId: string, cx: number, cy: number, radius: number) {
-  let best: { row: NonNullable<ReturnType<typeof groundItemAt>>; dist: number } | undefined;
+  let best: { row: NonNullable<ReturnType<typeof groundItemAt>>; dist: number } | undefined
   for (const item of ctx.db.groundItem.zoneId.filter(zoneId)) {
-    const dist = Math.hypot(item.x + 0.5 - cx, item.y + 0.5 - cy);
-    if (dist <= radius && (!best || dist < best.dist)) best = { row: item, dist };
+    const dist = Math.hypot(item.x + 0.5 - cx, item.y + 0.5 - cy)
+    if (dist <= radius && (!best || dist < best.dist)) best = { row: item, dist }
   }
-  return best?.row;
+  return best?.row
 }
 
 /**
@@ -199,19 +199,19 @@ export function nearestGroundItem(ctx: Ctx, zoneId: string, cx: number, cy: numb
  * under the faced adjacent tile. Project each candidate at `now` with the same
  * bounds a trogg uses for movement, then round to its rendered tile.
  */
-export function playerAt(ctx: Ctx, zoneId: string, x: number, y: number, now: Stamp, exclude?: Ctx["sender"]) {
-  const zone = getZone(zoneId);
-  if (!zone) return undefined;
-  const blockers = troggBlockers(ctx, zoneId, now);
-  const gate = revealGate(ctx, zone);
-  const bounds = zoneBounds(zone, (tx, ty) => blockers.has(tileKey(tx, ty)) || gate(tx, ty));
+export function playerAt(ctx: Ctx, zoneId: string, x: number, y: number, now: Stamp, exclude?: Ctx['sender']) {
+  const zone = getZone(zoneId)
+  if (!zone) return undefined
+  const blockers = troggBlockers(ctx, zoneId, now)
+  const gate = revealGate(ctx, zone)
+  const bounds = zoneBounds(zone, (tx, ty) => blockers.has(tileKey(tx, ty)) || gate(tx, ty))
   for (const p of ctx.db.player.zoneId.filter(zoneId)) {
-    if (!p.online || p.dead) continue;
-    if (exclude && p.identity.isEqual(exclude)) continue;
-    const pos = projectMotion(p, elapsedMs(p.movedAt, now), bounds);
-    if (Math.round(pos.x) === x && Math.round(pos.y) === y) return p;
+    if (!p.online || p.dead) continue
+    if (exclude && p.identity.isEqual(exclude)) continue
+    const pos = projectMotion(p, elapsedMs(p.movedAt, now), bounds)
+    if (Math.round(pos.x) === x && Math.round(pos.y) === y) return p
   }
-  return undefined;
+  return undefined
 }
 
 /**
@@ -219,35 +219,35 @@ export function playerAt(ctx: Ctx, zoneId: string, x: number, y: number, now: St
  * (GDD "Dark creatures"). Corpses aren't targetable. Mirrors `playerAt`.
  */
 export function darkCreatureAt(ctx: Ctx, zoneId: string, x: number, y: number, now: Stamp) {
-  const zone = getZone(zoneId);
-  if (!zone) return undefined;
-  const blockers = troggBlockers(ctx, zoneId, now);
-  const gate = revealGate(ctx, zone);
-  const bounds = zoneBounds(zone, (tx, ty) => blockers.has(tileKey(tx, ty)) || gate(tx, ty));
+  const zone = getZone(zoneId)
+  if (!zone) return undefined
+  const blockers = troggBlockers(ctx, zoneId, now)
+  const gate = revealGate(ctx, zone)
+  const bounds = zoneBounds(zone, (tx, ty) => blockers.has(tileKey(tx, ty)) || gate(tx, ty))
   for (const c of ctx.db.darkCreature.zoneId.filter(zoneId)) {
-    if (c.health <= 0) continue;
-    const pos = projectMotion(c, elapsedMs(c.movedAt, now), bounds);
-    if (Math.round(pos.x) === x && Math.round(pos.y) === y) return c;
+    if (c.health <= 0) continue
+    const pos = projectMotion(c, elapsedMs(c.movedAt, now), bounds)
+    if (Math.round(pos.x) === x && Math.round(pos.y) === y) return c
   }
-  return undefined;
+  return undefined
 }
 
 /** The nearest living dark creature whose (species-scaled) hit circle a swing
  *  reaches — the mirror of `meleePlayerTarget`. */
 export function meleeDarkCreatureTarget(ctx: Ctx, zoneId: string, cx: number, cy: number, aim: { dirX: number; dirY: number }, now: Stamp) {
-  const zone = getZone(zoneId);
-  if (!zone) return undefined;
-  const blockers = troggBlockers(ctx, zoneId, now);
-  const gate = revealGate(ctx, zone);
-  const bounds = zoneBounds(zone, (tx, ty) => blockers.has(tileKey(tx, ty)) || gate(tx, ty));
-  let best: { target: NonNullable<ReturnType<typeof darkCreatureAt>>; dist: number } | undefined;
+  const zone = getZone(zoneId)
+  if (!zone) return undefined
+  const blockers = troggBlockers(ctx, zoneId, now)
+  const gate = revealGate(ctx, zone)
+  const bounds = zoneBounds(zone, (tx, ty) => blockers.has(tileKey(tx, ty)) || gate(tx, ty))
+  let best: { target: NonNullable<ReturnType<typeof darkCreatureAt>>; dist: number } | undefined
   for (const c of ctx.db.darkCreature.zoneId.filter(zoneId)) {
-    if (c.health <= 0) continue;
-    const pos = projectMotion(c, elapsedMs(c.movedAt, now), bounds);
-    const dist = meleeHit(cx, cy, aim.dirX, aim.dirY, { x: pos.x + 0.5, y: pos.y + 0.5, radius: darkCreatureDef(c.species).hitRadius });
-    if (dist !== undefined && (!best || dist < best.dist)) best = { target: c, dist };
+    if (c.health <= 0) continue
+    const pos = projectMotion(c, elapsedMs(c.movedAt, now), bounds)
+    const dist = meleeHit(cx, cy, aim.dirX, aim.dirY, { x: pos.x + 0.5, y: pos.y + 0.5, radius: darkCreatureDef(c.species).hitRadius })
+    if (dist !== undefined && (!best || dist < best.dist)) best = { target: c, dist }
   }
-  return best;
+  return best
 }
 
 /**
@@ -257,39 +257,47 @@ export function meleeDarkCreatureTarget(ctx: Ctx, zoneId: string, cx: number, cy
  * looks in reach is in reach (invariant 3). Centres are tile origin + half the
  * footprint.
  */
-export function meleePlayerTarget(ctx: Ctx, zoneId: string, cx: number, cy: number, aim: { dirX: number; dirY: number }, now: Stamp, exclude: Ctx["sender"]) {
-  const zone = getZone(zoneId);
-  if (!zone) return undefined;
-  const blockers = troggBlockers(ctx, zoneId, now);
-  const gate = revealGate(ctx, zone);
-  const bounds = zoneBounds(zone, (tx, ty) => blockers.has(tileKey(tx, ty)) || gate(tx, ty));
-  let best: { target: NonNullable<ReturnType<typeof playerAt>>; dist: number } | undefined;
+export function meleePlayerTarget(
+  ctx: Ctx,
+  zoneId: string,
+  cx: number,
+  cy: number,
+  aim: { dirX: number; dirY: number },
+  now: Stamp,
+  exclude: Ctx['sender'],
+) {
+  const zone = getZone(zoneId)
+  if (!zone) return undefined
+  const blockers = troggBlockers(ctx, zoneId, now)
+  const gate = revealGate(ctx, zone)
+  const bounds = zoneBounds(zone, (tx, ty) => blockers.has(tileKey(tx, ty)) || gate(tx, ty))
+  let best: { target: NonNullable<ReturnType<typeof playerAt>>; dist: number } | undefined
   for (const p of ctx.db.player.zoneId.filter(zoneId)) {
-    if (!p.online || p.dead) continue;
-    if (p.identity.isEqual(exclude)) continue;
-    const pos = projectMotion(p, elapsedMs(p.movedAt, now), bounds);
-    const dist = meleeHit(cx, cy, aim.dirX, aim.dirY, { x: pos.x + 0.5, y: pos.y + 0.5, radius: PLAYER_HIT_RADIUS });
-    if (dist !== undefined && (!best || dist < best.dist)) best = { target: p, dist };
+    if (!p.online || p.dead) continue
+    if (p.identity.isEqual(exclude)) continue
+    const pos = projectMotion(p, elapsedMs(p.movedAt, now), bounds)
+    const dist = meleeHit(cx, cy, aim.dirX, aim.dirY, { x: pos.x + 0.5, y: pos.y + 0.5, radius: PLAYER_HIT_RADIUS })
+    if (dist !== undefined && (!best || dist < best.dist)) best = { target: p, dist }
   }
-  return best;
+  return best
 }
 
 export function meleeBoulderTarget(ctx: Ctx, zoneId: string, cx: number, cy: number, aim: { dirX: number; dirY: number }) {
-  let best: { target: NonNullable<ReturnType<typeof boulderAt>>; dist: number } | undefined;
+  let best: { target: NonNullable<ReturnType<typeof boulderAt>>; dist: number } | undefined
   for (const b of ctx.db.boulder.zoneId.filter(zoneId)) {
-    const dist = meleeHit(cx, cy, aim.dirX, aim.dirY, { x: b.x + 0.5, y: b.y + 0.5, radius: BOULDER_HIT_RADIUS });
-    if (dist !== undefined && (!best || dist < best.dist)) best = { target: b, dist };
+    const dist = meleeHit(cx, cy, aim.dirX, aim.dirY, { x: b.x + 0.5, y: b.y + 0.5, radius: BOULDER_HIT_RADIUS })
+    if (dist !== undefined && (!best || dist < best.dist)) best = { target: b, dist }
   }
-  return best;
+  return best
 }
 
 export function meleeTreeTarget(ctx: Ctx, zoneId: string, cx: number, cy: number, aim: { dirX: number; dirY: number }) {
-  let best: { target: NonNullable<ReturnType<typeof treeAt>>; dist: number } | undefined;
+  let best: { target: NonNullable<ReturnType<typeof treeAt>>; dist: number } | undefined
   for (const tr of ctx.db.tree.zoneId.filter(zoneId)) {
-    const dist = meleeHit(cx, cy, aim.dirX, aim.dirY, { x: tr.x + 0.5, y: tr.y + 0.5, radius: TREE_HIT_RADIUS });
-    if (dist !== undefined && (!best || dist < best.dist)) best = { target: tr, dist };
+    const dist = meleeHit(cx, cy, aim.dirX, aim.dirY, { x: tr.x + 0.5, y: tr.y + 0.5, radius: TREE_HIT_RADIUS })
+    if (dist !== undefined && (!best || dist < best.dist)) best = { target: tr, dist }
   }
-  return best;
+  return best
 }
 
 /**
@@ -310,37 +318,44 @@ export function placeCarried(
   dirX: number,
   dirY: number,
 ): boolean {
-  const gate = revealGate(ctx, zone);
-  const tile = spawnTile(zone, (tx, ty) => occupied.has(tileKey(tx, ty)) || gate(tx, ty), x, y, dirX, dirY);
-  if (!tile) return false;
-  return placeCarriedAt(ctx, zone, kind, style, tile);
+  const gate = revealGate(ctx, zone)
+  const tile = spawnTile(zone, (tx, ty) => occupied.has(tileKey(tx, ty)) || gate(tx, ty), x, y, dirX, dirY)
+  if (!tile) return false
+  return placeCarriedAt(ctx, zone, kind, style, tile)
 }
 
 /** Materialise a carried entity on an exact tile, enforcing the same caps as
  *  put-down. `landingAt` keeps a thrown carryable at rest until it touches down;
  *  the default (epoch) is a grounded put-down. */
-export function placeCarriedAt(ctx: Ctx, zone: Zone, kind: string, style: string, tile: { x: number; y: number }, landingAt: Timestamp = Timestamp.UNIX_EPOCH): boolean {
+export function placeCarriedAt(
+  ctx: Ctx,
+  zone: Zone,
+  kind: string,
+  style: string,
+  tile: { x: number; y: number },
+  landingAt: Timestamp = Timestamp.UNIX_EPOCH,
+): boolean {
   // Honour the per-zone cap on the put-down too, so picking up, spawning to the cap, then
   // dropping can't push a zone past its ceiling. Refusing keeps the trogg carrying — the
   // same outcome as a boxed-in drop — so nothing is lost.
-  if (kind === "boulder") {
-    if (countRows(ctx.db.boulder.zoneId.filter(zone.slug)) >= MAX_BOULDERS_PER_ZONE) return false;
-    ctx.db.boulder.insert({ id: 0n, zoneId: zone.slug, x: tile.x, y: tile.y, health: BOULDER_MAX_HEALTH, cellId: 0 });
+  if (kind === 'boulder') {
+    if (countRows(ctx.db.boulder.zoneId.filter(zone.slug)) >= MAX_BOULDERS_PER_ZONE) return false
+    ctx.db.boulder.insert({ id: 0n, zoneId: zone.slug, x: tile.x, y: tile.y, health: BOULDER_MAX_HEALTH, cellId: 0 })
   } else {
-    return false;
+    return false
   }
-  return true;
+  return true
 }
 
 /** The direction a trogg visually faces: current motion while moving, standing facing otherwise. */
 export function facingDir(p: { dirX: number; dirY: number; faceX: number; faceY: number }): { dirX: number; dirY: number } {
-  if (p.dirX !== 0 || p.dirY !== 0) return { dirX: p.dirX, dirY: p.dirY };
-  return { dirX: p.faceX, dirY: p.faceY };
+  if (p.dirX !== 0 || p.dirY !== 0) return { dirX: p.dirX, dirY: p.dirY }
+  return { dirX: p.faceX, dirY: p.faceY }
 }
 
 /** Coerce an untrusted axis input to -1, 0, or 1. */
 export function unitStep(value: number): number {
-  return value === -1 || value === 1 ? value : 0;
+  return value === -1 || value === 1 ? value : 0
 }
 
 /**
@@ -351,8 +366,8 @@ export function unitStep(value: number): number {
  * speed. (0, 0) = idle.
  */
 export function directionVector(dirX: number, dirY: number): { dirX: number; dirY: number } {
-  const axis = (v: number) => (Number.isFinite(v) ? Math.max(-DIR_SCALE, Math.min(DIR_SCALE, Math.trunc(v))) : 0);
-  return { dirX: axis(dirX), dirY: axis(dirY) };
+  const axis = (v: number) => (Number.isFinite(v) ? Math.max(-DIR_SCALE, Math.min(DIR_SCALE, Math.trunc(v))) : 0)
+  return { dirX: axis(dirX), dirY: axis(dirY) }
 }
 
 /**
@@ -361,8 +376,8 @@ export function directionVector(dirX: number, dirY: number): { dirX: number; dir
  * diagonal returns null so the caller can reject it.
  */
 export function cardinal(dirX: number, dirY: number): { dirX: number; dirY: number } | null {
-  const x = unitStep(dirX);
-  const y = unitStep(dirY);
-  if (x !== 0 && y !== 0) return null;
-  return { dirX: x, dirY: y };
+  const x = unitStep(dirX)
+  const y = unitStep(dirY)
+  if (x !== 0 && y !== 0) return null
+  return { dirX: x, dirY: y }
 }

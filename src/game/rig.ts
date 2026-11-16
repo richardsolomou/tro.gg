@@ -1,6 +1,6 @@
-import * as THREE from "three";
-import type { Wield } from "@trogg/shared";
-import { poolGeometry } from "./pool.js";
+import * as THREE from 'three'
+import type { Wield } from '@trogg/shared'
+import { poolGeometry } from './pool.js'
 
 /**
  * The creature rig: jointed box models on named nodes, animated by real
@@ -17,43 +17,43 @@ import { poolGeometry } from "./pool.js";
  */
 
 /** Stride periods: at 4 tiles/s walking, a footfall lands about every half tile. */
-export const WALK_PERIOD = 0.5;
-export const RUN_PERIOD = 0.32;
+export const WALK_PERIOD = 0.5
+export const RUN_PERIOD = 0.32
 /** Attack clip length — matches the synced EQUIPMENT_ACTION_MS use impulse. */
-export const ATTACK_PERIOD = 0.3;
+export const ATTACK_PERIOD = 0.3
 
 /** One gait as two layers: `legs` (legs + bob) keeps striding through an attack,
  *  while `arms` (arms + torso) is what the attack clip replaces. */
 export interface GaitActions {
-  legs: THREE.AnimationAction;
-  arms: THREE.AnimationAction;
+  legs: THREE.AnimationAction
+  arms: THREE.AnimationAction
 }
 
 export interface CreatureModel {
-  root: THREE.Group;
-  mixer: THREE.AnimationMixer;
-  actions: { idle: GaitActions; walk: GaitActions; run: GaitActions; attacks: Record<Wield, THREE.AnimationAction> };
+  root: THREE.Group
+  mixer: THREE.AnimationMixer
+  actions: { idle: GaitActions; walk: GaitActions; run: GaitActions; attacks: Record<Wield, THREE.AnimationAction> }
   /** Every material on this instance, for the hit flash. */
-  materials: THREE.MeshLambertMaterial[];
+  materials: THREE.MeshLambertMaterial[]
   /** Equip attach nodes: items parented here ride the animated arm. */
-  handR: THREE.Group;
-  handL: THREE.Group;
+  handR: THREE.Group
+  handL: THREE.Group
   /** Top of the head in model units — where labels/bubbles/carries hang. */
-  height: number;
+  height: number
   /** Scale for held-item models, so every species grips gear sized to its fist. */
-  fit: number;
+  fit: number
   /** Turn the solid-white hit flash on or off. */
-  flash(on: boolean): void;
+  flash(on: boolean): void
 }
 
 /** A model under construction: geometry helpers plus the per-instance material list. */
 export class Parts {
-  readonly materials: THREE.MeshLambertMaterial[] = [];
-  private readonly tint?: THREE.Color;
+  readonly materials: THREE.MeshLambertMaterial[] = []
+  private readonly tint?: THREE.Color
 
   constructor(tint?: number) {
     // The per-player colour rides as a multiply over the whole body.
-    this.tint = tint === undefined ? undefined : new THREE.Color(tint);
+    this.tint = tint === undefined ? undefined : new THREE.Color(tint)
   }
 
   // Lambert, not Standard: Standard's specular lobe puts a view-dependent
@@ -61,130 +61,139 @@ export class Parts {
   // across the world (worst near the campfire). Matte low-poly wants pure
   // diffuse, and it's cheaper to shade.
   mat(colour: number, emissive = false): THREE.MeshLambertMaterial {
-    const c = new THREE.Color(colour);
-    if (this.tint) c.multiply(this.tint);
-    const m = new THREE.MeshLambertMaterial({ color: c, flatShading: true });
+    const c = new THREE.Color(colour)
+    if (this.tint) c.multiply(this.tint)
+    const m = new THREE.MeshLambertMaterial({ color: c, flatShading: true })
     if (emissive) {
-      m.emissive.copy(c);
-      m.emissiveIntensity = 0.9;
+      m.emissive.copy(c)
+      m.emissiveIntensity = 0.9
     }
-    this.materials.push(m);
-    return m;
+    this.materials.push(m)
+    return m
   }
 
   box(parent: THREE.Object3D, w: number, h: number, d: number, colour: number, x = 0, y = 0, z = 0, emissive = false): THREE.Mesh {
-    const mesh = new THREE.Mesh(poolGeometry(`box:${w}:${h}:${d}`, () => new THREE.BoxGeometry(w, h, d)), this.mat(colour, emissive));
-    mesh.position.set(x, y, z);
-    mesh.castShadow = true;
-    parent.add(mesh);
-    return mesh;
+    const mesh = new THREE.Mesh(
+      poolGeometry(`box:${w}:${h}:${d}`, () => new THREE.BoxGeometry(w, h, d)),
+      this.mat(colour, emissive),
+    )
+    mesh.position.set(x, y, z)
+    mesh.castShadow = true
+    parent.add(mesh)
+    return mesh
   }
 
   /** A flat-shaded coarse sphere — the low-poly blob for round bodies and rocks. */
   blob(parent: THREE.Object3D, r: number, colour: number, x = 0, y = 0, z = 0, scaleY = 1, detail = 1): THREE.Mesh {
-    const mesh = new THREE.Mesh(poolGeometry(`ico:${r}:${detail}`, () => new THREE.IcosahedronGeometry(r, detail)), this.mat(colour));
-    mesh.position.set(x, y, z);
-    mesh.scale.y = scaleY;
-    mesh.castShadow = true;
-    parent.add(mesh);
-    return mesh;
+    const mesh = new THREE.Mesh(
+      poolGeometry(`ico:${r}:${detail}`, () => new THREE.IcosahedronGeometry(r, detail)),
+      this.mat(colour),
+    )
+    mesh.position.set(x, y, z)
+    mesh.scale.y = scaleY
+    mesh.castShadow = true
+    parent.add(mesh)
+    return mesh
   }
 
   cone(parent: THREE.Object3D, r: number, h: number, colour: number, x = 0, y = 0, z = 0, segments = 6): THREE.Mesh {
-    const mesh = new THREE.Mesh(poolGeometry(`cone:${r}:${h}:${segments}`, () => new THREE.ConeGeometry(r, h, segments)), this.mat(colour));
-    mesh.position.set(x, y, z);
-    mesh.castShadow = true;
-    parent.add(mesh);
-    return mesh;
+    const mesh = new THREE.Mesh(
+      poolGeometry(`cone:${r}:${h}:${segments}`, () => new THREE.ConeGeometry(r, h, segments)),
+      this.mat(colour),
+    )
+    mesh.position.set(x, y, z)
+    mesh.castShadow = true
+    parent.add(mesh)
+    return mesh
   }
 }
 
 export function joint(parent: THREE.Object3D, name: string, x: number, y: number, z: number, pitch = 0): THREE.Group {
-  const g = new THREE.Group();
-  g.name = name;
-  g.position.set(x, y, z);
-  g.rotation.x = pitch;
-  parent.add(g);
-  return g;
+  const g = new THREE.Group()
+  g.name = name
+  g.position.set(x, y, z)
+  g.rotation.x = pitch
+  parent.add(g)
+  return g
 }
 
 // ── clips ────────────────────────────────────────────────────────────────────────
 
 function pitchTrack(node: string, rest: number, times: number[], pitches: number[]): THREE.QuaternionKeyframeTrack {
-  const q = new THREE.Quaternion();
-  const values: number[] = [];
+  const q = new THREE.Quaternion()
+  const values: number[] = []
   for (const p of pitches) {
-    q.setFromEuler(new THREE.Euler(rest + p, 0, 0));
-    values.push(q.x, q.y, q.z, q.w);
+    q.setFromEuler(new THREE.Euler(rest + p, 0, 0))
+    values.push(q.x, q.y, q.z, q.w)
   }
-  return new THREE.QuaternionKeyframeTrack(`${node}.quaternion`, times, values);
+  return new THREE.QuaternionKeyframeTrack(`${node}.quaternion`, times, values)
 }
 
 function positionTrack(node: string, times: number[], positions: [number, number, number][]): THREE.VectorKeyframeTrack {
-  const values: number[] = [];
-  for (const position of positions) values.push(...position);
-  return new THREE.VectorKeyframeTrack(`${node}.position`, times, values);
+  const values: number[] = []
+  for (const position of positions) values.push(...position)
+  return new THREE.VectorKeyframeTrack(`${node}.position`, times, values)
 }
 
 function bobTrack(times: number[], ys: number[]): THREE.VectorKeyframeTrack {
-  const values: number[] = [];
-  for (const y of ys) values.push(0, y, 0);
-  return new THREE.VectorKeyframeTrack("Bob.position", times, values);
+  const values: number[] = []
+  for (const y of ys) values.push(0, y, 0)
+  return new THREE.VectorKeyframeTrack('Bob.position', times, values)
 }
 
 /** Per-species animation amplitudes. Rest pitches are baked into every key
  *  (quaternion tracks replace rotation, they don't add). */
 export interface GaitSpec {
-  restTorso: number;
-  restArm: number;
-  legSwing: number;
-  armSwing: number;
-  walkDip: number;
-  runDip: number;
-  runLean: number;
+  restTorso: number
+  restArm: number
+  legSwing: number
+  armSwing: number
+  walkDip: number
+  runDip: number
+  runLean: number
   /** Breathing depth at idle. */
-  breathe: number;
-  headbuttAttack?: boolean;
+  breathe: number
+  headbuttAttack?: boolean
 }
 
 /** A stride's lower layer: legs scissor in opposite phase, the body dips on each
  *  footfall. Runs even through an attack, so the feet never freeze mid-stride. */
 function gaitLegsClip(name: string, period: number, s: GaitSpec, scale: number, dip: number): THREE.AnimationClip {
-  const t = [0, period / 4, period / 2, (3 * period) / 4, period];
-  const leg = s.legSwing * scale;
+  const t = [0, period / 4, period / 2, (3 * period) / 4, period]
+  const leg = s.legSwing * scale
   return new THREE.AnimationClip(`${name}-legs`, period, [
-    pitchTrack("LegL", 0, t, [leg, 0, -leg, 0, leg]),
-    pitchTrack("LegR", 0, t, [-leg, 0, leg, 0, -leg]),
+    pitchTrack('LegL', 0, t, [leg, 0, -leg, 0, leg]),
+    pitchTrack('LegR', 0, t, [-leg, 0, leg, 0, -leg]),
     bobTrack(t, [-dip, 0, -dip, 0, -dip]),
-  ]);
+  ])
 }
 
 /** A stride's upper layer: arms counter-swing over the torso lean. The attack
  *  clips replace exactly this layer. */
 function gaitArmsClip(name: string, period: number, s: GaitSpec, scale: number, lean: number): THREE.AnimationClip {
-  const t = [0, period / 4, period / 2, (3 * period) / 4, period];
-  const arm = s.armSwing * scale;
+  const t = [0, period / 4, period / 2, (3 * period) / 4, period]
+  const arm = s.armSwing * scale
   return new THREE.AnimationClip(`${name}-arms`, period, [
-    pitchTrack("ArmL", s.restArm, t, [-arm, 0, arm, 0, -arm]),
-    pitchTrack("ArmR", s.restArm, t, [arm, 0, -arm, 0, arm]),
-    pitchTrack("Torso", s.restTorso, [0, period], [lean, lean]),
-  ]);
+    pitchTrack('ArmL', s.restArm, t, [-arm, 0, arm, 0, -arm]),
+    pitchTrack('ArmR', s.restArm, t, [arm, 0, -arm, 0, arm]),
+    pitchTrack('Torso', s.restTorso, [0, period], [lean, lean]),
+  ])
 }
 
-const IDLE_PERIOD = 2.6;
+const IDLE_PERIOD = 2.6
 
 function idleLegsClip(s: GaitSpec): THREE.AnimationClip {
-  const t = [0, IDLE_PERIOD / 2, IDLE_PERIOD];
-  return new THREE.AnimationClip("idle-legs", IDLE_PERIOD, [bobTrack(t, [0, -s.breathe, 0])]);
+  const t = [0, IDLE_PERIOD / 2, IDLE_PERIOD]
+  return new THREE.AnimationClip('idle-legs', IDLE_PERIOD, [bobTrack(t, [0, -s.breathe, 0])])
 }
 
 function idleArmsClip(s: GaitSpec): THREE.AnimationClip {
-  const t = [0, IDLE_PERIOD / 2, IDLE_PERIOD];
-  return new THREE.AnimationClip("idle-arms", IDLE_PERIOD, [
-    pitchTrack("Torso", s.restTorso, t, [0, 0.02, 0]),
-    pitchTrack("ArmL", s.restArm, t, [0, 0.04, 0]),
-    pitchTrack("ArmR", s.restArm, t, [0, 0.04, 0]),
-  ]);
+  const t = [0, IDLE_PERIOD / 2, IDLE_PERIOD]
+  return new THREE.AnimationClip('idle-arms', IDLE_PERIOD, [
+    pitchTrack('Torso', s.restTorso, t, [0, 0.02, 0]),
+    pitchTrack('ArmL', s.restArm, t, [0, 0.04, 0]),
+    pitchTrack('ArmR', s.restArm, t, [0, 0.04, 0]),
+  ])
 }
 
 /** The per-wield attack clips. Every clip is wind-up → strike (at ~35%) → recovery
@@ -196,92 +205,92 @@ function idleArmsClip(s: GaitSpec): THREE.AnimationClip {
  *  All amplitudes ride the species' GaitSpec rests, so one authored clip per
  *  weapon class fits every creature that implements the joint vocabulary. */
 function attackClip(name: Wield, s: GaitSpec, strikeAt: number, tracks: (t: number[]) => THREE.KeyframeTrack[]): THREE.AnimationClip {
-  const strike = ATTACK_PERIOD * strikeAt;
-  return new THREE.AnimationClip(name, ATTACK_PERIOD, tracks([0, strike * 0.6, strike, ATTACK_PERIOD]));
+  const strike = ATTACK_PERIOD * strikeAt
+  return new THREE.AnimationClip(name, ATTACK_PERIOD, tracks([0, strike * 0.6, strike, ATTACK_PERIOD]))
 }
 
 function attackClips(s: GaitSpec): Record<Wield, THREE.AnimationClip> {
   const swing = s.headbuttAttack
-    ? attackClip("swing", s, 0.35, (t) => [
-        positionTrack("Torso", t, [
+    ? attackClip('swing', s, 0.35, (t) => [
+        positionTrack('Torso', t, [
           [0, 0.34, 0],
           [0, 0.38, -0.16],
           [0, 0.26, 0.28],
           [0, 0.34, 0],
         ]),
-        positionTrack("Head", t, [
+        positionTrack('Head', t, [
           [0, 0.5, 0.28],
           [0, 0.56, 0.2],
           [0, 0.4, 0.42],
           [0, 0.5, 0.28],
         ]),
-        pitchTrack("Torso", s.restTorso, t, [0, -0.3, 0.42, 0]),
-        pitchTrack("Head", 0.3, t, [0, -0.45, 0.25, 0]),
-        pitchTrack("ArmL", s.restArm, t, [0, 0, 0, 0]),
-        pitchTrack("ArmR", s.restArm, t, [0, 0, 0, 0]),
+        pitchTrack('Torso', s.restTorso, t, [0, -0.3, 0.42, 0]),
+        pitchTrack('Head', 0.3, t, [0, -0.45, 0.25, 0]),
+        pitchTrack('ArmL', s.restArm, t, [0, 0, 0, 0]),
+        pitchTrack('ArmR', s.restArm, t, [0, 0, 0, 0]),
       ])
-    : attackClip("swing", s, 0.35, (t) => [
-        pitchTrack("ArmR", s.restArm, t, [0, 0.9, -1.5, -0.1]),
-        pitchTrack("Torso", s.restTorso, t, [0, -0.06, 0.14, 0.02]),
-      ]);
+    : attackClip('swing', s, 0.35, (t) => [
+        pitchTrack('ArmR', s.restArm, t, [0, 0.9, -1.5, -0.1]),
+        pitchTrack('Torso', s.restTorso, t, [0, -0.06, 0.14, 0.02]),
+      ])
   return {
     swing,
     // sword thrust: draw back at the waist, lunge with the blade level along the arm
-    stab: attackClip("stab", s, 0.35, (t) => [
-      pitchTrack("ArmR", s.restArm, t, [0, 0.55, -1.5, -0.15]),
-      pitchTrack("HandR", 0, t, [0, 0.6, 2.45, 0.15]),
-      pitchTrack("Torso", s.restTorso, t, [0, -0.08, 0.18, 0.02]),
+    stab: attackClip('stab', s, 0.35, (t) => [
+      pitchTrack('ArmR', s.restArm, t, [0, 0.55, -1.5, -0.15]),
+      pitchTrack('HandR', 0, t, [0, 0.6, 2.45, 0.15]),
+      pitchTrack('Torso', s.restTorso, t, [0, -0.08, 0.18, 0.02]),
     ]),
     // pickaxe chop: haul overhead behind the shoulder, slam down in front
-    chop: attackClip("chop", s, 0.4, (t) => [
-      pitchTrack("ArmR", s.restArm, t, [0, -2.4, -0.8, -0.1]),
-      pitchTrack("HandR", 0, t, [0, 1.64, 2.04, 0.1]),
-      pitchTrack("Torso", s.restTorso, t, [0, -0.14, 0.2, 0.02]),
+    chop: attackClip('chop', s, 0.4, (t) => [
+      pitchTrack('ArmR', s.restArm, t, [0, -2.4, -0.8, -0.1]),
+      pitchTrack('HandR', 0, t, [0, 1.64, 2.04, 0.1]),
+      pitchTrack('Torso', s.restTorso, t, [0, -0.14, 0.2, 0.02]),
     ]),
     // shovel scoop: bow into a low dig, then heave the blade up over the shoulder
-    scoop: attackClip("scoop", s, 0.4, (t) => [
-      pitchTrack("ArmR", s.restArm, t, [0.35, -0.85, -1.6, -0.1]),
-      pitchTrack("HandR", 0, t, [0.15, 1.79, 0.94, 0.05]),
-      pitchTrack("Torso", s.restTorso, t, [0.02, 0.24, -0.1, 0.02]),
+    scoop: attackClip('scoop', s, 0.4, (t) => [
+      pitchTrack('ArmR', s.restArm, t, [0.35, -0.85, -1.6, -0.1]),
+      pitchTrack('HandR', 0, t, [0.15, 1.79, 0.94, 0.05]),
+      pitchTrack('Torso', s.restTorso, t, [0.02, 0.24, -0.1, 0.02]),
     ]),
-  };
+  }
 }
 
 /** Wrap a built body in the animation machinery: mixer, the standard actions
  *  (gaits plus one attack per wield class), and the white hit flash over this
  *  instance's materials. `fit` scales held items to the species' fist. */
 export function finishCreature(root: THREE.Group, parts: Parts, spec: GaitSpec, height: number, fit = 1): CreatureModel {
-  const mixer = new THREE.AnimationMixer(root);
+  const mixer = new THREE.AnimationMixer(root)
   const attacks = Object.fromEntries(
     Object.entries(attackClips(spec)).map(([wield, clip]) => {
-      const action = mixer.clipAction(clip);
-      action.setLoop(THREE.LoopOnce, 1);
-      return [wield, action];
+      const action = mixer.clipAction(clip)
+      action.setLoop(THREE.LoopOnce, 1)
+      return [wield, action]
     }),
-  ) as Record<Wield, THREE.AnimationAction>;
+  ) as Record<Wield, THREE.AnimationAction>
   const gait = (name: string, period: number, scale: number, dip: number, lean: number): GaitActions => ({
     legs: mixer.clipAction(gaitLegsClip(name, period, spec, scale, dip)),
     arms: mixer.clipAction(gaitArmsClip(name, period, spec, scale, lean)),
-  });
+  })
   const actions = {
     idle: { legs: mixer.clipAction(idleLegsClip(spec)), arms: mixer.clipAction(idleArmsClip(spec)) },
-    walk: gait("walk", WALK_PERIOD, 1, spec.walkDip, 0),
-    run: gait("run", RUN_PERIOD, 1.55, spec.runDip, spec.runLean),
+    walk: gait('walk', WALK_PERIOD, 1, spec.walkDip, 0),
+    run: gait('run', RUN_PERIOD, 1.55, spec.runDip, spec.runLean),
     attacks,
-  };
-  const handR = (root.getObjectByName("HandR") as THREE.Group | undefined) ?? new THREE.Group();
-  const handL = (root.getObjectByName("HandL") as THREE.Group | undefined) ?? new THREE.Group();
-  const saved = parts.materials.map((m) => ({ emissive: m.emissive.clone(), intensity: m.emissiveIntensity }));
+  }
+  const handR = (root.getObjectByName('HandR') as THREE.Group | undefined) ?? new THREE.Group()
+  const handL = (root.getObjectByName('HandL') as THREE.Group | undefined) ?? new THREE.Group()
+  const saved = parts.materials.map((m) => ({ emissive: m.emissive.clone(), intensity: m.emissiveIntensity }))
   const flash = (on: boolean) => {
     parts.materials.forEach((m, i) => {
       if (on) {
-        m.emissive.set(0xffffff);
-        m.emissiveIntensity = 1;
+        m.emissive.set(0xffffff)
+        m.emissiveIntensity = 1
       } else {
-        m.emissive.copy(saved[i]!.emissive);
-        m.emissiveIntensity = saved[i]!.intensity;
+        m.emissive.copy(saved[i]!.emissive)
+        m.emissiveIntensity = saved[i]!.intensity
       }
-    });
-  };
-  return { root, mixer, actions, materials: parts.materials, handR, handL, height, fit, flash };
+    })
+  }
+  return { root, mixer, actions, materials: parts.materials, handR, handL, height, fit, flash }
 }

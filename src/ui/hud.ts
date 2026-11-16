@@ -1,7 +1,7 @@
-import "./hud.css";
+import './hud.css'
 
-let root: HTMLDivElement | undefined;
-let left: HTMLDivElement | undefined;
+let root: HTMLDivElement | undefined
+let left: HTMLDivElement | undefined
 
 /**
  * The HUD overlay above the game canvas. `pointer-events: none` lets clicks on
@@ -10,32 +10,32 @@ let left: HTMLDivElement | undefined;
  */
 export function hudRoot(): HTMLDivElement {
   if (!root) {
-    root = document.createElement("div");
-    root.id = "hud";
-    document.body.appendChild(root);
-    blockPinchZoom();
-    blockNativeContextMenu();
+    root = document.createElement('div')
+    root.id = 'hud'
+    document.body.appendChild(root)
+    blockPinchZoom()
+    blockNativeContextMenu()
   }
-  return root;
+  return root
 }
 
 /** The page is a game surface, not a document: the browser context menu never
  *  opens (right-click belongs to the game — e.g. inventory tile menus). Text
  *  inputs keep theirs, for paste. */
 function blockNativeContextMenu(): void {
-  window.addEventListener("contextmenu", (e) => {
-    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-    e.preventDefault();
-  });
+  window.addEventListener('contextmenu', (e) => {
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+    e.preventDefault()
+  })
 }
 
 /** Keep a macOS trackpad pinch from browser-zooming the page: Chrome reports the
  *  pinch as ctrl+wheel, Safari as gesture events. Camera zoom on the canvas is
  *  untouched (OrbitControls consumes its own wheel events); cmd+/- still works. */
 function blockPinchZoom(): void {
-  window.addEventListener("wheel", (e) => e.ctrlKey && e.preventDefault(), { passive: false });
-  for (const type of ["gesturestart", "gesturechange", "gestureend"]) {
-    window.addEventListener(type, (e) => e.preventDefault());
+  window.addEventListener('wheel', (e) => e.ctrlKey && e.preventDefault(), { passive: false })
+  for (const type of ['gesturestart', 'gesturechange', 'gestureend']) {
+    window.addEventListener(type, (e) => e.preventDefault())
   }
 }
 
@@ -49,13 +49,13 @@ function blockPinchZoom(): void {
  */
 export function hudLeft(): HTMLDivElement {
   if (!left) {
-    left = document.createElement("div");
-    left.className = "hud-left";
-    hudRoot().appendChild(left);
+    left = document.createElement('div')
+    left.className = 'hud-left'
+    hudRoot().appendChild(left)
   }
-  return left;
+  return left
 }
 
 export function closeHudMenus(): void {
-  window.dispatchEvent(new CustomEvent("hud-menu-open", { detail: "close" }));
+  window.dispatchEvent(new CustomEvent('hud-menu-open', { detail: 'close' }))
 }

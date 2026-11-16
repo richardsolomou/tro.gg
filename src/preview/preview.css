@@ -5,8 +5,8 @@
  */
 
 @font-face {
-  font-family: "Baloo 2";
-  src: url("../ui/fonts/baloo2-latin.woff2") format("woff2");
+  font-family: 'Baloo 2';
+  src: url('../ui/fonts/baloo2-latin.woff2') format('woff2');
   font-weight: 400 800;
   font-display: swap;
 }
@@ -39,7 +39,7 @@ body {
   height: 100%;
   background: #0a0806;
   color: var(--bone);
-  font-family: "Baloo 2", "Trebuchet MS", system-ui, sans-serif;
+  font-family: 'Baloo 2', 'Trebuchet MS', system-ui, sans-serif;
   font-weight: 500;
   overflow: hidden;
 }
@@ -110,7 +110,7 @@ body {
   font-weight: 700;
 }
 
-#controls input[type="range"] {
+#controls input[type='range'] {
   width: 160px;
   accent-color: var(--ember);
 }
@@ -138,7 +138,7 @@ body {
 }
 
 #controls .slot::before {
-  content: "";
+  content: '';
   position: absolute;
   inset: 2px;
   background: var(--face);

@@ -1,4 +1,4 @@
 /** CSS hex for a 0xRRGGBB colour, for DOM styling. */
 export function cssColor(color: number): string {
-  return `#${color.toString(16).padStart(6, "0")}`;
+  return `#${color.toString(16).padStart(6, '0')}`
 }

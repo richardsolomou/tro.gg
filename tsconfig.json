@@ -3,19 +3,9 @@
   "compilerOptions": {
     "allowImportingTsExtensions": true,
     "paths": {
-      "@trogg/shared": [
-        "./shared/index.ts"
-      ]
+      "@trogg/shared": ["./shared/index.ts"]
     }
   },
-  "include": [
-    "src",
-    "shared",
-    "scripts",
-    "e2e",
-    "*.ts"
-  ],
-  "exclude": [
-    "**/*.test.ts"
-  ]
+  "include": ["src", "shared", "scripts", "e2e", "*.ts"],
+  "exclude": ["**/*.test.ts"]
 }
