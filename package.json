@@ -13,6 +13,7 @@
     "format:check": "oxfmt --check .",
     "test": "vitest run",
     "test:e2e": "playwright test",
+    "spacetime:generate": "spacetime generate --lang typescript --module-path spacetimedb --out-dir src/net/module_bindings --yes",
     "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build",
     "changeset": "changeset",
     "version-packages": "changeset version",

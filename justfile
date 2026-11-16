@@ -35,7 +35,7 @@ reset-local-db:
 
 # Regenerate the TypeScript client bindings from the module schema.
 generate:
-    {{spacetime}} generate --lang typescript --out-dir src/net/module_bindings --module-path spacetimedb -y
+    {{spacetime}} generate --lang typescript --module-path spacetimedb --out-dir src/net/module_bindings --yes
 
 # Clear the local database, publish the module, regenerate bindings, then run the client on :5173.
 dev: reset-local-db publish

@@ -1,0 +1,18 @@
+name: Set up SpacetimeDB
+description: Install the SpacetimeDB CLI release that matches the pinned spacetimedb package.
+
+outputs:
+  cli-path:
+    description: Absolute path to the installed CLI.
+    value: ${{ steps.spacetime.outputs.cli-path }}
+
+runs:
+  using: composite
+  steps:
+    # Keep the version equal to the spacetimedb package, so generated bindings and published modules match the SDK.
+    # The checksum is for the Linux X64 archive; an ARM64 runner needs that archive's checksum instead.
+    - uses: richardsolomou/ras-stack/actions/setup-spacetime@v1
+      id: spacetime
+      with:
+        version: '2.6.0'
+        sha256: 24f5c011a1c5b14e9458f230f67f4700f2c89ce1d26bfee35c1f4d3570dc1ac8

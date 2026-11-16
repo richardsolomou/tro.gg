@@ -1,6 +1,34 @@
 {
   "source": "https://github.com/richardsolomou/ras-stack",
   "recipes": {
+    "spacetimedb": {
+      "version": 2,
+      "commit": "82fce4523ec914bd2e70aefd4bff84c10fb278c6",
+      "files": {
+        ".github/actions/setup-spacetime/action.yml": ".github/actions/setup-spacetime/action.yml",
+        ".github/workflows/spacetime.yml": ".github/workflows/spacetime.yml",
+        "scripts/publishSpacetimeModule.test.ts": "scripts/publishSpacetimeModule.test.ts",
+        "scripts/publishSpacetimeModule.ts": "scripts/publishSpacetimeModule.ts",
+        "spacetimedb/package.json": "spacetimedb/package.json",
+        "spacetimedb/tsconfig.json": "spacetimedb/tsconfig.json",
+        "src/client/spacetime.test.ts": null,
+        "src/client/spacetime.tsx": null,
+        "src/server/spacetime.test.ts": "scripts/spacetime.test.ts",
+        "src/server/spacetime.ts": "scripts/spacetime.ts",
+        "src/server/spacetimeOrigin.test.ts": null,
+        "src/server/spacetimeOrigin.ts": null
+      },
+      "notes": [
+        "Adopts only the module layout, the bindings check, and the guarded publish: the game is a plain Vite client, not TanStack Start, so it keeps its own connection, reconnect, and guest-token code in `src/net/` instead of `src/client/spacetime.tsx`, and has no server for `spacetimeOrigin.ts`, `/api/health`, or a Content Security Policy.",
+        "Keeps the module's tables, reducers, and tests (`test/reducers.test.ts` against `test/mock-server.ts`) instead of the placeholder `note` module and `spacetimedbModuleTestPlugin`, which the pinned SDK predates.",
+        "The HTTP helper lives at `scripts/spacetime.ts`, beside the publish script that is its only caller, because the game has no server code.",
+        "Bindings stay at `src/net/module_bindings`, where the client imports them; `pnpm spacetime:generate` and `just generate` write there.",
+        "The CLI stays pinned at 2.6.0, the version the committed bindings and the production server were built with, and the `spacetimedb` package at 2.7.1; bump the CLI, the package, and the bindings together in a deliberate upgrade.",
+        "The module's `package.json` keeps the name `@trogg/module`.",
+        "`deploy-module.yml` calls `spacetime.yml` on pushes to main that touch the module or `shared/`, because the client deploys through Cloudflare Workers Builds, which cannot call a workflow; the module therefore publishes beside the client deploy rather than before it.",
+        "Preview workflows keep `spacetime publish --delete-data=on-conflict -y` for per-branch databases, whose data is disposable, and use the local `setup-spacetime` action so the CLI version is pinned once."
+      ]
+    },
     "tooling": {
       "version": 2,
       "commit": "82fce4523ec914bd2e70aefd4bff84c10fb278c6",
