@@ -144,7 +144,7 @@ function tinted(dh: number, sMul: number, lMul: number, overrides: Partial<CaveP
 }
 
 export const BIOME_3D: Record<string, CavePalette> = {
-  cave: CAVE_3D as unknown as CavePalette,
+  cave: CAVE_3D,
   mossglen: tinted(0.13, 1.15, 1.05),
   emberrift: tinted(-0.045, 1.35, 1.02, { glowmoss: { core: 0xffc17a, mid: 0xe0722e, halo: 0x5a2c12 } }),
   frosthollow: tinted(0.52, 0.75, 1.18, { glowmoss: { core: 0xbfeaff, mid: 0x6fb8dc, halo: 0x2a4f5e } }),
@@ -159,5 +159,5 @@ export const BIOME_3D: Record<string, CavePalette> = {
 
 /** The palette a zone paints with — its biome's, defaulting to the plain cave. */
 export function biomePalette(biome: string): CavePalette {
-  return BIOME_3D[biome] ?? (CAVE_3D as unknown as CavePalette)
+  return BIOME_3D[biome] ?? CAVE_3D
 }

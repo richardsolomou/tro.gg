@@ -16,7 +16,7 @@ export type TroggStyle = (typeof TROGG_STYLES)[number]
 export type Style = TroggStyle
 
 /** The styles a kind offers, default first. */
-export function stylesOf(kind: Kind): readonly string[] {
+export function stylesOf(_kind: Kind): readonly string[] {
   return TROGG_STYLES
 }
 

@@ -125,9 +125,9 @@ export function mountGameMenu({ signedIn, authAvailable }: GameMenuContext): voi
     },
   })
   // opening any other menu (a drawer, the map) closes this one
-  window.addEventListener('hud-menu-open', ((event: Event) => {
+  window.addEventListener('hud-menu-open', (event: Event) => {
     if ((event as CustomEvent<string>).detail !== 'gamemenu') setOpen(false)
-  }) as EventListener)
+  })
 }
 
 /** A row in the menu's root list. */

@@ -78,7 +78,7 @@ if (params.get('flame') === '0') cels.forEach((cel) => (cel.visible = false))
 // Debug paint: make the ring unmissable to see its exact rendered shape —
 // this is how the transparent-floor paint-over was caught.
 if (params.get('ringdebug') === '1') {
-  const m = litGround.material as THREE.MeshBasicMaterial
+  const m = litGround.material
   m.color.set(0xff00ff)
   m.opacity = 0.85
 }
@@ -114,8 +114,8 @@ key.position.set(target.x + Math.cos(sunAngle) * 30, 8 + Math.max(0.05, elevatio
 key.target.position.set(target.x, 0, target.z)
 key.intensity = 3.2 * daylight
 hemi.intensity = 0.3 + 1.2 * daylight
-;(scene.background as THREE.Color).lerpColors(skyNight, skyDay, daylight)
-;(scene.fog as THREE.Fog).color.lerpColors(hazeNight, hazeDay, daylight)
+scene.background.lerpColors(skyNight, skyDay, daylight)
+scene.fog.color.lerpColors(hazeNight, hazeDay, daylight)
 
 camera.position.copy(target).add(new THREE.Vector3().setFromSphericalCoords(dist, polar, az))
 camera.lookAt(target)

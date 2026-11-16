@@ -17,9 +17,7 @@ import {
   FLY_VERTICAL_TILES_PER_SEC,
   FLY_MAX_HEIGHT,
   FLY_CLEAR_OBSTACLE,
-  DEEP_WATER_TILE,
   rockHeightAt,
-  tileGlyph,
   projectMotionState,
   projectMotion,
   zoneBounds,
@@ -61,13 +59,10 @@ import {
   DARK_CREATURE_AGGRO_RANGE,
   DARK_CREATURES,
   MAX_DARK_CREATURES_PER_ZONE,
-  isRevealed,
   neighborsOf,
-  penumbraOf,
   regionAt,
   capitalOf,
   regionSeeds,
-  regionSlug,
 } from '@trogg/shared'
 import {
   chat,
@@ -405,7 +400,7 @@ test('dropItem keeps the item when the zone is at its ground-item cap', () => {
 })
 
 test('dropItem ignores an inventory row the caller does not own', () => {
-  const { ctx, me } = withPlayer({ x: 69, y: 96 })
+  const { ctx } = withPlayer({ x: 69, y: 96 })
   const theirs = ctx.db.inventory.insert({ id: 0n, playerId: id('other'), item: 'sword', qty: 1 })
   dropItem(ctx, { inventoryId: theirs.id })
   assert.equal(ctx.db.inventory.id.find(theirs.id)?.item, 'sword')
@@ -1023,12 +1018,12 @@ test('onConnect seeds the First Fire as one eternal, always-lit brazier at the z
   const ctx = makeCtx({ sender: me })
   onConnect(ctx)
   const zone = getZone(ZONE)!
-  const spawn = zone.spawn ?? { x: Math.floor(zone.width / 2), y: Math.floor(zone.height / 2) }
+  const spawnAt = zone.spawn ?? { x: Math.floor(zone.width / 2), y: Math.floor(zone.height / 2) }
   const braziers = ctx.db.brazier.rows()
   assert.equal(braziers.length, 1)
   assert.deepEqual(
     { x: braziers[0].x, y: braziers[0].y, radius: braziers[0].radius, lit: braziers[0].lit, isEternal: braziers[0].isEternal },
-    { x: spawn.x, y: spawn.y, radius: FIRST_FIRE_LIT_RADIUS, lit: true, isEternal: true },
+    { x: spawnAt.x, y: spawnAt.y, radius: FIRST_FIRE_LIT_RADIUS, lit: true, isEternal: true },
   )
 
   // idempotent: a second guest connecting to the same world doesn't seed a duplicate First Fire
@@ -1674,9 +1669,9 @@ test('onConnect claims the Hearth and exposes its lattice neighbours as the init
   assert.deepEqual(
     rows
       .filter((r: any) => !r.interior)
-      .map((r: any) => r.slug)
-      .sort(),
-    [...neighborsOf('hearth')].sort(),
+      .map((r: any) => r.slug as string)
+      .sort((a: string, b: string) => a.localeCompare(b)),
+    [...neighborsOf('hearth')].sort((a, b) => a.localeCompare(b)),
   )
   assert.ok(ctx.db.darkCreature.rows().length > 0)
 })
@@ -1782,9 +1777,9 @@ test('resetFrontier clears every claimed region back to just the Hearth', () => 
   assert.deepEqual(
     rows
       .filter((r: any) => !r.interior)
-      .map((r: any) => r.slug)
-      .sort(),
-    [...neighborsOf('hearth')].sort(),
+      .map((r: any) => r.slug as string)
+      .sort((a: string, b: string) => a.localeCompare(b)),
+    [...neighborsOf('hearth')].sort((a, b) => a.localeCompare(b)),
   )
   assert.equal(ctx.db.brazier.rows().length, 0) // claim braziers go with the claims
 })
@@ -2407,7 +2402,7 @@ const atFirstFire = (ctx: any) =>
   ctx.db.brazier.insert({ id: 0n, zoneId: ZONE, x: 69, y: 96, radius: FIRST_FIRE_LIT_RADIUS, lit: true, isEternal: true })
 
 test("crafting draws the recipe's inputs from the stockpile and yields the item, beside the First Fire", () => {
-  const { ctx, me } = withPlayer({ x: 69, y: 96 })
+  const { ctx } = withPlayer({ x: 69, y: 96 })
   atFirstFire(ctx)
   ctx.db.stockpile.insert({ item: 'stone', qty: 50 })
   ctx.db.stockpile.insert({ item: 'wood', qty: 50 })

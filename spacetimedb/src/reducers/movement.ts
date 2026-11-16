@@ -1,7 +1,6 @@
 import spacetimedb from '../schema'
 import { t } from 'spacetimedb/server'
-import { ScheduleAt, Timestamp } from 'spacetimedb'
-import { elapsedMs, findPath, getZone, projectMotion, serializePath, smoothPath, tileKey, zoneBounds } from '../../../shared/index'
+import { findPath, getZone, serializePath, smoothPath, tileKey, zoneBounds } from '../../../shared/index'
 import { settle, troggBlockers, cardinal, directionVector, revealGate, touchAfkCharge } from '../helpers'
 
 /**

@@ -634,7 +634,7 @@ export function createEntities(scene: THREE.Scene) {
       }
       const rise = 1 - (1 - t) * (1 - t) // ease-out: fast pop, slowing drift
       f.overlay.sprite.position.y = f.from.y + rise * DAMAGE_FLOAT_RISE
-      ;(f.overlay.sprite.material as THREE.SpriteMaterial).opacity = t < 0.45 ? 1 : 1 - (t - 0.45) / 0.55
+      f.overlay.sprite.material.opacity = t < 0.45 ? 1 : 1 - (t - 0.45) / 0.55
     }
     for (let i = ghosts.length - 1; i >= 0; i--) {
       const g = ghosts[i]!

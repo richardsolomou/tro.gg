@@ -92,12 +92,12 @@ export function mountCoach(): void {
 
   card.addEventListener('click', dismiss)
 
-  window.addEventListener(EVENT, ((event: Event) => {
+  window.addEventListener(EVENT, (event: Event) => {
     const id = (event as CustomEvent<MilestoneId>).detail
     if (seen.has(id) || queue.includes(id)) return
     seen.add(id)
     persist()
     queue.push(id)
     next()
-  }) as EventListener)
+  })
 }

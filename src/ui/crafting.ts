@@ -133,9 +133,9 @@ export function mountCrafting(conn: DbConnection, playerId: string, selfPosition
   const toggleOpen = () => setOpen(body.hidden === true)
   toggle.addEventListener('click', toggleOpen)
   registerKeybind({ id: 'hud-crafting', matches: (event) => event.code === 'KeyC', handler: toggleOpen })
-  window.addEventListener('hud-menu-open', ((event: Event) => {
+  window.addEventListener('hud-menu-open', (event: Event) => {
     if ((event as CustomEvent<string>).detail !== 'crafting') setOpen(false)
-  }) as EventListener)
+  })
 
   const rerender = () => {
     if (!body.hidden) render()

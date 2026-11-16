@@ -14,7 +14,7 @@ import { logError, logInfo } from '../analytics.js'
 import { audio } from '../audio.js'
 import { hudRoot } from './hud.js'
 import { registerKeybind } from './keybinds.js'
-import { currentCommandFlags, type ChatCommandFlags } from './chat_commands.js'
+import { currentCommandFlags } from './chat_commands.js'
 import { hauntGhost, spawnDebugEntity } from '../net/procedures.js'
 import { itemIcon } from './inventory.js'
 import { attachTip } from './tooltip.js'
@@ -57,8 +57,8 @@ export function mountCommands({ conn, zone }: CommandPanelContext): void {
   status.textContent = 'pre-alpha debug tools'
 
   if (flags.cheats) {
-    const toggle = cheatToggles(conn, zone.slug, status)
-    body.append(movementSection(toggle), survivalSection(conn, zone.slug, status, toggle), worldSection(conn, zone.slug, status))
+    const cheats = cheatToggles(conn, zone.slug, status)
+    body.append(movementSection(cheats), survivalSection(conn, zone.slug, status, cheats), worldSection(conn, zone.slug, status))
   }
   if (flags.spawn) body.appendChild(spawnSection(conn, zone.slug, status))
   if (flags.ghost) body.appendChild(ghostSection(conn, zone.slug, status))
@@ -74,9 +74,9 @@ export function mountCommands({ conn, zone }: CommandPanelContext): void {
   const toggleOpen = () => setOpen(!root.classList.contains('is-open'))
   toggle.addEventListener('click', toggleOpen)
   registerKeybind({ id: 'hud-commands', matches: (event) => event.code === 'Backquote', handler: toggleOpen })
-  window.addEventListener('hud-menu-open', ((event: Event) => {
+  window.addEventListener('hud-menu-open', (event: Event) => {
     if ((event as CustomEvent<string>).detail !== 'commands') setOpen(false)
-  }) as EventListener)
+  })
 
   root.append(toggle, body)
   hudRoot().appendChild(root)

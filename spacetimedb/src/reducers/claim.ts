@@ -1,6 +1,5 @@
 import spacetimedb from '../schema'
 import { t } from 'spacetimedb/server'
-import { ScheduleAt, Timestamp } from 'spacetimedb'
 import { CLAIM_CODE_TTL_MS, elapsedMs, getZone, isGeneratedName } from '../../../shared/index'
 import {
   isSpacetimeAuthCaller,

@@ -45,8 +45,8 @@ void refreshLive()
 setInterval(() => void refreshLive(), 60_000)
 
 // The ambient 3D backdrop boots last: a WebGL-less visitor can't get a
-// renderer, and mounting earlier let that failure abort every statement below
-// it (the play handler, the game prefetch, the live pill). mountBackdrop now
+// renderer, and mounting earlier let that failure abort every statement
+// below it (the play handler, the game prefetch, the live pill). mountBackdrop now
 // returns null instead of throwing, and the static cave hero (index.html
 // #backdrop.fallback) stands in.
 const canvas = document.getElementById('backdrop')

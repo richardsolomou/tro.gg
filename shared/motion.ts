@@ -96,7 +96,7 @@ export interface ZoneBounds {
    *  open floor always; deep water above `FLY_CLEAR_WATER`; dynamic obstacles
    *  (trees, boulders, creatures) above `FLY_CLEAR_OBSTACLE`; rock above
    *  `FLY_CLEAR_ROCK`. Absent (hand-built bounds) = grounded rules apply. */
-  flyWalkable?(tileX: number, tileY: number, z: number): boolean
+  flyWalkable?: (tileX: number, tileY: number, z: number) => boolean
 }
 
 /**

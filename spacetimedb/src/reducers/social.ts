@@ -1,6 +1,5 @@
 import spacetimedb, { type Ctx, type AnalyticsEvent } from '../schema'
 import { t } from 'spacetimedb/server'
-import { ScheduleAt, Timestamp } from 'spacetimedb'
 import {
   CHAT_HISTORY_MAX,
   CHAT_MAX_CHARS,

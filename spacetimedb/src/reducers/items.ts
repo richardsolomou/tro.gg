@@ -1,6 +1,5 @@
 import spacetimedb, { type Ctx, type AnalyticsEvent } from '../schema'
 import { t } from 'spacetimedb/server'
-import { ScheduleAt, Timestamp } from 'spacetimedb'
 import {
   elapsedMs,
   EQUIPMENT_USE_COOLDOWN_MS,
@@ -230,11 +229,9 @@ function runUseEquipped(ctx: Ctx, { dirX, dirY, source = '' }: { dirX: number; d
   const p = ctx.db.player.identity.find(ctx.sender)
   if (!p) return []
   if (p.dead) return []
-  // The client sends its exact aim. A throw travels along it (free-direction);
-  // the tile mechanics (melee, gathering, facing) take its dominant cardinal.
+  // The client sends its exact aim; a throw travels along it (free-direction).
   const aim = directionVector(dirX, dirY)
   if (aim.dirX === 0 && aim.dirY === 0) return []
-  const dir = Math.abs(aim.dirX) >= Math.abs(aim.dirY) ? { dirX: Math.sign(aim.dirX), dirY: 0 } : { dirX: 0, dirY: Math.sign(aim.dirY) }
 
   const zone = getZone(p.zoneId)
   if (!zone) return []

@@ -264,7 +264,7 @@ export function createSelfController(deps: SelfControllerDeps) {
       setFacing(entry, intent)
       if (wasIdle) audio.playFootstep(intent.running)
     }
-    conn.reducers.move(intent)
+    void conn.reducers.move(intent)
     if (isIdle(intent) && isIdle(desired)) keyboardControlling = false
   }
 
@@ -284,7 +284,7 @@ export function createSelfController(deps: SelfControllerDeps) {
     entry.baseMs = now
     sent = { dirX: 0, dirY: 0, running: false }
     setFacing(entry, intent)
-    conn.reducers.face({ dirX: cardinal.dirX, dirY: cardinal.dirY })
+    void conn.reducers.face({ dirX: cardinal.dirX, dirY: cardinal.dirY })
   }
 
   /** Footsteps on tile crossings — free movement's stride cadence. */
@@ -367,7 +367,7 @@ export function createSelfController(deps: SelfControllerDeps) {
     sent = { dirX: 0, dirY: 0, running: false }
     pendingSelfMoves.length = 0
     lastMoveToAt = now
-    conn.reducers.moveTo({ x: target.x, y: target.y, running: false })
+    void conn.reducers.moveTo({ x: target.x, y: target.y, running: false })
   }
 
   const syncDestinationFromPath = (path: string) => {
@@ -404,7 +404,7 @@ export function createSelfController(deps: SelfControllerDeps) {
         setDestination(undefined)
       } else if (now - lastMoveToAt >= MOVETO_RETRY_MS) {
         lastMoveToAt = now
-        conn.reducers.moveTo({ x: destinationTile.x, y: destinationTile.y, running: false })
+        void conn.reducers.moveTo({ x: destinationTile.x, y: destinationTile.y, running: false })
       }
     } else {
       if (keyboardControlling) driveSelf(entry, x, y, now)
@@ -434,7 +434,7 @@ export function createSelfController(deps: SelfControllerDeps) {
     pendingSelfMoves.push(motion)
     entry.player = withMotion(entry.player, motion)
     entry.baseMs = now
-    conn.reducers.setLift({ dirZ: motion.dirZ })
+    void conn.reducers.setLift({ dirZ: motion.dirZ })
   }
 
   /** Apply a server row for the local trogg: consume the matching optimistic move, or
@@ -489,7 +489,7 @@ export function createSelfController(deps: SelfControllerDeps) {
     } else {
       if (keyboardControlling || !isIdle(intent)) {
         sent = intent
-        conn.reducers.move(intent)
+        void conn.reducers.move(intent)
       }
     }
   }

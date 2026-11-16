@@ -130,9 +130,9 @@ export function mountInventory(conn: DbConnection, playerId: string): void {
   const toggleOpen = () => setOpen(body.hidden === true)
   toggle.addEventListener('click', toggleOpen)
   registerKeybind({ id: 'hud-inventory', matches: (event) => event.code === 'KeyI', handler: toggleOpen })
-  window.addEventListener('hud-menu-open', ((event: Event) => {
+  window.addEventListener('hud-menu-open', (event: Event) => {
     if ((event as CustomEvent<string>).detail !== 'inventory') setOpen(false)
-  }) as EventListener)
+  })
 
   // A torch's remaining burn (GDD "Crafting"): wear rides the inventory row —
   // it accrues only while the torch is equipped and never resets, so the bar

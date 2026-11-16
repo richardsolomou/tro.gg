@@ -15,7 +15,6 @@ import {
   MAX_BOULDERS_PER_ZONE,
   projectMotion,
   projectMotionState,
-  snapToTile,
   spawnTile,
   type Stamp,
   tileKey,
@@ -333,7 +332,7 @@ export function placeCarriedAt(
   kind: string,
   style: string,
   tile: { x: number; y: number },
-  landingAt: Timestamp = Timestamp.UNIX_EPOCH,
+  _landingAt: Timestamp = Timestamp.UNIX_EPOCH,
 ): boolean {
   // Honour the per-zone cap on the put-down too, so picking up, spawning to the cap, then
   // dropping can't push a zone past its ceiling. Refusing keeps the trogg carrying — the

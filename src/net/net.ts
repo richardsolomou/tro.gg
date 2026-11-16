@@ -34,8 +34,8 @@ function connectOnce(token: string | undefined, storeGuestToken: boolean, onDisc
       .withUri(SPACETIMEDB_HOST)
       .withDatabaseName(SPACETIMEDB_DB_NAME)
       .withToken(token)
-      .onConnect((conn: DbConnection, _identity: Identity, token: string) => {
-        if (storeGuestToken) storeToken(token)
+      .onConnect((conn: DbConnection, _identity: Identity, issuedToken: string) => {
+        if (storeGuestToken) storeToken(issuedToken)
         resolve(conn)
       })
       .onConnectError((_ctx, error: Error) => reject(error))

@@ -228,7 +228,7 @@ interface BackdropScene {
   scene: THREE.Scene
   camera: THREE.PerspectiveCamera
   /** Advance flames, light flicker, idle breathing, and camera drift to time `t`. */
-  tick(t: number, dt: number): void
+  tick: (t: number, dt: number) => void
 }
 
 function buildBackdropScene(glow: number, spacing: number, layout: 'pair' | 'right', shadows: boolean): BackdropScene {

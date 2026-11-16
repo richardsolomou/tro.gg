@@ -56,7 +56,7 @@ test('a different seed generates a different cave', () => {
 })
 
 test('the generated zone passes registry validation', () => {
-  assertZones({ t: generateCaveZone(OPTS) })
+  assert.doesNotThrow(() => assertZones({ t: generateCaveZone(OPTS) }))
 })
 
 test('the rim is solid rock', () => {
@@ -133,7 +133,7 @@ function worldReaches(from: { x: number; y: number }, to: { x: number; y: number
 }
 
 test('the world zone passes registry validation', () => {
-  assertZones()
+  assert.doesNotThrow(() => assertZones())
 })
 
 test('tile synthesis is deterministic and chunk-order independent', () => {

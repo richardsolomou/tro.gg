@@ -33,9 +33,7 @@ import {
   tileGlyph,
   regionVisibility,
   rockHeightAt,
-  snapToTile,
   STARTING_ZONE_SLUG,
-  THROWN_FLIGHT_MAX_MS,
   thrownFlightMs,
   tileKey,
   timestampMs,
@@ -433,11 +431,11 @@ export class World3D {
     // so without the fade it shines "through" what reads as distant terrain.
     const sunGlow = THREE.MathUtils.smoothstep(elevation, 0.05, 0.35) * (1 - dark)
     this.sun.position.set(fx + Math.cos(sunAngle) * 85, 4 + Math.max(0, elevation) * 66, fz + Math.sin(sunAngle) * 40 + 8)
-    ;(this.sun.material as THREE.SpriteMaterial).opacity = sunGlow
+    this.sun.material.opacity = sunGlow
     this.sun.visible = sunGlow > 0.01
     const moonGlow = THREE.MathUtils.smoothstep(-elevation, 0.05, 0.35) * (1 - dark)
     this.moon.position.set(fx - Math.cos(sunAngle) * 85, 4 + Math.max(0, -elevation) * 66, fz - Math.sin(sunAngle) * 40 + 8)
-    ;(this.moon.material as THREE.SpriteMaterial).opacity = moonGlow
+    this.moon.material.opacity = moonGlow
     this.moon.visible = moonGlow > 0.01
     if (this.scene.background instanceof THREE.Color) {
       this.scene.background.lerpColors(this.skyNight, this.skyDay, daylight).lerp(this.caveSky, dark)
@@ -581,7 +579,6 @@ export class World3D {
       facingFromDir,
       // a flying trogg's feet never land, so its stride makes no sound
       audio: {
-        ...audio,
         playFootstep: (running: boolean) => {
           if (!this.selfFlying()) audio.playFootstep(running)
         },
@@ -736,9 +733,9 @@ export class World3D {
     // if the snapshot stalls (or this session never gets a trogg), show the zone
     window.setTimeout(() => this.reveal(), 4000)
     // Commands-panel debug: show combat hit circles and the local melee reach.
-    window.addEventListener('trogg-debug-hitboxes', ((e: Event) => {
-      this.entities.setHitboxes((e as CustomEvent<boolean>).detail === true)
-    }) as EventListener)
+    window.addEventListener('trogg-debug-hitboxes', (e: Event) => {
+      this.entities.setHitboxes((e as CustomEvent<boolean>).detail)
+    })
     // The shared sky lock rides the world_state singleton: locked pins the
     // phase for everyone, unlocked resumes the shared wall clock.
     const applySky = (row: { skyLocked: boolean; skyPhase: number }) => {

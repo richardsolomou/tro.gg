@@ -1,5 +1,5 @@
 import { DEEP_WATER_TILE, FLOOR_TILE, GLOWMOSS_TILE, GRAVEL_TILE, MOSS_TILE, WALL_TILE, WATER_TILE } from './glyphs'
-import type { BirthCellSeed, Coord, DarkCreatureSeed, GroundItemSeed, Zone, ZoneExit } from './constants'
+import type { Coord, DarkCreatureSeed, GroundItemSeed, Zone, ZoneExit } from './constants'
 
 /**
  * Biomes: the same cave automaton dressed differently. A biome picks the

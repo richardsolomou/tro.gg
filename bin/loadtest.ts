@@ -152,7 +152,7 @@ async function runWorker(args: Args): Promise<void> {
                     () => {
                       const d = pick(DIRS)
                       pending = { dirX: d.x, dirY: d.y, at: Date.now() }
-                      conn.reducers.move({ dirX: d.x, dirY: d.y, running: false })
+                      void conn.reducers.move({ dirX: d.x, dirY: d.y, running: false })
                     },
                     rnd(2000, 5000),
                   ),
@@ -161,7 +161,7 @@ async function runWorker(args: Args): Promise<void> {
                   setInterval(
                     () => {
                       chatSent++
-                      conn.reducers.chat({ text: `${pick(PHRASES)} @${Date.now()}` })
+                      void conn.reducers.chat({ text: `${pick(PHRASES)} @${Date.now()}` })
                     },
                     rnd(6000, 15000),
                   ),

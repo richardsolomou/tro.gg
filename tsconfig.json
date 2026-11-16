@@ -6,6 +6,6 @@
       "@trogg/shared": ["./shared/index.ts"]
     }
   },
-  "include": ["src", "shared", "scripts", "e2e", "*.ts"],
+  "include": ["src", "shared", "scripts", "e2e", "bin", "*.ts"],
   "exclude": ["**/*.test.ts"]
 }

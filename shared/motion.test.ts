@@ -181,8 +181,8 @@ test('path motion never rewinds onto a blocked tile it has already crossed', () 
 })
 
 test('the same tile is walkable once nothing occupies it', () => {
-  const open = zoneBounds(openRoom)
-  const at = projectMotion({ x: 1, y: 1, dirX: 1, dirY: 0 }, 10_000, open)
+  const roomBounds = zoneBounds(openRoom)
+  const at = projectMotion({ x: 1, y: 1, dirX: 1, dirY: 0 }, 10_000, roomBounds)
   assert.equal(at.x, 6) // walks to the far wall at column 7
 })
 
@@ -243,8 +243,8 @@ test('smoothPath collapses an open-floor route to one straight hop, keeping corn
   const wide: Zone = { slug: 'w', name: 'W', width: 8, height: 5, tiles: ['########', '#......#', '#..#...#', '#......#', '########'] }
   const bounds = zoneBounds(wide)
   // Open floor: the cardinal staircase route becomes a single direct glide.
-  const open = smoothPath(bounds, { x: 1, y: 1 }, findPath(bounds, { x: 1, y: 1 }, { x: 6, y: 1 }))
-  assert.deepEqual(open, [{ x: 6, y: 1 }])
+  const direct = smoothPath(bounds, { x: 1, y: 1 }, findPath(bounds, { x: 1, y: 1 }, { x: 6, y: 1 }))
+  assert.deepEqual(direct, [{ x: 6, y: 1 }])
   // Around the pillar: at most one bend survives, and every hop is line-walkable.
   const bent = smoothPath(bounds, { x: 1, y: 2 }, findPath(bounds, { x: 1, y: 2 }, { x: 6, y: 2 }))
   assert.ok(bent.length <= 3 && bent.at(-1)!.x === 6 && bent.at(-1)!.y === 2)

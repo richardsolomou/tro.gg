@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import posthog from 'posthog-js'
+import { posthog } from 'posthog-js'
 import { afterEach, test, vi } from 'vitest'
 
 afterEach(() => {

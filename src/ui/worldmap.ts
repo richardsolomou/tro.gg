@@ -135,13 +135,13 @@ function paintMap(
 export interface WorldMapContext {
   zone: Zone
   /** The local trogg's live tile position, when known. */
-  selfPosition(): { x: number; y: number } | undefined
+  selfPosition: () => { x: number; y: number } | undefined
   /** Interior, penumbra, or unreached (GDD "Generation: only as far as the
    *  light reaches") — the fog-of-war tier a tile is in. */
-  regionState(x: number, y: number): RegionVisibility
+  regionState: (x: number, y: number) => RegionVisibility
   /** A scouted region's locked display name (its `revealed_region` row);
    *  undefined while unreached — the name doesn't exist yet. */
-  regionName(slug: string): string | undefined
+  regionName: (slug: string) => string | undefined
 }
 
 /** Mount the M-key overworld map overlay. */
@@ -194,7 +194,7 @@ export function mountWorldMap({ zone, selfPosition, regionState, regionName }: W
   // Escape is owned by the game menu (menu.ts); it closes the map through the
   // shared hud-menu-open broadcast, so the map needs no Escape binding of its own.
   panel.addEventListener('click', () => setOpen(false))
-  window.addEventListener('hud-menu-open', ((event: Event) => {
+  window.addEventListener('hud-menu-open', (event: Event) => {
     if ((event as CustomEvent<string>).detail !== 'worldmap') setOpen(false)
-  }) as EventListener)
+  })
 }

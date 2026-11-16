@@ -39,8 +39,8 @@ function mergeGeometries(a: THREE.BufferGeometry, b: THREE.BufferGeometry): THRE
     const va = (a.index ? a.toNonIndexed() : a).getAttribute(name)
     const vb = (b.index ? b.toNonIndexed() : b).getAttribute(name)
     const out = new Float32Array(va.array.length + vb.array.length)
-    out.set(va.array as Float32Array, 0)
-    out.set(vb.array as Float32Array, va.array.length)
+    out.set(va.array, 0)
+    out.set(vb.array, va.array.length)
     merged.setAttribute(name, new THREE.BufferAttribute(out, 3))
   }
   return merged

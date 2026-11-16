@@ -67,9 +67,9 @@ export function mountAppearance(conn: DbConnection, account: AppearanceContext):
   toggle.addEventListener('click', toggleOpen)
   registerKeybind({ id: 'hud-appearance', matches: (event) => event.code === 'KeyP', handler: toggleOpen })
   // Accordion: opening any left-bar menu closes the others, so two drop-downs never overlap.
-  window.addEventListener('hud-menu-open', ((event: Event) => {
+  window.addEventListener('hud-menu-open', (event: Event) => {
     if ((event as CustomEvent<string>).detail !== 'appearance') setOpen(false)
-  }) as EventListener)
+  })
 
   const status = document.createElement('div')
   status.className = 'account-status'

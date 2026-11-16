@@ -80,7 +80,6 @@ function harness(over: Partial<SelfControllerDeps> = {}) {
   return { self, entry, player, moves, faces, moveTos, creatureTiles, boulderTiles, destinations, motion }
 }
 
-const idle: MoveIntent = { dirX: 0, dirY: 0, running: false }
 const right: MoveIntent = { dirX: 1, dirY: 0, running: false }
 const down: MoveIntent = { dirX: 0, dirY: 1, running: false }
 

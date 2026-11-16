@@ -110,9 +110,9 @@ export function mountSkills(conn: DbConnection, playerId: string): void {
   const toggleOpen = () => setOpen(body.hidden === true)
   toggle.addEventListener('click', toggleOpen)
   registerKeybind({ id: 'hud-skills', matches: (event) => event.code === 'KeyK', handler: toggleOpen })
-  window.addEventListener('hud-menu-open', ((event: Event) => {
+  window.addEventListener('hud-menu-open', (event: Event) => {
     if ((event as CustomEvent<string>).detail !== 'skills') setOpen(false)
-  }) as EventListener)
+  })
 
   const rerender = () => {
     if (!body.hidden) render()

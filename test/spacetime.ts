@@ -4,7 +4,7 @@
 // assert on the resulting rows. The risk in any fake-db harness is the CRUD semantics
 // drifting from the real store; these are the unambiguous ones the reducers rely on.
 
-import { neighborsOf, regionSlug } from '@trogg/shared'
+import { regionSlug } from '@trogg/shared'
 
 /** A stand-in identity: equality by hex, like SpacetimeDB's Identity. */
 export interface Id {

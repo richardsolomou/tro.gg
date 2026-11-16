@@ -1,4 +1,4 @@
-import posthog from 'posthog-js'
+import { posthog } from 'posthog-js'
 import { POSTHOG_HOST, POSTHOG_KEY } from './env.js'
 
 /** The PostHog app for an ingestion host, so links from the toolbar and replays open the right region. */
@@ -113,6 +113,8 @@ function normalizeLogAttribute(value: unknown): LogAttribute {
   if (typeof value === 'object') {
     return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, normalizeLogAttribute(entry)]))
   }
+  // Only functions and symbols reach here, and both stringify to something readable.
+  // oxlint-disable-next-line typescript/no-base-to-string
   return String(value)
 }
 
