@@ -5,32 +5,38 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "build": "vite build",
     "preview": "vite preview",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "typecheck:module": "tsc -p spacetimedb/tsconfig.json --noEmit",
-    "test": "TSX_TSCONFIG_PATH=test/tsconfig.json node --import tsx --test \"shared/*.test.ts\" \"src/*.test.ts\" \"test/*.test.ts\"",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p spacetimedb",
+    "lint": "oxlint --type-aware --deny-warnings .",
+    "format": "oxfmt --write .",
+    "format:check": "oxfmt --check .",
+    "test": "vitest run",
     "test:e2e": "playwright test",
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build",
     "changeset": "changeset",
     "version-packages": "changeset version",
-    "release": "changeset tag",
-    "changesets:check": "ras changesets check"
+    "release": "changeset tag"
   },
   "dependencies": {
     "oidc-client-ts": "^3.5.0",
     "posthog-js": "^1.430.3",
-    "ras-stack": "^3.0.0",
     "spacetimedb": "2.7.1",
     "three": "^0.185.1"
   },
   "devDependencies": {
     "@changesets/cli": "2.31.1",
     "@playwright/test": "^1.62.1",
+    "@types/node": "^26.6.6",
     "@types/three": "^0.185.4",
-    "ras-stack-config": "^1.0.0",
+    "oxfmt": "^0.75.0",
+    "oxlint": "^1.94.0",
+    "oxlint-tsgolint": "^7.0.2007",
+    "ras-stack": "^6.0.0",
     "tsx": "^4.23.11",
     "typescript": "^7.0.2",
-    "vite": "^8.2.1"
+    "vite": "^8.2.1",
+    "vitest": "^4.1.12"
   },
   "engines": {
     "node": ">=24 <25"

@@ -1,12 +1,8 @@
 {
-  "extends": "ras-stack-config/config/typescript/bundler",
+  "extends": "../node_modules/ras-stack/config/typescript/bundler.json",
   "compilerOptions": {
-    "skipLibCheck": true,
-    "target": "ESNext",
-    "lib": ["ES2021"],
-    "isolatedModules": true,
-    "noEmit": true
+    "noEmit": true,
+    "types": []
   },
-  "include": ["./src/**/*", "../shared/**/*"],
-  "exclude": ["../shared/**/*.test.ts"]
+  "include": ["src"]
 }

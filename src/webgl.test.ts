@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import { createRenderer, isWebGLAvailable } from "./webgl.js";
 
 // Without a DOM (as here, and as on a GPU-less or WebGL-blocked browser) the

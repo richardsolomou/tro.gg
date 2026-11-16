@@ -1,0 +1,5 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "extends": ["./node_modules/ras-stack/config/oxlint/application.json", "./node_modules/ras-stack/config/oxlint/layers.json"],
+  "ignorePatterns": ["node_modules/**", "dist/**", "src/net/module_bindings/**", "spacetimedb/dist/**"]
+}

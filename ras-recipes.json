@@ -1,0 +1,28 @@
+{
+  "source": "https://github.com/richardsolomou/ras-stack",
+  "recipes": {
+    "tooling": {
+      "version": 2,
+      "commit": "82fce4523ec914bd2e70aefd4bff84c10fb278c6",
+      "files": {
+        ".gitignore": ".gitignore",
+        ".oxfmtrc.json": ".oxfmtrc.json",
+        ".oxlintrc.json": ".oxlintrc.json",
+        "AGENTS.md": "AGENTS.md",
+        "package.json": "package.json",
+        "pnpm-workspace.yaml": "pnpm-workspace.yaml",
+        "tsconfig.json": "tsconfig.json",
+        "vitest.config.ts": "vitest.config.ts"
+      },
+      "notes": [
+        "`pnpm check` also runs `pnpm build`, and `pnpm typecheck` also checks the SpacetimeDB module with `tsc --noEmit -p spacetimedb`, so one command covers what CI ran before.",
+        "`tsconfig.json` keeps the `@trogg/shared` path alias, also includes `shared/`, and excludes `*.test.ts`, which were never type-checked and use loose fixtures.",
+        "`vitest.config.ts` also runs `shared/` and `test/` tests and aliases `@trogg/shared` and `spacetimedb/server` (to `test/mock-server.ts`), so the reducer tests evaluate the real module outside SpacetimeDB's host.",
+        "Formatting and lint ignore the generated bindings in `src/net/module_bindings`, which the bindings check compares byte for byte.",
+        "`pnpm-workspace.yaml` keeps `minimumReleaseAge: 0`, the game's deliberate choice to track SpacetimeDB and PostHog releases the day they ship, and `core-js: true` in `allowBuilds`.",
+        "`.gitignore` keeps the game's own list (pnpm-only lockfiles, Playwright output, `spacetime.local.json`), which covers the recipe's entries.",
+        "Keeps the Changesets scripts (`changeset`, `version-packages`, `release`) because the game releases with Changesets, and `test:e2e` for the Playwright preview harness."
+      ]
+    }
+  }
+}

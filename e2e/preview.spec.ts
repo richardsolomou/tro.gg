@@ -25,8 +25,8 @@ async function nonBackgroundPixels(page: Page): Promise<number> {
     const { data } = ctx.getImageData(0, 0, off.width, off.height);
     let count = 0;
     for (let i = 0; i < data.length; i += 4) {
-      const off2bg = Math.abs(data[i] - bg.r) + Math.abs(data[i + 1] - bg.g) + Math.abs(data[i + 2] - bg.b);
-      if (data[i + 3] > 8 && off2bg > 24) count++;
+      const off2bg = Math.abs(data[i]! - bg.r) + Math.abs(data[i + 1]! - bg.g) + Math.abs(data[i + 2]! - bg.b);
+      if (data[i + 3]! > 8 && off2bg > 24) count++;
     }
     return count;
   }, BG);

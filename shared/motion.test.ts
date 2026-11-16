@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test } from "vitest";
 import { MOVE_SPEED_TILES_PER_SEC, RUN_SPEED_TILES_PER_SEC, type Zone } from "./constants";
 import { candidateTargets, facingTile, findPath, footprintTiles, footprintWalkable, lineWalkable, parsePath, projectMotion, projectMotionState, serializePath, smoothPath, snapToTile, spawnTile, spawnTiles, walkableCardinals, zoneBounds } from "./motion";
 

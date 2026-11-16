@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test } from "vitest";
 import {
   CHAT_HISTORY_MAX,
   CLAIM_CODE_TTL_MS,

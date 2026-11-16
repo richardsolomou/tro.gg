@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test } from "vitest";
 import { GATHER_XP, isSkillId, LEVEL_CAP, levelForXp, SKILL_IDS, xpForLevel } from "./skills";
 
 test("the level curve matches the GDD: level 2 at 50 XP, level 10 at 4,050", () => {

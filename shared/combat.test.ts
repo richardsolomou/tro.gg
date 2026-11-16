@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test } from "vitest";
 import { meleeHit, MELEE_POINT_BLANK_TILES, MELEE_RANGE_TILES } from "./combat";
 
 const circle = (x: number, y: number, radius = 0.45) => ({ x, y, radius });

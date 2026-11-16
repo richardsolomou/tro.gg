@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test } from "vitest";
 import type { Coord, Facing, ProjectedMotion, ZoneBounds } from "@trogg/shared";
 import type { Player } from "./net/module_bindings/types";
 import type { MotionEntry } from "./movement.js";

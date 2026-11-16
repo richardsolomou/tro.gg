@@ -57,19 +57,14 @@ build:
 # Type-check the client and the module.
 typecheck:
     pnpm typecheck
-    pnpm typecheck:module
 
-# Run the shared pure-logic unit tests.
+# Run the unit and reducer tests.
 test:
     pnpm test
 
 # Run every local gate used by CI.
 check:
-    pnpm changesets:check
-    pnpm typecheck
-    pnpm typecheck:module
-    pnpm test
-    pnpm build
+    pnpm check
 
 e2e-install:
     pnpm exec playwright install --with-deps chromium

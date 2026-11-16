@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import { atFirstFire } from "../shared/crafting";
 
 const firstFire = { x: 10, y: 10, radius: 4, lit: true, isEternal: true };

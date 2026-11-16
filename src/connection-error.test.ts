@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import { connectWithGuestTokenFallback, isTokenVerificationError } from "./net/connection-error.js";
 
 test("recognizes a rejected SpacetimeDB token", () => {

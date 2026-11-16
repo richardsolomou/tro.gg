@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test } from "vitest";
 import type { Player } from "./net/module_bindings/types";
 import { isOlderPlayerMotion, playerMotionChanged, withPlayerMotion } from "./motion_sync.js";
 

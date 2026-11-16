@@ -1,13 +1,21 @@
 {
-  "extends": "./tsconfig.base.json",
+  "extends": "./node_modules/ras-stack/config/typescript/vite.json",
   "compilerOptions": {
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "types": ["vite/client"],
+    "allowImportingTsExtensions": true,
     "paths": {
-      "@trogg/shared": ["./shared/index.ts"]
-    },
-    "noEmit": true
+      "@trogg/shared": [
+        "./shared/index.ts"
+      ]
+    }
   },
-  "include": ["src", "shared"],
-  "exclude": ["**/*.test.ts"]
+  "include": [
+    "src",
+    "shared",
+    "scripts",
+    "e2e",
+    "*.ts"
+  ],
+  "exclude": [
+    "**/*.test.ts"
+  ]
 }

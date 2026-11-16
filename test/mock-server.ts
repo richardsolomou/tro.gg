@@ -1,4 +1,4 @@
-// A minimal stand-in for `spacetimedb/server`, aliased in for tests via test/tsconfig.json.
+// A minimal stand-in for `spacetimedb/server`, aliased in for tests via vitest.config.ts.
 // The real server module only loads inside SpacetimeDB's host runtime (it won't import
 // under node), so this mock lets `spacetimedb/src/index.ts` *evaluate* — define its tables
 // and reducers/procedures — while the test supplies a fake `ctx` (test/spacetime.ts) at
