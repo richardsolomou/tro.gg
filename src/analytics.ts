@@ -1,18 +1,22 @@
-import posthog from "posthog-js";
-import { postHogEnvironment } from "ras-stack/posthog";
-import { postHogBrowserOptions } from "ras-stack/posthog/client";
-import { POSTHOG_HOST, POSTHOG_KEY } from "./env.js";
+import { posthog } from 'posthog-js'
+import { POSTHOG_HOST, POSTHOG_KEY } from './env.js'
 
-const posthogEnvironment = POSTHOG_KEY ? postHogEnvironment({ projectToken: POSTHOG_KEY, host: POSTHOG_HOST }) : undefined;
+/** The PostHog app for an ingestion host, so links from the toolbar and replays open the right region. */
+function postHogUiHost(host: string): string {
+  const { hostname, origin } = new URL(host)
+  if (hostname === 'us.i.posthog.com') return 'https://us.posthog.com'
+  if (hostname === 'eu.i.posthog.com') return 'https://eu.posthog.com'
+  return origin
+}
 
 const serviceContext = {
-  serviceName: "trogg-web",
+  serviceName: 'trogg-web',
   serviceVersion: __BUILD_ID__,
   environment: import.meta.env.MODE,
-};
+}
 
-type LogAttribute = string | number | boolean | null | undefined | unknown[] | Record<string, unknown>;
-type LogAttributes = Record<string, LogAttribute>;
+type LogAttribute = string | number | boolean | null | undefined | unknown[] | Record<string, unknown>
+type LogAttributes = Record<string, LogAttribute>
 
 /**
  * Autocapture, session replay, error tracking, and logs are first-class from day
@@ -20,9 +24,18 @@ type LogAttributes = Record<string, LogAttribute>;
  * No-op without a key.
  */
 export function initAnalytics() {
-  if (!posthogEnvironment) return;
-  posthog.init(posthogEnvironment.projectToken, {
-    ...postHogBrowserOptions({ apiHost: posthogEnvironment.host, uiHost: posthogEnvironment.uiHost }),
+  if (!POSTHOG_KEY) return
+  posthog.init(POSTHOG_KEY, {
+    api_host: POSTHOG_HOST,
+    ui_host: postHogUiHost(POSTHOG_HOST),
+    // Pins the SDK's dated defaults, so an upgrade changes behaviour only when this date is raised on purpose.
+    defaults: '2026-05-30',
+    person_profiles: 'identified_only',
+    capture_exceptions: true,
+    capture_pageview: 'history_change',
+    capture_performance: true,
+    mask_personal_data_properties: true,
+    custom_personal_data_properties: ['token'],
     logs: {
       ...serviceContext,
       captureConsoleLogs: false,
@@ -33,13 +46,13 @@ export function initAnalytics() {
         canvasFps: 15,
       },
     },
-  });
+  })
 }
 
 /** Capture a custom event. No-op without a PostHog key (local dev). */
 export function captureEvent(event: string, properties?: Record<string, unknown>) {
-  if (!POSTHOG_KEY) return;
-  posthog.capture(event, properties);
+  if (!POSTHOG_KEY) return
+  posthog.capture(event, properties)
 }
 
 /**
@@ -48,8 +61,8 @@ export function captureEvent(event: string, properties?: Record<string, unknown>
  * No-op without a PostHog key (local dev).
  */
 export function identifyUser(distinctId: string) {
-  if (!POSTHOG_KEY) return;
-  posthog.identify(distinctId);
+  if (!POSTHOG_KEY) return
+  posthog.identify(distinctId)
 }
 
 /**
@@ -58,58 +71,61 @@ export function identifyUser(distinctId: string) {
  * mid-session. Register code-read flags in docs/analytics.md.
  */
 export function isFeatureEnabled(flag: string, fallback = true): boolean {
-  if (!POSTHOG_KEY) return fallback;
-  return posthog.isFeatureEnabled(flag) ?? fallback;
+  if (!POSTHOG_KEY) return fallback
+  return posthog.isFeatureEnabled(flag) ?? fallback
 }
 
 export function logInfo(body: string, attributes?: Record<string, unknown>) {
-  captureLog("info", body, attributes);
-  if (attributes) console.info(body, attributes);
-  else console.info(body);
+  captureLog('info', body, attributes)
+  if (attributes) console.info(body, attributes)
+  else console.info(body)
 }
 
 export function logWarn(body: string, attributes?: Record<string, unknown>) {
-  captureLog("warn", body, attributes);
-  if (attributes) console.warn(body, attributes);
-  else console.warn(body);
+  captureLog('warn', body, attributes)
+  if (attributes) console.warn(body, attributes)
+  else console.warn(body)
 }
 
 export function logError(body: string, attributes?: Record<string, unknown>) {
-  captureLog("error", body, attributes);
-  if (attributes) console.error(body, attributes);
-  else console.error(body);
+  captureLog('error', body, attributes)
+  if (attributes) console.error(body, attributes)
+  else console.error(body)
 }
 
-function captureLog(level: "info" | "warn" | "error", body: string, attributes?: Record<string, unknown>) {
-  if (!POSTHOG_KEY) return;
-  posthog.logger[level](body, normalizeLogAttributes(attributes));
+function captureLog(level: 'info' | 'warn' | 'error', body: string, attributes?: Record<string, unknown>) {
+  if (!POSTHOG_KEY) return
+  posthog.logger[level](body, normalizeLogAttributes(attributes))
 }
 
 function normalizeLogAttributes(attributes?: Record<string, unknown>): LogAttributes | undefined {
-  if (!attributes) return undefined;
-  return Object.fromEntries(Object.entries(attributes).map(([key, value]) => [key, normalizeLogAttribute(value)]));
+  if (!attributes) return undefined
+  return Object.fromEntries(Object.entries(attributes).map(([key, value]) => [key, normalizeLogAttribute(value)]))
 }
 
 function normalizeLogAttribute(value: unknown): LogAttribute {
-  if (value instanceof Error) return { name: value.name, message: value.message, stack: value.stack };
-  if (typeof value === "bigint") return value.toString();
-  if (value instanceof Date) return value.toISOString();
-  if (Array.isArray(value)) return value.map((entry) => normalizeLogAttribute(entry) ?? null);
-  if (value === null || value === undefined || typeof value === "string" || typeof value === "number" || typeof value === "boolean") return value;
-  if (typeof value === "object") {
-    return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, normalizeLogAttribute(entry)]));
+  if (value instanceof Error) return { name: value.name, message: value.message, stack: value.stack }
+  if (typeof value === 'bigint') return value.toString()
+  if (value instanceof Date) return value.toISOString()
+  if (Array.isArray(value)) return value.map((entry) => normalizeLogAttribute(entry) ?? null)
+  if (value === null || value === undefined || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean')
+    return value
+  if (typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, normalizeLogAttribute(entry)]))
   }
-  return String(value);
+  // Only functions and symbols reach here, and both stringify to something readable.
+  // oxlint-disable-next-line typescript/no-base-to-string
+  return String(value)
 }
 
-export { posthog };
+export { posthog }
 
 /** Cheap counters the hitch log snapshots, so a stall report says what the
  *  client was chewing on (row diffs applied, chunk build time) — bumped from
  *  the hot paths, reset on every report. */
-export const perfCounters: Record<string, number> = {};
+export const perfCounters: Record<string, number> = {}
 export function bumpPerf(key: string, n = 1): void {
-  perfCounters[key] = (perfCounters[key] ?? 0) + n;
+  perfCounters[key] = (perfCounters[key] ?? 0) + n
 }
 
 /**
@@ -120,34 +136,34 @@ export function bumpPerf(key: string, n = 1): void {
  * first-class, GDD pillar 3).
  */
 export function watchHitches(): void {
-  if (typeof PerformanceObserver === "undefined") return;
-  let recent = 0;
-  let worst = 0;
-  let lastReport = 0;
+  if (typeof PerformanceObserver === 'undefined') return
+  let recent = 0
+  let worst = 0
+  let lastReport = 0
   try {
     const observer = new PerformanceObserver((list) => {
       for (const entry of list.getEntries()) {
-        recent++;
-        if (entry.duration > worst) worst = entry.duration;
+        recent++
+        if (entry.duration > worst) worst = entry.duration
         if (entry.duration >= 250 && performance.now() - lastReport > 10_000) {
-          lastReport = performance.now();
-          logInfo("Main-thread hitch", {
-            surface: "perf",
-            action: "long_task",
+          lastReport = performance.now()
+          logInfo('Main-thread hitch', {
+            surface: 'perf',
+            action: 'long_task',
             duration_ms: Math.round(entry.duration),
             worst_ms: Math.round(worst),
             recent_long_tasks: recent,
             focused: document.hasFocus(),
             visibility: document.visibilityState,
             ...perfCounters,
-          });
-          recent = 0;
-          worst = 0;
-          for (const key of Object.keys(perfCounters)) perfCounters[key] = 0;
+          })
+          recent = 0
+          worst = 0
+          for (const key of Object.keys(perfCounters)) perfCounters[key] = 0
         }
       }
-    });
-    observer.observe({ entryTypes: ["longtask"] });
+    })
+    observer.observe({ entryTypes: ['longtask'] })
   } catch {
     // longtask isn't supported everywhere; no data beats broken boot
   }

@@ -33,10 +33,13 @@ jobs:
           fi
           echo "name=trogg-$slug" >> "$GITHUB_OUTPUT"
 
-      - uses: richardsolomou/ras-stack/actions/setup-spacetime@v1
+      # Only the local setup action, which pins the CLI version once for every SpacetimeDB job. From the
+      # default branch, because a closed pull request's merge ref may no longer exist.
+      - uses: actions/checkout@v7
         with:
-          version: '2.6.0'
-          sha256: 24f5c011a1c5b14e9458f230f67f4700f2c89ce1d26bfee35c1f4d3570dc1ac8
+          ref: ${{ github.event.repository.default_branch }}
+          sparse-checkout: .github/actions
+      - uses: ./.github/actions/setup-spacetime
 
       - name: Authenticate
         run: spacetime login --token "${{ secrets.SPACETIME_TOKEN }}"

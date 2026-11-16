@@ -7,48 +7,48 @@
  */
 
 export const SOUND_CATEGORIES = [
-  { id: "music", label: "Music", blurb: "The game theme" },
-  { id: "footsteps", label: "Footsteps", blurb: "Troggs on the move" },
-  { id: "world", label: "World", blurb: "Boulders, the ghost" },
-  { id: "interface", label: "Interface", blurb: "Chat, commands, pickups, errors" },
-] as const;
+  { id: 'music', label: 'Music', blurb: 'The game theme' },
+  { id: 'footsteps', label: 'Footsteps', blurb: 'Troggs on the move' },
+  { id: 'world', label: 'World', blurb: 'Boulders, the ghost' },
+  { id: 'interface', label: 'Interface', blurb: 'Chat, commands, pickups, errors' },
+] as const
 
-export type SoundCategory = (typeof SOUND_CATEGORIES)[number]["id"];
+export type SoundCategory = (typeof SOUND_CATEGORIES)[number]['id']
 
-const STORE_KEY = "trogg-sound-levels";
+const STORE_KEY = 'trogg-sound-levels'
 
-type Levels = Partial<Record<SoundCategory, number>>;
+type Levels = Partial<Record<SoundCategory, number>>
 
 function load(): Levels {
   try {
-    return (JSON.parse(localStorage.getItem(STORE_KEY) ?? "{}") ?? {}) as Levels;
+    return (JSON.parse(localStorage.getItem(STORE_KEY) ?? '{}') ?? {}) as Levels
   } catch {
-    return {};
+    return {}
   }
 }
 
-const levels: Levels = load();
-const listeners = new Set<(category: SoundCategory, level: number) => void>();
+const levels: Levels = load()
+const listeners = new Set<(category: SoundCategory, level: number) => void>()
 
-const clamp = (level: number) => Math.min(1, Math.max(0, level));
+const clamp = (level: number) => Math.min(1, Math.max(0, level))
 
 /** The saved level for a category, 0–1; full volume unless the player dialled it. */
 export function soundLevel(category: SoundCategory): number {
-  const saved = levels[category];
-  return typeof saved === "number" && Number.isFinite(saved) ? clamp(saved) : 1;
+  const saved = levels[category]
+  return typeof saved === 'number' && Number.isFinite(saved) ? clamp(saved) : 1
 }
 
 export function setSoundLevel(category: SoundCategory, level: number): void {
-  levels[category] = clamp(level);
+  levels[category] = clamp(level)
   try {
-    localStorage.setItem(STORE_KEY, JSON.stringify(levels));
+    localStorage.setItem(STORE_KEY, JSON.stringify(levels))
   } catch {
     // storage unavailable — the level still applies for this session
   }
-  for (const listener of listeners) listener(category, soundLevel(category));
+  for (const listener of listeners) listener(category, soundLevel(category))
 }
 
 /** Watch for level changes — for sounds already playing that must re-mix live. */
 export function onSoundLevel(listener: (category: SoundCategory, level: number) => void): void {
-  listeners.add(listener);
+  listeners.add(listener)
 }

@@ -1,4 +1,4 @@
-import { captureEvent, logInfo } from "./analytics.js";
+import { captureEvent, logInfo } from './analytics.js'
 
 /**
  * Notices when a newer frontend has been deployed and offers the player a refresh.
@@ -15,38 +15,38 @@ import { captureEvent, logInfo } from "./analytics.js";
  * action — the player refreshes when it suits them.
  */
 
-const POLL_MS = 60_000;
+const POLL_MS = 60_000
 
-let prompted = false;
+let prompted = false
 
 /** Start watching for a newer deployed build. Safe to call once after the world mounts. */
 export function watchForUpdate(): void {
-  const check = (): void => void checkVersion();
-  setInterval(check, POLL_MS);
+  const check = (): void => void checkVersion()
+  setInterval(check, POLL_MS)
   // Re-check the moment the player returns to the tab — that's both when a stale
   // build matters most and when an idle tab is most likely to have missed a deploy.
-  window.addEventListener("focus", check);
-  document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) check();
-  });
+  window.addEventListener('focus', check)
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) check()
+  })
 }
 
 async function checkVersion(): Promise<void> {
-  if (prompted) return;
-  let deployed: string | undefined;
+  if (prompted) return
+  let deployed: string | undefined
   try {
-    const res = await fetch("/version.json", { cache: "no-store" });
-    if (!res.ok) return;
-    deployed = ((await res.json()) as { build?: string }).build;
+    const res = await fetch('/version.json', { cache: 'no-store' })
+    if (!res.ok) return
+    deployed = ((await res.json()) as { build?: string }).build
   } catch {
     // Offline, or dev where version.json isn't built — nothing to do.
-    return;
+    return
   }
-  if (!deployed || deployed === __BUILD_ID__) return;
-  prompted = true;
-  captureEvent("client_update_available");
-  logInfo("Client update available", { current_build: __BUILD_ID__, deployed_build: deployed });
-  showUpdateBanner();
+  if (!deployed || deployed === __BUILD_ID__) return
+  prompted = true
+  captureEvent('client_update_available')
+  logInfo('Client update available', { current_build: __BUILD_ID__, deployed_build: deployed })
+  showUpdateBanner()
 }
 
 /**
@@ -54,57 +54,57 @@ async function checkVersion(): Promise<void> {
  * busy). Inline-styled because the play page ships no stylesheet of its own.
  */
 function showUpdateBanner(): void {
-  const bar = document.createElement("div");
-  bar.setAttribute("role", "status");
+  const bar = document.createElement('div')
+  bar.setAttribute('role', 'status')
   Object.assign(bar.style, {
-    position: "fixed",
-    left: "50%",
-    bottom: "24px",
-    transform: "translateX(-50%)",
-    display: "flex",
-    alignItems: "center",
-    gap: "14px",
-    padding: "10px 14px",
-    background: "#15100b",
-    color: "#f0e4c7",
-    font: "16px monospace",
-    border: "2px solid #3b2d1e",
-    borderRadius: "2px",
-    boxShadow: "0 0 0 1px #0a0806, 1px 1px 0 1px #6f6047 inset, -2px -2px 0 0 #070504 inset, 0 4px 0 rgba(0, 0, 0, 0.45)",
-    zIndex: "9999",
-  });
+    position: 'fixed',
+    left: '50%',
+    bottom: '24px',
+    transform: 'translateX(-50%)',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '14px',
+    padding: '10px 14px',
+    background: '#15100b',
+    color: '#f0e4c7',
+    font: '16px monospace',
+    border: '2px solid #3b2d1e',
+    borderRadius: '2px',
+    boxShadow: '0 0 0 1px #0a0806, 1px 1px 0 1px #6f6047 inset, -2px -2px 0 0 #070504 inset, 0 4px 0 rgba(0, 0, 0, 0.45)',
+    zIndex: '9999',
+  })
 
-  const label = document.createElement("span");
-  label.textContent = "A new version of tro.gg is ready.";
+  const label = document.createElement('span')
+  label.textContent = 'A new version of tro.gg is ready.'
 
-  const refresh = document.createElement("button");
-  refresh.textContent = "Refresh";
+  const refresh = document.createElement('button')
+  refresh.textContent = 'Refresh'
   Object.assign(refresh.style, {
-    font: "16px monospace",
-    color: "#0a0806",
-    background: "#f2c94c",
-    border: "2px solid #0a0806",
-    borderRadius: "2px",
-    boxShadow: "1px 1px 0 0 #fff0a8 inset, -2px -2px 0 0 #9b6d20 inset, 0 0 0 1px #3b2d1e",
-    padding: "5px 12px",
-    cursor: "pointer",
-  });
-  refresh.addEventListener("click", () => window.location.reload());
+    font: '16px monospace',
+    color: '#0a0806',
+    background: '#f2c94c',
+    border: '2px solid #0a0806',
+    borderRadius: '2px',
+    boxShadow: '1px 1px 0 0 #fff0a8 inset, -2px -2px 0 0 #9b6d20 inset, 0 0 0 1px #3b2d1e',
+    padding: '5px 12px',
+    cursor: 'pointer',
+  })
+  refresh.addEventListener('click', () => window.location.reload())
 
-  const dismiss = document.createElement("button");
-  dismiss.textContent = "✕";
-  dismiss.setAttribute("aria-label", "Dismiss");
+  const dismiss = document.createElement('button')
+  dismiss.textContent = '✕'
+  dismiss.setAttribute('aria-label', 'Dismiss')
   Object.assign(dismiss.style, {
-    font: "16px monospace",
-    color: "#b8a98a",
-    background: "#0a0806",
-    border: "2px solid #3b2d1e",
-    borderRadius: "2px",
-    boxShadow: "1px 1px 0 0 rgba(240, 228, 199, 0.22) inset, -2px -2px 0 0 rgba(0, 0, 0, 0.55) inset",
-    cursor: "pointer",
-  });
-  dismiss.addEventListener("click", () => bar.remove());
+    font: '16px monospace',
+    color: '#b8a98a',
+    background: '#0a0806',
+    border: '2px solid #3b2d1e',
+    borderRadius: '2px',
+    boxShadow: '1px 1px 0 0 rgba(240, 228, 199, 0.22) inset, -2px -2px 0 0 rgba(0, 0, 0, 0.55) inset',
+    cursor: 'pointer',
+  })
+  dismiss.addEventListener('click', () => bar.remove())
 
-  bar.append(label, refresh, dismiss);
-  document.body.appendChild(bar);
+  bar.append(label, refresh, dismiss)
+  document.body.appendChild(bar)
 }

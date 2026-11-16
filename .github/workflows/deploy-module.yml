@@ -1,12 +1,10 @@
 name: Deploy module
 
-# Publishes the SpacetimeDB module to the production instance (spacetime.tro.gg)
-# on merge to main. Publishing auto-migrates compatible schema changes in place
-# without disconnecting clients; breaking changes are NOT forced here (no
-# --delete-data / --break-clients), so they fail loudly instead of losing data.
-#
-# Required secret: SPACETIME_TOKEN — a token for the identity that owns the
-# `trogg` database. Get it with `spacetime login show --token`.
+# Publishes the SpacetimeDB module to production (spacetime.tro.gg) on merge to main, through
+# spacetime.yml's guarded publish: compatible migrations apply in place and a migration that needs
+# manual steps is refused. A merge accepts migrations that break clients on the old bindings,
+# because Cloudflare Workers Builds deploys the new client independently and open clients reload
+# through version.json; a manual run accepts them only with `break-clients`.
 
 on:
   push:
@@ -15,37 +13,25 @@ on:
       - 'spacetimedb/**'
       - 'shared/**'
       - '.github/workflows/deploy-module.yml'
+      - '.github/workflows/spacetime.yml'
   workflow_dispatch:
+    inputs:
+      break-clients:
+        description: Accept a migration that breaks clients still running the previous bindings.
+        type: boolean
+        default: false
 
 concurrency:
   group: deploy-module
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
-  publish:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: richardsolomou/ras-stack/actions/setup-js@v1
-
-      - uses: richardsolomou/ras-stack/actions/setup-spacetime@v1
-        with:
-          version: '2.6.0'
-          sha256: 24f5c011a1c5b14e9458f230f67f4700f2c89ce1d26bfee35c1f4d3570dc1ac8
-
-      - name: Authenticate
-        run: spacetime login --token "${{ secrets.SPACETIME_TOKEN }}"
-
-      - name: Register production server
-        run: spacetime server add trogg-prod --url https://spacetime.tro.gg || true
-
-      - name: Verify committed bindings match the module schema
-        run: |
-          spacetime generate --lang typescript --out-dir src/net/module_bindings --module-path spacetimedb -y
-          if ! git diff --exit-code src/net/module_bindings; then
-            echo "::error::src/net/module_bindings is stale — run 'just generate' and commit the result."
-            exit 1
-          fi
-
-      - name: Publish to production
-        run: spacetime publish --server trogg-prod --module-path spacetimedb trogg -y
+  spacetime:
+    uses: ./.github/workflows/spacetime.yml
+    with:
+      ref: ${{ github.sha }}
+      break-clients: ${{ github.event_name == 'push' || inputs.break-clients }}
+    secrets: inherit

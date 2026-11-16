@@ -6,13 +6,39 @@ updates:
       interval: weekly
     cooldown:
       default-days: 7
+      exclude:
+        - posthog-*
+        - '@posthog/*'
+    allow:
+      - dependency-type: direct
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-patch
     groups:
-      javascript-dependencies:
+      patch-updates:
+        applies-to: version-updates
         patterns:
           - '*'
+        update-types:
+          - patch
+      minor-updates:
+        applies-to: version-updates
+        patterns:
+          - '*'
+        update-types:
+          - minor
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
     cooldown:
       default-days: 7
+    ignore:
+      - dependency-name: richardsolomou/ras-stack*
+        update-types:
+          - version-update:semver-major
+    groups:
+      github-actions:
+        applies-to: version-updates
+        patterns:
+          - '*'

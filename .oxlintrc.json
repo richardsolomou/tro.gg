@@ -1,0 +1,18 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "extends": ["./node_modules/ras-stack/config/oxlint/application.json", "./node_modules/ras-stack/config/oxlint/layers.json"],
+  "ignorePatterns": ["node_modules/**", "dist/**", "src/net/module_bindings/**", "spacetimedb/dist/**"],
+  "rules": {
+    "unicorn/no-useless-spread": "off"
+  },
+  "overrides": [
+    {
+      "files": ["**/*.test.ts", "test/**"],
+      "rules": {
+        "typescript/no-unnecessary-type-assertion": "off",
+        "typescript/no-redundant-type-constituents": "off",
+        "unicorn/prefer-array-find": "off"
+      }
+    }
+  ]
+}

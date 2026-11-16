@@ -35,7 +35,7 @@ reset-local-db:
 
 # Regenerate the TypeScript client bindings from the module schema.
 generate:
-    {{spacetime}} generate --lang typescript --out-dir src/net/module_bindings --module-path spacetimedb -y
+    {{spacetime}} generate --lang typescript --module-path spacetimedb --out-dir src/net/module_bindings --yes
 
 # Clear the local database, publish the module, regenerate bindings, then run the client on :5173.
 dev: reset-local-db publish
@@ -57,19 +57,14 @@ build:
 # Type-check the client and the module.
 typecheck:
     pnpm typecheck
-    pnpm typecheck:module
 
-# Run the shared pure-logic unit tests.
+# Run the unit and reducer tests.
 test:
     pnpm test
 
 # Run every local gate used by CI.
 check:
-    pnpm changesets:check
-    pnpm typecheck
-    pnpm typecheck:module
-    pnpm test
-    pnpm build
+    pnpm check
 
 e2e-install:
     pnpm exec playwright install --with-deps chromium

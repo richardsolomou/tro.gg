@@ -3,21 +3,21 @@
  * facings, footprints, and equip slots — where the cast lives.
  */
 
-export type Kind = "trogg";
-export type Facing = "down" | "up" | "left" | "right";
+export type Kind = 'trogg'
+export type Facing = 'down' | 'up' | 'left' | 'right'
 
 /**
  * Cosmetic body variants within a kind (GDD "Avatars and equipment"). A style
  * changes the model's shape and base palette, but not the rig or footprint
  * rules. The first entry of each list is the default.
  */
-export const TROGG_STYLES = ["moss", "stone", "ridge"] as const;
-export type TroggStyle = (typeof TROGG_STYLES)[number];
-export type Style = TroggStyle;
+export const TROGG_STYLES = ['moss', 'stone', 'ridge'] as const
+export type TroggStyle = (typeof TROGG_STYLES)[number]
+export type Style = TroggStyle
 
 /** The styles a kind offers, default first. */
-export function stylesOf(kind: Kind): readonly string[] {
-  return TROGG_STYLES;
+export function stylesOf(_kind: Kind): readonly string[] {
+  return TROGG_STYLES
 }
 
 /**
@@ -26,22 +26,22 @@ export function stylesOf(kind: Kind): readonly string[] {
  * the last facing — a stopped trogg shouldn't snap to a default.
  */
 export function facingFromDir(dirX: number, dirY: number, last: Facing): Facing {
-  if (dirX === 0 && dirY === 0) return last;
-  if (Math.abs(dirX) >= Math.abs(dirY)) return dirX < 0 ? "left" : "right";
-  return dirY < 0 ? "up" : "down";
+  if (dirX === 0 && dirY === 0) return last
+  if (Math.abs(dirX) >= Math.abs(dirY)) return dirX < 0 ? 'left' : 'right'
+  return dirY < 0 ? 'up' : 'down'
 }
 
 /** Unit step in the direction a facing points, in tile space (down = +y). */
 export function forward(facing: Facing): { x: number; y: number } {
   switch (facing) {
-    case "down":
-      return { x: 0, y: 1 };
-    case "up":
-      return { x: 0, y: -1 };
-    case "left":
-      return { x: -1, y: 0 };
-    case "right":
-      return { x: 1, y: 0 };
+    case 'down':
+      return { x: 0, y: 1 }
+    case 'up':
+      return { x: 0, y: -1 }
+    case 'left':
+      return { x: -1, y: 0 }
+    case 'right':
+      return { x: 1, y: 0 }
   }
 }
 
@@ -50,7 +50,7 @@ export function forward(facing: Facing): { x: number; y: number } {
  *  tool (the left). The slot vocabulary is the cross-species contract: every
  *  creature's rig resolves the same slots, so any slot-targeted item can attach
  *  to any creature (GDD "Layered avatars and cross-species equipment"). */
-export type EquipSlot = "mainHand" | "offHand";
+export type EquipSlot = 'mainHand' | 'offHand'
 
 /**
  * Dark-creature species (GDD "Dark creatures"). Species are open — the
@@ -59,5 +59,5 @@ export type EquipSlot = "mainHand" | "offHand";
  * `shared/constants.ts`), reusing the same joint vocabulary and motion model
  * as every other creature.
  */
-export const DARK_CREATURE_SPECIES = ["grask"] as const;
-export type DarkCreatureSpecies = (typeof DARK_CREATURE_SPECIES)[number];
+export const DARK_CREATURE_SPECIES = ['grask'] as const
+export type DarkCreatureSpecies = (typeof DARK_CREATURE_SPECIES)[number]

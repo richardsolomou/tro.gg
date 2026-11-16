@@ -1,9 +1,0 @@
-{
-  "extends": "../tsconfig.base.json",
-  "compilerOptions": {
-    "paths": {
-      "@trogg/shared": ["../shared/index.ts"],
-      "spacetimedb/server": ["./mock-server.ts"]
-    }
-  }
-}

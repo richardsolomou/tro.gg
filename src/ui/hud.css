@@ -11,8 +11,8 @@
  */
 
 @font-face {
-  font-family: "Baloo 2";
-  src: url("./fonts/baloo2-latin.woff2") format("woff2");
+  font-family: 'Baloo 2';
+  src: url('./fonts/baloo2-latin.woff2') format('woff2');
   font-weight: 400 800;
   font-display: swap;
 }
@@ -44,7 +44,7 @@
   position: fixed;
   inset: 0;
   pointer-events: none; /* clicks fall through to the canvas… */
-  font-family: "Baloo 2", "Trebuchet MS", system-ui, sans-serif;
+  font-family: 'Baloo 2', 'Trebuchet MS', system-ui, sans-serif;
   font-weight: 500;
   color: var(--hud-bone);
   z-index: 100;
@@ -103,7 +103,9 @@ textarea {
   color: var(--hud-bone-dim);
 }
 #hud .field:focus {
-  box-shadow: var(--well-shade), inset 0 -2px 0 var(--hud-moss);
+  box-shadow:
+    var(--well-shade),
+    inset 0 -2px 0 var(--hud-moss);
 }
 
 #hud .btn {
@@ -116,7 +118,9 @@ textarea {
   border: 0;
   clip-path: var(--facet);
   --cut: 6px;
-  box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.18), inset 0 2px 0 rgba(255, 255, 255, 0.35);
+  box-shadow:
+    inset 0 -3px 0 rgba(0, 0, 0, 0.18),
+    inset 0 2px 0 rgba(255, 255, 255, 0.35);
   cursor: pointer;
 }
 #hud .btn:hover:not(:disabled) {
@@ -190,7 +194,9 @@ textarea {
   border: 0;
   clip-path: var(--facet);
   --cut: 5px;
-  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  box-shadow:
+    inset 0 -2px 0 rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
   cursor: pointer;
 }
 #hud .swatch {
@@ -199,8 +205,8 @@ textarea {
 #hud .swatch:hover {
   filter: brightness(1.2);
 }
-#hud .swatch[aria-pressed="true"]::after {
-  content: "";
+#hud .swatch[aria-pressed='true']::after {
+  content: '';
   position: absolute;
   inset: 50% auto auto 50%;
   width: 8px;
@@ -247,7 +253,7 @@ textarea {
    box-shadow ring gets its corners clipped into brackets. Children sit above
    the face via z-index. */
 #hud :is(.hud-icon-button, .inventory-item, .command-spawn-button)::before {
-  content: "";
+  content: '';
   position: absolute;
   inset: 2px;
   background: var(--face);
@@ -278,7 +284,7 @@ textarea {
   --frame: var(--hud-ember);
 }
 #hud .hud-icon-button:active,
-#hud .hud-icon-button[aria-expanded="true"] {
+#hud .hud-icon-button[aria-expanded='true'] {
   --frame: var(--hud-ember);
   --face: var(--hud-well-lite);
   box-shadow: inset 0 3px 0 rgba(0, 0, 0, 0.2);
@@ -328,7 +334,7 @@ textarea {
   gap: 6px 10px;
   align-items: center;
 }
-#hud .settings-rows input[type="range"] {
+#hud .settings-rows input[type='range'] {
   width: 150px;
   accent-color: var(--hud-ember);
 }
@@ -375,7 +381,7 @@ textarea {
   background: var(--hud-well-lite);
   color: var(--hud-ember);
 }
-#hud .style-option[aria-pressed="true"] {
+#hud .style-option[aria-pressed='true'] {
   color: var(--hud-ink);
   font-weight: 700;
   background: var(--hud-moss);
@@ -458,7 +464,7 @@ textarea {
   --frame: var(--hud-ember);
   --face: var(--hud-well-lite);
 }
-#hud .inventory-item[aria-pressed="true"] {
+#hud .inventory-item[aria-pressed='true'] {
   --frame: var(--hud-ember);
 }
 #hud .inventory-item:disabled {
@@ -626,7 +632,9 @@ textarea {
   --cut: 7px;
   box-shadow: var(--slab-light);
   animation: pickup-toast-in 0.16s ease-out;
-  transition: opacity 0.25s ease, transform 0.25s ease;
+  transition:
+    opacity 0.25s ease,
+    transform 0.25s ease;
 }
 #hud .pickup-toast.is-leaving {
   opacity: 0;
@@ -680,7 +688,9 @@ textarea {
   letter-spacing: 0.02em;
   pointer-events: none;
   animation: pickup-toast-in 0.16s ease-out;
-  transition: opacity 0.25s ease, transform 0.25s ease;
+  transition:
+    opacity 0.25s ease,
+    transform 0.25s ease;
 }
 #hud .region-toast.is-leaving {
   opacity: 0;
@@ -735,7 +745,9 @@ textarea {
   color: var(--hud-ember);
 }
 #hud .ctx-menu-item:active {
-  box-shadow: var(--well-shade), inset 0 3px 0 rgba(0, 0, 0, 0.35);
+  box-shadow:
+    var(--well-shade),
+    inset 0 3px 0 rgba(0, 0, 0, 0.35);
 }
 #hud .ctx-menu-item.is-danger {
   color: #ffb49a;
@@ -789,7 +801,7 @@ textarea {
   box-shadow: var(--well-shade);
   cursor: pointer;
 }
-#hud .command-button[aria-pressed="true"] {
+#hud .command-button[aria-pressed='true'] {
   color: var(--hud-ink);
   font-weight: 700;
   background: var(--hud-moss);
@@ -821,7 +833,9 @@ textarea {
 }
 #hud .command-spawn-button:active,
 #hud .command-button:active {
-  box-shadow: var(--well-shade), inset 0 3px 0 rgba(0, 0, 0, 0.35);
+  box-shadow:
+    var(--well-shade),
+    inset 0 3px 0 rgba(0, 0, 0, 0.35);
 }
 #hud .command-spawn-button .item-icon {
   width: 40px;
@@ -852,11 +866,15 @@ textarea {
   color: var(--hud-bone);
   background: var(--hud-timber);
   clip-path: var(--facet);
-  box-shadow: var(--slab-light), 0 0 18px rgba(255, 140, 46, 0.25);
+  box-shadow:
+    var(--slab-light),
+    0 0 18px rgba(255, 140, 46, 0.25);
   pointer-events: auto;
   cursor: pointer;
   animation: coach-in 0.22s ease-out;
-  transition: opacity 0.25s ease, transform 0.25s ease;
+  transition:
+    opacity 0.25s ease,
+    transform 0.25s ease;
 }
 #hud .coach[hidden] {
   display: none;
@@ -940,7 +958,9 @@ textarea {
   color: var(--hud-ember);
 }
 #hud .game-menu-nav-item:active {
-  box-shadow: var(--well-shade), inset 0 3px 0 rgba(0, 0, 0, 0.35);
+  box-shadow:
+    var(--well-shade),
+    inset 0 3px 0 rgba(0, 0, 0, 0.35);
 }
 #hud .game-menu-nav-item.is-danger:hover {
   background: var(--hud-clay);
@@ -1006,7 +1026,9 @@ textarea {
   margin: 9px 0 0 9px;
   border-radius: 50%;
   background: #ffe08a;
-  box-shadow: 0 0 8px #ff8c2e, 0 0 0 2px rgba(10, 8, 6, 0.7);
+  box-shadow:
+    0 0 8px #ff8c2e,
+    0 0 0 2px rgba(10, 8, 6, 0.7);
   animation: worldmap-pulse 1.2s ease-in-out infinite;
   pointer-events: none;
 }
@@ -1046,7 +1068,9 @@ textarea {
   filter: none;
   clip-path: none;
   background: var(--hud-timber);
-  box-shadow: var(--slab-light), 0 6px 0 rgba(0, 0, 0, 0.35);
+  box-shadow:
+    var(--slab-light),
+    0 6px 0 rgba(0, 0, 0, 0.35);
   transform: translateX(calc(100% + 24px));
   transition: transform 0.18s ease-out;
 }
@@ -1071,7 +1095,7 @@ textarea {
   align-items: center;
   margin-top: 6px;
 }
-#hud .command-daylight input[type="range"] {
+#hud .command-daylight input[type='range'] {
   flex: 1;
   min-width: 0;
   accent-color: var(--hud-moss);

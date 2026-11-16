@@ -1,0 +1,59 @@
+name: SpacetimeDB
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # The deploy workflow calls this to publish, so the module is live before the client built from its bindings.
+  workflow_call:
+    inputs:
+      ref:
+        description: The commit to publish.
+        type: string
+        required: true
+      break-clients:
+        description: Accept a migration that breaks clients still running the previous bindings.
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  # A publish cancelled halfway can leave the database between versions, so only pull request runs cancel.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  bindings:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: richardsolomou/ras-stack/actions/setup-js@v1
+      - uses: ./.github/actions/setup-spacetime
+      - uses: richardsolomou/ras-stack/actions/check-spacetime-bindings@v1
+        with:
+          module-path: spacetimedb
+          out-dir: src/net/module_bindings
+
+  publish:
+    needs: bindings
+    if: inputs.ref != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: richardsolomou/ras-stack/actions/setup-js@v1
+      - uses: ./.github/actions/setup-spacetime
+      - run: spacetime build --module-path spacetimedb
+      - run: pnpm exec tsx scripts/publishSpacetimeModule.ts spacetimedb/dist/bundle.js
+        env:
+          SPACETIME_URL: ${{ vars.SPACETIME_URL }}
+          SPACETIME_DATABASE: ${{ vars.SPACETIME_DATABASE }}
+          SPACETIME_TOKEN: ${{ secrets.SPACETIME_TOKEN }}
+          SPACETIME_ACCESS_CLIENT_ID: ${{ secrets.SPACETIME_ACCESS_CLIENT_ID }}
+          SPACETIME_ACCESS_CLIENT_SECRET: ${{ secrets.SPACETIME_ACCESS_CLIENT_SECRET }}
+          SPACETIME_BREAK_CLIENTS: ${{ inputs.break-clients || 'false' }}

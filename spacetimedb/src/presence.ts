@@ -1,10 +1,10 @@
-import { deriveAfkCharge, type Stamp } from "../../shared/index";
-import { isLitTile, nearestLitBrazier } from "./brazier";
-import type { Ctx } from "./schema";
+import { deriveAfkCharge, type Stamp } from '../../shared/index'
+import { isLitTile, nearestLitBrazier } from './brazier'
+import type { Ctx } from './schema'
 
 /** The player-row slice `touchAfkCharge`/`settlePresence` read and write.
  *  The columns keep their shipped `kindling*` names (additive-only schema). */
-type AfkCharge<S extends Stamp> = { kindlingCharge: number; kindlingChargeAt: S };
+type AfkCharge<S extends Stamp> = { kindlingCharge: number; kindlingChargeAt: S }
 
 /**
  * Re-base a trogg's AFK charge to now, accruing for the active play
@@ -15,7 +15,7 @@ type AfkCharge<S extends Stamp> = { kindlingCharge: number; kindlingChargeAt: S 
  * `Timestamp` SpacetimeDB expects, not the narrower `Stamp` shape.
  */
 export function touchAfkCharge<S extends Stamp>(p: AfkCharge<S>, now: S): AfkCharge<S> {
-  return { kindlingCharge: deriveAfkCharge(p.kindlingCharge, p.kindlingChargeAt, true, now), kindlingChargeAt: now };
+  return { kindlingCharge: deriveAfkCharge(p.kindlingCharge, p.kindlingChargeAt, true, now), kindlingChargeAt: now }
 }
 
 /**
@@ -33,11 +33,11 @@ export function settlePresence<S extends Stamp>(
   at: { x: number; y: number; z: number },
   now: S,
 ): { x: number; y: number; z: number; kindlingCharge: number; kindlingChargeAt: S; recalled: boolean } {
-  const charge = deriveAfkCharge(p.kindlingCharge, p.kindlingChargeAt, true, now);
+  const charge = deriveAfkCharge(p.kindlingCharge, p.kindlingChargeAt, true, now)
   if (charge > 0 && isLitTile(ctx, p.zoneId, Math.round(at.x), Math.round(at.y))) {
-    return { x: at.x, y: at.y, z: at.z, kindlingCharge: charge, kindlingChargeAt: now, recalled: false };
+    return { x: at.x, y: at.y, z: at.z, kindlingCharge: charge, kindlingChargeAt: now, recalled: false }
   }
-  const hearth = nearestLitBrazier(ctx, p.zoneId, at.x, at.y);
+  const hearth = nearestLitBrazier(ctx, p.zoneId, at.x, at.y)
   return {
     x: hearth?.x ?? at.x,
     y: hearth?.y ?? at.y,
@@ -45,5 +45,5 @@ export function settlePresence<S extends Stamp>(
     kindlingCharge: charge,
     kindlingChargeAt: now,
     recalled: true,
-  };
+  }
 }

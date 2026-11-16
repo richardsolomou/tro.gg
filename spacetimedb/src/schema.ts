@@ -1,5 +1,5 @@
-import { schema, table, t, type InferSchema, type ProcedureCtx, type ReducerCtx } from "spacetimedb/server";
-import { ScheduleAt, Timestamp } from "spacetimedb";
+import { schema, table, t, type InferSchema, type ProcedureCtx, type ReducerCtx } from 'spacetimedb/server'
+import { ScheduleAt, Timestamp } from 'spacetimedb'
 import {
   COLOR_UNSET,
   DARK_CREATURE_AGGRO_RANGE,
@@ -17,8 +17,6 @@ import {
   BRAZIER_UPKEEP_ITEM,
   BRAZIER_UPKEEP_RATE,
   deriveAfkCharge,
-  AFK_TRICKLE_EFFICIENCY_FRACTION,
-  AFK_EFFICIENCY_FRACTION,
   AFK_GATHER_DAMAGE,
   AFK_SEEK_RADIUS,
   AFK_UNLOCK_XP,
@@ -34,7 +32,6 @@ import {
   DARK_CREATURE_LEASH_RANGE,
   DARK_CREATURE_SIM_RANGE,
   findPath,
-  NODE_RESPAWN_MS,
   serializePath,
   smoothPath,
   WANDER_TURN_CHANCE,
@@ -47,7 +44,7 @@ import {
   tileKey,
   type Zone,
   zoneBounds,
-} from "../../shared/index";
+} from '../../shared/index'
 import {
   anyPlayerOnline,
   armRegen,
@@ -76,7 +73,7 @@ import {
   currentRevealedRegions,
   regionHopDepths,
   scheduleNodeRespawn,
-} from "./helpers";
+} from './helpers'
 
 /**
  * The tro.gg backend (GDD "Data model"): durable tables that clients subscribe to
@@ -114,12 +111,12 @@ import {
  * returns it to spawn.
  */
 const player = table(
-  { name: "player", public: true },
+  { name: 'player', public: true },
   {
     identity: t.identity().primaryKey(),
     name: t.string(),
     isGuest: t.bool(),
-    zoneId: t.string().index("btree"),
+    zoneId: t.string().index('btree'),
     x: t.f64(),
     y: t.f64(),
     dirX: t.i32(),
@@ -140,16 +137,16 @@ const player = table(
     // entity. Carryables are fungible (no identity, seeded from the registry); a
     // carried entity's visual variant rides separately in `carryingStyle` while its
     // world row is gone.
-    carrying: t.string().default(""),
+    carrying: t.string().default(''),
     // Click-to-move waypoints, serialized as "x,y;x,y;..." and interpreted by
     // shared `projectMotion` (GDD "Movement"). Empty = no path / direct WASD.
-    path: t.string().default(""),
+    path: t.string().default(''),
     // Chosen avatar body style — an index into `TROGG_STYLES` (GDD "Avatars"), set by
     // `restyle`. Defaults to `STYLE_UNSET` (-1) so an unchosen trogg falls back to its
     // id-derived style, the mirror of `color`.
     style: t.i32().default(STYLE_UNSET),
-    equippedMainHand: t.string().default(""),
-    equipmentAction: t.string().default(""),
+    equippedMainHand: t.string().default(''),
+    equipmentAction: t.string().default(''),
     equipmentActionAt: t.timestamp().default(Timestamp.UNIX_EPOCH),
     equippedMainHandInventoryId: t.u64().default(0n),
     // Standing facing, independent of motion. Defaults to down for existing rows and
@@ -158,13 +155,13 @@ const player = table(
     faceY: t.i32().default(1),
     // Visual variant for carried entities that need one: pickup copies the entity's
     // effective style here, and put-down copies it back.
-    carryingStyle: t.string().default(""),
+    carryingStyle: t.string().default(''),
     health: t.i32().default(PLAYER_MAX_HEALTH),
     dead: t.bool().default(false),
     respawnAt: t.option(t.timestamp()).default(undefined),
     // Off-hand slot (e.g. a shield), the mirror of the main-hand fields (GDD "Avatars and
     // equipment"). Appended last so adding it is a non-breaking, auto-migratable column add.
-    equippedOffHand: t.string().default(""),
+    equippedOffHand: t.string().default(''),
     equippedOffHandInventoryId: t.u64().default(0n),
     // When damage last landed — the out-of-combat clock the regen sweep reads.
     lastDamagedAt: t.timestamp().default(Timestamp.UNIX_EPOCH),
@@ -198,7 +195,7 @@ const player = table(
     // warding — the bearer is prey and creatures cross their light.
     provokedAt: t.timestamp().default(Timestamp.UNIX_EPOCH),
   },
-);
+)
 
 /**
  * One zone-scoped chat line (GDD "Chat"). Clients subscribe to recent rows in
@@ -208,16 +205,16 @@ const player = table(
  * leaves the game for analytics (invariant 4).
  */
 const chatMessage = table(
-  { name: "chat_message", public: true },
+  { name: 'chat_message', public: true },
   {
     id: t.u64().primaryKey().autoInc(),
-    zoneId: t.string().index("btree"),
+    zoneId: t.string().index('btree'),
     sender: t.identity(),
     name: t.string(),
     text: t.string(),
     createdAt: t.timestamp(),
   },
-);
+)
 
 /**
  * A zone-scoped cosmetic ghost haunt. A new row is the live fanout event: clients
@@ -226,15 +223,15 @@ const chatMessage = table(
  * cannot grow without bound.
  */
 const ghostHaunt = table(
-  { name: "ghost_haunt", public: true },
+  { name: 'ghost_haunt', public: true },
   {
     id: t.u64().primaryKey().autoInc(),
-    zoneId: t.string().index("btree"),
+    zoneId: t.string().index('btree'),
     x: t.i32(),
     y: t.i32(),
     createdAt: t.timestamp(),
   },
-);
+)
 
 /**
  * A pending account claim (GDD "Identity" — guest → account upgrade). A guest's
@@ -246,13 +243,13 @@ const ghostHaunt = table(
  * browser that minted it. Stale rows expire after `CLAIM_CODE_TTL_MS`.
  */
 const claimCode = table(
-  { name: "claim_code", public: false },
+  { name: 'claim_code', public: false },
   {
     code: t.string().primaryKey(),
     guest: t.identity(),
     createdAt: t.timestamp(),
   },
-);
+)
 
 /**
  * A boulder (GDD "Boulders"): a mineable rock on an unwalkable tile. Boulders are
@@ -262,10 +259,10 @@ const claimCode = table(
  * mines one into Stone (removing the row), and a trogg can carry or throw one.
  */
 const boulder = table(
-  { name: "boulder", public: true },
+  { name: 'boulder', public: true },
   {
     id: t.u64().primaryKey().autoInc(),
-    zoneId: t.string().index("btree"),
+    zoneId: t.string().index('btree'),
     x: t.i32(),
     y: t.i32(),
     // Appended with a default (see the player table's migration note).
@@ -275,7 +272,7 @@ const boulder = table(
     // is excluded from resets and the spawn cap.
     cellId: t.u32().default(0),
   },
-);
+)
 
 /**
  * A tree (GDD "Trees"): choppable scenery on an unwalkable tile, the woodcutting
@@ -284,16 +281,16 @@ const boulder = table(
  * (removing the row). Trees are not carryable: a trunk is not tile-sized.
  */
 const tree = table(
-  { name: "tree", public: true },
+  { name: 'tree', public: true },
   {
     id: t.u64().primaryKey().autoInc(),
-    zoneId: t.string().index("btree"),
+    zoneId: t.string().index('btree'),
     x: t.i32(),
     y: t.i32(),
     // Appended with a default (see the player table's migration note).
     health: t.i32().default(TREE_MAX_HEALTH),
   },
-);
+)
 
 /**
  * A hostile inhabitant of the dark and the penumbra (GDD "Dark creatures").
@@ -310,10 +307,10 @@ const tree = table(
  * it is what claims the ground, not a separate event.
  */
 const darkCreature = table(
-  { name: "dark_creature", public: true },
+  { name: 'dark_creature', public: true },
   {
     id: t.u64().primaryKey().autoInc(),
-    zoneId: t.string().index("btree"),
+    zoneId: t.string().index('btree'),
     x: t.f64(),
     y: t.f64(),
     dirX: t.i32(),
@@ -322,7 +319,7 @@ const darkCreature = table(
     species: t.string(),
     health: t.i32(),
     lastDamagedAt: t.timestamp(),
-    aggroTargetId: t.string().default(""),
+    aggroTargetId: t.string().default(''),
     // A night-tide visitor (GDD "Night"): seeded at dusk into a lit region,
     // despawned at dawn, exempt from territory-linked respawn. Residents of
     // the dark keep the default false.
@@ -336,7 +333,7 @@ const darkCreature = table(
     // The last server-resolved strike, consumed by clients as a one-shot animation impulse.
     attackAt: t.timestamp().default(Timestamp.UNIX_EPOCH),
   },
-);
+)
 
 /**
  * A pickup item lying on a tile (GDD "Inventory"). It is seeded from the zone
@@ -344,16 +341,16 @@ const darkCreature = table(
  * solid; a trogg can stand on a tool, but must face its tile to take it.
  */
 const groundItem = table(
-  { name: "ground_item", public: true },
+  { name: 'ground_item', public: true },
   {
     id: t.u64().primaryKey().autoInc(),
-    zoneId: t.string().index("btree"),
+    zoneId: t.string().index('btree'),
     item: t.string(),
     x: t.i32(),
     y: t.i32(),
     qty: t.i32().default(1),
   },
-);
+)
 
 /**
  * Player inventory (GDD "Inventory"): stackable items merge into one row;
@@ -361,10 +358,10 @@ const groundItem = table(
  * owned row on the player record; it does not remove quantity here.
  */
 const inventory = table(
-  { name: "inventory", public: true },
+  { name: 'inventory', public: true },
   {
     id: t.u64().primaryKey().autoInc(),
-    playerId: t.identity().index("btree"),
+    playerId: t.identity().index('btree'),
     item: t.string(),
     qty: t.i32(),
     // Consumable burn-down (GDD "Crafting"): an equipped torch accrues wear
@@ -372,7 +369,7 @@ const inventory = table(
     // everything durable.
     wear: t.f64().default(0),
   },
-);
+)
 
 /**
  * Per-player, per-skill accumulated XP (GDD "Skills and XP"). XP accrues only
@@ -382,14 +379,14 @@ const inventory = table(
  * via the shared curve, never stored.
  */
 const skills = table(
-  { name: "skills", public: true },
+  { name: 'skills', public: true },
   {
     id: t.u64().primaryKey().autoInc(),
-    playerId: t.identity().index("btree"),
+    playerId: t.identity().index('btree'),
     skill: t.string(),
     xp: t.f64(),
   },
-);
+)
 
 /**
  * The tribe's one shared resource pool (GDD "The fire and the dark" → The
@@ -400,12 +397,12 @@ const skills = table(
  * surplus. No index needed at this size.
  */
 const stockpile = table(
-  { name: "stockpile", public: true },
+  { name: 'stockpile', public: true },
   {
     item: t.string().primaryKey(),
     qty: t.i32(),
   },
-);
+)
 
 /**
  * A fire that holds the dark back from the region it stands in (GDD "The
@@ -420,17 +417,17 @@ const stockpile = table(
  * claimed the whole time, guttered or not, so nothing needs re-clearing.
  */
 const brazier = table(
-  { name: "brazier", public: true },
+  { name: 'brazier', public: true },
   {
     id: t.u64().primaryKey().autoInc(),
-    zoneId: t.string().index("btree"),
+    zoneId: t.string().index('btree'),
     x: t.i32(),
     y: t.i32(),
     radius: t.i32(),
     lit: t.bool(),
     isEternal: t.bool(),
   },
-);
+)
 
 /**
  * The brazier upkeep sweep's timer (GDD "The fire and the dark" → Territory
@@ -438,12 +435,12 @@ const brazier = table(
  * while a player is online.
  */
 const brazierUpkeepTimer = table(
-  { name: "brazier_upkeep_timer", scheduled: (): any => brazierUpkeep },
+  { name: 'brazier_upkeep_timer', scheduled: (): any => brazierUpkeep },
   {
     scheduledId: t.u64().primaryKey().autoInc(),
     scheduledAt: t.scheduleAt(),
   },
-);
+)
 
 /**
  * The AFK-trogg and dark-creature wander timer (GDD "The fire and the
@@ -460,20 +457,20 @@ const brazierUpkeepTimer = table(
  *  seeded the dusk cohorts, so a night is one tide, not a per-tick spawner.
  *  Private — no client reads it. */
 const nightTide = table(
-  { name: "night_tide" },
+  { name: 'night_tide' },
   {
     id: t.u32().primaryKey(),
     cycle: t.u64(),
   },
-);
+)
 
 const afkWanderTimer = table(
-  { name: "ember_wander", scheduled: (): any => wanderPresence },
+  { name: 'ember_wander', scheduled: (): any => wanderPresence },
   {
     scheduledId: t.u64().primaryKey().autoInc(),
     scheduledAt: t.scheduleAt(),
   },
-);
+)
 
 /**
  * Live socket presence per trogg (private). A player row is keyed by Identity, so
@@ -483,13 +480,13 @@ const afkWanderTimer = table(
  * row offline while another tab is still present.
  */
 const playerConnection = table(
-  { name: "player_connection", public: false },
+  { name: 'player_connection', public: false },
   {
     connectionId: t.string().primaryKey(),
-    playerId: t.identity().index("btree"),
+    playerId: t.identity().index('btree'),
     connectedAt: t.timestamp(),
   },
-);
+)
 
 /**
  * One-shot player respawn timers. Each death inserts one row scheduled for
@@ -497,13 +494,13 @@ const playerConnection = table(
  * timer rows are harmless.
  */
 const playerRespawn = table(
-  { name: "player_respawn", scheduled: (): any => respawnPlayers },
+  { name: 'player_respawn', scheduled: (): any => respawnPlayers },
   {
     scheduledId: t.u64().primaryKey().autoInc(),
-    playerId: t.identity().index("btree"),
+    playerId: t.identity().index('btree'),
     scheduledAt: t.scheduleAt(),
   },
-);
+)
 
 /**
  * One-shot node respawn timers (GDD "Territory claiming"): each breaking hit
@@ -512,7 +509,7 @@ const playerRespawn = table(
  * active farming and AFK instinct alike.
  */
 const nodeRespawn = table(
-  { name: "node_respawn", scheduled: (): any => respawnNodes },
+  { name: 'node_respawn', scheduled: (): any => respawnNodes },
   {
     scheduledId: t.u64().primaryKey().autoInc(),
     scheduledAt: t.scheduleAt(),
@@ -521,7 +518,7 @@ const nodeRespawn = table(
     x: t.i32(),
     y: t.i32(),
   },
-);
+)
 
 /**
  * The out-of-combat regeneration sweep's timer (GDD "Combat") — a sanctioned
@@ -529,12 +526,12 @@ const nodeRespawn = table(
  * empty world does no regen work.
  */
 const creatureRegen = table(
-  { name: "creature_regen", scheduled: (): any => regenCreatures },
+  { name: 'creature_regen', scheduled: (): any => regenCreatures },
   {
     scheduledId: t.u64().primaryKey().autoInc(),
     scheduledAt: t.scheduleAt(),
   },
-);
+)
 
 /**
  * A claimed region (GDD "Generation: only as far as the light reaches"): the
@@ -545,7 +542,7 @@ const creatureRegen = table(
  * `WORLD_REGION_ADJACENCY` graph.
  */
 const revealedRegion = table(
-  { name: "revealed_region", public: true },
+  { name: 'revealed_region', public: true },
   {
     slug: t.string().primaryKey(),
     // The display name, locked the moment the region is first exposed as
@@ -558,7 +555,7 @@ const revealedRegion = table(
     interior: t.bool(),
     revealedAt: t.timestamp(),
   },
-);
+)
 
 /**
  * Shared world dials (GDD "Debug cheats") — one public singleton row (id 0).
@@ -568,21 +565,43 @@ const revealedRegion = table(
  * subscribe and read it in their daylight pass.
  */
 const worldState = table(
-  { name: "world_state", public: true },
+  { name: 'world_state', public: true },
   {
     id: t.u32().primaryKey(),
     skyLocked: t.bool(),
     skyPhase: t.f64(),
   },
-);
+)
 
-const spacetimedb = schema({ player, chatMessage, ghostHaunt, claimCode, boulder, tree, darkCreature, groundItem, inventory, skills, stockpile, brazier, brazierUpkeepTimer, afkWanderTimer, nightTide, playerConnection, playerRespawn, nodeRespawn, creatureRegen, revealedRegion, worldState });
-export default spacetimedb;
+const spacetimedb = schema({
+  player,
+  chatMessage,
+  ghostHaunt,
+  claimCode,
+  boulder,
+  tree,
+  darkCreature,
+  groundItem,
+  inventory,
+  skills,
+  stockpile,
+  brazier,
+  brazierUpkeepTimer,
+  afkWanderTimer,
+  nightTide,
+  playerConnection,
+  playerRespawn,
+  nodeRespawn,
+  creatureRegen,
+  revealedRegion,
+  worldState,
+})
+export default spacetimedb
 
 /** The reducer context, typed against this module's schema (db view + sender). */
-export type Ctx = ReducerCtx<InferSchema<typeof spacetimedb>>;
-export type ProcCtx = ProcedureCtx<InferSchema<typeof spacetimedb>>;
-export type AnalyticsEvent = { distinctId: string; event: string; properties?: Record<string, string | number | boolean> };
+export type Ctx = ReducerCtx<InferSchema<typeof spacetimedb>>
+export type ProcCtx = ProcedureCtx<InferSchema<typeof spacetimedb>>
+export type AnalyticsEvent = { distinctId: string; event: string; properties?: Record<string, string | number | boolean> }
 
 /**
  * Out-of-combat regeneration (GDD "Combat"): a trogg untouched for
@@ -591,15 +610,15 @@ export type AnalyticsEvent = { distinctId: string; event: string; properties?: R
  * never revives the dead — respawn does that.
  */
 export const regenCreatures = spacetimedb.reducer({ timer: creatureRegen.rowType }, (ctx) => {
-  const online = anyPlayerOnline(ctx);
-  const now = ctx.timestamp;
+  const online = anyPlayerOnline(ctx)
+  const now = ctx.timestamp
   if (online) {
     const rested = (lastDamagedAt: { microsSinceUnixEpoch: bigint } | undefined) =>
-      !lastDamagedAt || elapsedMs(lastDamagedAt, now) >= HEALTH_REGEN_DELAY_MS;
+      !lastDamagedAt || elapsedMs(lastDamagedAt, now) >= HEALTH_REGEN_DELAY_MS
     for (const p of ctx.db.player.iter()) {
-      if (p.dead || p.health >= PLAYER_MAX_HEALTH || !rested(p.lastDamagedAt)) continue;
-      const heal = Math.ceil(PLAYER_MAX_HEALTH * HEALTH_REGEN_FRACTION);
-      ctx.db.player.identity.update({ ...p, health: Math.min(PLAYER_MAX_HEALTH, p.health + heal) });
+      if (p.dead || p.health >= PLAYER_MAX_HEALTH || !rested(p.lastDamagedAt)) continue
+      const heal = Math.ceil(PLAYER_MAX_HEALTH * HEALTH_REGEN_FRACTION)
+      ctx.db.player.identity.update({ ...p, health: Math.min(PLAYER_MAX_HEALTH, p.health + heal) })
     }
 
     // Dark creatures: the same out-of-combat heal, plus corpse reaping (GDD
@@ -608,11 +627,11 @@ export const regenCreatures = spacetimedb.reducer({ timer: creatureRegen.rowType
     // right here, at the reap, by whether the ground is lit *now* — not
     // frozen at the moment of the kill (Territory and permanence).
     for (const c of ctx.db.darkCreature.iter()) {
-      const def = darkCreatureDef(c.species);
+      const def = darkCreatureDef(c.species)
       if (c.health <= 0) {
-        if (elapsedMs(c.lastDamagedAt, now) < NPC_CORPSE_MS) continue;
-        const unlit = !isLitTile(ctx, c.zoneId, Math.round(c.x), Math.round(c.y));
-        ctx.db.darkCreature.id.delete(c.id);
+        if (elapsedMs(c.lastDamagedAt, now) < NPC_CORPSE_MS) continue
+        const unlit = !isLitTile(ctx, c.zoneId, Math.round(c.x), Math.round(c.y))
+        ctx.db.darkCreature.id.delete(c.id)
         // Visitors, not residents (GDD "Night"): a dead night creature never
         // replenishes the dark's own population, wherever it fell. Residents
         // respawn where they fell when the ground is unlit; a strayed hunter
@@ -620,14 +639,16 @@ export const regenCreatures = spacetimedb.reducer({ timer: creatureRegen.rowType
         // it reverts to its own ground, so luring a night chase into town
         // never farms a claim. A claimed region's own corpses (strayed
         // false, lit ground) still stay dead (Territory and permanence).
-        if (c.nightborn) continue;
-        let at: { x: number; y: number } | undefined = unlit ? { x: c.x, y: c.y } : undefined;
+        if (c.nightborn) continue
+        let at: { x: number; y: number } | undefined = unlit ? { x: c.x, y: c.y } : undefined
         if (!unlit && c.strayed) {
-          const zone = getZone(c.zoneId);
+          const zone = getZone(c.zoneId)
           if (zone) {
-            const revealedSlugs = currentRevealedRegions(ctx);
-            const penumbraSlugs = penumbraOf(revealedSlugs);
-            at = nearestUnlitTile(ctx, zone, Math.round(c.x), Math.round(c.y), (z, x, y) => isRevealed(z, revealedSlugs, penumbraSlugs, x, y));
+            const revealedSlugs = currentRevealedRegions(ctx)
+            const penumbraSlugs = penumbraOf(revealedSlugs)
+            at = nearestUnlitTile(ctx, zone, Math.round(c.x), Math.round(c.y), (z, x, y) =>
+              isRevealed(z, revealedSlugs, penumbraSlugs, x, y),
+            )
           }
         }
         if (at) {
@@ -642,54 +663,54 @@ export const regenCreatures = spacetimedb.reducer({ timer: creatureRegen.rowType
             species: c.species,
             health: def.maxHealth,
             lastDamagedAt: now,
-            aggroTargetId: "",
+            aggroTargetId: '',
             nightborn: false,
             strayed: false,
             attackAt: Timestamp.UNIX_EPOCH,
-          });
+          })
         }
-        continue;
+        continue
       }
-      if (c.health >= def.maxHealth || !rested(c.lastDamagedAt)) continue;
-      const heal = Math.ceil(def.maxHealth * HEALTH_REGEN_FRACTION);
-      ctx.db.darkCreature.id.update({ ...c, health: Math.min(def.maxHealth, c.health + heal) });
+      if (c.health >= def.maxHealth || !rested(c.lastDamagedAt)) continue
+      const heal = Math.ceil(def.maxHealth * HEALTH_REGEN_FRACTION)
+      ctx.db.darkCreature.id.update({ ...c, health: Math.min(def.maxHealth, c.health + heal) })
     }
   }
-  ctx.db.creatureRegen.clear();
-  if (online) armRegen(ctx);
-});
+  ctx.db.creatureRegen.clear()
+  if (online) armRegen(ctx)
+})
 
 /** Re-plant a broken node whose one-shot respawn timer has elapsed. If
  *  something now stands on the tile (a trogg, a creature, another node), the
  *  timer re-arms shortly instead of trapping the occupant inside an obstacle. */
 export const respawnNodes = spacetimedb.reducer({ timer: nodeRespawn.rowType }, (ctx, { timer }) => {
-  ctx.db.nodeRespawn.scheduledId.delete(timer.scheduledId);
-  const { zoneId, kind, x, y } = timer;
+  ctx.db.nodeRespawn.scheduledId.delete(timer.scheduledId)
+  const { zoneId, kind, x, y } = timer
   const taken =
     boulderAt(ctx, zoneId, x, y) !== undefined ||
     treeAt(ctx, zoneId, x, y) !== undefined ||
     [...ctx.db.player.iter()].some((p) => p.zoneId === zoneId && Math.round(p.x) === x && Math.round(p.y) === y) ||
-    [...ctx.db.darkCreature.zoneId.filter(zoneId)].some((c) => c.health > 0 && Math.round(c.x) === x && Math.round(c.y) === y);
+    [...ctx.db.darkCreature.zoneId.filter(zoneId)].some((c) => c.health > 0 && Math.round(c.x) === x && Math.round(c.y) === y)
   if (taken) {
-    const at = ctx.timestamp.microsSinceUnixEpoch + 5_000_000n;
-    ctx.db.nodeRespawn.insert({ scheduledId: 0n, scheduledAt: ScheduleAt.time(at), zoneId, kind, x, y });
-    return;
+    const at = ctx.timestamp.microsSinceUnixEpoch + 5_000_000n
+    ctx.db.nodeRespawn.insert({ scheduledId: 0n, scheduledAt: ScheduleAt.time(at), zoneId, kind, x, y })
+    return
   }
-  if (kind === "boulder") ctx.db.boulder.insert({ id: 0n, zoneId, x, y, health: BOULDER_MAX_HEALTH, cellId: 0 });
-  else ctx.db.tree.insert({ id: 0n, zoneId, x, y, health: TREE_MAX_HEALTH });
-});
+  if (kind === 'boulder') ctx.db.boulder.insert({ id: 0n, zoneId, x, y, health: BOULDER_MAX_HEALTH, cellId: 0 })
+  else ctx.db.tree.insert({ id: 0n, zoneId, x, y, health: TREE_MAX_HEALTH })
+})
 
 /** Respawn a dead trogg whose one-shot death timer has elapsed. */
 export const respawnPlayers = spacetimedb.reducer({ timer: playerRespawn.rowType }, (ctx, { timer }) => {
-  ctx.db.playerRespawn.scheduledId.delete(timer.scheduledId);
-  const p = ctx.db.player.identity.find(timer.playerId);
-  if (!p || !p.dead) return;
+  ctx.db.playerRespawn.scheduledId.delete(timer.scheduledId)
+  const p = ctx.db.player.identity.find(timer.playerId)
+  if (!p || !p.dead) return
   if (!respawnDue(p, ctx.timestamp)) {
-    if (p.respawnAt) scheduleRespawnAt(ctx, p.identity, p.respawnAt);
-    return;
+    if (p.respawnAt) scheduleRespawnAt(ctx, p.identity, p.respawnAt)
+    return
   }
-  respawnPlayer(ctx, p);
-});
+  respawnPlayer(ctx, p)
+})
 
 /**
  * Brazier upkeep sweep (GDD "The fire and the dark" → Territory and
@@ -702,37 +723,37 @@ export const respawnPlayers = spacetimedb.reducer({ timer: playerRespawn.rowType
  * itself is never billed and never gutters.
  */
 export const brazierUpkeep = spacetimedb.reducer({ timer: brazierUpkeepTimer.rowType }, (ctx) => {
-  const online = anyPlayerOnline(ctx);
+  const online = anyPlayerOnline(ctx)
   if (online) {
-    const depths = regionHopDepths(ctx);
-    const rows = [...ctx.db.brazier.iter()];
-    const byZone = new Map<string, (typeof rows)[number][]>();
+    const depths = regionHopDepths(ctx)
+    const rows = [...ctx.db.brazier.iter()]
+    const byZone = new Map<string, (typeof rows)[number][]>()
     for (const b of rows) {
-      let list = byZone.get(b.zoneId);
+      let list = byZone.get(b.zoneId)
       if (!list) {
-        list = [];
-        byZone.set(b.zoneId, list);
+        list = []
+        byZone.set(b.zoneId, list)
       }
-      list.push(b);
+      list.push(b)
     }
     for (const [, zoneBraziers] of byZone) {
       const lit = zoneBraziers
         .filter((b) => b.lit && !b.isEternal)
         .map((b) => ({ row: b, depth: depths.get(regionAt(b.x, b.y).slug) ?? -1 }))
-        .sort((a, b2) => b2.depth - a.depth); // deepest (furthest from the Hearth) first
-      const stock = ctx.db.stockpile.item.find(BRAZIER_UPKEEP_ITEM)?.qty ?? 0;
-      let count = lit.length;
+        .sort((a, b2) => b2.depth - a.depth) // deepest (furthest from the Hearth) first
+      const stock = ctx.db.stockpile.item.find(BRAZIER_UPKEEP_ITEM)?.qty ?? 0
+      let count = lit.length
       while (count > 0 && count * BRAZIER_UPKEEP_RATE > stock) {
-        const furthest = lit[lit.length - count]!.row;
-        ctx.db.brazier.id.update({ ...furthest, lit: false });
-        count--;
+        const furthest = lit[lit.length - count]!.row
+        ctx.db.brazier.id.update({ ...furthest, lit: false })
+        count--
       }
-      if (count > 0) withdrawStockpile(ctx, BRAZIER_UPKEEP_ITEM, count * BRAZIER_UPKEEP_RATE);
+      if (count > 0) withdrawStockpile(ctx, BRAZIER_UPKEEP_ITEM, count * BRAZIER_UPKEEP_RATE)
     }
   }
-  ctx.db.brazierUpkeepTimer.clear();
-  if (online) armBrazierUpkeep(ctx);
-});
+  ctx.db.brazierUpkeepTimer.clear()
+  if (online) armBrazierUpkeep(ctx)
+})
 
 /**
  * The AFK-trogg and dark-creature wander sweep (GDD "The fire and the
@@ -750,12 +771,12 @@ export const brazierUpkeep = spacetimedb.reducer({ timer: brazierUpkeepTimer.row
  * the chase. The timer re-arms only while a player is online.
  */
 export const wanderPresence = spacetimedb.reducer({ timer: afkWanderTimer.rowType }, (ctx) => {
-  const online = anyPlayerOnline(ctx);
-  const now = ctx.timestamp;
+  const online = anyPlayerOnline(ctx)
+  const now = ctx.timestamp
   if (online) {
     // The shared day phase decides the safety rule for this tick (GDD
     // "Night"): by day whole lit regions are safe; at night only the rings.
-    const night = isNightPhase(worldDayPhase(ctx));
+    const night = isNightPhase(worldDayPhase(ctx))
 
     // Carried firelight (GDD "Crafting"): each online torch-bearer projects
     // a small pocket dark creatures cannot enter, and the torch burns down
@@ -763,66 +784,66 @@ export const wanderPresence = spacetimedb.reducer({ timer: afkWanderTimer.rowTyp
     // Blood over flame: a bearer who drew a dark creature's blood in the last
     // TORCH_PROVOKED_MS carries an unwarded pocket — it still burns and still
     // lights, but stops keeping the dark out.
-    const torchPockets: { zoneId: string; x: number; y: number; warded: boolean }[] = [];
+    const torchPockets: { zoneId: string; x: number; y: number; warded: boolean }[] = []
     for (const p of ctx.db.player.iter()) {
-      if (!p.online || p.dead || p.equippedOffHand !== "torch") continue;
-      const lit = settle(ctx, p, now);
+      if (!p.online || p.dead || p.equippedOffHand !== 'torch') continue
+      const lit = settle(ctx, p, now)
       // Epoch-zero provokedAt is the never-provoked default, not a real stamp.
-      const warded = p.provokedAt.microsSinceUnixEpoch === 0n || elapsedMs(p.provokedAt, now) >= TORCH_PROVOKED_MS;
-      torchPockets.push({ zoneId: p.zoneId, x: lit.x, y: lit.y, warded });
-      const row = ctx.db.inventory.id.find(p.equippedOffHandInventoryId);
-      if (!row) continue;
+      const warded = p.provokedAt.microsSinceUnixEpoch === 0n || elapsedMs(p.provokedAt, now) >= TORCH_PROVOKED_MS
+      torchPockets.push({ zoneId: p.zoneId, x: lit.x, y: lit.y, warded })
+      const row = ctx.db.inventory.id.find(p.equippedOffHandInventoryId)
+      if (!row) continue
       // Persist wear in ~5s quanta, not every sweep tick: a row diff per
       // second per torch-bearer is pure background churn for every client
       // (each one rebuilt the holder's inventory panel). A torch timer can
       // drift a few seconds without anyone noticing.
-      const quantum = 5 * AFK_WANDER_TICK_MS;
-      if (Number(now.microsSinceUnixEpoch / 1000n) % quantum >= AFK_WANDER_TICK_MS) continue;
-      const wear = row.wear + quantum;
-      if (wear < TORCH_BURN_MS) ctx.db.inventory.id.update({ ...row, wear });
+      const quantum = 5 * AFK_WANDER_TICK_MS
+      if (Number(now.microsSinceUnixEpoch / 1000n) % quantum >= AFK_WANDER_TICK_MS) continue
+      const wear = row.wear + quantum
+      if (wear < TORCH_BURN_MS) ctx.db.inventory.id.update({ ...row, wear })
       else {
-        ctx.db.inventory.id.delete(row.id);
-        const holder = ctx.db.player.identity.find(p.identity);
-        if (holder) ctx.db.player.identity.update({ ...holder, equippedOffHand: "", equippedOffHandInventoryId: 0n });
+        ctx.db.inventory.id.delete(row.id)
+        const holder = ctx.db.player.identity.find(p.identity)
+        if (holder) ctx.db.player.identity.update({ ...holder, equippedOffHand: '', equippedOffHandInventoryId: 0n })
       }
     }
     const inTorchlight = (zoneId: string, x: number, y: number): boolean =>
-      torchPockets.some((tp) => tp.warded && tp.zoneId === zoneId && Math.hypot(tp.x - x, tp.y - y) <= TORCH_LIT_RADIUS);
+      torchPockets.some((tp) => tp.warded && tp.zoneId === zoneId && Math.hypot(tp.x - x, tp.y - y) <= TORCH_LIT_RADIUS)
 
-    const revealedSlugs = currentRevealedRegions(ctx);
-    const penumbraSlugs = penumbraOf(revealedSlugs);
-    const revealed = (zone: Zone, x: number, y: number) => isRevealed(zone, revealedSlugs, penumbraSlugs, x, y);
-    tideNight(ctx, now, night, revealed);
+    const revealedSlugs = currentRevealedRegions(ctx)
+    const penumbraSlugs = penumbraOf(revealedSlugs)
+    const revealed = (zone: Zone, x: number, y: number) => isRevealed(zone, revealedSlugs, penumbraSlugs, x, y)
+    tideNight(ctx, now, night, revealed)
     for (const p of ctx.db.player.iter()) {
-      if (p.online) continue; // active troggs act on player input, not instinct
+      if (p.online) continue // active troggs act on player input, not instinct
       // The eligibility gate (GDD "Presence"): below AFK_UNLOCK_XP of earned
       // XP a disconnect is a plain offline — no instinct work, no trickle.
-      if (totalXp(ctx, p.identity) < AFK_UNLOCK_XP) continue;
+      if (totalXp(ctx, p.identity) < AFK_UNLOCK_XP) continue
       // A week away hides the trogg entirely (GDD "Presence"): the sweep
       // leaves it be — row and inventory persist untouched — until its
       // player returns. kindlingChargeAt anchors at disconnect, so elapsed
       // time since it IS the offline time.
-      const offlineMs = elapsedMs(p.kindlingChargeAt, now);
-      if (offlineMs >= AFK_HIDE_AFTER_MS) continue;
-      const charge = deriveAfkCharge(p.kindlingCharge, p.kindlingChargeAt, false, now);
+      const offlineMs = elapsedMs(p.kindlingChargeAt, now)
+      if (offlineMs >= AFK_HIDE_AFTER_MS) continue
+      const charge = deriveAfkCharge(p.kindlingCharge, p.kindlingChargeAt, false, now)
       // Instinct never fully sleeps at first (GDD "Presence"): a charged AFK
       // trogg works at the full instinct rate; a spent one keeps a trickle
       // that winds down to nothing across the week that ends in hiding.
-      const gatherFraction = afkGatherFraction(charge, offlineMs);
+      const gatherFraction = afkGatherFraction(charge, offlineMs)
 
-      const zone = getZone(p.zoneId);
-      if (!zone) continue;
-      const blockers = obstacleTiles(ctx, p.zoneId);
-      const bounds = zoneBounds(zone, (x, y) => blockers.has(tileKey(x, y)) || !isLitTile(ctx, p.zoneId, x, y) || !revealed(zone, x, y));
-      const at = projectMotionState(p, elapsedMs(p.movedAt, now), bounds);
-      const cx = Math.round(at.x);
-      const cy = Math.round(at.y);
+      const zone = getZone(p.zoneId)
+      if (!zone) continue
+      const blockers = obstacleTiles(ctx, p.zoneId)
+      const bounds = zoneBounds(zone, (x, y) => blockers.has(tileKey(x, y)) || !isLitTile(ctx, p.zoneId, x, y) || !revealed(zone, x, y))
+      const at = projectMotionState(p, elapsedMs(p.movedAt, now), bounds)
+      const cx = Math.round(at.x)
+      const cy = Math.round(at.y)
 
       // Instinct walks: an offline trogg sheds run state and debug motion
       // cheats, so it projects at plain walk speed. `at` above was projected
       // under the old flags, so the settle below anchors it correctly.
-      const sober = { running: false, cheatSpeed: 1, cheatFly: false, cheatNoclip: false, z: 0, dirZ: 0 };
-      const fast = p.running || p.cheatSpeed !== 1 || p.cheatFly || p.cheatNoclip;
+      const sober = { running: false, cheatSpeed: 1, cheatFly: false, cheatNoclip: false, z: 0, dirZ: 0 }
+      const fast = p.running || p.cheatSpeed !== 1 || p.cheatFly || p.cheatNoclip
 
       if (night) {
         // Dusk sends instinct home (GDD "Night"; "Presence"): gathering
@@ -830,25 +851,36 @@ export const wanderPresence = spacetimedb.reducer({ timer: afkWanderTimer.rowTyp
         // idling by the fire until dawn — safe the same way it always is,
         // because the ring is ground the dark cannot enter. Movement uses
         // the day bounds: light never blocks a trogg, only its work.
-        const hearth = nearestLitBrazier(ctx, p.zoneId, at.x, at.y);
-        const home = hearth !== undefined && Math.hypot(hearth.x - at.x, hearth.y - at.y) <= Math.max(1, hearth.radius - 1);
+        const hearth = nearestLitBrazier(ctx, p.zoneId, at.x, at.y)
+        const home = hearth !== undefined && Math.hypot(hearth.x - at.x, hearth.y - at.y) <= Math.max(1, hearth.radius - 1)
         if (hearth && !home) {
-          if (p.path !== "" && !at.arrived && (at.dirX !== 0 || at.dirY !== 0)) continue; // already walking home
-          const path = smoothPath(bounds, at, findPath(bounds, at, { x: hearth.x, y: hearth.y }, AFK_SEEK_RADIUS));
-          const first = path[0];
+          if (p.path !== '' && !at.arrived && (at.dirX !== 0 || at.dirY !== 0)) continue // already walking home
+          const path = smoothPath(bounds, at, findPath(bounds, at, { x: hearth.x, y: hearth.y }, AFK_SEEK_RADIUS))
+          const first = path[0]
           if (first) {
-            const hopX = first.x - at.x;
-            const hopY = first.y - at.y;
-            const faceX = Math.abs(hopX) >= Math.abs(hopY) ? Math.sign(hopX) : 0;
-            const faceY = Math.abs(hopX) >= Math.abs(hopY) ? 0 : Math.sign(hopY);
-            ctx.db.player.identity.update({ ...p, ...sober, x: at.x, y: at.y, dirX: faceX, dirY: faceY, faceX, faceY, path: serializePath(path), movedAt: now });
-            continue;
+            const hopX = first.x - at.x
+            const hopY = first.y - at.y
+            const faceX = Math.abs(hopX) >= Math.abs(hopY) ? Math.sign(hopX) : 0
+            const faceY = Math.abs(hopX) >= Math.abs(hopY) ? 0 : Math.sign(hopY)
+            ctx.db.player.identity.update({
+              ...p,
+              ...sober,
+              x: at.x,
+              y: at.y,
+              dirX: faceX,
+              dirY: faceY,
+              faceX,
+              faceY,
+              path: serializePath(path),
+              movedAt: now,
+            })
+            continue
           }
         }
         // by the fire (or unroutable): settle and idle until dawn
-        const idle = !fast && p.dirX === 0 && p.dirY === 0 && p.path === "" && at.x === p.x && at.y === p.y;
-        if (!idle) ctx.db.player.identity.update({ ...p, ...sober, x: at.x, y: at.y, dirX: 0, dirY: 0, path: "", movedAt: now });
-        continue;
+        const idle = !fast && p.dirX === 0 && p.dirY === 0 && p.path === '' && at.x === p.x && at.y === p.y
+        if (!idle) ctx.db.player.identity.update({ ...p, ...sober, x: at.x, y: at.y, dirX: 0, dirY: 0, path: '', movedAt: now })
+        continue
       }
 
       // Camped beside a node: chip it on a chance per tick, scaled by the same
@@ -859,47 +891,47 @@ export const wanderPresence = spacetimedb.reducer({ timer: afkWanderTimer.rowTyp
         [cx - 1, cy],
         [cx, cy + 1],
         [cx, cy - 1],
-      ];
-      let camped: { kind: "boulder" | "tree"; x: number; y: number } | undefined;
+      ]
+      let camped: { kind: 'boulder' | 'tree'; x: number; y: number } | undefined
       for (const [nx, ny] of neighbors) {
         if (boulderAt(ctx, p.zoneId, nx, ny)) {
-          camped = { kind: "boulder", x: nx, y: ny };
-          break;
+          camped = { kind: 'boulder', x: nx, y: ny }
+          break
         }
         if (treeAt(ctx, p.zoneId, nx, ny)) {
-          camped = { kind: "tree", x: nx, y: ny };
-          break;
+          camped = { kind: 'tree', x: nx, y: ny }
+          break
         }
       }
       if (camped) {
         // Reach for the node's proper tool if the trogg owns one (pickaxe →
         // boulder, axe → tree); otherwise it swings whatever it already holds
         // — bare fists included.
-        const wanted = camped.kind === "boulder" ? "pickaxe" : "axe";
-        let equip: { equippedMainHand: string; equippedMainHandInventoryId: bigint } | undefined;
+        const wanted = camped.kind === 'boulder' ? 'pickaxe' : 'axe'
+        let equip: { equippedMainHand: string; equippedMainHandInventoryId: bigint } | undefined
         if (gatherToolClass(p.equippedMainHand) !== wanted) {
           // any tier of the right tool class serves instinct (GDD "Crafting")
-          const owned = [...ctx.db.inventory.playerId.filter(p.identity)].find((r) => gatherToolClass(r.item) === wanted && r.qty > 0);
-          if (owned) equip = { equippedMainHand: owned.item, equippedMainHandInventoryId: owned.id };
+          const owned = [...ctx.db.inventory.playerId.filter(p.identity)].find((r) => gatherToolClass(r.item) === wanted && r.qty > 0)
+          if (owned) equip = { equippedMainHand: owned.item, equippedMainHandInventoryId: owned.id }
         }
 
-        const chipping = ctx.random() < gatherFraction;
+        const chipping = ctx.random() < gatherFraction
         if (chipping) {
-          if (camped.kind === "boulder") {
-            const b = boulderAt(ctx, p.zoneId, camped.x, camped.y)!;
-            if (b.health > AFK_GATHER_DAMAGE) ctx.db.boulder.id.update({ ...b, health: b.health - AFK_GATHER_DAMAGE });
+          if (camped.kind === 'boulder') {
+            const b = boulderAt(ctx, p.zoneId, camped.x, camped.y)!
+            if (b.health > AFK_GATHER_DAMAGE) ctx.db.boulder.id.update({ ...b, health: b.health - AFK_GATHER_DAMAGE })
             else {
-              ctx.db.boulder.id.delete(b.id);
-              depositStockpile(ctx, "stone", 1);
-              scheduleNodeRespawn(ctx, p.zoneId, "boulder", b.x, b.y);
+              ctx.db.boulder.id.delete(b.id)
+              depositStockpile(ctx, 'stone', 1)
+              scheduleNodeRespawn(ctx, p.zoneId, 'boulder', b.x, b.y)
             }
           } else {
-            const tr = treeAt(ctx, p.zoneId, camped.x, camped.y)!;
-            if (tr.health > AFK_GATHER_DAMAGE) ctx.db.tree.id.update({ ...tr, health: tr.health - AFK_GATHER_DAMAGE });
+            const tr = treeAt(ctx, p.zoneId, camped.x, camped.y)!
+            if (tr.health > AFK_GATHER_DAMAGE) ctx.db.tree.id.update({ ...tr, health: tr.health - AFK_GATHER_DAMAGE })
             else {
-              ctx.db.tree.id.delete(tr.id);
-              depositStockpile(ctx, "wood", 1);
-              scheduleNodeRespawn(ctx, p.zoneId, "tree", tr.x, tr.y);
+              ctx.db.tree.id.delete(tr.id)
+              depositStockpile(ctx, 'wood', 1)
+              scheduleNodeRespawn(ctx, p.zoneId, 'tree', tr.x, tr.y)
             }
           }
         }
@@ -907,12 +939,21 @@ export const wanderPresence = spacetimedb.reducer({ timer: afkWanderTimer.rowTyp
         // Face the node, and stamp the swing impulse on a chip — the same
         // synced fields an active trogg's F writes, so every client animates
         // the strike with the held tool.
-        const faceX = Math.sign(camped.x - cx);
-        const faceY = Math.sign(camped.y - cy);
+        const faceX = Math.sign(camped.x - cx)
+        const faceY = Math.sign(camped.y - cy)
         const settled =
-          !fast && !equip && !chipping && p.dirX === 0 && p.dirY === 0 && p.path === "" && at.x === p.x && at.y === p.y && p.faceX === faceX && p.faceY === faceY;
+          !fast &&
+          !equip &&
+          !chipping &&
+          p.dirX === 0 &&
+          p.dirY === 0 &&
+          p.path === '' &&
+          at.x === p.x &&
+          at.y === p.y &&
+          p.faceX === faceX &&
+          p.faceY === faceY
         if (!settled) {
-          const held = (equip?.equippedMainHand ?? p.equippedMainHand) || "fists";
+          const held = (equip?.equippedMainHand ?? p.equippedMainHand) || 'fists'
           ctx.db.player.identity.update({
             ...p,
             ...sober,
@@ -922,121 +963,139 @@ export const wanderPresence = spacetimedb.reducer({ timer: afkWanderTimer.rowTyp
             y: at.y,
             dirX: 0,
             dirY: 0,
-            path: "",
+            path: '',
             faceX,
             faceY,
             movedAt: now,
-          });
+          })
         }
-        continue;
+        continue
       }
 
       // En route to a node: the stored path carries it (projection is anchored
       // at the row, so an untouched row keeps gliding). A stall — the mid-hop
       // clamp reports no heading — falls through and re-routes.
-      if (p.path !== "" && !at.arrived && (at.dirX !== 0 || at.dirY !== 0)) continue;
+      if (p.path !== '' && !at.arrived && (at.dirX !== 0 || at.dirY !== 0)) continue
 
       // Seek: route to the nearest node on lit, revealed ground, anywhere in
       // the zone (`AFK_SEEK_RADIUS` is a routing budget, not a leash). The
       // node tile itself is an obstacle, so `findPath` lands on a walkable
       // tile beside it — the camping spot. A* only runs between nodes.
-      const nodes: { x: number; y: number; d: number }[] = [];
+      const nodes: { x: number; y: number; d: number }[] = []
       for (const b of ctx.db.boulder.zoneId.filter(p.zoneId)) {
-        const d = Math.abs(b.x - cx) + Math.abs(b.y - cy);
-        if (d <= AFK_SEEK_RADIUS) nodes.push({ x: b.x, y: b.y, d });
+        const d = Math.abs(b.x - cx) + Math.abs(b.y - cy)
+        if (d <= AFK_SEEK_RADIUS) nodes.push({ x: b.x, y: b.y, d })
       }
       for (const tr of ctx.db.tree.zoneId.filter(p.zoneId)) {
-        const d = Math.abs(tr.x - cx) + Math.abs(tr.y - cy);
-        if (d <= AFK_SEEK_RADIUS) nodes.push({ x: tr.x, y: tr.y, d });
+        const d = Math.abs(tr.x - cx) + Math.abs(tr.y - cy)
+        if (d <= AFK_SEEK_RADIUS) nodes.push({ x: tr.x, y: tr.y, d })
       }
-      nodes.sort((a, b) => a.d - b.d);
-      let routed = false;
+      nodes.sort((a, b) => a.d - b.d)
+      let routed = false
       for (const node of nodes.slice(0, 4)) {
-        const path = smoothPath(bounds, at, findPath(bounds, at, { x: node.x, y: node.y }, AFK_SEEK_RADIUS));
-        const first = path[0];
-        if (!first) continue;
-        const hopX = first.x - at.x;
-        const hopY = first.y - at.y;
-        const faceX = Math.abs(hopX) >= Math.abs(hopY) ? Math.sign(hopX) : 0;
-        const faceY = Math.abs(hopX) >= Math.abs(hopY) ? 0 : Math.sign(hopY);
-        ctx.db.player.identity.update({ ...p, ...sober, x: at.x, y: at.y, dirX: faceX, dirY: faceY, faceX, faceY, path: serializePath(path), movedAt: now });
-        routed = true;
-        break;
+        const path = smoothPath(bounds, at, findPath(bounds, at, { x: node.x, y: node.y }, AFK_SEEK_RADIUS))
+        const first = path[0]
+        if (!first) continue
+        const hopX = first.x - at.x
+        const hopY = first.y - at.y
+        const faceX = Math.abs(hopX) >= Math.abs(hopY) ? Math.sign(hopX) : 0
+        const faceY = Math.abs(hopX) >= Math.abs(hopY) ? 0 : Math.sign(hopY)
+        ctx.db.player.identity.update({
+          ...p,
+          ...sober,
+          x: at.x,
+          y: at.y,
+          dirX: faceX,
+          dirY: faceY,
+          faceX,
+          faceY,
+          path: serializePath(path),
+          movedAt: now,
+        })
+        routed = true
+        break
       }
-      if (routed) continue;
+      if (routed) continue
 
       // Nothing to work: drift the old aimless wander so the settlement still
       // reads as inhabited.
-      const moving = p.dirX !== 0 || p.dirY !== 0;
-      const aheadClear = moving && footprintWalkable(bounds, at.x + Math.sign(p.dirX), at.y + Math.sign(p.dirY), 1);
+      const moving = p.dirX !== 0 || p.dirY !== 0
+      const aheadClear = moving && footprintWalkable(bounds, at.x + Math.sign(p.dirX), at.y + Math.sign(p.dirY), 1)
       const dir =
         moving && aheadClear && ctx.random() > WANDER_TURN_CHANCE
           ? { dirX: p.dirX, dirY: p.dirY }
-          : pickWanderDir(ctx, bounds, { x: cx, y: cy }, 1);
-      const unchanged = !fast && at.x === p.x && at.y === p.y && dir.dirX === p.dirX && dir.dirY === p.dirY;
-      if (unchanged) continue;
-      ctx.db.player.identity.update({ ...p, ...sober, x: at.x, y: at.y, dirX: dir.dirX, dirY: dir.dirY, path: "", movedAt: now });
+          : pickWanderDir(ctx, bounds, { x: cx, y: cy }, 1)
+      const unchanged = !fast && at.x === p.x && at.y === p.y && dir.dirX === p.dirX && dir.dirY === p.dirY
+      if (unchanged) continue
+      ctx.db.player.identity.update({ ...p, ...sober, x: at.x, y: at.y, dirX: dir.dirX, dirY: dir.dirY, path: '', movedAt: now })
     }
 
     // Dark creatures: settle every living one to where its stored intent has
     // carried it and collect the tiles they occupy first, so the second pass
     // can keep them off each other's tiles without reading stale positions.
-    const staticBlockersByZone = new Map<string, Set<string>>();
+    const staticBlockersByZone = new Map<string, Set<string>>()
     const staticBlockersFor = (zoneId: string): Set<string> => {
-      let set = staticBlockersByZone.get(zoneId);
+      let set = staticBlockersByZone.get(zoneId)
       if (!set) {
-        set = obstacleTiles(ctx, zoneId);
-        staticBlockersByZone.set(zoneId, set);
+        set = obstacleTiles(ctx, zoneId)
+        staticBlockersByZone.set(zoneId, set)
       }
-      return set;
-    };
+      return set
+    }
     // Where nobody watches, the dark holds still (DARK_CREATURE_SIM_RANGE):
     // an unobserved creature is skipped whole — no settle, no update, no row
     // diff for every client to chew each second. The tide and dawn passes
     // (tideNight) and the corpse reap run on their own rules regardless.
-    const watchersByZone = new Map<string, { x: number; y: number }[]>();
+    const watchersByZone = new Map<string, { x: number; y: number }[]>()
     for (const pl of ctx.db.player.iter()) {
-      if (!pl.online || pl.dead) continue;
-      let list = watchersByZone.get(pl.zoneId);
-      if (!list) watchersByZone.set(pl.zoneId, (list = []));
-      list.push(settle(ctx, pl, now));
+      if (!pl.online || pl.dead) continue
+      let list = watchersByZone.get(pl.zoneId)
+      if (!list) watchersByZone.set(pl.zoneId, (list = []))
+      list.push(settle(ctx, pl, now))
     }
     const observed = (zoneId: string, x: number, y: number): boolean =>
-      (watchersByZone.get(zoneId) ?? []).some((w) => Math.hypot(w.x - x, w.y - y) <= DARK_CREATURE_SIM_RANGE);
+      (watchersByZone.get(zoneId) ?? []).some((w) => Math.hypot(w.x - x, w.y - y) <= DARK_CREATURE_SIM_RANGE)
 
-    const creatureList = [...ctx.db.darkCreature.iter()];
-    type CreatureRow = (typeof creatureList)[number];
-    const settledCreatures: { row: CreatureRow; x: number; y: number; zoneId: string }[] = [];
-    const creatureTilesByZone = new Map<string, Set<string>>();
+    const creatureList = [...ctx.db.darkCreature.iter()]
+    type CreatureRow = (typeof creatureList)[number]
+    const settledCreatures: { row: CreatureRow; x: number; y: number; zoneId: string }[] = []
+    const creatureTilesByZone = new Map<string, Set<string>>()
     for (const c of creatureList) {
-      if (c.health <= 0) continue; // corpses lie where they fell
+      if (c.health <= 0) continue // corpses lie where they fell
       // (a creature mid-chase always simulates, so stale aggro settles and
       // drops even when its target just vanished from range)
-      if (c.aggroTargetId === "" && !observed(c.zoneId, c.x, c.y)) continue;
-      const zone = getZone(c.zoneId);
-      if (!zone) continue;
-      const statics = staticBlockersFor(c.zoneId);
+      if (c.aggroTargetId === '' && !observed(c.zoneId, c.x, c.y)) continue
+      const zone = getZone(c.zoneId)
+      if (!zone) continue
+      const statics = staticBlockersFor(c.zoneId)
       // Only the night tide — and a resident mid-hunt — crosses into claimed
       // ground at night (GDD "Night"): passive residents keep the day
       // boundary around the clock, and the dawn recede walks any stray home.
-      const bounds = zoneBounds(zone, (x, y) => statics.has(tileKey(x, y)) || isSafeTile(ctx, c.zoneId, x, y, night && (c.nightborn || c.aggroTargetId !== "")) || inTorchlight(c.zoneId, x, y) || !revealed(zone, x, y));
-      const at = projectMotionState(c, elapsedMs(c.movedAt, now), bounds);
-      settledCreatures.push({ row: c, x: at.x, y: at.y, zoneId: c.zoneId });
-      let tiles = creatureTilesByZone.get(c.zoneId);
+      const bounds = zoneBounds(
+        zone,
+        (x, y) =>
+          statics.has(tileKey(x, y)) ||
+          isSafeTile(ctx, c.zoneId, x, y, night && (c.nightborn || c.aggroTargetId !== '')) ||
+          inTorchlight(c.zoneId, x, y) ||
+          !revealed(zone, x, y),
+      )
+      const at = projectMotionState(c, elapsedMs(c.movedAt, now), bounds)
+      settledCreatures.push({ row: c, x: at.x, y: at.y, zoneId: c.zoneId })
+      let tiles = creatureTilesByZone.get(c.zoneId)
       if (!tiles) {
-        tiles = new Set<string>();
-        creatureTilesByZone.set(c.zoneId, tiles);
+        tiles = new Set<string>()
+        creatureTilesByZone.set(c.zoneId, tiles)
       }
-      tiles.add(tileKey(Math.round(at.x), Math.round(at.y)));
+      tiles.add(tileKey(Math.round(at.x), Math.round(at.y)))
     }
 
     for (const s of settledCreatures) {
-      const c = s.row;
-      const zone = getZone(s.zoneId)!;
-      const statics = staticBlockersFor(s.zoneId);
-      const creatureTiles = creatureTilesByZone.get(s.zoneId)!;
-      const ownTile = tileKey(Math.round(s.x), Math.round(s.y));
-      let attackAt = c.attackAt;
+      const c = s.row
+      const zone = getZone(s.zoneId)!
+      const statics = staticBlockersFor(s.zoneId)
+      const creatureTiles = creatureTilesByZone.get(s.zoneId)!
+      const ownTile = tileKey(Math.round(s.x), Math.round(s.y))
+      let attackAt = c.attackAt
 
       // Keep a live target (same zone, online, alive); else look for a fresh
       // active trogg within aggro range. Sighting is range-based, like earshot.
@@ -1046,92 +1105,116 @@ export const wanderPresence = spacetimedb.reducer({ timer: afkWanderTimer.rowTyp
       // over flame: a bearer who drew a dark creature's blood in the last
       // TORCH_PROVOKED_MS forfeits that exemption — the den answers.
       const warded = (pl: NonNullable<ReturnType<typeof ctx.db.player.identity.find>>): boolean =>
-        pl.equippedOffHand === "torch" && (pl.provokedAt.microsSinceUnixEpoch === 0n || elapsedMs(pl.provokedAt, now) >= TORCH_PROVOKED_MS);
-      let target: NonNullable<ReturnType<typeof ctx.db.player.identity.find>> | undefined;
+        pl.equippedOffHand === 'torch' && (pl.provokedAt.microsSinceUnixEpoch === 0n || elapsedMs(pl.provokedAt, now) >= TORCH_PROVOKED_MS)
+      let target: NonNullable<ReturnType<typeof ctx.db.player.identity.find>> | undefined
       for (const pl of ctx.db.player.zoneId.filter(s.zoneId)) {
-        if (!pl.online || pl.dead || warded(pl)) continue;
+        if (!pl.online || pl.dead || warded(pl)) continue
         if (c.aggroTargetId && pl.identity.toHexString() === c.aggroTargetId) {
-          target = pl;
-          break;
+          target = pl
+          break
         }
       }
       // A chase that can't progress gives up (GDD "Dark creatures"): past
       // the leash, onto lit ground, or pinned against ground it can't cross
       // while the prey is out of reach. It may acquire another exposed trogg,
       // but never reacquires the target it just abandoned in the same sweep.
-      let abandonedTargetId = c.aggroTargetId;
+      let abandonedTargetId = c.aggroTargetId
       if (target) {
-        const tp = settle(ctx, target, now);
-        const dist = Math.hypot(tp.x - s.x, tp.y - s.y);
-        const pinned = (c.dirX !== 0 || c.dirY !== 0) && Math.abs(s.x - c.x) < 0.05 && Math.abs(s.y - c.y) < 0.05;
-        const safe = isSafeTile(ctx, s.zoneId, Math.round(tp.x), Math.round(tp.y), night);
-        if (safe || dist > DARK_CREATURE_LEASH_RANGE || (pinned && dist > DARK_CREATURE_AGGRO_RANGE)) target = undefined;
-        else abandonedTargetId = "";
+        const tp = settle(ctx, target, now)
+        const dist = Math.hypot(tp.x - s.x, tp.y - s.y)
+        const pinned = (c.dirX !== 0 || c.dirY !== 0) && Math.abs(s.x - c.x) < 0.05 && Math.abs(s.y - c.y) < 0.05
+        const safe = isSafeTile(ctx, s.zoneId, Math.round(tp.x), Math.round(tp.y), night)
+        if (safe || dist > DARK_CREATURE_LEASH_RANGE || (pinned && dist > DARK_CREATURE_AGGRO_RANGE)) target = undefined
+        else abandonedTargetId = ''
       }
       if (!target) {
         for (const pl of ctx.db.player.zoneId.filter(s.zoneId)) {
-          if (!pl.online || pl.dead || warded(pl) || pl.identity.toHexString() === abandonedTargetId) continue;
-          const tp = settle(ctx, pl, now);
-          if (isSafeTile(ctx, s.zoneId, Math.round(tp.x), Math.round(tp.y), night)) continue;
+          if (!pl.online || pl.dead || warded(pl) || pl.identity.toHexString() === abandonedTargetId) continue
+          const tp = settle(ctx, pl, now)
+          if (isSafeTile(ctx, s.zoneId, Math.round(tp.x), Math.round(tp.y), night)) continue
           if (Math.hypot(tp.x - s.x, tp.y - s.y) <= DARK_CREATURE_AGGRO_RANGE) {
-            target = pl;
-            break;
+            target = pl
+            break
           }
         }
       }
-      const aggroTargetId = target ? target.identity.toHexString() : "";
+      const aggroTargetId = target ? target.identity.toHexString() : ''
       // Hunting onto claimed ground at night marks the resident strayed —
       // its death in town sends it home instead of deleting it (see the
       // corpse reap); day clears the mark (the recede already walked it out).
-      const strayed = night ? c.strayed || (!c.nightborn && aggroTargetId !== "") : false;
+      const strayed = night ? c.strayed || (!c.nightborn && aggroTargetId !== '') : false
 
-      let dir = { dirX: 0, dirY: 0 };
+      let dir = { dirX: 0, dirY: 0 }
       if (target) {
-        const tp = settle(ctx, target, now);
-        const dx = tp.x - s.x;
-        const dy = tp.y - s.y;
-        const dlen = Math.hypot(dx, dy);
-        const toward = dlen > 0 ? { dirX: Math.round((dx / dlen) * DIR_SCALE), dirY: Math.round((dy / dlen) * DIR_SCALE) } : { dirX: 0, dirY: 0 };
-        const reach = meleeHit(s.x, s.y, toward.dirX, toward.dirY, { x: tp.x + 0.5, y: tp.y + 0.5, radius: PLAYER_HIT_RADIUS });
+        const tp = settle(ctx, target, now)
+        const dx = tp.x - s.x
+        const dy = tp.y - s.y
+        const dlen = Math.hypot(dx, dy)
+        const toward =
+          dlen > 0 ? { dirX: Math.round((dx / dlen) * DIR_SCALE), dirY: Math.round((dy / dlen) * DIR_SCALE) } : { dirX: 0, dirY: 0 }
+        const reach = meleeHit(s.x, s.y, toward.dirX, toward.dirY, { x: tp.x + 0.5, y: tp.y + 0.5, radius: PLAYER_HIT_RADIUS })
         if (reach !== undefined) {
           // Close enough to fight: stop closing (never walks through what it's
           // attacking) and land one hit at this tick's cadence — the same
           // "no twitch checks" slow rhythm as a trogg's own swing (invariant 7).
-          const def = darkCreatureDef(c.species);
-          damagePlayer(ctx, target, ctx.random.integerInRange(def.damage[0], def.damage[1]));
-          attackAt = now;
+          const def = darkCreatureDef(c.species)
+          damagePlayer(ctx, target, ctx.random.integerInRange(def.damage[0], def.damage[1]))
+          attackAt = now
         } else {
-          dir = toward;
+          dir = toward
         }
       } else {
         const bounds = zoneBounds(zone, (x, y) => {
-          const k = tileKey(x, y);
-          if (statics.has(k) || isSafeTile(ctx, s.zoneId, x, y, night && s.row.nightborn) || inTorchlight(s.zoneId, x, y) || !revealed(zone, x, y)) return true;
-          return k !== ownTile && creatureTiles.has(k);
-        });
+          const k = tileKey(x, y)
+          if (
+            statics.has(k) ||
+            isSafeTile(ctx, s.zoneId, x, y, night && s.row.nightborn) ||
+            inTorchlight(s.zoneId, x, y) ||
+            !revealed(zone, x, y)
+          )
+            return true
+          return k !== ownTile && creatureTiles.has(k)
+        })
         // Carried firelight draws a prowl (GDD "Crafting"): a creature near a
         // warded torch holds at the rim of the light — hemming the bearer in,
         // in reach the moment the ward falls — instead of scattering.
-        let pocket: { x: number; y: number } | undefined;
-        let nearest = TORCH_PROWL_RADIUS;
+        let pocket: { x: number; y: number } | undefined
+        let nearest = TORCH_PROWL_RADIUS
         for (const tp of torchPockets) {
-          if (!tp.warded || tp.zoneId !== s.zoneId) continue;
-          const d = Math.hypot(tp.x - s.x, tp.y - s.y);
+          if (!tp.warded || tp.zoneId !== s.zoneId) continue
+          const d = Math.hypot(tp.x - s.x, tp.y - s.y)
           if (d <= nearest) {
-            nearest = d;
-            pocket = tp;
+            nearest = d
+            pocket = tp
           }
         }
         dir = pocket
           ? prowlDir(bounds, { x: Math.round(s.x), y: Math.round(s.y) }, pocket, c.id)
-          : pickWanderDir(ctx, bounds, { x: Math.round(s.x), y: Math.round(s.y) }, 1);
+          : pickWanderDir(ctx, bounds, { x: Math.round(s.x), y: Math.round(s.y) }, 1)
       }
 
-      const unchanged = s.x === c.x && s.y === c.y && dir.dirX === c.dirX && dir.dirY === c.dirY && aggroTargetId === c.aggroTargetId && strayed === c.strayed && attackAt === c.attackAt;
-      if (unchanged) continue;
-      ctx.db.darkCreature.id.update({ ...c, x: s.x, y: s.y, dirX: dir.dirX, dirY: dir.dirY, movedAt: now, aggroTargetId, strayed, attackAt });
+      const unchanged =
+        s.x === c.x &&
+        s.y === c.y &&
+        dir.dirX === c.dirX &&
+        dir.dirY === c.dirY &&
+        aggroTargetId === c.aggroTargetId &&
+        strayed === c.strayed &&
+        attackAt === c.attackAt
+      if (unchanged) continue
+      ctx.db.darkCreature.id.update({
+        ...c,
+        x: s.x,
+        y: s.y,
+        dirX: dir.dirX,
+        dirY: dir.dirY,
+        movedAt: now,
+        aggroTargetId,
+        strayed,
+        attackAt,
+      })
     }
   }
-  ctx.db.afkWanderTimer.clear();
-  if (online) armAfkWander(ctx);
-});
+  ctx.db.afkWanderTimer.clear()
+  if (online) armAfkWander(ctx)
+})

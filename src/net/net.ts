@@ -1,8 +1,8 @@
-import type { Identity } from "spacetimedb";
-import { DbConnection } from "./module_bindings";
-import { SPACETIMEDB_DB_NAME, SPACETIMEDB_HOST } from "../env.js";
-import { getStoredToken, storeToken } from "../identity.js";
-import { connectWithGuestTokenFallback } from "./connection-error.js";
+import type { Identity } from 'spacetimedb'
+import { DbConnection } from './module_bindings'
+import { SPACETIMEDB_DB_NAME, SPACETIMEDB_HOST } from '../env.js'
+import { getStoredToken, storeToken } from '../identity.js'
+import { connectWithGuestTokenFallback } from './connection-error.js'
 
 /**
  * Connects to the SpacetimeDB module (GDD "Identity"). With no `accountToken`, we
@@ -24,8 +24,8 @@ import { connectWithGuestTokenFallback } from "./connection-error.js";
  * (see reconnect.ts).
  */
 export async function connect(accountToken?: string, onDisconnect?: () => void): Promise<DbConnection> {
-  if (accountToken !== undefined) return connectOnce(accountToken, false, onDisconnect);
-  return connectWithGuestTokenFallback(getStoredToken() ?? undefined, (token) => connectOnce(token, true, onDisconnect));
+  if (accountToken !== undefined) return connectOnce(accountToken, false, onDisconnect)
+  return connectWithGuestTokenFallback(getStoredToken() ?? undefined, (token) => connectOnce(token, true, onDisconnect))
 }
 
 function connectOnce(token: string | undefined, storeGuestToken: boolean, onDisconnect?: () => void): Promise<DbConnection> {
@@ -34,12 +34,12 @@ function connectOnce(token: string | undefined, storeGuestToken: boolean, onDisc
       .withUri(SPACETIMEDB_HOST)
       .withDatabaseName(SPACETIMEDB_DB_NAME)
       .withToken(token)
-      .onConnect((conn: DbConnection, _identity: Identity, token: string) => {
-        if (storeGuestToken) storeToken(token);
-        resolve(conn);
+      .onConnect((conn: DbConnection, _identity: Identity, issuedToken: string) => {
+        if (storeGuestToken) storeToken(issuedToken)
+        resolve(conn)
       })
       .onConnectError((_ctx, error: Error) => reject(error))
       .onDisconnect(() => onDisconnect?.())
-      .build();
-  });
+      .build()
+  })
 }
