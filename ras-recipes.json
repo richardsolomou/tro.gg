@@ -1,6 +1,20 @@
 {
   "source": "https://github.com/richardsolomou/ras-stack",
   "recipes": {
+    "ci": {
+      "version": 1,
+      "commit": "82fce4523ec914bd2e70aefd4bff84c10fb278c6",
+      "files": {
+        ".github/dependabot.yml": ".github/dependabot.yml",
+        ".github/workflows/ci.yml": ".github/workflows/ci.yml"
+      },
+      "notes": [
+        "Adds an `e2e` job through `check-browser.yml@v1` for the Playwright preview harness, which CI ran before adopting recipes.",
+        "Keeps the `release` job calling `release-changesets.yml@v1` after `check` and `e2e`, because the game releases versions and a changelog with Changesets.",
+        "`ras changesets check` is gone with no replacement: `changeset status` fails every pull request without a changeset, while the game requires changesets only for player-visible changes, and the release workflow's `changeset version` still rejects a malformed one.",
+        "The SpacetimeDB bindings check runs in `spacetime.yml` from the `spacetimedb` recipe rather than in this workflow."
+      ]
+    },
     "spacetimedb": {
       "version": 2,
       "commit": "82fce4523ec914bd2e70aefd4bff84c10fb278c6",
@@ -23,7 +37,7 @@
         "Keeps the module's tables, reducers, and tests (`test/reducers.test.ts` against `test/mock-server.ts`) instead of the placeholder `note` module and `spacetimedbModuleTestPlugin`, which the pinned SDK predates.",
         "The HTTP helper lives at `scripts/spacetime.ts`, beside the publish script that is its only caller, because the game has no server code.",
         "Bindings stay at `src/net/module_bindings`, where the client imports them; `pnpm spacetime:generate` and `just generate` write there.",
-        "The CLI stays pinned at 2.6.0, the version the committed bindings and the production server were built with, and the `spacetimedb` package at 2.7.1; bump the CLI, the package, and the bindings together in a deliberate upgrade.",
+        "The CLI stays pinned at 2.6.0, the version the committed bindings were generated with, and the `spacetimedb` package at 2.7.1; bump the CLI, the package, and the bindings together in a deliberate upgrade, after checking the production server's version.",
         "The module's `package.json` keeps the name `@trogg/module`.",
         "`deploy-module.yml` calls `spacetime.yml` on pushes to main that touch the module or `shared/`, because the client deploys through Cloudflare Workers Builds, which cannot call a workflow; the module therefore publishes beside the client deploy rather than before it.",
         "Preview workflows keep `spacetime publish --delete-data=on-conflict -y` for per-branch databases, whose data is disposable, and use the local `setup-spacetime` action so the CLI version is pinned once."
